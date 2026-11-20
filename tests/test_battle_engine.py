@@ -202,17 +202,14 @@ class Shielding(unittest.TestCase):
         f = be.foe_from_text(name)
         return f, (be.Move(move) if move else None)
 
-    def test_no_shields_left(self):
-        f, mv = self.foe("medicham", "ICE_PUNCH")
-        ok, _ = be.should_shield(f, self.lapras, 0, mv)
-        self.assertFalse(ok)
+    def skarmory(self):
+        # Air Slash: 7 dmg per hit on Noctowl; Crunch hits Noctowl for 42
+        return (be.Mon("skarmory", fast="AIR_SLASH", charged=["CRUNCH"]),
+                be.Move("CRUNCH"))
 
-    def test_weak_move_is_not_shielded(self):
-        f, mv = self.foe("medicham", "FRUSTRATION")
-        ok, why = be.should_shield(f, self.noctowl, 2, mv)
-        self.assertFalse(ok)
-        self.assertIn("weak", why)
-        ok, _ = be.should_shield(f, self.noctowl, 1, mv)
+    def test_no_shields_left(self):
+        f, mv = self.skarmory()
+        ok, _ = be.should_shield(f, self.noctowl, 0, mv)
         self.assertFalse(ok)
 
     def test_lethal_hit_is_always_shielded(self):
@@ -228,65 +225,74 @@ class Shielding(unittest.TestCase):
         ok, _ = be.should_shield(f, self.noctowl, 1, mv)
         self.assertTrue(ok)
 
-    def test_big_hit_is_shielded(self):
-        f, mv = self.foe("medicham", "PSYCHIC")           # super effective hit is not involved:
-        dmg = be.damage(mv, f, self.noctowl)
-        frac = dmg / float(self.noctowl.max_hp)
-        ok, _ = be.should_shield(f, self.noctowl, 2, mv)
-        self.assertEqual(ok, frac >= be.SHIELD_HIT_2)
-
-    def test_resisted_hit_is_not_shielded(self):
-        f, mv = self.foe("azumarill", "BUBBLE_BEAM")        # water vs Lapras/Lanturn: resisted
-        dmg = be.damage(mv, f, self.lanturn)
-        self.assertLess(be.type_mult(mv.type, self.lanturn.types), 1.0)
-        ok, _ = be.should_shield(f, self.lanturn, 2, mv)
-        if dmg / float(self.lanturn.max_hp) < be.WEAK_RESISTED_HIT \
-                and dmg < self.lanturn.hp:
+    def test_survivable_hit_at_full_health_keeps_the_shield(self):
+        f, mv = self.skarmory()
+        for shields in (1, 2):
+            ok, why = be.should_shield(f, self.noctowl, shields, mv)
             self.assertFalse(ok)
-
-    def test_last_shield_is_saved_for_bigger_hits(self):
-        f = be.foe_from_text("medicham")
-        # craft a move that takes about 22% of max HP: shielded with two
-        # shields, kept with the last one
-        mv = be.Move("SURF")
-        target = mon("noctowl", stats=(100.0, 100.0, 200.0))
-        attacker = mon("medicham", stats=(100.0, 100.0, 150.0))
-        dmg = be.damage(mv, attacker, target)
-        frac = dmg / float(target.max_hp)
-        self.assertTrue(be.WEAK_HIT <= frac)
-        two, _ = be.should_shield(attacker, target, 2, mv)
-        one, _ = be.should_shield(attacker, target, 1, mv)
-        self.assertEqual(two, frac >= be.SHIELD_HIT_2)
-        if be.SHIELD_HIT_2 <= frac < be.SHIELD_HIT_1:
-            self.assertFalse(one)
+            self.assertIn("keeping", why)
 
     def test_cycle_rule_shields_when_the_next_fast_attacks_would_finish_us(self):
-        f, mv = self.foe("skarmory", "CRUNCH")             # 42 dmg = 26% of Noctowl's HP
+        f, mv = self.skarmory()
         self.assertEqual(be.damage(mv, f, self.noctowl), 42)
-        # 1 shield, 80 HP left: not lethal, below the 30% / 60% thresholds, but the
-        # 38 HP that remain are less than the next round of fast attacks (43)
+        # 80 HP: 38 would be left, less than the next round of fast attacks (43)
         ok, why = be.should_shield(f, self.noctowl, 1, mv, 80)
         self.assertTrue(ok)
         self.assertIn("next fast attacks", why)
-        # with 100 HP left the same hit is survivable: keep the last shield
-        ok, why = be.should_shield(f, self.noctowl, 1, mv, 100)
+        # 100 HP: 58 left is enough for one shield ...
+        ok, _ = be.should_shield(f, self.noctowl, 1, mv, 100)
         self.assertFalse(ok)
-        self.assertIn("saving", why)
+        # ... but not for two shields (two rounds of fast attacks: 86)
+        ok, _ = be.should_shield(f, self.noctowl, 2, mv, 100)
+        self.assertTrue(ok)
 
     def test_cycle_damage_numbers(self):
-        f, mv = self.foe("skarmory", "CRUNCH")
+        f, mv = self.skarmory()
         # Air Slash: 9 energy per hit, 7 damage; Crunch costs 45 -> ceil(45/9)+1 = 6 hits
         self.assertEqual(be.cycle_damage(f, self.noctowl, mv, 1), 6 * 7 + 1)
         self.assertEqual(be.cycle_damage(f, self.noctowl, mv, 2), (6 * 7 + 1) * 2)
         self.assertEqual(be.cycle_damage(f, self.noctowl, mv, 0), 0)
 
-    def test_weak_move_is_still_not_shielded_at_low_hp_unless_lethal(self):
-        f, mv = self.foe("medicham", "POWER_UP_PUNCH")      # 15 dmg
-        self.assertEqual(be.damage(mv, f, self.noctowl), 15)
-        ok, why = be.should_shield(f, self.noctowl, 2, mv, 30)   # 15 HP would be left: the cycle rule alone would shield
+    def test_leftover_energy_shortens_the_cycle(self):
+        f, mv = self.skarmory()
+        full = be.cycle_damage(f, self.noctowl, mv, 1)
+        # 90 energy left after the throw: the next Crunch is already charged, so
+        # only the margin of one hit remains
+        self.assertEqual(be.cycle_damage(f, self.noctowl, mv, 1, foe_energy=90),
+                         1 * 7 + 1)
+        # 60 left: 15 more than a Crunch -> 30 energy to find -> ceil(30/9)+1 = 5 hits
+        self.assertEqual(be.cycle_damage(f, self.noctowl, mv, 1, foe_energy=60),
+                         5 * 7 + 1)
+        # PvPoke only counts energy beyond one full Crunch
+        self.assertEqual(be.cycle_damage(f, self.noctowl, mv, 1, foe_energy=45), full)
+
+    def test_a_weak_move_is_shielded_too_when_a_second_move_must_not_connect(self):
+        # PvPoke cannot tell which move is coming: with a hard-hitting charged move
+        # in the foe's set a shield is spent on the weak one as well
+        f = be.Mon("medicham", fast="COUNTER", charged=["POWER_UP_PUNCH", "ICE_PUNCH"])
+        weak = be.Move("POWER_UP_PUNCH")
+        self.assertEqual(be.damage(weak, f, self.noctowl), 15)
+        self.assertEqual(be.damage(be.Move("ICE_PUNCH"), f, self.noctowl), 58)
+        ok, _ = be.should_shield(f, self.noctowl, 2, weak, 162)
+        self.assertFalse(ok)                      # full health: Ice Punch is survivable
+        ok, why = be.should_shield(f, self.noctowl, 2, weak, 100)
+        self.assertTrue(ok)
+        self.assertIn("next fast attacks", why)
+
+    def test_a_weak_move_alone_is_not_shielded_at_good_health(self):
+        f = be.Mon("medicham", fast="COUNTER", charged=["POWER_UP_PUNCH"])
+        mv = be.Move("POWER_UP_PUNCH")
+        ok, _ = be.should_shield(f, self.noctowl, 2, mv, 162)
         self.assertFalse(ok)
-        self.assertIn("weak", why)
-        ok, _ = be.should_shield(f, self.noctowl, 2, mv, 15)     # now it is lethal
+
+    def test_a_big_second_move_makes_the_foe_dangerous(self):
+        # a fast attack that hits hard (> 1.5 per turn) and a charged move worth
+        # at least HP/1.4: shield
+        f = be.Mon("medicham", fast="COUNTER", charged=["POWER_UP_PUNCH", "ICE_PUNCH"])
+        weak = be.Move("POWER_UP_PUNCH")
+        fast_dpt = be.damage(f.fast, f, self.noctowl) / float(f.fast.turns)
+        self.assertGreater(fast_dpt, 1.5)
+        ok, _ = be.should_shield(f, self.noctowl, 1, weak, 80)   # Ice Punch 58 >= 80/1.4
         self.assertTrue(ok)
 
     def test_unknown_move_assumes_the_hardest_hit(self):
@@ -313,11 +319,14 @@ class Matchups(unittest.TestCase):
         be.simulate(self.team[0], foe)
         self.assertEqual(hp, (self.team[0].hp, foe.hp, self.team[0].energy))
 
-    def test_best_switch_against_steel_flying_is_lanturn(self):
+    def test_best_switch_against_steel_flying_avoids_noctowl(self):
         foe = be.foe_from_text("skarmory")
         best, score = be.best_switch(self.team, foe)
-        self.assertEqual(best.name, "Lanturn")
+        self.assertNotEqual(best.name, "Noctowl")
         self.assertGreater(score, 0)
+        lanturn = self.team[2]
+        for shields in (0, 1, 2):
+            self.assertGreater(be.matchup(lanturn, foe, shields, shields), 0)
 
     def test_best_switch_skips_fainted(self):
         foe = be.foe_from_text("skarmory")

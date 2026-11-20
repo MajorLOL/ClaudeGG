@@ -14,7 +14,7 @@ bot.
 The matrix uses the movesets, levels and IVs it lists, so the engine is given
 exactly those.  Pokémon with a form change (Morpeko, Mimikyu, ...) are skipped:
 the engine does not model them.  Last result: no shields 94% (97% of the clear
-duels), 1 shield each 81%, 2 shields each 79%.
+duels), 1 shield each 88% (93%), 2 shields each 85% (91%).
 """
 import argparse
 import json

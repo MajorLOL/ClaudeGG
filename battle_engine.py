@@ -12,8 +12,8 @@ Game data (base stats, moves, type chart, CP multipliers) comes from
 models/battle_data.json, built by tools/build_battle_data.py from the open
 PvPoke data (MIT License, Copyright (c) 2019 pvpoke), including the moveset
 PvPoke's Great League rankings recommend for each opponent.  The choice of
-charged attack (plan_kill, best_charged, bait) and the shield rule that looks at
-the next round of fast attacks (cycle_damage) follow PvPoke's ActionLogic.js;
+charged attack (plan_kill, best_charged, bait) and the shield decision
+(should_shield, cycle_damage) follow PvPoke's ActionLogic.js;
 tools/crosscheck_gbl_lab.py compares the duels with a simulator that matches
 PvPoke.
 
@@ -40,13 +40,6 @@ RESIST = 0.625
 DOUBLE_RESIST = 0.390625
 SHADOW_ATK = 1.2
 SHADOW_DEF = 0.83333331
-
-# Shield rules (fractions of the defending Pokémon's maximum HP).
-WEAK_HIT = 0.15          # below this a hit is "weak": never worth a shield
-WEAK_RESISTED_HIT = 0.25  # a resisted hit below this is also not worth a shield
-SHIELD_HIT_2 = 0.20      # with two shields, shield hits of at least this size
-SHIELD_HIT_1 = 0.30      # with the last shield, only shield bigger hits
-SHIELD_CURRENT = 0.60    # ... or hits that take this much of the current HP
 
 _DATA = None
 _DATA_PATHS = []
@@ -528,56 +521,57 @@ def cycle_damage(foe, me, move, shields, foe_energy=None):
     'can I still afford to let a charged attack connect': after this hit we must
     survive long enough to use our remaining shields on the next ones.
 
-    foe_energy is the foe's energy before it threw `move` when that is known
-    (leftover energy shortens the next charge); without it a full charge is
-    assumed."""
+    foe_energy is the energy the foe has left after throwing `move`, when that
+    is known (leftover energy shortens the next charge); without it a full
+    charge is assumed."""
     fast = foe.fast
     if fast.gain <= 0:
         return 0
-    need = move.energy
-    if foe_energy is not None:
-        need = move.energy - max(foe_energy - move.energy, 0)
+    need = move.energy - max((foe_energy or 0) - move.energy, 0)
     n = int(math.ceil(need / float(fast.gain))) + 1
     return (n * damage(fast, foe, me) + 1) * max(shields, 0)
 
 
 def should_shield(foe, me, shields, foe_move=None, my_hp=None, foe_energy=None):
-    """Decide whether to shield an incoming charged attack.
+    """Decide whether to shield an incoming charged attack (PvPoke's rule).
 
-    Returns (bool, reason).  A shield is not used when it is gone, and not for a
-    weak attack (low damage) unless that attack would make us faint.  It is
-    always used when the hit would make us faint, and when we would be too weak
-    after the hit to survive the foe's next round of fast attacks (PvPoke's
-    shield rule, see cycle_damage).
+    Returns (bool, reason).  `foe` throws `foe_move` at `me`, who has `shields`
+    left.  Following PvPoke's ActionLogic.wouldShield, the shield is used when
+
+      * the hit would leave too little HP to survive the foe's next round of
+        fast attacks (cycle_damage) - this includes a hit that knocks us out, or
+      * the foe has a charged move that we cannot afford to let connect: one that
+        does at least HP/1.4 while its fast attacks hit hard (more than 1.5
+        damage per turn), or at least the HP that is left after one round of
+        fast attacks.
+
+    Otherwise the shield is kept.  An unknown incoming move is taken to be the
+    foe's hardest hit.  foe_energy: see cycle_damage.
     """
     my_hp = me.hp if my_hp is None else my_hp
     if shields <= 0:
         return False, "no shields left"
     dmg, mv = foe_hit(foe, me, foe_move)
-    eff = type_mult(mv.type, me.types)
+    cycle = cycle_damage(foe, me, mv, shields, foe_energy)
+    left = my_hp - dmg
     if dmg >= my_hp:
         return True, "%s would knock us out (%d >= %d HP)" % (mv.name, dmg,
                                                                my_hp)
-    frac = dmg / float(me.max_hp)
-    if frac < WEAK_HIT:
-        return False, "%s is weak (%d dmg), no shield" % (mv.name, dmg)
-    if eff < 1.0 and frac < WEAK_RESISTED_HIT:
-        return False, "%s is resisted (%d dmg), no shield" % (mv.name, dmg)
-    left = my_hp - dmg
-    cycle = cycle_damage(foe, me, mv, shields, foe_energy)
     if left <= cycle:
-        return True, ("%s (%d dmg) would leave %d HP, not enough for the next fast attacks (%d)"
-                      % (mv.name, dmg, left, cycle))
-    if shields >= 2:
-        if frac >= SHIELD_HIT_2:
-            return True, "%s hits hard (%d dmg)" % (mv.name, dmg)
-        return False, "%s is moderate (%d dmg), keeping shields" % (mv.name,
-                                                                    dmg)
-    if frac >= SHIELD_HIT_1 or dmg >= SHIELD_CURRENT * my_hp:
-        return True, "%s is dangerous (%d dmg), using the last shield" % (
-            mv.name, dmg)
-    return False, "%s is moderate (%d dmg), saving the last shield" % (
-        mv.name, dmg)
+        return True, ("%s (%d dmg) would leave %d HP, not enough for the next "
+                      "fast attacks (%d)" % (mv.name, dmg, left, cycle))
+    fast_dpt = damage(foe.fast, foe, me) / float(foe.fast.turns)
+    for c in foe.charged:
+        cd = damage(c, foe, me)
+        if cd >= my_hp / 1.4 and fast_dpt > 1.5:
+            return True, ("%s could follow (%d dmg of %d HP) and its fast "
+                          "attacks hit hard" % (c.name, cd, my_hp))
+        if cd >= my_hp - cycle:
+            return True, ("%s (%d dmg) must not connect: only %d HP would be "
+                          "left after a round of fast attacks" % (
+                              c.name, cd, my_hp - cycle))
+    return False, "%s (%d dmg) is survivable, keeping the shield" % (mv.name,
+                                                                      dmg)
 
 
 # ----------------------------------------------------------- simulation ---
@@ -615,7 +609,7 @@ def simulate(a, b, shields_a=2, shields_b=2, max_turns=1200):
                 s["en"] -= mv.energy
                 shield, _r = should_shield(s["m"], o["m"], o["sh"], mv,
                                            max(0, o["hp"]),
-                                           foe_energy=s["en"] + mv.energy)
+                                           foe_energy=s["en"])
                 if shield:
                     o["sh"] -= 1
                     o["hp"] -= 1

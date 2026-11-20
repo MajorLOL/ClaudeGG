@@ -33,7 +33,7 @@ SOFTWARE.
 
 ## PvPoke
 
-The battle engine (`battle_engine.py`) uses game data from **PvPoke** (https://github.com/pvpoke/pvpoke), which is released under the MIT License: species base stats, moves, the CP multiplier table, the type effectiveness chart and the recommended Great League movesets from its rankings (`rankings-1500.json`). `tools/build_battle_data.py` boils these down to `models/battle_data.json`, which is included here under the same MIT License. The damage formula follows PvPoke's `DamageCalculator.js`. The choice of charged attack (the plan for the quickest knockout, building up to the best move, baiting a shield) and the rule that shields an attack after which the Pokémon could not survive the opponent's next round of fast attacks follow PvPoke's `ActionLogic.js`.
+The battle engine (`battle_engine.py`) uses game data from **PvPoke** (https://github.com/pvpoke/pvpoke), which is released under the MIT License: species base stats, moves, the CP multiplier table, the type effectiveness chart and the recommended Great League movesets from its rankings (`rankings-1500.json`). `tools/build_battle_data.py` boils these down to `models/battle_data.json`, which is included here under the same MIT License. The damage formula follows PvPoke's `DamageCalculator.js`. The choice of charged attack (the plan for the quickest knockout, building up to the best move, baiting a shield) and the shield decision (`wouldShield`: shield when the Pokémon could not survive the opponent's next round of fast attacks, or when the opponent has a charged move that must not connect) follow PvPoke's `ActionLogic.js`.
 
 ```
 MIT License
