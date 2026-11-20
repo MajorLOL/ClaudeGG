@@ -16,6 +16,8 @@ Usage:
   ~/gbvenv/bin/python gamebot.py          -> keeps running
   ~/gbvenv/bin/python gamebot.py test     -> analyse 1 screenshot (debug/g_test.png)
   ~/gbvenv/bin/python gamebot.py step     -> do 1 step ("stap" works too)
+  ~/gbvenv/bin/python gamebot.py battle   -> walk from the map to the party screen of the battle league and
+                                             back (bot stopped, game open on the map; pictures in ~/debug/g_battle_*.png)
 """
 import atexit
 import csv
@@ -36,6 +38,7 @@ from concurrent.futures import ThreadPoolExecutor
 import cv2
 import numpy as np
 
+import battle_nav as BN
 import spin_stop as S   # hergebruik van de bestaande functies
 
 # ============================== INSTELLINGEN ==============================
@@ -2969,8 +2972,149 @@ def battle_count():
         return BATTLE_COUNT
 
 
+BATTLE_NAV_STEPS = 20        # screens looked at on the way to the party screen
+BATTLE_NAV_SECONDS = 240     # ... and the most time that may take
+
+
+def _battle_kind(shot, lines):
+    return BN.screen_kind(lines, S.on_map(shot), battle_league(), shot.shape[0] / 2208)
+
+
+def _battle_to_map(beat=None):
+    """Leave the battle screens: look at what is on the screen and go back, never blindly.
+    A closed menu is left with its X button, a question about exiting Pokémon GO is answered with CANCEL
+    and 'Exit the Trainer Battle?' with NO."""
+    for i in range(8):
+        shot = S.screenshot()
+        if S.on_map(shot):
+            return True
+        lines = ocr_lines(shot, 100, None, 0.6)
+        kind = _battle_kind(shot, lines)
+        if beat:
+            beat()
+        if kind == "exit":
+            _cancel_exit(lines)
+        elif kind == "exit_battle":
+            for w, x, y in _words(lines):
+                if w == "NO":
+                    S.tap(x, y)
+                    break
+            else:
+                S.back()
+        elif kind == "menu":
+            S.tap(*MENU_BTN)                         # the X of the main menu
+        else:
+            S.back()
+        time.sleep(2.5)
+    return S.on_map(S.screenshot())
+
+
+def battle_open_menu(beat=None, stop=None):
+    """Walks from the map to the party screen of the chosen league and goes back to the map.
+
+    map -> main menu -> BATTLE tile -> Battle screen -> BATTLE button -> [league list] -> party screen.
+    Every step looks at what is really on the screen first (see battle_nav.py); an unknown screen is
+    logged with a saved picture (debug/g_battle_s<step>.png). It NEVER presses USE THIS PARTY: the
+    fight itself is not built yet. Returns {"ok": bool, "why": str, "title": str, "members": [...]}."""
+    league = battle_league()
+    info = {"ok": False, "why": "", "title": "", "members": []}
+    try:
+        import battle_engine as BE
+        names = [m.name for m in BE.load_team()]
+    except Exception:  # noqa: BLE001
+        names = []
+    t0 = time.monotonic()
+    taps = {"map": 0, "home": 0, "league": 0}
+    menu_spots = home_spots = None
+    others, tapped = 0, False
+    try:
+        for step in range(BATTLE_NAV_STEPS):
+            if (stop and stop()) or time.monotonic() - t0 > BATTLE_NAV_SECONDS:
+                info["why"] = "stopped or out of time"
+                break
+            shot = _settled(1.5 if step == 0 else 2.5)
+            lines = ocr_lines(shot, 100, None, 0.6)
+            kind = _battle_kind(shot, lines)
+            S.debug_save(f"g_battle_s{step}.png", shot)
+            log(f"battle: step {step}: screen is {kind} ({BN.reads(lines, 90)})")
+            if beat:
+                beat()
+            k = shot.shape[0] / 2208
+            if kind == "party":
+                info["ok"] = True
+                info["title"] = BN.party_title(lines, k)
+                info["members"] = BN.party_members(lines, names)
+                S.debug_save("g_battle_party.png", shot)
+                break
+            if kind == "map":
+                taps["map"] += 1
+                if taps["map"] > 3:
+                    info["why"] = "the main menu does not stay open"
+                    break
+                S.tap(*MENU_BTN)
+                tapped = True
+            elif kind == "menu":
+                if menu_spots is None:
+                    menu_spots = BN.menu_battle_spots(lines, k)
+                    if not menu_spots:
+                        S.debug_save("g_battle_menu.png", shot)
+                        info["why"] = "the BATTLE tile is not in the main menu (see debug/g_battle_menu.png)"
+                        break
+                if not menu_spots:
+                    info["why"] = "tapped every spot of the BATTLE tile and the Battle screen did not open"
+                    break
+                x, y = menu_spots.pop(0)
+                log(f"battle: tapping BATTLE in the main menu at ({x}, {y})")
+                S.tap(x, y)
+                tapped = True
+            elif kind == "home":
+                if home_spots is None:
+                    lines_full = ocr_lines(shot, 1500, None, 0.8)
+                    home_spots = BN.home_battle_spots(lines_full, k)
+                    S.debug_save("g_battle_home.png", shot)
+                if not home_spots:
+                    info["why"] = "tapped every spot of the BATTLE button and nothing happened"
+                    break
+                x, y = home_spots.pop(0)
+                log(f"battle: tapping the BATTLE button at ({x}, {y})")
+                S.tap(x, y)
+                tapped = True
+            elif kind == "league":
+                taps["league"] += 1
+                spots = BN.league_lines(lines, league)
+                if taps["league"] > 2 or not spots:
+                    info["why"] = f"the league '{league}' could not be chosen"
+                    break
+                t, x, y = spots[0]
+                log(f"battle: choosing the league '{t}' at ({x}, {y})")
+                S.tap(x, y)
+            elif kind == "exit":
+                _cancel_exit(lines)
+            elif kind == "exit_battle":
+                info["why"] = "a battle is going on (Exit the Trainer Battle?) - not touching it"
+                break
+            else:                                    # something in the way, or still loading
+                others += 1
+                if others > 6:                     # (the league screens can take a while to load)
+                    info["why"] = "an unknown screen (see debug/g_battle_s%d.png)" % step
+                    break
+                if not tapped:
+                    S.back()
+        else:
+            info["why"] = "too many steps"
+    finally:
+        if not _battle_to_map(beat):
+            log("battle: could not get back to the map - the normal bot takes over")
+    if not info["ok"] and not info["why"]:
+        info["why"] = "unknown"
+    return info
+
+
 def auto_battle(pkg, beat, stop):
     """Fights the battles of this game when `pkg` is the app chosen for battles (see above).
+
+    PREVIEW: opens the battle menu as far as the party screen of the chosen league, looks, and goes
+    back to the map; no battle is started (the fight itself is not built yet).
 
     beat(): call it now and then - it books the time that has passed and tells the watchdog that the
     bot is alive (a long battle is not a stuck bot). stop(): True when the daily run is switched off,
@@ -2983,9 +3127,18 @@ def auto_battle(pkg, beat, stop):
     except Exception as e:  # noqa: BLE001
         log(f"battle: the battle engine could not be loaded ({e}) - no battles")
         return 0
-    log(f"battle: preview - would fight {battle_count()} battle(s) in '{battle_league()}' with "
-        + ", ".join(m.label for m in team)
-        + " (the battle screens are not recorded yet, so no battle is started)")
+    log(f"battle: preview - {battle_count()} battle(s) in '{battle_league()}' with "
+        + ", ".join(m.label for m in team) + "; for now it only opens the battle menu as far as the party screen")
+    beat()
+    info = battle_open_menu(beat, stop)
+    if info["ok"]:
+        league_ok = all(w in info["title"].upper() for w in BN.league_words(battle_league()))
+        log(f"battle: reached the party screen '{info['title'] or '?'}' (team seen: "
+            f"{', '.join(info['members']) or 'not read'})"
+            + ("" if league_ok else f" - this is not '{battle_league()}'")
+            + ". The fight itself is not built yet, so no battle was started")
+    else:
+        log(f"battle: the party screen was not reached: {info['why']}")
     beat()
     return 0
 
@@ -3198,6 +3351,11 @@ S.startup_hook = startup_screen
 
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "loop"
+    if mode == "battle":                   # try the way to the party screen now (stop the bot first; the game on the map)
+        S.detect_screen()
+        info = battle_open_menu()
+        log("battle: " + ("reached the party screen '%s'" % info["title"] if info["ok"] else "failed: " + info["why"]))
+        return
     if mode == "loop":                     # the first screenshot also picks raw or PNG capture (a few
         def first_shot():                  # seconds): do that while the models are loading
             try:

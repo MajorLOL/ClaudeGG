@@ -11,7 +11,7 @@ Automates Pokémon GO on an Android phone from a headless Raspberry Pi. The Pi c
 - **Looks around** by turning the camera in randomised swipes to find Pokémon behind or next to the player.
 - **Gifts:** opens gifts from friends and sends gifts.
 - **Daily run:** at a time you choose, plays each installed Pokémon GO app (Play Store and Galaxy Store versions) one after another until the Pokémon storage and the bag are full or a time limit is reached, then closes the game.
-- **Battles (preview):** an option to let one chosen Pokémon GO app fight GO Battle League battles first in the daily run, then spin and catch. The decisions are made by `battle_engine.py`: the best charged attack against the Pokémon on the field, a shield only when PvPoke's rule says it is needed, and the best Pokémon to send in after a faint. The engine is tested; the screens of a battle are not recorded yet, so for now the bot only logs what it would do. A built-in recorder captures a battle you play by hand, to teach the bot those screens. See the [Battles](../../wiki/Battles) wiki page.
+- **Battles (preview):** an option to let one chosen Pokémon GO app fight GO Battle League battles first in the daily run, then spin and catch. The decisions are made by `battle_engine.py`: the best charged attack against the Pokémon on the field, a shield only when PvPoke's rule says it is needed, and the best Pokémon to send in after a faint. The engine is tested. For now the bot only walks through the menus to the party screen of your league (and goes back, it never presses *Use this party*); the screens of the fight itself are not recorded yet. A built-in recorder captures a battle you play by hand, to teach the bot those screens. See the [Battles](../../wiki/Battles) wiki page.
 - **Recovers by itself:** unlocks the phone, wakes a dimmed screen, restarts the game when it is stuck.
 - **Web interface** on port 8080: live video of the phone, log with daily counters, Start / Stop / Restart / Close game, on/off options, throw target, daily start time and time limit, and a manual mode (tap on the picture, Back / Home / Apps, send text).
 
@@ -49,10 +49,11 @@ Then install the services, the sudoers rule and the web password as described in
 | `gamebot.py` | The bot: image recognition, catching, spinning, gifts, daily run |
 | `spin_stop.py` | Base functions: ADB, screenshots, unlocking, recovery, PokéStop spinning |
 | `web.py` | Web interface (live video, log, options, battle recorder) |
+| `battle_nav.py` | Reads the GO Battle League screens (which screen is this, where to tap) from OCR text. No phone access, tested with real screenshots |
 | `battle_engine.py` | Decisions for GO Battle League: damage, best charged attack, shield or not, best switch-in. No phone access; `python3 battle_engine.py medicham` shows how your team fares against a Pokémon |
 | `tools/build_battle_data.py` | Builds `models/battle_data.json` from the open PvPoke data (stats, moves, type chart and the recommended movesets of the Great League rankings) |
 | `tools/crosscheck_gbl_lab.py` | Developer check: plays the engine's 1-against-1 duels against the results of a simulator that matches PvPoke and reports how often the same Pokémon wins |
-| `tests/` | Unit tests of the battle engine: `python3 -m unittest discover -s tests` |
+| `tests/` | Unit tests of the battle engine and the battle screen reader (with OCR lines of real screenshots in `tests/fixtures/`): `python3 -m unittest discover -s tests` |
 | `device_check.py` | Reports which phone and screen the bot found; `--layout` checks (without changing anything) whether the game is drawn the way the bot expects; `--speed` measures screenshot speed; `--reset-display` undoes a display size change; collects what is needed to add a new phone |
 | `systemd/` | Service files: `spin-stop.service` (the bot) and `gamebot-web.service` (the web interface) |
 | `models/` | `anchors.npz` and `predictor_weights.npz` (derived from RegiBot) and `battle_data.json` (from PvPoke), see `NOTICE.md`. The `.tflite` models are downloaded by `install.sh` |
@@ -63,7 +64,7 @@ Then install the services, the sudoers rule and the web password as described in
 - **Tested on one phone only.** The positions in the code are written for the **Samsung Galaxy Z Fold3 inner display (1768 × 2208)**. On the first map picture of every run the bot looks for the Poké Ball menu button and checks that the game is drawn the way it expects. On another resolution it simply converts everything. On a screen with another shape (tall phones, tablets) it lets Android draw the game on a 4:5 canvas (`adb shell wm size`, black bars), checks the result by tapping the menu, and puts the size back when it stops; if that does not work it does not tap. This automatic adaptation was only tested with simulated phones, not on a real one. See the *Phone setup* wiki page.
 - **Pokémon GO must be set to English.** Some screens are recognised by reading their text with OCR.
 - **The lock screen must be "swipe" or "none"**, not a PIN or pattern.
-- **Battles are a preview.** Nothing is fought yet: the bot only logs what it would do until the battle screens have been recorded (see the *Battles* wiki page).
+- **Battles are a preview.** Nothing is fought yet: the bot opens the battle menu as far as the party screen and logs what it sees, until the screens of the fight have been recorded (see the *Battles* wiki page).
 - **The Daily Adventure Incense cannot be activated by the bot.** On the incense card the game ignores injected touches (ADB `input`, scrcpy mouse); only a real finger works. The routine for it is still in `gamebot.py` but is switched off and has no option in the web interface.
 - Parts of the code were written for a single user and are not polished. Expect rough edges; issues and pull requests are welcome.
 
