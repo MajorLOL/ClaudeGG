@@ -2975,36 +2975,81 @@ def daily_limit():
         return DAILY_MAX_MIN
 
 
+WATCHDOG_EVERY = 30        # s between two looks of the watchdog
+WATCHDOG_STALE = 180       # s: the loop of a game has not come round for this long (a step is stuck)
+WATCHDOG_GRACE = 600       # s over the max time before a stuck bot is stopped by force
+
+
+def start_watchdog(pkg, played, clock, d):
+    """Safety net for the max time of a game. The loop in run_one_game looks at the clock between two
+    steps; when one step never ends (a hanging call), that look never comes. This thread then stops
+    the game and the bot after the max time plus ten minutes; systemd starts the bot again within 30 s
+    and the run carries on with the next game. Returns the Event that stops the thread."""
+    stop = threading.Event()
+
+    def run():
+        while not stop.wait(WATCHDOG_EVERY):
+            silent = time.monotonic() - clock["last"]
+            total = played.get(pkg, 0) + silent
+            if silent > WATCHDOG_STALE and total > daily_limit() * 60 + WATCHDOG_GRACE:
+                log(f"daily run: {pkg} is over its max time by {(total - daily_limit() * 60) / 60:.0f} min and the bot "
+                    f"has been stuck in one step for {silent / 60:.0f} min - stopping the game and restarting the bot")
+                played[pkg] = total
+                try:
+                    save_daily(d)
+                    S.adb("shell", "am", "force-stop", pkg)
+                except Exception:  # noqa: BLE001
+                    pass
+                os._exit(3)
+    threading.Thread(target=run, daemon=True, name="daily-watchdog").start()
+    return stop
+
+
 def run_one_game(brain, pkg, d):
     S.PACKAGE = pkg
     reset_for_game()
     played = d.setdefault("played", {})            # seconds per game, kept when the bot restarts
+    if played.get(pkg, 0) > daily_limit() * 60:    # (the bot was restarted after the max time: nothing left to play)
+        log(f"daily run: {pkg} already played {played[pkg] / 60:.0f} min (max {daily_limit():.0f} min) - closing the game")
+        close_game_completely()
+        log(f"daily run: {pkg} finished")
+        return True
     log(f"daily run: starting {pkg} (max {daily_limit():.0f} min"
         + (f", {played[pkg] / 60:.0f} min already played)" if played.get(pkg) else ")"))
-    S.restart_game()
-    last = saved = time.time()
-    while not run_state["done"]:
-        if not wanted("daily_cycle"):
-            log("daily run switched off")
-            save_daily(d)
-            return False
-        now = time.time()
-        played[pkg] = played.get(pkg, 0) + min(now - last, 120)
-        last = now
-        d["slot"] = max(d.get("slot", 0), last_slot(now))      # a start time that passes during a run is used up by that run
-        if now - saved > 60:
-            save_daily(d)
-            saved = now
-        if played[pkg] > daily_limit() * 60:
-            log(f"daily run: {pkg} reached the max time of {daily_limit():.0f} min - closing the game")
-            close_game_completely()
-            break
-        try:
-            wait = step(brain)
-        except Exception as e:  # noqa: BLE001
-            log(f"error: {e}")
-            wait = 10
-        time.sleep(wait)
+    clock = {"last": time.monotonic()}             # all the time counts, also the start of the game and a long step
+    watchdog = start_watchdog(pkg, played, clock, d)
+    try:
+        S.restart_game()
+        saved = time.time()
+        reported = played.get(pkg, 0)
+        while not run_state["done"]:
+            if not wanted("daily_cycle"):
+                log("daily run switched off")
+                save_daily(d)
+                return False
+            mono, now = time.monotonic(), time.time()
+            played[pkg] = played.get(pkg, 0) + (mono - clock["last"])   # monotonic: a jump of the clock (NTP) does not count
+            clock["last"] = mono
+            d["slot"] = max(d.get("slot", 0), last_slot(now))     # a start time that passes during a run is used up by that run
+            if now - saved > 60:
+                save_daily(d)
+                saved = now
+            if played[pkg] - reported >= 1800:                    # now and then: how far is it
+                reported = played[pkg]
+                log(f"daily run: {pkg} {played[pkg] / 60:.0f} of {daily_limit():.0f} min played")
+            if played[pkg] > daily_limit() * 60:
+                log(f"daily run: {pkg} reached the max time of {daily_limit():.0f} min - closing the game")
+                close_game_completely()
+                break
+            try:
+                wait = step(brain)
+            except Exception as e:  # noqa: BLE001
+                log(f"error: {e}")
+                wait = 10
+            time.sleep(wait)
+    finally:
+        watchdog.set()
+    save_daily(d)
     log(f"daily run: {pkg} finished")
     return True
 
