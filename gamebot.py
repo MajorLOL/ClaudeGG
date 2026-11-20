@@ -2978,22 +2978,27 @@ def daily_limit():
 WATCHDOG_EVERY = 30        # s between two looks of the watchdog
 WATCHDOG_STALE = 180       # s: the loop of a game has not come round for this long (a step is stuck)
 WATCHDOG_GRACE = 600       # s over the max time before a stuck bot is stopped by force
+WATCHDOG_STUCK = 900       # s: no step has ended for this long, whatever the max time: the bot restarts
 
 
 def start_watchdog(pkg, played, clock, d):
-    """Safety net for the max time of a game. The loop in run_one_game looks at the clock between two
-    steps; when one step never ends (a hanging call), that look never comes. This thread then stops
-    the game and the bot after the max time plus ten minutes; systemd starts the bot again within 30 s
-    and the run carries on with the next game. Returns the Event that stops the thread."""
+    """Safety net for a bot that hangs. The loop in run_one_game looks at the clock between two steps;
+    when one step never ends (a hanging call), that look never comes and the game would run for ever.
+    This thread then stops the bot when no step has ended for 15 minutes, or - when the game is also
+    over its max time by ten minutes - after 3 minutes, and closes the game. systemd starts the bot
+    again within 30 s; the run carries on with the time already played. Returns the Event that stops
+    the thread."""
     stop = threading.Event()
 
     def run():
         while not stop.wait(WATCHDOG_EVERY):
             silent = time.monotonic() - clock["last"]
             total = played.get(pkg, 0) + silent
-            if silent > WATCHDOG_STALE and total > daily_limit() * 60 + WATCHDOG_GRACE:
-                log(f"daily run: {pkg} is over its max time by {(total - daily_limit() * 60) / 60:.0f} min and the bot "
-                    f"has been stuck in one step for {silent / 60:.0f} min - stopping the game and restarting the bot")
+            over = total - daily_limit() * 60
+            if silent > WATCHDOG_STUCK or (silent > WATCHDOG_STALE and over > WATCHDOG_GRACE):
+                log(f"daily run: {pkg} - the bot has been stuck in one step for {silent / 60:.0f} min"
+                    + (f" and the game is over its max time by {over / 60:.0f} min" if over > 0 else "")
+                    + " - restarting the bot")
                 played[pkg] = total
                 try:
                     save_daily(d)

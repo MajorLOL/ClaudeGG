@@ -16,6 +16,7 @@ import json
 import os
 import re
 import struct
+import select
 import subprocess
 import sys
 import threading
@@ -478,6 +479,9 @@ def _grab_png():
     return img
 
 
+RAW_FIRST_BYTES_TIMEOUT = 30      # s the phone may take to start sending a raw screenshot
+
+
 def _grab_raw(on_grab=None):
     """Raw RGBA from screencap: the phone does not have to compress a PNG first (that is
     what takes most of the 3 s), the 15 MB just go over the USB cable. on_grab() is called
@@ -489,6 +493,9 @@ def _grab_raw(on_grab=None):
         p = subprocess.Popen(["adb", "exec-out", "screencap", *_dargs()],
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
+            # (a plain read1() has no time-out: when adb stalls the bot would wait for ever)
+            if not select.select([p.stdout], [], [], RAW_FIRST_BYTES_TIMEOUT)[0]:
+                raise TimeoutError(f"screencap sent nothing within {RAW_FIRST_BYTES_TIMEOUT:.0f} s")
             first = p.stdout.read1(65536)
             if first:
                 on_grab()
