@@ -224,6 +224,35 @@ class Shielding(unittest.TestCase):
         if be.SHIELD_HIT_2 <= frac < be.SHIELD_HIT_1:
             self.assertFalse(one)
 
+    def test_cycle_rule_shields_when_the_next_fast_attacks_would_finish_us(self):
+        f, mv = self.foe("skarmory", "CRUNCH")             # 42 dmg = 26% of Noctowl's HP
+        self.assertEqual(be.damage(mv, f, self.noctowl), 42)
+        # 1 shield, 80 HP left: not lethal, below the 30% / 60% thresholds, but the
+        # 38 HP that remain are less than the next round of fast attacks (43)
+        ok, why = be.should_shield(f, self.noctowl, 1, mv, 80)
+        self.assertTrue(ok)
+        self.assertIn("next fast attacks", why)
+        # with 100 HP left the same hit is survivable: keep the last shield
+        ok, why = be.should_shield(f, self.noctowl, 1, mv, 100)
+        self.assertFalse(ok)
+        self.assertIn("saving", why)
+
+    def test_cycle_damage_numbers(self):
+        f, mv = self.foe("skarmory", "CRUNCH")
+        # Air Slash: 9 energy per hit, 7 damage; Crunch costs 45 -> ceil(45/9)+1 = 6 hits
+        self.assertEqual(be.cycle_damage(f, self.noctowl, mv, 1), 6 * 7 + 1)
+        self.assertEqual(be.cycle_damage(f, self.noctowl, mv, 2), (6 * 7 + 1) * 2)
+        self.assertEqual(be.cycle_damage(f, self.noctowl, mv, 0), 0)
+
+    def test_weak_move_is_still_not_shielded_at_low_hp_unless_lethal(self):
+        f, mv = self.foe("medicham", "POWER_UP_PUNCH")      # 15 dmg
+        self.assertEqual(be.damage(mv, f, self.noctowl), 15)
+        ok, why = be.should_shield(f, self.noctowl, 2, mv, 30)   # 15 HP would be left: the cycle rule alone would shield
+        self.assertFalse(ok)
+        self.assertIn("weak", why)
+        ok, _ = be.should_shield(f, self.noctowl, 2, mv, 15)     # now it is lethal
+        self.assertTrue(ok)
+
     def test_unknown_move_assumes_the_hardest_hit(self):
         f = be.foe_from_text("medicham")
         dmg, mv = be.foe_hit(f, self.noctowl, None)

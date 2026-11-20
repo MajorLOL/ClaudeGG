@@ -10,7 +10,9 @@ touch the phone: it only answers questions such as
 
 Game data (base stats, moves, type chart, CP multipliers) comes from
 models/battle_data.json, built by tools/build_battle_data.py from the open
-PvPoke data (MIT License, Copyright (c) 2019 pvpoke).
+PvPoke data (MIT License, Copyright (c) 2019 pvpoke).  The shield rule that
+looks at the next round of fast attacks (cycle_damage) follows PvPoke's
+ActionLogic.js.
 
 Damage formula (PvP):
     floor(power * STAB * attack/defense * effectiveness * 0.5 * 1.3) + 1
@@ -404,12 +406,26 @@ def foe_hit(foe, me, foe_move=None):
     return damage(best, foe, me), best
 
 
+def cycle_damage(foe, me, move, shields):
+    """Damage of the fast attacks the foe needs to charge `move` again, for each
+    shield we still have (plus one hit as margin).  This is PvPoke's idea of
+    'can I still afford to let a charged attack connect': after this hit we must
+    survive long enough to use our remaining shields on the next ones."""
+    fast = foe.fast
+    if fast.gain <= 0:
+        return 0
+    n = int(math.ceil(move.energy / float(fast.gain))) + 1
+    return (n * damage(fast, foe, me) + 1) * max(shields, 0)
+
+
 def should_shield(foe, me, shields, foe_move=None, my_hp=None):
     """Decide whether to shield an incoming charged attack.
 
-    Returns (bool, reason).  A shield is not used when it is gone, when the
-    attack is weak (low damage), and it is always used when the hit would
-    make us faint.
+    Returns (bool, reason).  A shield is not used when it is gone, and not for a
+    weak attack (low damage) unless that attack would make us faint.  It is
+    always used when the hit would make us faint, and when we would be too weak
+    after the hit to survive the foe's next round of fast attacks (PvPoke's
+    shield rule, see cycle_damage).
     """
     my_hp = me.hp if my_hp is None else my_hp
     if shields <= 0:
@@ -424,6 +440,11 @@ def should_shield(foe, me, shields, foe_move=None, my_hp=None):
         return False, "%s is weak (%d dmg), no shield" % (mv.name, dmg)
     if eff < 1.0 and frac < WEAK_RESISTED_HIT:
         return False, "%s is resisted (%d dmg), no shield" % (mv.name, dmg)
+    left = my_hp - dmg
+    cycle = cycle_damage(foe, me, mv, shields)
+    if left <= cycle:
+        return True, ("%s (%d dmg) would leave %d HP, not enough for the next fast attacks (%d)"
+                      % (mv.name, dmg, left, cycle))
     if shields >= 2:
         if frac >= SHIELD_HIT_2:
             return True, "%s hits hard (%d dmg)" % (mv.name, dmg)
