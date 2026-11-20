@@ -3040,9 +3040,10 @@ def battle_open_menu(beat=None, stop=None, restart=False):
                 info["why"] = "stopped or out of time"
                 break
             shot = _settled(1.5 if step == 0 else 2.5)
-            lines = ocr_lines(shot, 100, None, 0.6)
+            lines = [] if S.on_map(shot) else ocr_lines(shot, 100, None, 0.6)    # (the map needs no reading)
             kind = _battle_kind(shot, lines)
-            S.debug_save(f"g_battle_s{step}.png", shot)
+            if kind != "party":                          # (the party screen gets its own picture below)
+                S.debug_save(f"g_battle_s{step}.png", shot)
             log(f"battle: step {step}: screen is {kind} ({BN.reads(lines, 90)})")
             if beat:
                 beat()
