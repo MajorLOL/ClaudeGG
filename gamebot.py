@@ -2991,6 +2991,7 @@ def run_one_game(brain, pkg, d):
         now = time.time()
         played[pkg] = played.get(pkg, 0) + min(now - last, 120)
         last = now
+        d["slot"] = max(d.get("slot", 0), last_slot(now))      # a start time that passes during a run is used up by that run
         if now - saved > 60:
             save_daily(d)
             saved = now
@@ -3017,13 +3018,16 @@ def daily_cycle(brain):
         # Start button: always a fresh run. Otherwise (e.g. restart after an update) a run that is
         # still going just continues, and a finished one starts again.
         if how == "button" or not unfinished:
-            d = {"start": now, "done": []}
+            d = {"start": now, "done": [], "slot": last_slot(now)}
             save_daily(d)
             log(f"{'Start pressed' if how == 'button' else 'bot started'} - daily run starts now: "
                 f"{', '.join(game_packages())}")
             run_state["waiting_logged"] = None
-    if now >= last_slot(now) > d.get("start", 0):          # today's start time passed, not run yet
-        d = {"start": now, "done": []}
+    served = d.get("slot")                                 # the latest start time that a run has already used
+    if served is None:                                     # file of an older version
+        served = last_slot(d["start"]) if d.get("start") else 0
+    if now >= last_slot(now) > served:                     # today's start time passed and no run has used it yet
+        d = {"start": now, "done": [], "slot": last_slot(now)}
         save_daily(d)
         pkgs = game_packages()
         log(f"daily run started: {', '.join(pkgs)}")
