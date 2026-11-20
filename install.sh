@@ -33,4 +33,6 @@ cd ~
 ~/gbvenv/bin/python -c "from ai_edge_litert.interpreter import Interpreter; import cv2, numpy; print('LiteRT ok, OpenCV', cv2.__version__)"
 echo
 echo "Done. Test with:  ~/gbvenv/bin/python gamebot.py test"
+echo "Updating an existing installation? The running services still use the old files. Restart them:"
+echo "    sudo systemctl restart gamebot-web spin-stop     (then reload the web page with Ctrl+F5)"
 echo "Next: install the services, the sudoers rule and the web password (wiki page 'Installation')."
