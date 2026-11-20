@@ -2940,6 +2940,56 @@ def game_packages():
     return sorted(pkgs, key=lambda p: (p != MAIN_PACKAGE, p)) or [MAIN_PACKAGE]
 
 
+# ------------------------------- auto battle -------------------------------
+# Option "Battles" (web interface): in the daily run the chosen Pokémon GO app first fights some GO Battle
+# League battles, then it spins and catches as usual. The decisions (which charged attack, when to shield,
+# who comes in after a faint) are made by battle_engine.py. THIS VERSION IS A PREVIEW: the screens of a
+# battle have not been recorded yet, so no battle is started - the bot only logs what it would do.
+BATTLE_LEAGUE = "Great League"
+BATTLE_COUNT = 5
+
+
+def battle_wanted():
+    return bool(setting("battle", False))
+
+
+def battle_app():
+    """Package of the Pokémon GO app that fights (the first app when none is chosen)."""
+    return str(setting("battle_app", "") or "") or MAIN_PACKAGE
+
+
+def battle_league():
+    return str(setting("battle_league", BATTLE_LEAGUE) or BATTLE_LEAGUE).strip()[:40]
+
+
+def battle_count():
+    try:
+        return min(max(int(setting("battle_count", BATTLE_COUNT)), 1), 50)
+    except (TypeError, ValueError):
+        return BATTLE_COUNT
+
+
+def auto_battle(pkg, beat, stop):
+    """Fights the battles of this game when `pkg` is the app chosen for battles (see above).
+
+    beat(): call it now and then - it books the time that has passed and tells the watchdog that the
+    bot is alive (a long battle is not a stuck bot). stop(): True when the daily run is switched off,
+    the max time is over or the run is done - then stop at once. Returns the number of battles fought."""
+    if not battle_wanted() or pkg != battle_app():
+        return 0
+    try:
+        import battle_engine as BE
+        team = BE.load_team()
+    except Exception as e:  # noqa: BLE001
+        log(f"battle: the battle engine could not be loaded ({e}) - no battles")
+        return 0
+    log(f"battle: preview - would fight {battle_count()} battle(s) in '{battle_league()}' with "
+        + ", ".join(m.label for m in team)
+        + " (the battle screens are not recorded yet, so no battle is started)")
+    beat()
+    return 0
+
+
 def load_daily():
     import json
     try:
@@ -3021,10 +3071,29 @@ def run_one_game(brain, pkg, d):
         return True
     log(f"daily run: starting {pkg} (max {daily_limit():.0f} min"
         + (f", {played[pkg] / 60:.0f} min already played)" if played.get(pkg) else ")"))
+    pkgs_now = game_packages()
+    if battle_wanted() and pkg == pkgs_now[0] and battle_app() not in pkgs_now:      # said once per run
+        log(f"battle: the chosen app {battle_app()} is not installed - no battles in this run")
     clock = {"last": time.monotonic()}             # all the time counts, also the start of the game and a long step
     watchdog = start_watchdog(pkg, played, clock, d)
     try:
         S.restart_game()
+
+        def beat():                                # book the time so far; also tells the watchdog the bot lives
+            mono = time.monotonic()
+            played[pkg] = played.get(pkg, 0) + (mono - clock["last"])
+            clock["last"] = mono
+
+        def stop():
+            return (run_state["done"] or not wanted("daily_cycle")
+                    or played.get(pkg, 0) + (time.monotonic() - clock["last"]) > daily_limit() * 60)
+
+        if not run_state["done"]:
+            try:
+                auto_battle(pkg, beat, stop)       # first the battles (when chosen), then spin and catch
+            except Exception as e:  # noqa: BLE001
+                log(f"battle: error {e}")
+            beat()
         saved = time.time()
         reported = played.get(pkg, 0)
         while not run_state["done"]:

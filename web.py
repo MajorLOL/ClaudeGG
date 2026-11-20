@@ -16,8 +16,11 @@ import json
 import os
 import re
 import subprocess
+import shutil
 import threading
 import time
+import urllib.parse
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import cv2
@@ -39,6 +42,7 @@ VIDEO_WIDTH = 480                           # width of the frames sent to the br
 VIDEO_BITRATE = "2000000"
 OPTIONS = {                                 # key -> label (default: on)
     "daily_cycle": "Daily run: both Pokémon GO apps one after another until full",
+    "battle": "Battles: in the daily run the chosen app fights GO Battle League battles first (preview: no battle is started yet)",
     "catch": "Catch wild Pokémon",
     "spin": "Spin PokéStops",
     "gifts_open": "Open gifts from friends",
@@ -288,7 +292,7 @@ def read_log(n=80):
         return []
 
 
-DEFAULT_OFF = {"curveball", "buddy", "fast_catch"}                 # options that start unticked
+DEFAULT_OFF = {"curveball", "buddy", "fast_catch", "battle"}                 # options that start unticked
 THROW_TARGETS = ("realistic", "off", "nice", "great", "excellent")
 
 
@@ -297,6 +301,9 @@ def read_control():
     c["daily_time"] = "08:00"
     c["daily_max_min"] = 480
     c["throw_target"] = "realistic"
+    c["battle_app"] = ""                        # empty: the first (Play Store) app
+    c["battle_league"] = "Great League"
+    c["battle_count"] = 5
     try:
         with open(CONTROL_FILE) as f:
             c.update(json.load(f))
@@ -319,6 +326,20 @@ def write_control(c):
         json.dump(c, f)
 
 
+MAIN_PACKAGE = "com.nianticlabs.pokemongo"
+_apps = {"t": 0.0, "list": []}
+
+
+def game_apps():
+    """[(package, label)] of the installed Pokémon GO apps, Play Store first (looked up at most every 30 s)."""
+    now = time.time()
+    if not _apps["list"] or now - _apps["t"] > 30:
+        pk = sorted(set(game_packages()), key=lambda p: (p != MAIN_PACKAGE, p))
+        _apps.update(t=now, list=[(p, "Pokémon GO (Play Store)" if p == MAIN_PACKAGE else "Pokémon GO (" + (p[len(MAIN_PACKAGE):].lstrip(".") if p.startswith(MAIN_PACKAGE) and len(p) > len(MAIN_PACKAGE) else p) + ")")
+                                  for p in pk])
+    return _apps["list"]
+
+
 def status():
     active = subprocess.run(["systemctl", "is-active", SERVICE], capture_output=True).stdout.decode().strip()
     stats = ""
@@ -328,7 +349,7 @@ def status():
             stats = m.group(1)
             break
     _, pw, ph = phone()
-    return {"service": active, "stats": stats, "control": read_control(), "labels": OPTIONS,
+    return {"service": active, "stats": stats, "control": read_control(), "labels": OPTIONS, "apps": game_apps(), "rec": rec_status(),
             "w": pw, "h": ph, "phone": S.screen["model"], "screen_note": S.screen["note"], "screen_ok": S.screen["ok"],
             "video": latest["mode"], "error": latest["error"],
             "age": round(time.time() - latest["time"], 1) if latest["time"] else None}
@@ -387,7 +408,7 @@ PAGE = r"""<!DOCTYPE html>
  .note { margin:10px 4px 0; padding:8px 12px; border-radius:9px; font-size:13px; background:#3a1f1c; color:#ffc2b8; }
 
  /* ---------- control column ---------- */
- .sec { padding:12px 0; border-top:1px solid var(--ridge); }
+ .sec { padding:10px 0; border-top:1px solid var(--ridge); }
  .sec:first-child { border-top:0; padding-top:0; }
  .bar { display:flex; flex-wrap:wrap; gap:8px; }
  .btn { height:36px; padding:0 16px; border-radius:9px; border:1px solid var(--ridge); background:transparent; cursor:pointer; font-weight:600; }
@@ -405,9 +426,9 @@ PAGE = r"""<!DOCTYPE html>
  #txt { height:36px; width:140px; padding:0 10px; border-radius:9px; border:1px solid var(--ridge); background:var(--dusk); }
 
  .groups { display:grid; grid-template-columns:minmax(0,1fr); gap:0 44px; align-items:start; }
- .group { padding:0 0 12px; }
+ .group { padding:0 0 10px; }
  .group h2 { margin:0 0 2px; font-size:13px; font-weight:650; color:var(--mist); }
- .row { display:flex; align-items:center; gap:14px; padding:5px 0; min-height:34px; }
+ .row { display:flex; align-items:center; gap:14px; padding:4px 0; min-height:32px; }
  .row .txt { flex:1; min-width:0; }
  .t { display:block; }
  .h { display:block; margin-top:1px; color:var(--mist); font-size:12px; line-height:1.35; }
@@ -420,6 +441,13 @@ PAGE = r"""<!DOCTYPE html>
  label.sw input:focus-visible + .track { outline:2px solid var(--chalk); outline-offset:2px; }
  .inp { height:32px; padding:0 9px; border-radius:8px; border:1px solid var(--ridge); background:var(--dusk); }
  input[type=number].inp { width:78px; }
+ input[type=text].inp { width:172px; max-width:100%; }
+ a.btn { display:inline-flex; align-items:center; text-decoration:none; color:inherit; }
+ .recbtns { display:flex; gap:8px; margin-left:auto; }
+ .rechint { margin-top:6px; color:var(--mist); font-size:13px; }
+ .recbtns .btn[disabled] { opacity:.45; cursor:default; }
+ .group.off .field { display:none; }
+ #bapp { max-width:210px; }
  input[type=time].inp { width:116px; }
  select.inp { max-width:100%; }
  .unit { color:var(--mist); }
@@ -498,7 +526,13 @@ PAGE = r"""<!DOCTYPE html>
     <button class="btn" onclick="key('apps')">Recent apps</button>
     <input id="txt" class="inp" placeholder="Type text" aria-label="Text to type on the phone">
     <button class="btn" onclick="sendText()">Send</button>
+    <span class="recbtns">
+     <button class="btn" id="recgo" onclick="recStart()" title="Play one battle yourself on the phone; the pictures and touches are saved so the bot can learn the battle screens.">Record battle</button>
+     <button class="btn danger" id="recstop" onclick="recStop()" hidden>Stop</button>
+     <a class="btn" id="recdl" href="record/download" hidden>Download</a>
+    </span>
    </div>
+   <div class="rechint" id="rechint" hidden></div>
   </section>
 
   <section class="sec" aria-label="Options">
@@ -513,12 +547,28 @@ PAGE = r"""<!DOCTYPE html>
         <span class="h">Then the next game starts.</span></label>
        <span><input type="number" id="dmax" class="inp" min="5" max="1440" step="5" onchange="setMax(this.value)"> <span class="unit">min</span></span></div>
      </div>
-     <div class="group" data-keys="spin spin_only_when_full close_when_full">
-      <h2>PokéStops and storage</h2>
+     <div class="group" id="g_battle" data-keys="battle">
+      <h2>Battles</h2>
+      <div class="switches"></div>
+      <div class="row field"><label class="txt" for="bapp"><span class="t">Battle in</span>
+        <span class="h">This app battles first, then spins and catches.</span></label>
+       <select id="bapp" class="inp" onchange="setBattle('battle_app', this.value)"></select></div>
+      <div class="row field"><label class="txt" for="bleague"><span class="t">League</span>
+        <span class="h">Part of the name as it shows on the phone.</span></label>
+       <input type="text" id="bleague" class="inp" maxlength="40" onchange="setBattle('battle_league', this.value)"></div>
+      <div class="row field"><label class="txt" for="bcount"><span class="t">Battles per run</span></label>
+       <input type="number" id="bcount" class="inp" min="1" max="50" onchange="setBattle('battle_count', this.value)"></div>
+     </div>
+     <div class="group" data-keys="gifts_open gifts_send">
+      <h2>Gifts</h2>
       <div class="switches"></div>
      </div>
     </div>
     <div class="col">
+     <div class="group" data-keys="spin spin_only_when_full close_when_full">
+      <h2>PokéStops and storage</h2>
+      <div class="switches"></div>
+     </div>
      <div class="group" data-keys="catch curveball fast_catch fast_look buddy">
       <h2>Catching</h2>
       <div class="switches"></div>
@@ -528,10 +578,6 @@ PAGE = r"""<!DOCTYPE html>
         <option value="realistic">Realistic</option><option value="off">Off</option><option value="nice">Nice</option>
         <option value="great">Great</option><option value="excellent">Excellent</option>
        </select></div>
-     </div>
-     <div class="group" data-keys="gifts_open gifts_send">
-      <h2>Gifts</h2>
-      <div class="switches"></div>
      </div>
      <div class="group" id="g_more" data-keys="" hidden>
       <h2>More</h2>
@@ -555,6 +601,7 @@ img.onerror = () => setTimeout(() => { img.src = 'stream?t=' + Date.now(); }, 30
 // Plain wording for each option: [title, extra line]. An option that is not listed shows the text from the server.
 const WORDS = {
   daily_cycle: ['Play both Pokémon GO apps', 'Each game runs until full or out of time.'],
+  battle: ['Fight battles first (preview)', 'Daily run only. The fight does not start yet.'],
   catch: ['Catch wild Pokémon'],
   curveball: ['Always throw a curveball'],
   fast_catch: ['Fast catch', 'After a clear hit, press Back to skip the catch animation. The result is checked on the map.'],
@@ -661,6 +708,7 @@ async function refresh() {
     const tt = $('ttarget');
     if (document.activeElement !== tt) tt.value = s.control.throw_target || 'realistic';
     $('thint').textContent = TARGETS[tt.value] || '';
+    showBattle(s);
     const dm = $('dmax'); if (document.activeElement !== dm) dm.value = s.control.daily_max_min || 480;
     const dt = $('dtime'); if (document.activeElement !== dt) dt.value = s.control.daily_time || '08:00';
     setManual(!running);
@@ -677,6 +725,45 @@ async function act(a) {
 async function setMax(v) { const n = Math.round(Number(v)); if (n >= 5 && n <= 1440) await fetch('daily_max/' + n, {method: 'POST'}); refresh(); }
 async function setTime(t) { if (/^\d\d:\d\d$/.test(t)) await fetch('daily_time/' + t, {method: 'POST'}); refresh(); }
 async function setTarget(v) { await fetch('throw_target/' + v, {method: 'POST'}); refresh(); }
+function fillApps(apps, cur) {
+  const sel = $('bapp');
+  if (document.activeElement === sel || !apps.length) return;
+  const list = apps.slice();
+  if (cur && !list.some(a => a[0] === cur)) list.push([cur, cur + ' (not installed)']);
+  const sig = list.map(a => a[0]).join('|');
+  if (sel.dataset.sig !== sig) {
+    sel.textContent = '';
+    for (const [pkg, label] of list) { const o = document.createElement('option'); o.value = pkg; o.textContent = label; sel.append(o); }
+    sel.dataset.sig = sig;
+  }
+  sel.value = cur || list[0][0];
+}
+function showBattle(s) {
+  const c = s.control, on = !!c.battle;
+  fillApps(s.apps || [], c.battle_app);
+  const bl = $('bleague'); if (document.activeElement !== bl) bl.value = c.battle_league || '';
+  const bc = $('bcount'); if (document.activeElement !== bc) bc.value = c.battle_count || 5;
+  $('g_battle').classList.toggle('off', !on);
+  showRec(s.rec || {}, s.service === 'active');
+}
+function showRec(r, running) {
+  const go = $('recgo'), st = $('recstop'), dl = $('recdl'), h = $('rechint');
+  go.hidden = !!r.on; st.hidden = !r.on; dl.hidden = !r.ready;
+  let t = '';
+  if (r.on) t = 'Recording: ' + r.frames + ' pictures, ' + r.seconds + ' s. Play your battle on the phone, then press Stop.';
+  else if (r.ready) t = 'Recording ready: ' + r.frames + ' pictures, ' + r.seconds + ' s, ' + r.mb + ' MB.' + (r.note ? ' ' + r.note : '');
+  else if (r.note) t = r.note;
+  h.textContent = t; h.hidden = !t;
+}
+async function setBattle(key, v) {
+  await fetch('setting/' + key + '?v=' + encodeURIComponent(v), {method: 'POST'}); refresh();
+}
+async function recStart() {
+  const r = await fetch('record/start', {method: 'POST'});
+  if (!r.ok) alert('Stop the bot first, then record.');
+  refresh();
+}
+async function recStop() { $('recstop').disabled = true; await fetch('record/stop', {method: 'POST'}); $('recstop').disabled = false; refresh(); }
 async function setOpt(k, on) { await fetch('option/' + k + '/' + (on ? 'on' : 'off'), {method: 'POST'}); refresh(); }
 
 // ---- manual control (only while the bot is stopped) ----
@@ -705,6 +792,143 @@ function setManual(on) {
 refresh(); setInterval(refresh, 3000);
 </script></body></html>"""
 PAGE = PAGE.replace("@@NAME@@", APP_NAME)
+
+
+
+# ----------------------------- battle recorder -----------------------------
+# A tool to teach the bot the screens of a battle. With the bot stopped: press Record, play ONE battle
+# on the phone yourself, press Stop and download the zip. It holds small pictures of the screen (one
+# whenever the picture changes, at most REC_FPS per second, with the time in the file name), and the
+# raw touch events of the phone (getevent), so that every tap can be matched with its picture.
+REC_DIR = os.path.expanduser("~/battle_recording")
+REC_FPS = 2.0                 # pictures per second at most (a slow phone link gives fewer)
+REC_SCALE = 0.35              # size of the saved pictures compared with the screen
+REC_QUALITY = 55              # JPEG quality
+REC_MAX_FRAMES = 420          # then the recording stops by itself
+REC_MAX_MB = 30               # ... or when the pictures together are this big (the zip stays easy to send)
+REC_MAX_SECONDS = 600
+REC_KEEP_SAME = 4.0           # s: a picture that did not change is still kept now and then
+rec = {"on": False, "frames": 0, "t0": 0.0, "secs": 0, "note": "", "zip": None, "mb": 0.0, "bytes": 0,
+       "stop": threading.Event(), "thread": None, "touch": None}
+rec_lock = threading.Lock()
+
+
+def rec_status():
+    secs = int(time.time() - rec["t0"]) if rec["on"] else rec["secs"]
+    return {"on": rec["on"], "frames": rec["frames"], "seconds": secs, "max": REC_MAX_FRAMES,
+            "note": rec["note"], "ready": bool(rec["zip"]) and not rec["on"], "mb": rec["mb"]}
+
+
+def rec_finish(rows):
+    """Stop the touch log, write the index and make the zip."""
+    proc, rec["touch"] = rec["touch"], None
+    if proc:
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except Exception:  # noqa: BLE001
+            pass
+    rec["secs"] = int(time.time() - rec["t0"])
+    try:
+        with open(os.path.join(REC_DIR, "frames.csv"), "w") as f:
+            f.write("index,ms,file\n")
+            for i, ms, name in rows:
+                f.write(f"{i},{ms},{name}\n")
+        _, pw, ph = phone()
+        with open(os.path.join(REC_DIR, "meta.json"), "w") as f:
+            json.dump({"app": APP_NAME, "started": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(rec["t0"])),
+                       "seconds": rec["secs"], "frames": len(rows), "scale": REC_SCALE, "screen_w": pw,
+                       "screen_h": ph, "phone": S.screen["model"], "note": rec["note"]}, f, indent=1)
+        path = os.path.join(REC_DIR, "recording.zip")
+        with zipfile.ZipFile(path, "w") as z:
+            for fn in sorted(os.listdir(os.path.join(REC_DIR, "frames"))):
+                z.write(os.path.join(REC_DIR, "frames", fn), "frames/" + fn, compress_type=zipfile.ZIP_STORED)
+            for fn in ("frames.csv", "meta.json", "touch_devices.txt", "touch_raw.txt"):
+                if os.path.exists(os.path.join(REC_DIR, fn)):
+                    z.write(os.path.join(REC_DIR, fn), fn, compress_type=zipfile.ZIP_DEFLATED)
+        rec["zip"] = path
+        rec["mb"] = round(os.path.getsize(path) / 1048576.0, 1)
+    except Exception as e:  # noqa: BLE001
+        rec["note"] = f"could not make the zip: {e}"
+    rec["on"] = False
+    write_log(f"battle recording finished: {len(rows)} pictures, {rec['secs']} s, {rec['mb']} MB")
+
+
+def rec_loop():
+    stop = rec["stop"]
+    rows, last, last_saved = [], None, 0.0
+    try:
+        while not stop.is_set():
+            if len(rows) >= REC_MAX_FRAMES:
+                rec["note"] = f"Stopped by itself: {REC_MAX_FRAMES} pictures is the maximum."
+                break
+            if rec["bytes"] > REC_MAX_MB * 1048576:
+                rec["note"] = f"Stopped by itself: {REC_MAX_MB} MB is the maximum."
+                break
+            if time.time() - rec["t0"] > REC_MAX_SECONDS:
+                rec["note"] = f"Stopped by itself: {REC_MAX_SECONDS // 60} minutes is the maximum."
+                break
+            if bot_running():
+                rec["note"] = "Stopped: the bot was started."
+                break
+            t_loop = time.time()
+            try:
+                img = S.screenshot()
+            except Exception as e:  # noqa: BLE001
+                rec["note"] = f"screenshot failed: {e}"
+                stop.wait(1.0)
+                continue
+            t_cap = time.time()
+            h, w = img.shape[:2]
+            small = cv2.resize(img, (int(w * REC_SCALE), int(h * REC_SCALE)), interpolation=cv2.INTER_AREA)
+            thumb = cv2.resize(cv2.cvtColor(small, cv2.COLOR_BGR2GRAY), (24, 30),
+                               interpolation=cv2.INTER_AREA).astype(np.int16)
+            if last is None or float(np.abs(thumb - last).mean()) >= 1.0 or t_cap - last_saved >= REC_KEEP_SAME:
+                ms = int((t_cap - rec["t0"]) * 1000)
+                name = f"f{len(rows):04d}_{ms:07d}.jpg"
+                cv2.imwrite(os.path.join(REC_DIR, "frames", name), small, [cv2.IMWRITE_JPEG_QUALITY, REC_QUALITY])
+                rec["bytes"] += os.path.getsize(os.path.join(REC_DIR, "frames", name))
+                rows.append((len(rows), ms, name))
+                rec["frames"] = len(rows)
+                last, last_saved = thumb, t_cap
+            stop.wait(max(0.0, 1.0 / REC_FPS - (time.time() - t_loop)))
+    except Exception as e:  # noqa: BLE001
+        rec["note"] = f"recording stopped: {e}"
+    finally:
+        rec_finish(rows)
+
+
+def rec_start():
+    """(ok, message). The bot must be stopped: it would press things while you play."""
+    with rec_lock:
+        if rec["on"]:
+            return True, "already recording"
+        if bot_running():
+            return False, "stop the bot first"
+        shutil.rmtree(REC_DIR, ignore_errors=True)         # only the last recording is kept
+        os.makedirs(os.path.join(REC_DIR, "frames"))
+        phone()
+        rec.update(on=True, frames=0, t0=time.time(), secs=0, note="", zip=None, mb=0.0, bytes=0)
+        rec["stop"] = threading.Event()
+        try:                                                # the raw touches: where and when the screen was touched
+            with open(os.path.join(REC_DIR, "touch_devices.txt"), "w") as f:
+                f.write(sh("getevent", "-p"))
+            rec["touch"] = subprocess.Popen(["adb", "shell", "getevent", "-lt"],
+                                            stdout=open(os.path.join(REC_DIR, "touch_raw.txt"), "w"),
+                                            stderr=subprocess.DEVNULL)
+        except Exception as e:  # noqa: BLE001
+            rec["note"] = f"touches are not recorded: {e}"
+        write_log("battle recording started")
+        rec["thread"] = threading.Thread(target=rec_loop, daemon=True, name="battle-recorder")
+        rec["thread"].start()
+        return True, "ok"
+
+
+def rec_stop():
+    rec["stop"].set()
+    th = rec["thread"]
+    if th:
+        th.join(timeout=40)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -765,6 +989,18 @@ class Handler(BaseHTTPRequestHandler):
             self._send("\n".join(reversed(read_log(40))))   # newest line at the top
         elif path == "/status":
             self._send(json.dumps(status()), "application/json")
+        elif path == "/record/download":
+            if not rec["zip"] or rec["on"] or not os.path.exists(rec["zip"]):
+                return self._send("no recording yet", code=404)
+            size = os.path.getsize(rec["zip"])
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Disposition", 'attachment; filename="battle-recording-'
+                             + time.strftime("%Y%m%d-%H%M%S", time.localtime(rec["t0"])) + '.zip"')
+            self.send_header("Content-Length", str(size))
+            self.end_headers()
+            with open(rec["zip"], "rb") as f:
+                shutil.copyfileobj(f, self.wfile, 65536)
         else:
             self._send("not found", code=404)
 
@@ -800,6 +1036,31 @@ class Handler(BaseHTTPRequestHandler):
                     adb_input("text", txt)
             else:
                 return self._send("not found", code=404)
+            return self._send("ok")
+        if path == "/record/start":
+            ok, msg = rec_start()
+            return self._send(msg, code=200 if ok else 409)
+        if path == "/record/stop":
+            rec_stop()
+            return self._send("ok")
+        m = re.fullmatch(r"/setting/(battle_app|battle_league|battle_count)", path)
+        if m:
+            key = m.group(1)
+            v = urllib.parse.parse_qs(self.path.partition("?")[2]).get("v", [""])[0]
+            if key == "battle_app":
+                if v not in [p for p, _ in game_apps()]:
+                    return self._send("that app is not installed", code=400)
+            elif key == "battle_league":
+                v = re.sub(r"[^\w .:'&+-]", "", v).strip()[:40]
+                if not v:
+                    return self._send("empty", code=400)
+            else:
+                if not v.isdigit() or not 1 <= int(v) <= 50:
+                    return self._send("1 to 50", code=400)
+                v = int(v)
+            c = read_control()
+            c[key] = v
+            write_control(c)
             return self._send("ok")
         m = re.fullmatch(r"/daily_max/(\d{1,4})", path)
         if m and 5 <= int(m.group(1)) <= 1440:

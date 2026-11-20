@@ -19,13 +19,14 @@ for m in model_classifier_screen_v5 model_detector_clickable_v2 model_detector_e
     "https://media.githubusercontent.com/media/Juancavr6/RegiBot/main/app/app/src/main/assets/$m.tflite"
 done
 cp "$REPO"/models/*.npz ~/models/     # anchors + throw predictor weights (derived from RegiBot, see NOTICE.md)
+cp "$REPO"/models/battle_data.json ~/models/     # battle data (from PvPoke, MIT, see NOTICE.md)
 ls -la ~/models
 
 echo "== Program files =="
 if [ "$REPO" != "$HOME" ]; then
-  cp "$REPO"/gamebot.py "$REPO"/spin_stop.py "$REPO"/web.py "$REPO"/device_check.py ~/
+  cp "$REPO"/gamebot.py "$REPO"/spin_stop.py "$REPO"/web.py "$REPO"/device_check.py "$REPO"/battle_engine.py ~/
 fi
-ls -la ~/gamebot.py ~/spin_stop.py ~/web.py ~/device_check.py
+ls -la ~/gamebot.py ~/spin_stop.py ~/web.py ~/device_check.py ~/battle_engine.py
 
 echo "== Test =="
 cd ~

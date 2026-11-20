@@ -16,3 +16,7 @@ gamebot_*.json
 gamebot_allow_unsupported
 gamebot_no_display_change
 gamebot_wm_override.json
+
+# battle feature: recording and team override live in the home folder of the Pi
+battle_recording/
+battle_team.json
