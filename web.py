@@ -354,6 +354,21 @@ PAGE = """<!DOCTYPE html>
  label.opt { display:flex; align-items:center; gap:10px; padding:6px 2px; font-size:15px; cursor:pointer; }
  label.opt input { width:20px; height:20px; }
  pre { margin:0; white-space:pre-wrap; font-size:12px; line-height:1.45; max-height:38vh; overflow:auto; }
+ #opts { display:grid; grid-template-columns:repeat(auto-fit, minmax(max(300px, 45%), 1fr)); gap:0 20px; }   /* two columns whenever there is room */
+ #opts label.opt { padding:4px 2px; font-size:14px; }
+ label.opt input[type=checkbox] { flex:none; }
+ .ctl { display:flex; flex-wrap:wrap; gap:2px 28px; margin-top:6px; }
+ .ctl label.opt { padding:4px 2px; }
+ @media (min-width:1000px) and (min-height:780px) {   /* big screen: everything on one page, the log takes the space that is left */
+  html, body { height:100%; }
+  body { display:flex; flex-direction:column; overflow:hidden; }
+  main { flex:1; min-height:0; flex-wrap:nowrap; align-items:stretch; }
+  #opts { grid-template-columns:1fr 1fr; }
+  .screen { flex:none; }
+  .side { min-height:0; }
+  .card.logcard { flex:1; min-height:100px; display:flex; flex-direction:column; }
+  .card.logcard pre { flex:1; min-height:0; max-height:none; overflow:hidden; }
+ }
  .muted { color:#9aa4b2; font-size:12px; }
  .screen { position:relative; }
  .screen img.manual { outline:3px solid #e0a020; cursor:crosshair; touch-action:none; }
@@ -389,6 +404,7 @@ PAGE = """<!DOCTYPE html>
    <div class="muted">Stop the bot to take over control (e.g. for quests). Stop it too before opening Pokémon GO on another device.</div>
   </div>
   <div class="card"><h2>Options</h2><div id="opts"></div>
+   <div class="ctl">
    <label class="opt">Throw target
     <select id="ttarget" style="padding:6px 8px;font-size:15px;border-radius:6px;border:0;background:#2a313b;color:#fff" onchange="setTarget(this.value)">
      <option value="realistic">Realistic (mostly Great, not every throw perfect)</option>
@@ -402,14 +418,28 @@ PAGE = """<!DOCTYPE html>
    <label class="opt">Daily run: max time per game
     <input type="number" id="dmax" min="5" max="1440" step="5" style="width:90px;height:auto;padding:6px 8px;font-size:15px;border-radius:6px;border:0;background:#2a313b;color:#fff" onchange="setMax(this.value)"> minutes
    </label>
+   </div>
    <div class="muted">When a game reaches this time it is closed and the next game starts.</div></div>
-  <div class="card"><h2>Log <span class="muted">(newest first)</span></h2><pre id="log">loading…</pre></div>
+  <div class="card logcard"><h2>Log <span class="muted">(newest first)</span></h2><pre id="log">loading…</pre></div>
  </div>
 </main>
 <script>
 const img = document.getElementById('scr');
 img.onerror = () => setTimeout(() => { img.src = 'stream?t=' + Date.now(); }, 3000);
-let built = false;
+let built = false, lastLog = '';
+const fitMQ = window.matchMedia('(min-width:1000px) and (min-height:780px)');
+function showLog(){                                // big screen: as many lines as fit, so nothing has to be scrolled
+  const pre = document.getElementById('log'), lines = lastLog.split('\\n');
+  if (!fitMQ.matches) { pre.textContent = lastLog; return; }
+  let lo = 0, hi = lines.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    pre.textContent = lines.slice(0, mid).join('\\n');
+    if (pre.scrollHeight <= pre.clientHeight + 1) lo = mid; else hi = mid - 1;
+  }
+  pre.textContent = lines.slice(0, lo).join('\\n');
+}
+window.addEventListener('resize', showLog);
 async function refresh(){
   try {
     const s = await (await fetch('status')).json();
@@ -438,8 +468,8 @@ async function refresh(){
     if (document.activeElement !== dm) dm.value = s.control.daily_max_min || 480;
     const dt = document.getElementById('dtime');
     if (document.activeElement !== dt) dt.value = s.control.daily_time || '08:00';
-    const log = document.getElementById('log');
-    log.textContent = await (await fetch('log')).text();
+    lastLog = await (await fetch('log')).text();
+    showLog();
   } catch(e) {}
 }
 async function act(a){ if (a==='stop' && !confirm('Stop the bot?')) return;
