@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Gamebot web interface - watch the phone and the log from any browser.
+Pokémon GO Automation web interface - watch the phone and the log from any browser.
 
 Open from a device on the same network:  http://gamebot.local:8080
 (or http://<pi-ip>:8080)
@@ -27,6 +27,7 @@ import spin_stop as S        # the phone's screen (which display, how big) is fo
 
 # ================================ SETTINGS ================================
 PORT = 8080
+APP_NAME = "Pokémon GO Automation"        # the name shown in the browser (tab, header)
 USER_FILE = os.path.expanduser("~/.gamebot_web_user")           # one line: the login name (default: admin)
 PASSWORD_FILE = os.path.expanduser("~/.gamebot_web_password")   # one line: the password (no file = no login)
 LOGFILE = os.path.expanduser("~/spin.log")
@@ -333,172 +334,377 @@ def status():
             "age": round(time.time() - latest["time"], 1) if latest["time"] else None}
 
 
-PAGE = """<!DOCTYPE html>
+PAGE = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gamebot</title>
+<title>@@NAME@@</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230c1a20'/%3E%3Ccircle cx='16' cy='16' r='11' fill='none' stroke='%2342b8ff' stroke-width='2.4' stroke-dasharray='52 18' stroke-linecap='round' transform='rotate(-70 16 16)'/%3E%3Ccircle cx='16' cy='16' r='6' fill='none' stroke='%2342b8ff' stroke-width='2.4'/%3E%3Ccircle cx='16' cy='16' r='2' fill='%2342b8ff'/%3E%3C/svg%3E">
 <style>
- :root { color-scheme: dark; }
- body { margin:0; font-family: system-ui, sans-serif; background:#111418; color:#e6e6e6; }
- header { padding:12px 16px; background:#1b2027; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
- h1 { font-size:18px; margin:0 12px 0 0; }
- .pill { padding:4px 10px; border-radius:999px; background:#2a313b; font-size:13px; }
- .ok { background:#1f6f43; } .bad { background:#8a2b2b; }
- main { display:flex; flex-wrap:wrap; gap:16px; padding:16px; }
- .screen img { width:min(420px, 92vw); border-radius:14px; border:1px solid #2a313b; display:block; background:#000; aspect-ratio: 0.8; }
- .side { flex:1 1 360px; min-width:300px; display:flex; flex-direction:column; gap:12px; }
- .card { background:#1b2027; border-radius:12px; padding:12px; }
- .card h2 { font-size:14px; margin:0 0 8px; color:#9aa4b2; font-weight:600; }
- button { background:#2d6cdf; color:#fff; border:0; border-radius:8px; padding:8px 12px; margin:3px; font-size:14px; cursor:pointer; }
- button.grey { background:#3a424e; } button.red { background:#b53a3a; }
- label.opt { display:flex; align-items:center; gap:10px; padding:6px 2px; font-size:15px; cursor:pointer; }
- label.opt input { width:20px; height:20px; }
- pre { margin:0; white-space:pre-wrap; font-size:12px; line-height:1.45; max-height:38vh; overflow:auto; }
- #opts { display:grid; grid-template-columns:repeat(auto-fit, minmax(max(300px, 45%), 1fr)); gap:0 20px; }   /* two columns whenever there is room */
- #opts label.opt { padding:4px 2px; font-size:14px; }
- label.opt input[type=checkbox] { flex:none; }
- .ctl { display:flex; flex-wrap:wrap; gap:2px 28px; margin-top:6px; }
- .ctl label.opt { padding:4px 2px; }
- @media (min-width:1000px) and (min-height:780px) {   /* big screen: everything on one page, the log takes the space that is left */
+ :root {
+  color-scheme: dark;
+  --night:#0c1a20; --dusk:#122a32; --ridge:#24444e; --chalk:#e9f2f0; --mist:#8aa8ab;
+  --run:#5ee0a9; --stop:#ff7b67; --hold:#f4b94a; --blue:#42b8ff;
+  --ring:var(--ridge); --ar:0.8;
+ }
+ * { box-sizing:border-box; }
+ html, body { margin:0; }
+ body { background:var(--night); color:var(--chalk);
+  font:14.5px/1.45 "Avenir Next", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+ button, input, select { font:inherit; color:inherit; }
+ :focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+ [hidden] { display:none !important; }
+
+ /* ---------- top bar ---------- */
+ .top { display:flex; flex-wrap:wrap; align-items:center; gap:10px 28px; padding:12px 20px; border-bottom:1px solid var(--ridge); }
+ .brand { display:flex; align-items:center; gap:11px; margin-right:auto; }
+ .brand svg { width:28px; height:28px; color:var(--blue); flex:none; }
+ .brand h1 { margin:0; font-size:18px; font-weight:650; letter-spacing:-0.01em; }
+ .stats { display:flex; flex-wrap:wrap; gap:2px 18px; color:var(--mist); }
+ .stats b { color:var(--chalk); font-size:17px; font-weight:650; font-variant-numeric:tabular-nums; margin-right:4px; }
+ .state { display:flex; align-items:center; gap:9px; padding:5px 14px 5px 11px; border:1px solid var(--ridge); border-radius:999px; font-weight:600; }
+ .state i { width:9px; height:9px; border-radius:50%; background:var(--mist); }
+ .state[data-s="run"] { border-color:#2a6b57; } .state[data-s="run"] i { background:var(--run); }
+ .state[data-s="hold"] { border-color:#7a6130; } .state[data-s="hold"] i { background:var(--hold); }
+ .state[data-s="bad"] { border-color:#7b3a33; } .state[data-s="bad"] i { background:var(--stop); }
+
+ /* ---------- layout ---------- */
+ main { display:grid; grid-template-columns:minmax(0,1fr); gap:22px; padding:18px 20px 28px; }
+ .stage { width:min(480px, 100%); min-width:0; }
+ .panel { min-width:0; display:flex; flex-direction:column; }
+
+ /* ---------- the phone screen: its frame shows the state of the bot ---------- */
+ .frame { padding:6px; border-radius:24px; background:var(--dusk); border:2px solid var(--ring);
+  box-shadow:0 0 0 5px color-mix(in srgb, var(--ring) 16%, transparent); transition:border-color .3s, box-shadow .3s; }
+ .frame[data-ring="run"] { --ring:var(--run); animation:breathe 3.6s ease-in-out infinite; }
+ .frame[data-ring="hold"] { --ring:var(--hold); }
+ .frame[data-ring="bad"] { --ring:var(--stop); }
+ @keyframes breathe { 50% { box-shadow:0 0 0 9px color-mix(in srgb, var(--ring) 7%, transparent); } }
+ .frame img { display:block; width:100%; aspect-ratio:var(--ar); border-radius:18px; background:#000; }
+ .frame img.manual { cursor:crosshair; touch-action:none; }
+ .caption { display:flex; justify-content:space-between; gap:12px; margin:10px 6px 0; color:var(--mist); font-size:12.5px; }
+ .caption .late { color:var(--hold); }
+ .note.hold { background:#33290f; color:var(--hold); }
+ .note { margin:10px 4px 0; padding:8px 12px; border-radius:9px; font-size:13px; background:#3a1f1c; color:#ffc2b8; }
+
+ /* ---------- control column ---------- */
+ .sec { padding:12px 0; border-top:1px solid var(--ridge); }
+ .sec:first-child { border-top:0; padding-top:0; }
+ .bar { display:flex; flex-wrap:wrap; gap:8px; }
+ .btn { height:36px; padding:0 16px; border-radius:9px; border:1px solid var(--ridge); background:transparent; cursor:pointer; font-weight:600; }
+ .btn:hover { background:var(--dusk); }
+ .btn.primary { background:var(--blue); border-color:var(--blue); color:#04202e; }
+ .btn.primary:hover { background:#6cc8ff; }
+ .btn.danger { color:var(--stop); border-color:#6b3a35; }
+ .btn.danger:hover { background:#2a1816; }
+ .help { margin-top:8px; color:var(--mist); font-size:12.5px; }
+ .help summary { cursor:pointer; width:max-content; }
+ .help p { margin:6px 0 0; max-width:62ch; }
+ #manualbar { display:none; }
+ #manualbar.on { display:block; }
+ #manualbar .bar { align-items:center; }
+ #txt { height:36px; width:140px; padding:0 10px; border-radius:9px; border:1px solid var(--ridge); background:var(--dusk); }
+
+ .groups { display:grid; grid-template-columns:minmax(0,1fr); gap:0 44px; align-items:start; }
+ .group { padding:0 0 12px; }
+ .group h2 { margin:0 0 2px; font-size:13px; font-weight:650; color:var(--mist); }
+ .row { display:flex; align-items:center; gap:14px; padding:5px 0; min-height:34px; }
+ .row .txt { flex:1; min-width:0; }
+ .t { display:block; }
+ .h { display:block; margin-top:1px; color:var(--mist); font-size:12px; line-height:1.35; }
+ label.sw { position:relative; cursor:pointer; }
+ label.sw input { position:absolute; opacity:0; width:1px; height:1px; }
+ .track { flex:none; position:relative; width:36px; height:21px; border-radius:21px; background:var(--ridge); transition:background .15s; }
+ .track::after { content:""; position:absolute; top:3px; left:3px; width:15px; height:15px; border-radius:50%; background:var(--chalk); transition:transform .15s; }
+ label.sw input:checked + .track { background:var(--blue); }
+ label.sw input:checked + .track::after { transform:translateX(15px); background:#04202e; }
+ label.sw input:focus-visible + .track { outline:2px solid var(--chalk); outline-offset:2px; }
+ .inp { height:32px; padding:0 9px; border-radius:8px; border:1px solid var(--ridge); background:var(--dusk); }
+ input[type=number].inp { width:78px; }
+ input[type=time].inp { width:116px; }
+ select.inp { max-width:100%; }
+ .unit { color:var(--mist); }
+ .field label { cursor:default; }
+
+ /* ---------- log ---------- */
+ .logsec { display:flex; flex-direction:column; }
+ .loghead { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; }
+ .loghead h2 { margin:0; font-size:13px; font-weight:650; color:var(--mist); }
+ .loghead span { color:var(--mist); font-size:12px; }
+ pre { margin:0; font:12px/1.55 ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace; max-height:46vh; overflow:auto; }
+ .ln { display:block; white-space:pre-wrap; overflow-wrap:anywhere; color:#c6d6d4; }
+ .ts { color:var(--mist); margin-right:10px; }
+ .ln.good { color:var(--run); } .ln.warn { color:var(--hold); } .ln.bad { color:var(--stop); }
+
+ /* ---------- wide screens: the phone on the left, controls on the right ---------- */
+ @media (min-width:1000px) {
+  main { grid-template-columns:auto minmax(0,1fr); gap:32px; align-items:start; }
+  .stage { width:clamp(320px, calc((100vh - 195px) * var(--ar)), 620px); position:sticky; top:16px; }
+  .groups { grid-template-columns:1fr 1fr; }
+ }
+ /* tall enough: everything fits on one page, the log takes the space that is left */
+ @media (min-width:1000px) and (min-height:780px) {
   html, body { height:100%; }
   body { display:flex; flex-direction:column; overflow:hidden; }
-  main { flex:1; min-height:0; flex-wrap:nowrap; align-items:stretch; }
-  #opts { grid-template-columns:1fr 1fr; }
-  .screen { flex:none; }
-  .side { min-height:0; }
-  .card.logcard { flex:1; min-height:100px; display:flex; flex-direction:column; }
-  .card.logcard pre { flex:1; min-height:0; max-height:none; overflow:hidden; }
+  main { flex:1; min-height:0; padding-bottom:18px; align-items:stretch; }
+  .stage { position:static; }
+  .panel { min-height:0; overflow-y:auto; }
+  .logsec { flex:1 1 auto; min-height:96px; }
+  .logsec pre { flex:1; min-height:0; max-height:none; overflow:hidden; }
  }
- .muted { color:#9aa4b2; font-size:12px; }
- .screen { position:relative; }
- .screen img.manual { outline:3px solid #e0a020; cursor:crosshair; touch-action:none; }
- #manualbar { display:none; margin-top:8px; }
- #manualbar.on { display:block; }
- .banner { background:#5a4510; color:#ffd77a; border-radius:8px; padding:6px 10px; font-size:13px; margin-bottom:6px; }
+ @media (max-width:560px) {
+  .top { padding:10px 14px; } main { padding:14px; }
+  .stats { order:3; width:100%; }
+ }
+ @media (prefers-reduced-motion:reduce) { * { animation:none !important; transition:none !important; } }
 </style></head><body>
-<header>
- <h1>🎮 Gamebot</h1>
- <span id="svc" class="pill">bot: …</span>
- <span id="stats" class="pill">today: …</span>
- <span id="vid" class="pill muted">video: …</span>
- <span id="scr_note" class="pill bad" style="display:none"></span>
+<header class="top">
+ <div class="brand">
+  <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" aria-hidden="true">
+   <circle cx="16" cy="16" r="13" stroke-dasharray="60 22" transform="rotate(-70 16 16)"/>
+   <circle cx="16" cy="16" r="7.5"/><circle cx="16" cy="16" r="2.3" fill="currentColor" stroke="none"/>
+  </svg>
+  <h1>@@NAME@@</h1>
+ </div>
+ <div class="stats" id="stats" aria-label="Today"></div>
+ <div class="state" id="state" data-s="wait" role="status"><i></i><span id="svc">Connecting</span></div>
 </header>
 <main>
- <div class="screen"><img id="scr" src="stream" alt="phone screen" draggable="false">
-  <div id="manualbar">
-   <div class="banner">Manual control - click to tap, drag to swipe, hold to long-press</div>
-   <button class="grey" onclick="key('back')">◀ Back</button>
-   <button class="grey" onclick="key('home')">● Home</button>
-   <button class="grey" onclick="key('apps')">▤ Apps</button>
-   <input id="txt" placeholder="type text" style="padding:7px;border-radius:8px;border:0;width:120px">
-   <button class="grey" onclick="sendText()">Send</button>
+ <section class="stage" aria-label="Phone screen">
+  <div class="frame" id="frame" data-ring="wait">
+   <img id="scr" src="stream" alt="Live view of the phone screen" draggable="false">
   </div>
- </div>
- <div class="side">
-  <div class="card"><h2>Bot</h2>
-   <button onclick="act('start')">▶ Start</button>
-   <button class="red" onclick="act('stop')">■ Stop</button>
-   <button class="grey" onclick="act('restart')">↻ Restart</button>
-   <button class="red" onclick="act('close')">✕ Close game</button>
-   <div class="muted">Close game stops the bot and closes Pokémon GO completely on the phone. Press Start to play again.</div>
-   <div class="muted">Stop the bot to take over control (e.g. for quests). Stop it too before opening Pokémon GO on another device.</div>
-  </div>
-  <div class="card"><h2>Options</h2><div id="opts"></div>
-   <div class="ctl">
-   <label class="opt">Throw target
-    <select id="ttarget" style="padding:6px 8px;font-size:15px;border-radius:6px;border:0;background:#2a313b;color:#fff" onchange="setTarget(this.value)">
-     <option value="realistic">Realistic (mostly Great, not every throw perfect)</option>
-     <option value="off">Off (just throw)</option><option value="nice">Nice</option>
-     <option value="great">Great</option><option value="excellent">Excellent</option>
-    </select>
-   </label>
-   <label class="opt">Daily run starts at
-    <input type="time" id="dtime" style="width:120px;height:auto;padding:6px 8px;font-size:15px;border-radius:6px;border:0;background:#2a313b;color:#fff;color-scheme:dark" onchange="setTime(this.value)">
-   </label>
-   <label class="opt">Daily run: max time per game
-    <input type="number" id="dmax" min="5" max="1440" step="5" style="width:90px;height:auto;padding:6px 8px;font-size:15px;border-radius:6px;border:0;background:#2a313b;color:#fff" onchange="setMax(this.value)"> minutes
-   </label>
+  <div class="caption"><span id="model"></span><span id="vid">Connecting</span></div>
+  <div class="note" id="scr_note" hidden></div>
+  <div class="note hold" id="manual_note" hidden>You are in control: click to tap, drag to swipe, hold to long-press.</div>
+ </section>
+
+ <div class="panel">
+  <section class="sec" aria-label="Bot">
+   <div class="bar">
+    <button class="btn primary" onclick="act('start')">Start</button>
+    <button class="btn danger" onclick="act('stop')">Stop</button>
+    <button class="btn" onclick="act('restart')">Restart</button>
+    <button class="btn danger" onclick="act('close')">Close game</button>
    </div>
-   <div class="muted">When a game reaches this time it is closed and the next game starts.</div></div>
-  <div class="card logcard"><h2>Log <span class="muted">(newest first)</span></h2><pre id="log">loading…</pre></div>
+   <details class="help"><summary>What do these buttons do?</summary>
+    <p>Start and Restart begin a new daily run right away. Stop pauses the bot so you can take over, for example for quests; stop it too before you open Pokémon GO on another device. Close game stops the bot and closes Pokémon GO on the phone; Start plays again. A game that reaches its max time is closed.</p>
+   </details>
+  </section>
+
+  <section class="sec" id="manualbar" aria-label="Manual control">
+   <div class="bar">
+    <button class="btn" onclick="key('back')">Back</button>
+    <button class="btn" onclick="key('home')">Home</button>
+    <button class="btn" onclick="key('apps')">Recent apps</button>
+    <input id="txt" class="inp" placeholder="Type text" aria-label="Text to type on the phone">
+    <button class="btn" onclick="sendText()">Send</button>
+   </div>
+  </section>
+
+  <section class="sec" aria-label="Options">
+   <div class="groups">
+    <div class="col">
+     <div class="group" data-keys="daily_cycle">
+      <h2>Daily run</h2>
+      <div class="switches"></div>
+      <div class="row field"><label class="txt" for="dtime"><span class="t">Starts every day at</span></label>
+       <input type="time" id="dtime" class="inp" onchange="setTime(this.value)"></div>
+      <div class="row field"><label class="txt" for="dmax"><span class="t">Max time per game</span>
+        <span class="h">Then the next game starts.</span></label>
+       <span><input type="number" id="dmax" class="inp" min="5" max="1440" step="5" onchange="setMax(this.value)"> <span class="unit">min</span></span></div>
+     </div>
+     <div class="group" data-keys="spin spin_only_when_full close_when_full">
+      <h2>PokéStops and storage</h2>
+      <div class="switches"></div>
+     </div>
+    </div>
+    <div class="col">
+     <div class="group" data-keys="catch curveball fast_catch fast_look buddy">
+      <h2>Catching</h2>
+      <div class="switches"></div>
+      <div class="row field"><label class="txt" for="ttarget"><span class="t">Throw target</span>
+        <span class="h" id="thint"></span></label>
+       <select id="ttarget" class="inp" onchange="setTarget(this.value)">
+        <option value="realistic">Realistic</option><option value="off">Off</option><option value="nice">Nice</option>
+        <option value="great">Great</option><option value="excellent">Excellent</option>
+       </select></div>
+     </div>
+     <div class="group" data-keys="gifts_open gifts_send">
+      <h2>Gifts</h2>
+      <div class="switches"></div>
+     </div>
+     <div class="group" id="g_more" data-keys="" hidden>
+      <h2>More</h2>
+      <div class="switches"></div>
+     </div>
+    </div>
+   </div>
+  </section>
+
+  <section class="sec logsec" aria-label="Log">
+   <div class="loghead"><h2>Log</h2><span>Newest first</span></div>
+   <pre id="log">Loading…</pre>
+  </section>
  </div>
 </main>
 <script>
-const img = document.getElementById('scr');
+const $ = id => document.getElementById(id);
+const img = $('scr');
 img.onerror = () => setTimeout(() => { img.src = 'stream?t=' + Date.now(); }, 3000);
-let built = false, lastLog = '';
+
+// Plain wording for each option: [title, extra line]. An option that is not listed shows the text from the server.
+const WORDS = {
+  daily_cycle: ['Play both Pokémon GO apps', 'Each game runs until full or out of time.'],
+  catch: ['Catch wild Pokémon'],
+  curveball: ['Always throw a curveball'],
+  fast_catch: ['Fast catch', 'After a clear hit, press Back to skip the catch animation. The result is checked on the map.'],
+  fast_look: ['Look around like a person'],
+  buddy: ['My buddy walks along on the map', 'A Pokémon next to the trainer may be the buddy.'],
+  spin: ['Spin PokéStops'],
+  spin_only_when_full: ['Spin only when Pokémon storage is full'],
+  close_when_full: ['Close the game when storage and bag are full'],
+  gifts_open: ['Open gifts from friends'],
+  gifts_send: ['Send gifts to friends'],
+};
+const TARGETS = {
+  realistic: 'Mostly Great, not every throw perfect.', off: 'Just throw.',
+  nice: 'Aim for Nice.', great: 'Aim for Great.', excellent: 'Aim for Excellent.',
+};
+const STATES = { active: ['Running', 'run'], inactive: ['Stopped', 'hold'], activating: ['Starting', 'run'],
+                 deactivating: ['Stopping', 'hold'], failed: ['Failed', 'bad'] };
+
+let built = false, lastLog = '', manual = false, down = null, PW = 1768, PH = 2208;
 const fitMQ = window.matchMedia('(min-width:1000px) and (min-height:780px)');
-function showLog(){                                // big screen: as many lines as fit, so nothing has to be scrolled
-  const pre = document.getElementById('log'), lines = lastLog.split('\\n');
-  if (!fitMQ.matches) { pre.textContent = lastLog; return; }
-  let lo = 0, hi = lines.length;
+
+function addSwitch(box, key, label) {
+  const [title, hint] = WORDS[key] || [label];
+  const row = document.createElement('label');
+  row.className = 'row sw';
+  const txt = document.createElement('span'); txt.className = 'txt';
+  const t = document.createElement('span'); t.className = 't'; t.textContent = title; txt.append(t);
+  if (hint) { const h = document.createElement('span'); h.className = 'h'; h.textContent = hint; txt.append(h); }
+  const inp = document.createElement('input');
+  inp.type = 'checkbox'; inp.setAttribute('role', 'switch'); inp.id = 'o_' + key; inp.dataset.k = key;
+  const track = document.createElement('span'); track.className = 'track';
+  row.append(txt, inp, track);
+  box.append(row);
+}
+function buildOptions(labels) {
+  const placed = new Set();
+  document.querySelectorAll('.group').forEach(g => {
+    const box = g.querySelector('.switches');
+    for (const k of g.dataset.keys.split(' ')) if (k && k in labels) { addSwitch(box, k, labels[k]); placed.add(k); }
+  });
+  const more = $('g_more');                          // an option from a newer version that has no place yet
+  for (const k of Object.keys(labels)) if (!placed.has(k)) { addSwitch(more.querySelector('.switches'), k, labels[k]); more.hidden = false; }
+}
+document.addEventListener('change', e => { if (e.target.matches('.switches input')) setOpt(e.target.dataset.k, e.target.checked); });
+
+function esc(s) { return s.replace(/[&<>]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;'}[c])); }
+function lineHtml(l, day) {
+  const m = /^(\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d)\s+(.*)$/.exec(l);
+  let ts = '', msg = l;
+  if (m) { ts = (m[1] === day ? '' : m[1].slice(5) + ' ') + m[2]; msg = m[3]; }
+  const cls = /error|failed|could not|WARNING|stuck/i.test(msg) ? 'bad'
+            : /FULL|not playing|paused|did not/i.test(msg) ? 'warn'
+            : /CAUGHT|spun ✔|finished|started/i.test(msg) ? 'good' : '';
+  return `<span class="ln ${cls}"><span class="ts">${ts}</span>${esc(msg)}</span>`;
+}
+function showLog() {                                 // wide screen: as many lines as fit, so nothing has to be scrolled
+  const pre = $('log'), lines = lastLog.split('\n').filter(Boolean);
+  const day = lines.length && /^\d{4}-\d\d-\d\d/.test(lines[0]) ? lines[0].slice(0, 10) : '';
+  const html = lines.map(l => lineHtml(l, day));
+  if (!html.length) { pre.textContent = 'Nothing logged yet.'; return; }
+  if (!fitMQ.matches) { pre.innerHTML = html.join(''); return; }
+  let lo = 0, hi = html.length;
   while (lo < hi) {
     const mid = (lo + hi + 1) >> 1;
-    pre.textContent = lines.slice(0, mid).join('\\n');
+    pre.innerHTML = html.slice(0, mid).join('');
     if (pre.scrollHeight <= pre.clientHeight + 1) lo = mid; else hi = mid - 1;
   }
-  pre.textContent = lines.slice(0, lo).join('\\n');
+  pre.innerHTML = html.slice(0, lo).join('');
 }
 window.addEventListener('resize', showLog);
-async function refresh(){
+fitMQ.addEventListener('change', showLog);
+
+function showStats(text) {
+  const box = $('stats'); box.textContent = '';
+  const found = [...(text || '').matchAll(/(\d+)\s+([A-Za-z]+)/g)];
+  if (!found.length) { box.textContent = text ? 'Today: ' + text : 'No activity yet today'; return; }
+  const day = document.createElement('span'); day.textContent = 'Today'; box.append(day);
+  for (const [, n, what] of found) {
+    const s = document.createElement('span'), b = document.createElement('b');
+    b.textContent = n; s.append(b, what); box.append(s);
+  }
+}
+
+async function refresh() {
   try {
     const s = await (await fetch('status')).json();
-    const svc = document.getElementById('svc');
-    svc.textContent = 'bot: ' + (s.service === 'active' ? 'running' : (s.service || 'unknown'));
-    svc.className = 'pill ' + (s.service === 'active' ? 'ok' : 'bad');
-    document.getElementById('stats').textContent = 'today: ' + (s.stats || '–');
-    if (s.w && s.h) { PW = s.w; PH = s.h; img.style.aspectRatio = (s.w / s.h).toFixed(4); }
-    const sn = document.getElementById('scr_note');
-    sn.style.display = s.screen_note ? 'inline-block' : 'none';
-    sn.textContent = s.screen_note ? '⚠ ' + s.screen_note : '';
-    sn.className = 'pill ' + (s.screen_ok ? 'muted' : 'bad');
-    document.getElementById('vid').textContent = 'video: ' + (s.error ? s.error : s.video + (s.age!==null ? ' (' + s.age + ' s)' : ''));
-    const box = document.getElementById('opts');
-    if (!built) {
-      for (const [k, label] of Object.entries(s.labels)) {
-        box.insertAdjacentHTML('beforeend',
-          `<label class="opt"><input type="checkbox" id="o_${k}" onchange="setOpt('${k}', this.checked)"> ${label}</label>`);
-      }
-      built = true;
-    }
-    for (const k of Object.keys(s.labels)) document.getElementById('o_'+k).checked = !!s.control[k];
-    const tt = document.getElementById('ttarget');
+    const [name, tone] = STATES[s.service] || [s.service || 'Unknown', 'hold'];
+    $('svc').textContent = name; $('state').dataset.s = tone;
+    showStats(s.stats);
+    if (s.w && s.h) { PW = s.w; PH = s.h; document.documentElement.style.setProperty('--ar', (s.w / s.h).toFixed(4)); }
+    $('model').textContent = s.phone || '';
+    const vid = $('vid');
+    if (s.error) { vid.textContent = 'No video: ' + s.error; vid.className = 'late'; }
+    else if (s.age !== null && s.age > 10) { vid.textContent = 'Video stalled, last picture ' + Math.round(s.age) + ' s old'; vid.className = 'late'; }
+    else { vid.textContent = s.age !== null ? 'Live, ' + Math.round(s.age) + ' s ago' : 'Live'; vid.className = ''; }
+    vid.title = s.video ? 'Video mode: ' + s.video : '';
+    const note = $('scr_note');
+    note.hidden = !s.screen_note; note.textContent = s.screen_note || '';
+    note.style.background = s.screen_ok ? '#1d2c31' : ''; note.style.color = s.screen_ok ? 'var(--mist)' : '';
+    const running = s.service === 'active';
+    $('frame').dataset.ring = (!s.screen_ok || s.error || tone === 'bad') ? 'bad' : running ? 'run' : 'hold';
+    if (!built) { buildOptions(s.labels); built = true; }
+    for (const k of Object.keys(s.labels)) { const el = $('o_' + k); if (el) el.checked = !!s.control[k]; }
+    const tt = $('ttarget');
     if (document.activeElement !== tt) tt.value = s.control.throw_target || 'realistic';
-    const dm = document.getElementById('dmax');
-    if (document.activeElement !== dm) dm.value = s.control.daily_max_min || 480;
-    const dt = document.getElementById('dtime');
-    if (document.activeElement !== dt) dt.value = s.control.daily_time || '08:00';
+    $('thint').textContent = TARGETS[tt.value] || '';
+    const dm = $('dmax'); if (document.activeElement !== dm) dm.value = s.control.daily_max_min || 480;
+    const dt = $('dtime'); if (document.activeElement !== dt) dt.value = s.control.daily_time || '08:00';
+    setManual(!running);
     lastLog = await (await fetch('log')).text();
     showLog();
-  } catch(e) {}
+  } catch (e) {}
 }
-async function act(a){ if (a==='stop' && !confirm('Stop the bot?')) return;
-  if (a==='close' && !confirm('Stop the bot and close Pokémon GO completely?')) return; await fetch('action/'+a,{method:'POST'}); setTimeout(refresh, 1500); }
-async function setMax(v){ const n = Math.round(Number(v)); if (n >= 5 && n <= 1440) await fetch('daily_max/'+n,{method:'POST'}); refresh(); }
-async function setTime(t){ if (/^\\d\\d:\\d\\d$/.test(t)) await fetch('daily_time/'+t,{method:'POST'}); refresh(); }
-async function setTarget(v){ await fetch('throw_target/'+v,{method:'POST'}); refresh(); }
-async function setOpt(k, on){ await fetch('option/'+k+'/'+(on?'on':'off'),{method:'POST'}); refresh(); }
+
+async function act(a) {
+  if (a === 'stop' && !confirm('Stop the bot?')) return;
+  if (a === 'close' && !confirm('Stop the bot and close Pokémon GO completely?')) return;
+  await fetch('action/' + a, {method: 'POST'}); setTimeout(refresh, 1500);
+}
+async function setMax(v) { const n = Math.round(Number(v)); if (n >= 5 && n <= 1440) await fetch('daily_max/' + n, {method: 'POST'}); refresh(); }
+async function setTime(t) { if (/^\d\d:\d\d$/.test(t)) await fetch('daily_time/' + t, {method: 'POST'}); refresh(); }
+async function setTarget(v) { await fetch('throw_target/' + v, {method: 'POST'}); refresh(); }
+async function setOpt(k, on) { await fetch('option/' + k + '/' + (on ? 'on' : 'off'), {method: 'POST'}); refresh(); }
+
 // ---- manual control (only while the bot is stopped) ----
-let manual = false, down = null;
-let PW = 1768, PH = 2208;                          // phone screen in pixels (updated from the status)
-function phonePos(e){ const r = img.getBoundingClientRect();
-  return [Math.round((e.clientX - r.left) / r.width * PW), Math.round((e.clientY - r.top) / r.height * PH)]; }
-img.addEventListener('pointerdown', e => { if (!manual) return; e.preventDefault();
-  img.setPointerCapture(e.pointerId); down = {p: phonePos(e), t: Date.now()}; });
-img.addEventListener('pointerup', e => { if (!manual || !down) return; e.preventDefault();
-  const p = phonePos(e), ms = Date.now() - down.t, d = Math.hypot(p[0]-down.p[0], p[1]-down.p[1]);
-  if (d < 25 && ms < 450) fetch(`input/tap?x=${p[0]}&y=${p[1]}`, {method:'POST'});
-  else fetch(`input/swipe?x1=${down.p[0]}&y1=${down.p[1]}&x2=${p[0]}&y2=${p[1]}&ms=${Math.max(ms,80)}`, {method:'POST'});
-  down = null; });
+function phonePos(e) {
+  const r = img.getBoundingClientRect();
+  return [Math.round((e.clientX - r.left) / r.width * PW), Math.round((e.clientY - r.top) / r.height * PH)];
+}
+img.addEventListener('pointerdown', e => {
+  if (!manual) return; e.preventDefault();
+  img.setPointerCapture(e.pointerId); down = {p: phonePos(e), t: Date.now()};
+});
+img.addEventListener('pointerup', e => {
+  if (!manual || !down) return; e.preventDefault();
+  const p = phonePos(e), ms = Date.now() - down.t, d = Math.hypot(p[0] - down.p[0], p[1] - down.p[1]);
+  if (d < 25 && ms < 450) fetch(`input/tap?x=${p[0]}&y=${p[1]}`, {method: 'POST'});
+  else fetch(`input/swipe?x1=${down.p[0]}&y1=${down.p[1]}&x2=${p[0]}&y2=${p[1]}&ms=${Math.max(ms, 80)}`, {method: 'POST'});
+  down = null;
+});
 img.addEventListener('contextmenu', e => { if (manual) e.preventDefault(); });
-function key(k){ fetch('input/key/'+k, {method:'POST'}); }
-function sendText(){ const t = document.getElementById('txt'); fetch('input/text?t='+encodeURIComponent(t.value), {method:'POST'}); t.value=''; }
-function setManual(on){ manual = on; img.classList.toggle('manual', on); document.getElementById('manualbar').classList.toggle('on', on); }
-const _refresh = refresh;
-refresh = async function(){ await _refresh();
-  const running = document.getElementById('svc').textContent.includes('running'); setManual(!running); };
-refresh(); setInterval(() => refresh(), 3000);
+function key(k) { fetch('input/key/' + k, {method: 'POST'}); }
+function sendText() { const t = $('txt'); fetch('input/text?t=' + encodeURIComponent(t.value), {method: 'POST'}); t.value = ''; }
+function setManual(on) {
+  if (on === manual) return;
+  manual = on; img.classList.toggle('manual', on); $('manualbar').classList.toggle('on', on); $('manual_note').hidden = !on; showLog();
+}
+refresh(); setInterval(refresh, 3000);
 </script></body></html>"""
+PAGE = PAGE.replace("@@NAME@@", APP_NAME)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -513,7 +719,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Authorization") == expected:
             return True
         self.send_response(401)
-        self.send_header("WWW-Authenticate", 'Basic realm="Gamebot"')
+        self.send_header("WWW-Authenticate", 'Basic realm="Pokemon GO Automation"')
         self.end_headers()
         return False
 
@@ -627,5 +833,5 @@ if __name__ == "__main__":
     threading.Thread(target=video_loop, daemon=True).start()
     if not password():
         print(f"WARNING: no password set ({PASSWORD_FILE}) - anyone on your network can watch")
-    print(f"Gamebot web on http://0.0.0.0:{PORT}")
+    print(f"{APP_NAME} web on http://0.0.0.0:{PORT}")
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
