@@ -1,0 +1,14 @@
+[Unit]
+Description=Gamebot web interface (port 8080)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi
+ExecStart=/home/pi/gbvenv/bin/python /home/pi/web.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

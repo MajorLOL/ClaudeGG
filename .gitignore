@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+gbvenv/
+.venv/
+
+# downloaded by install.sh, not committed
+*.tflite
+
+# runtime files and debug screenshots (these live in the home folder of the Pi, but just in case)
+debug/
+check.png
+spin.log
+.gamebot_web_password
+.gamebot_web_user
+gamebot_*.json
+gamebot_allow_unsupported
+gamebot_no_display_change
+gamebot_wm_override.json

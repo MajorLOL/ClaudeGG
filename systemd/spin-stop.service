@@ -1,0 +1,15 @@
+[Unit]
+Description=Pokemon GO gamebot v3 (ADB + image recognition)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi
+ExecStartPre=/usr/bin/adb start-server
+ExecStart=/home/pi/gbvenv/bin/python /home/pi/gamebot.py
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
