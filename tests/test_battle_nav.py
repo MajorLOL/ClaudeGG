@@ -42,6 +42,10 @@ class ScreenKind(unittest.TestCase):
         self.assertEqual(bn.screen_kind(lines, league="Great League"), "league")
         self.assertEqual(bn.screen_kind(lines, league=""), "other")
 
+    def test_league_list_by_its_title_even_when_the_wanted_league_is_not_on_it(self):
+        self.assertEqual(bn.screen_kind(SCREENS["league_list"], league="Rocket League"), "league")
+        self.assertEqual(bn.screen_kind(SCREENS["league_list"]), "league")
+
     def test_exit_pokemon_go_question(self):
         lines = [line("DO YOU WANT TO EXIT POKEMON GO?", 600, 900), line("CANCEL", 600, 1100)]
         self.assertEqual(bn.screen_kind(lines), "exit")
@@ -108,6 +112,64 @@ class League(unittest.TestCase):
 
     def test_empty_name_finds_nothing(self):
         self.assertEqual(bn.league_lines(SCREENS["party"], ""), [])
+
+
+class LeagueList(unittest.TestCase):
+    """The 'CHOOSE YOUR LEAGUE' screen (read from a screen recording of the phone)."""
+
+    def test_is_a_league_screen_for_the_chosen_league(self):
+        self.assertEqual(bn.screen_kind(SCREENS["league_list"], league="Great League"), "league")
+
+    def test_missing_league_is_not_found(self):
+        self.assertEqual(bn.league_lines(SCREENS["league_list"], "Rocket League"), [])
+
+    def test_great_league_is_the_edition_tile_not_ultra_or_master(self):
+        hits = bn.league_lines(SCREENS["league_list"], "Great League")
+        self.assertEqual(len(hits), 1)
+        self.assertIn("GREAT LEAGUE EDITION", hits[0][0])
+        self.assertGreater(hits[0][2], 1600)                  # the third tile, low on the screen
+
+    def test_ultra_league_tile(self):
+        hits = bn.league_lines(SCREENS["league_list"], "Ultra League")
+        self.assertEqual(len(hits), 1)
+        self.assertLess(hits[0][2], 1100)                     # the first tile
+
+
+class ExitTrainerBattle(unittest.TestCase):
+    """'Exit the Trainer Battle?': YES is white on green and not read by OCR, NO is."""
+
+    def test_both_screenshots_are_recognised(self):
+        self.assertEqual(bn.screen_kind(SCREENS["exit_battle_video"]), "exit_battle")
+        self.assertEqual(bn.screen_kind(SCREENS["exit_battle_video"], league="Great League"), "exit_battle")
+
+    def test_yes_is_above_no(self):
+        spots = bn.exit_battle_spots(SCREENS["exit_battle_video"])
+        no = spots["no"]
+        self.assertEqual(no, (883, 1403))
+        # on the recording the YES button is centred at y 1115 (50% of the screen height)
+        self.assertEqual(spots["yes"][0], 883)
+        self.assertAlmostEqual(spots["yes"][1], 1115, delta=60)
+
+    def test_yes_from_the_question_when_no_is_not_read(self):
+        lines = [l for l in SCREENS["exit_battle_video"] if l[0] != "NO"]
+        spots = bn.exit_battle_spots(lines)
+        self.assertIsNone(spots["no"])
+        self.assertAlmostEqual(spots["yes"][1], 1115, delta=60)
+
+    def test_fixed_spot_when_nothing_is_read(self):
+        spots = bn.exit_battle_spots([])
+        self.assertEqual(spots["yes"], bn.EXIT_YES_FALLBACK)
+        self.assertIsNone(spots["no"])
+
+    def test_spots_scale_with_the_screen(self):
+        full = bn.exit_battle_spots(SCREENS["exit_battle_video"])
+        half = bn.exit_battle_spots([(t, x // 2, y // 2, [(w, wx // 2, wy // 2) for w, wx, wy in ws])
+                                     for t, x, y, ws in SCREENS["exit_battle_video"]], 0.5)
+        self.assertAlmostEqual(full["yes"][1] / 2, half["yes"][1], delta=3)
+
+    def test_the_two_buttons_do_not_overlap(self):
+        spots = bn.exit_battle_spots(SCREENS["exit_battle"])
+        self.assertGreater(spots["no"][1] - spots["yes"][1], 200)
 
 
 class PartyScreen(unittest.TestCase):

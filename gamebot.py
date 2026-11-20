@@ -2980,11 +2980,13 @@ def _battle_kind(shot, lines):
     return BN.screen_kind(lines, S.on_map(shot), battle_league(), shot.shape[0] / 2208)
 
 
-def _battle_to_map(beat=None):
+def _battle_to_map(beat=None, leaving_setup=False):
     """Leave the battle screens: look at what is on the screen and go back, never blindly.
-    A closed menu is left with its X button, a question about exiting Pokémon GO is answered with CANCEL
-    and 'Exit the Trainer Battle?' with NO."""
-    for i in range(8):
+    A closed menu is left with its X button, 'Do you want to exit Pokémon GO?' is answered with CANCEL.
+    BACK on the league list or the party screen asks 'Exit the Trainer Battle?': with leaving_setup (we
+    only looked at those screens, no fight was started) it is answered with YES, otherwise with NO."""
+    yes_taps = 0
+    for i in range(10):
         shot = S.screenshot()
         if S.on_map(shot):
             return True
@@ -2995,10 +2997,14 @@ def _battle_to_map(beat=None):
         if kind == "exit":
             _cancel_exit(lines)
         elif kind == "exit_battle":
-            for w, x, y in _words(lines):
-                if w == "NO":
-                    S.tap(x, y)
-                    break
+            spots = BN.exit_battle_spots(lines, shot.shape[0] / 2208)
+            if leaving_setup and yes_taps < 3:
+                yes_taps += 1
+                log("battle: leaving the league screens - answering YES to 'Exit the Trainer Battle?' "
+                    f"(no battle was started), at {spots['yes']}")
+                S.tap(*spots["yes"])
+            elif spots["no"]:
+                S.tap(*spots["no"])
             else:
                 S.back()
         elif kind == "menu":
@@ -3009,13 +3015,14 @@ def _battle_to_map(beat=None):
     return S.on_map(S.screenshot())
 
 
-def battle_open_menu(beat=None, stop=None):
+def battle_open_menu(beat=None, stop=None, restart=False):
     """Walks from the map to the party screen of the chosen league and goes back to the map.
 
     map -> main menu -> BATTLE tile -> Battle screen -> BATTLE button -> [league list] -> party screen.
     Every step looks at what is really on the screen first (see battle_nav.py); an unknown screen is
     logged with a saved picture (debug/g_battle_s<step>.png). It NEVER presses USE THIS PARTY: the
-    fight itself is not built yet. Returns {"ok": bool, "why": str, "title": str, "members": [...]}."""
+    fight itself is not built yet. restart: when the way back to the map fails, restart the game (the
+    daily run needs the map). Returns {"ok": bool, "why": str, "title": str, "members": [...]}."""
     league = battle_league()
     info = {"ok": False, "why": "", "title": "", "members": []}
     try:
@@ -3026,7 +3033,7 @@ def battle_open_menu(beat=None, stop=None):
     t0 = time.monotonic()
     taps = {"map": 0, "home": 0, "league": 0}
     menu_spots = home_spots = None
-    others, tapped = 0, False
+    others, tapped, in_setup = 0, False, False       # in_setup: the league list or party screen was seen
     try:
         for step in range(BATTLE_NAV_STEPS):
             if (stop and stop()) or time.monotonic() - t0 > BATTLE_NAV_SECONDS:
@@ -3040,6 +3047,8 @@ def battle_open_menu(beat=None, stop=None):
             if beat:
                 beat()
             k = shot.shape[0] / 2208
+            if kind in ("party", "league"):
+                in_setup = True
             if kind == "party":
                 info["ok"] = True
                 info["title"] = BN.party_title(lines, k)
@@ -3082,8 +3091,13 @@ def battle_open_menu(beat=None, stop=None):
             elif kind == "league":
                 taps["league"] += 1
                 spots = BN.league_lines(lines, league)
-                if taps["league"] > 2 or not spots:
-                    info["why"] = f"the league '{league}' could not be chosen"
+                if not spots:
+                    S.debug_save("g_battle_leagues.png", shot)
+                    info["why"] = (f"the league '{league}' is not on the league list: "
+                                   + BN.reads(lines, 120) + " (see debug/g_battle_leagues.png)")
+                    break
+                if taps["league"] > 2:
+                    info["why"] = f"the league '{league}' was tapped but the party screen did not open"
                     break
                 t, x, y = spots[0]
                 log(f"battle: choosing the league '{t}' at ({x}, {y})")
@@ -3103,8 +3117,12 @@ def battle_open_menu(beat=None, stop=None):
         else:
             info["why"] = "too many steps"
     finally:
-        if not _battle_to_map(beat):
-            log("battle: could not get back to the map - the normal bot takes over")
+        if not _battle_to_map(beat, in_setup):
+            if restart:
+                log("battle: could not get back to the map - restarting the game")
+                S.restart_game()
+            else:
+                log("battle: could not get back to the map - the normal bot takes over")
     if not info["ok"] and not info["why"]:
         info["why"] = "unknown"
     return info
@@ -3130,7 +3148,7 @@ def auto_battle(pkg, beat, stop):
     log(f"battle: preview - {battle_count()} battle(s) in '{battle_league()}' with "
         + ", ".join(m.label for m in team) + "; for now it only opens the battle menu as far as the party screen")
     beat()
-    info = battle_open_menu(beat, stop)
+    info = battle_open_menu(beat, stop, restart=True)
     if info["ok"]:
         league_ok = all(w in info["title"].upper() for w in BN.league_words(battle_league()))
         log(f"battle: reached the party screen '{info['title'] or '?'}' (team seen: "

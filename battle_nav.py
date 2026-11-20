@@ -25,6 +25,11 @@ HOME_BUTTON_Y = 1700     # Battle screen: the BATTLE button is in the lowest par
 # Battle screen: where the green BATTLE button is when its label is not read (the
 # round close button floats in the middle of its top edge, so tap left or right of it)
 HOME_BUTTON_FALLBACK = [(650, 2165), (1120, 2165)]
+# 'Exit the Trainer Battle?': YES is white text on a green button (OCR does not read it), NO is plain text.
+# YES sits this far above NO, and this far below the question; the buttons are big, so a few dozen px off is fine
+YES_ABOVE_NO = 290
+YES_BELOW_TITLE = 310
+EXIT_YES_FALLBACK = (884, 1110)
 MENU_WORDS = ("SETTINGS", "POKEDEX", "BATTLE", "SHOP", "POKEMON", "ITEMS")
 
 
@@ -98,7 +103,7 @@ def screen_kind(lines, on_map=False, league="", k=1.0):
     menu       the main menu (Poké Ball): ITEMS and POKÉMON side by side
     exit       'Do you want to exit Pokémon GO?'
     exit_battle  'Exit the Trainer Battle?' (we are inside a fight: answer NO)
-    league     any other screen that shows the wanted league's name
+    league     the league list ('CHOOSE YOUR LEAGUE') or any other screen that shows the wanted league's name
     other      anything else (loading, a pop-up, ...)
     """
     if on_map:
@@ -122,7 +127,7 @@ def screen_kind(lines, on_map=False, league="", k=1.0):
         return "exit_battle"
     if "EXIT" in text and ("CANCEL" in text or "POK" in text):
         return "exit"
-    if league and league_lines(lines, league):
+    if _phrase(lines, "CHOOSE YOUR LEAGUE") or (league and league_lines(lines, league)):
         return "league"
     return "other"
 
@@ -155,6 +160,21 @@ def home_battle_spots(lines, k=1.0):
         spots += [(x, y), (x, y - int(45 * k))]
     spots += [(int(x * k), int(y * k)) for x, y in HOME_BUTTON_FALLBACK]
     return spots
+
+
+def exit_battle_spots(lines, k=1.0):
+    """'Exit the Trainer Battle?' -> {"yes": (x, y), "no": (x, y) or None}.  The question comes up when
+    BACK is pressed on the league list or on the party screen.  YES is placed from the word NO (or from the
+    question when NO is not read, or at a fixed spot)."""
+    no = next(((x, y) for w, x, y in words_of(lines) if w == "NO" and y > 900 * k), None)
+    title = next((y for t, _x, y, _ws in lines if "EXIT" in t and "TRAINER" in t), None)
+    if no:
+        yes = (no[0], no[1] - int(YES_ABOVE_NO * k))
+    elif title:
+        yes = (int(EXIT_YES_FALLBACK[0] * k), title + int(YES_BELOW_TITLE * k))
+    else:
+        yes = (int(EXIT_YES_FALLBACK[0] * k), int(EXIT_YES_FALLBACK[1] * k))
+    return {"yes": yes, "no": no}
 
 
 def party_title(lines, k=1.0):
