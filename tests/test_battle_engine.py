@@ -141,7 +141,7 @@ class ChargedChoice(unittest.TestCase):
         foe = be.foe_from_text("azumarill")        # resists Surf, weak to Thunderbolt
         mv, why = be.pick_charged(self.lanturn, foe, 47, 0)
         self.assertIsNone(mv)
-        self.assertIn("waiting", why)
+        self.assertIn("building up to Thunderbolt", why)
         mv, _ = be.pick_charged(self.lanturn, foe, 55, 0)
         self.assertEqual(mv.name, "Thunderbolt")
 
@@ -153,8 +153,44 @@ class ChargedChoice(unittest.TestCase):
 
     def test_no_bait_when_foe_has_no_shields(self):
         foe = be.foe_from_text("medicham")
-        mv, _ = be.pick_charged(self.lanturn, foe, 100, 0)
-        self.assertEqual(mv.name, "Thunderbolt")   # strongest move
+        mv, why = be.pick_charged(self.lanturn, foe, 100, 0)
+        self.assertIsNotNone(mv)
+        self.assertNotIn("bait", why)
+
+    def test_builds_up_to_the_big_move_instead_of_throwing_a_weak_one(self):
+        # Kingdra (Shadow) vs Talonflame: Swift is affordable at 35 energy but
+        # Surf (x1.6) is almost three times as strong and 10 energy away.
+        kd = be.Mon("kingdra", shadow=True, fast="DRAGON_BREATH",
+                    charged=["SURF", "SWIFT"])
+        tf = be.Mon("talonflame", fast="INCINERATE",
+                    charged=["FLY", "BRAVE_BIRD"])
+        mv, why = be.pick_charged(kd, tf, 36, 0)
+        self.assertIsNone(mv)
+        self.assertIn("Surf", why)
+        mv, _ = be.pick_charged(kd, tf, 45, 0)
+        self.assertEqual(mv.name, "Surf")
+
+    def test_plan_prefers_the_fastest_knockout(self):
+        kd = be.Mon("kingdra", shadow=True, fast="DRAGON_BREATH",
+                    charged=["SURF", "SWIFT"])
+        tf = be.Mon("talonflame", fast="INCINERATE",
+                    charged=["FLY", "BRAVE_BIRD"])
+        active = sorted(kd.charged, key=lambda m: m.energy)
+        dmg = {m.id: be.damage(m, kd, tf) for m in active}
+        plan = be.plan_kill(kd, tf, 36, tf.hp - 40, 0, active, dmg,
+                            be.damage(kd.fast, kd, tf))
+        self.assertEqual([m.id for m in plan], ["SURF"])
+
+    def test_plan_with_shields_burns_one_throw_per_shield(self):
+        kd = be.Mon("kingdra", shadow=True, fast="DRAGON_BREATH",
+                    charged=["SURF", "SWIFT"])
+        tf = be.Mon("talonflame", fast="INCINERATE",
+                    charged=["FLY", "BRAVE_BIRD"])
+        active = sorted(kd.charged, key=lambda m: m.energy)
+        dmg = {m.id: be.damage(m, kd, tf) for m in active}
+        plan = be.plan_kill(kd, tf, 100, tf.hp, 1, active, dmg,
+                            be.damage(kd.fast, kd, tf))
+        self.assertGreaterEqual(len(plan), 2)
 
 
 class Shielding(unittest.TestCase):
@@ -296,7 +332,8 @@ class Matchups(unittest.TestCase):
         self.assertIsNone(best)
 
     def test_noctowl_beats_fighting_type(self):
-        foe = be.foe_from_text("medicham")
+        # a fighting type without coverage (the ranked Medicham carries Ice Punch)
+        foe = be.Mon("medicham", fast="COUNTER", charged=["DYNAMIC_PUNCH"])
         self.assertGreater(be.matchup(self.team[0], foe), 0)
         self.assertLess(be.matchup(self.team[1], foe), 0)
 
@@ -308,11 +345,48 @@ class DataFile(unittest.TestCase):
         self.assertGreater(len(d["moves"]), 300)
         self.assertGreaterEqual(len(d["cpm"]), 101)
         self.assertIn("MIT", d["source"])
+        self.assertGreater(len(d["sets"]["1500"]), 500)
 
     def test_every_species_builds(self):
         for sid in be.load()["mons"]:
             m = be.Mon(sid)
             self.assertGreater(m.max_hp, 0)
+
+
+class Movesets(unittest.TestCase):
+    def test_ranked_set_is_used_for_opponents(self):
+        fast, charged = be.ranked_moveset("noctowl")
+        self.assertEqual(fast, "WING_ATTACK")
+        self.assertEqual(charged, ["SHADOW_BALL", "RETURN"])
+        foe = be.Mon("noctowl")
+        self.assertEqual(foe.fast.id, "WING_ATTACK")
+        self.assertEqual([c.id for c in foe.charged], ["SHADOW_BALL", "RETURN"])
+
+    def test_shadow_shares_the_moves_of_its_normal_form(self):
+        self.assertEqual(be.default_moveset("lapras"),
+                         be.ranked_moveset("lapras"))
+        foe = be.Mon("lapras", shadow=True)
+        self.assertEqual(foe.fast.id, be.ranked_moveset("lapras")[0])
+
+    def test_species_without_a_ranking_falls_back_to_the_guess(self):
+        missing = [s for s in be.load()["mons"] if be.ranked_moveset(s) is None]
+        self.assertTrue(missing)
+        sid = missing[0]
+        self.assertEqual(be.default_moveset(sid), be.guessed_moveset(sid))
+        self.assertTrue(be.Mon(sid).charged)
+
+    def test_every_ranked_set_is_usable(self):
+        moves = be.load()["moves"]
+        for sid, row in be.load()["sets"]["1500"].items():
+            self.assertIn(sid, be.load()["mons"])
+            self.assertGreaterEqual(len(row), 2)
+            self.assertEqual(moves[row[0]][3], 0, "%s: first move is fast" % sid)
+            for m in row[1:]:
+                self.assertGreater(moves[m][3], 0, "%s: %s is charged" % (sid, m))
+
+    def test_explicit_moves_still_win(self):
+        m = be.Mon("noctowl", fast="WING_ATTACK", charged=["SKY_ATTACK"])
+        self.assertEqual([c.id for c in m.charged], ["SKY_ATTACK"])
 
 
 if __name__ == "__main__":

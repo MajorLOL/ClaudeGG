@@ -50,7 +50,8 @@ Then install the services, the sudoers rule and the web password as described in
 | `spin_stop.py` | Base functions: ADB, screenshots, unlocking, recovery, PokéStop spinning |
 | `web.py` | Web interface (live video, log, options, battle recorder) |
 | `battle_engine.py` | Decisions for GO Battle League: damage, best charged attack, shield or not, best switch-in. No phone access; `python3 battle_engine.py medicham` shows how your team fares against a Pokémon |
-| `tools/build_battle_data.py` | Builds `models/battle_data.json` from the open PvPoke data |
+| `tools/build_battle_data.py` | Builds `models/battle_data.json` from the open PvPoke data (stats, moves, type chart and the recommended movesets of the Great League rankings) |
+| `tools/crosscheck_gbl_lab.py` | Developer check: plays the engine's 1-against-1 duels against the results of a simulator that matches PvPoke and reports how often the same Pokémon wins |
 | `tests/` | Unit tests of the battle engine: `python3 -m unittest discover -s tests` |
 | `device_check.py` | Reports which phone and screen the bot found; `--layout` checks (without changing anything) whether the game is drawn the way the bot expects; `--speed` measures screenshot speed; `--reset-display` undoes a display size change; collects what is needed to add a new phone |
 | `systemd/` | Service files: `spin-stop.service` (the bot) and `gamebot-web.service` (the web interface) |

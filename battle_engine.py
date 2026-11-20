@@ -10,9 +10,12 @@ touch the phone: it only answers questions such as
 
 Game data (base stats, moves, type chart, CP multipliers) comes from
 models/battle_data.json, built by tools/build_battle_data.py from the open
-PvPoke data (MIT License, Copyright (c) 2019 pvpoke).  The shield rule that
-looks at the next round of fast attacks (cycle_damage) follows PvPoke's
-ActionLogic.js.
+PvPoke data (MIT License, Copyright (c) 2019 pvpoke), including the moveset
+PvPoke's Great League rankings recommend for each opponent.  The choice of
+charged attack (plan_kill, best_charged, bait) and the shield rule that looks at
+the next round of fast attacks (cycle_damage) follow PvPoke's ActionLogic.js;
+tools/crosscheck_gbl_lab.py compares the duels with a simulator that matches
+PvPoke.
 
 Damage formula (PvP):
     floor(power * STAB * attack/defense * effectiveness * 0.5 * 1.3) + 1
@@ -44,10 +47,6 @@ WEAK_RESISTED_HIT = 0.25  # a resisted hit below this is also not worth a shield
 SHIELD_HIT_2 = 0.20      # with two shields, shield hits of at least this size
 SHIELD_HIT_1 = 0.30      # with the last shield, only shield bigger hits
 SHIELD_CURRENT = 0.60    # ... or hits that take this much of the current HP
-# A charged attack is "not worth throwing" below this fraction of the foe's HP.
-MIN_WORTH = 0.10
-# Energy gained that we are willing to wait for a better charged attack.
-WAIT_ENERGY = 25
 
 _DATA = None
 _DATA_PATHS = []
@@ -236,8 +235,21 @@ def damage(move, attacker, defender):
                0.5 * BONUS) + 1
 
 
-def default_moveset(species_id):
-    """Likely moves of a species: best fast move and two best charged moves."""
+LEAGUE_CAP = "1500"      # the engine rates opponents at Great League level
+
+
+def ranked_moveset(species_id, cap=LEAGUE_CAP):
+    """The moveset PvPoke's rankings recommend (fast, [charged, ...]) or None."""
+    row = (load().get("sets") or {}).get(cap, {}).get(species_id)
+    moves = load()["moves"]
+    if not row or len(row) < 2 or any(m not in moves for m in row):
+        return None
+    return row[0], list(row[1:3])
+
+
+def guessed_moveset(species_id):
+    """Fallback for species the rankings do not list: best fast move (damage x
+    energy per turn) and the two charged moves with the most damage per energy."""
     row = load()["mons"][species_id]
     moves = load()["moves"]
     fast_ids, charged_ids = row[5], row[6]
@@ -253,8 +265,12 @@ def default_moveset(species_id):
         return m[2] / float(m[3]) if m[3] else 0     # damage per energy
 
     ranked = sorted(charged_ids, key=cscore, reverse=True)
-    chosen = ranked[:2]
-    return fast, chosen
+    return fast, ranked[:2]
+
+
+def default_moveset(species_id):
+    """Likely moves of an opponent: the PvPoke ranking set, else a guess."""
+    return ranked_moveset(species_id) or guessed_moveset(species_id)
 
 
 def fit_stats(species_id, cp, hp, shadow=False):
@@ -349,50 +365,150 @@ def foe_from_text(name, shadow=False):
 
 # ------------------------------------------------------------ decisions ---
 
+def _dpe(move, dmg):
+    return dmg / float(move.energy)
+
+
+def best_charged(active, dmg):
+    """PvPoke's 'best' charged move: the most damage per energy, where a move
+    must beat the cheaper one by a clear margin to take over."""
+    best = active[0]
+    for m in active[1:]:
+        if _dpe(m, dmg[m.id]) - _dpe(best, dmg[best.id]) > 0.03:
+            best = m
+    return best
+
+
+def plan_kill(me, foe, energy, foe_hp, foe_shields, active, dmg, fast_dmg,
+              limit=500):
+    """PvPoke's planner: the charged moves that knock the foe out soonest.
+
+    Walks forward in time over 'wait until the move is charged, then throw it'
+    steps (and plain fast-move farming).  A foe with shields soaks one throw
+    each for 1 damage.  Returns the list of moves, empty when farming with the
+    fast move alone is quickest, or None when no plan was found.
+    """
+    fast = me.fast
+    gain, fturns = fast.gain, fast.turns
+    queue = [(0, 0, energy, foe_hp, foe_shields, ())]
+    seq = 1
+    expanded = 0
+    while queue and expanded < limit:
+        expanded += 1
+        turn, _n, en, hp, sh, moves = queue.pop(0)
+        if hp <= 0:
+            return list(moves)
+        new = []
+        if fast_dmg > 0:
+            farm = int(math.ceil(hp / float(fast_dmg)))
+            new.append((turn + farm * fturns, en + gain * farm, 0, sh, moves))
+        for m in active:
+            if en >= m.energy:
+                wait = 0
+            elif gain > 0:
+                wait = int(math.ceil((m.energy - en) / float(gain))) * fturns
+            else:
+                continue
+            k = wait // fturns
+            nhp = hp - fast_dmg * k - (1 if sh > 0 else dmg[m.id])
+            new.append((turn + wait + 1, en - m.energy + gain * k, nhp,
+                        sh - 1 if sh > 0 else sh, moves + (m,)))
+        for t, e, h, s_, mv in new:
+            # skip a state that an earlier, at least as good one already covers
+            if any(q[0] <= t and q[3] <= h and q[2] >= e and q[4] <= s_
+                   for q in queue):
+                continue
+            i = 0
+            while i < len(queue) and queue[i][0] <= t:
+                i += 1
+            queue.insert(i, (t, seq, e, h, s_, mv))
+            seq += 1
+    return None
+
+
 def pick_charged(me, foe, energy, foe_shields=0, foe_hp=None):
-    """Choose the charged attack to throw now.
+    """Choose the charged attack to throw now (PvPoke's default decision logic).
 
     Returns (move or None, reason).  None means: keep using the fast move.
+    The rules, in order: throw a move that finishes the foe; when the fight will
+    take many cycles just build up to the best move; otherwise follow the
+    quickest plan to knock the foe out, baiting a shield with a cheap, efficient
+    move when the foe still has shields.
     """
     foe_hp = foe.hp if foe_hp is None else foe_hp
-    rows = []
-    for m in me.charged:
-        rows.append((m, damage(m, me, foe), type_mult(m.type, foe.types)))
-    afford = [r for r in rows if r[0].energy <= energy]
-    if not afford:
+    active = sorted(me.charged, key=lambda m: (m.energy, -m.power))
+    if not active or energy < active[0].energy:
         return None, "not enough energy"
+    dmg = {m.id: damage(m, me, foe) for m in active}
+    fast_dmg = damage(me.fast, me, foe)
+
+    def pays(m):
+        return m.energy <= energy
 
     # 1. Finish the opponent: cheapest move that is enough.
+    if foe_shields <= 0 and foe_hp > fast_dmg:
+        for m in active:
+            if pays(m) and dmg[m.id] >= foe_hp:
+                return m, "%s finishes it (%d dmg >= %d HP)" % (
+                    m.name, dmg[m.id], foe_hp)
+
+    def foe_would_shield(m):
+        return should_shield(me, foe, foe_shields, m, foe_hp)[0]
+
+    best = best_charged(active, dmg)
+
+    # 2. Many cycles to go: just build up to the best move (or a cheap bait).
+    cycle = dmg[best.id] + fast_dmg * int(math.ceil(
+        best.energy / float(max(me.fast.gain, 1))))
+    if foe_hp / float(max(cycle, 1)) > 2:
+        pick = best
+        if foe_shields > 0 and len(active) > 1 and \
+                any(foe_would_shield(m) for m in active):
+            pick = active[0]
+        if energy < pick.energy:
+            return None, "building up to %s" % pick.name
+        return pick, "%s is the best attack (%d dmg, x%.2f)" % (
+            pick.name, dmg[pick.id], type_mult(pick.type, foe.types))
+
+    # 3. Few cycles to go: follow the plan that knocks the foe out soonest.
+    plan = plan_kill(me, foe, energy, foe_hp, foe_shields, active, dmg,
+                     fast_dmg)
+    if not plan:
+        return None, "farming down with the fast move is quickest"
+    first = plan[0]
+
+    if foe_shields > 0 and len(active) > 1:
+        # Keep building towards a more efficient (bait) move when it is not yet
+        # charged ...
+        for m in active[1:]:
+            if energy < m.energy and _dpe(m, dmg[m.id]) > _dpe(first, dmg[first.id]):
+                return None, "building up to %s to bait the shield" % m.name
+        # ... but do not bait with a weak move when the foe will not shield a
+        # clearly stronger one.
+        for m in active[1:]:
+            if pays(m) and _dpe(m, dmg[m.id]) / _dpe(first, dmg[first.id]) > 1.5 \
+                    and not foe_would_shield(m):
+                first = m
+
+    # no shields: lead with the hardest hitting move of the plan
     if foe_shields <= 0:
-        kills = [r for r in afford if r[1] >= foe_hp]
-        if kills:
-            m, d, eff = min(kills, key=lambda r: (r[0].energy, -r[1]))
-            return m, "%s finishes it (%d dmg >= %d HP)" % (m.name, d, foe_hp)
+        first = max(plan, key=lambda m: dmg[m.id])
+    # shields up: prefer the cheap move when it is the more efficient one
+    elif len(active) > 1 and active[0].energy <= first.energy and \
+            _dpe(active[0], dmg[active[0].id]) > _dpe(first, dmg[first.id]):
+        first = active[0]
+    if len(active) > 1 and active[0].energy == first.energy and \
+            _dpe(active[0], dmg[active[0].id]) > _dpe(first, dmg[first.id]):
+        first = active[0]
 
-    # 2. Skip moves that are not worth the energy.
-    worth = [r for r in afford if r[1] >= MIN_WORTH * foe.max_hp]
-    if not worth:
-        return None, "no attack worth throwing (all too weak)"
-
-    if foe_shields > 0:
-        # Foe may shield: lead with the cheapest decent move (bait), keep the
-        # strong one for when the shield is gone.
-        decent = [r for r in worth if r[2] >= 1.0] or worth
-        m, d, eff = min(decent, key=lambda r: (r[0].energy, -r[1]))
-        how = "%s as bait (foe has %d shield%s)" % (
-            m.name, foe_shields, "" if foe_shields == 1 else "s")
-    else:
-        m, d, eff = max(worth, key=lambda r: (r[1], -r[0].energy))
-        how = "%s is the best attack (%d dmg, x%.2f)" % (m.name, d, eff)
-
-    # Wait for a clearly better move that is almost charged.
-    if eff < 1.0:
-        for om, od, oeff in rows:
-            if om.energy > energy and om.energy - energy <= WAIT_ENERGY \
-                    and oeff >= 1.0 and od > d:
-                return None, "%s is resisted, waiting for %s" % (m.name,
-                                                                  om.name)
-    return m, how
+    if energy < first.energy:
+        return None, "building up to %s" % first.name
+    how = ("%s as bait (foe has %d shield%s)" % (
+        first.name, foe_shields, "" if foe_shields == 1 else "s")
+        if foe_shields > 0 else
+        "%s is the best attack (%d dmg, x%.2f)" % (
+            first.name, dmg[first.id], type_mult(first.type, foe.types)))
+    return first, how
 
 
 def foe_hit(foe, me, foe_move=None):
@@ -406,19 +522,26 @@ def foe_hit(foe, me, foe_move=None):
     return damage(best, foe, me), best
 
 
-def cycle_damage(foe, me, move, shields):
+def cycle_damage(foe, me, move, shields, foe_energy=None):
     """Damage of the fast attacks the foe needs to charge `move` again, for each
     shield we still have (plus one hit as margin).  This is PvPoke's idea of
     'can I still afford to let a charged attack connect': after this hit we must
-    survive long enough to use our remaining shields on the next ones."""
+    survive long enough to use our remaining shields on the next ones.
+
+    foe_energy is the foe's energy before it threw `move` when that is known
+    (leftover energy shortens the next charge); without it a full charge is
+    assumed."""
     fast = foe.fast
     if fast.gain <= 0:
         return 0
-    n = int(math.ceil(move.energy / float(fast.gain))) + 1
+    need = move.energy
+    if foe_energy is not None:
+        need = move.energy - max(foe_energy - move.energy, 0)
+    n = int(math.ceil(need / float(fast.gain))) + 1
     return (n * damage(fast, foe, me) + 1) * max(shields, 0)
 
 
-def should_shield(foe, me, shields, foe_move=None, my_hp=None):
+def should_shield(foe, me, shields, foe_move=None, my_hp=None, foe_energy=None):
     """Decide whether to shield an incoming charged attack.
 
     Returns (bool, reason).  A shield is not used when it is gone, and not for a
@@ -441,7 +564,7 @@ def should_shield(foe, me, shields, foe_move=None, my_hp=None):
     if eff < 1.0 and frac < WEAK_RESISTED_HIT:
         return False, "%s is resisted (%d dmg), no shield" % (mv.name, dmg)
     left = my_hp - dmg
-    cycle = cycle_damage(foe, me, mv, shields)
+    cycle = cycle_damage(foe, me, mv, shields, foe_energy)
     if left <= cycle:
         return True, ("%s (%d dmg) would leave %d HP, not enough for the next fast attacks (%d)"
                       % (mv.name, dmg, left, cycle))
@@ -491,7 +614,8 @@ def simulate(a, b, shields_a=2, shields_b=2, max_turns=1200):
             if mv is not None:
                 s["en"] -= mv.energy
                 shield, _r = should_shield(s["m"], o["m"], o["sh"], mv,
-                                           max(0, o["hp"]))
+                                           max(0, o["hp"]),
+                                           foe_energy=s["en"] + mv.energy)
                 if shield:
                     o["sh"] -= 1
                     o["hp"] -= 1
@@ -533,8 +657,9 @@ def best_switch(candidates, foe, my_shields=2, foe_shields=2):
 
 def describe(team, foe):
     """Human readable summary of how each team member fares against `foe`."""
-    lines = ["Foe: %s (%s) HP %d" % (foe.label, "/".join(foe.types),
-                                      foe.max_hp)]
+    lines = ["Foe: %s (%s) HP %d  moves: %s / %s" % (
+        foe.label, "/".join(foe.types), foe.max_hp, foe.fast.name,
+        ", ".join(c.name for c in foe.charged))]
     for m in team:
         fd = damage(m.fast, m, foe)
         parts = []
