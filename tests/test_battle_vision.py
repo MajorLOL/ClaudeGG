@@ -53,6 +53,27 @@ class FightPictures(unittest.TestCase):
             self.assertTrue(f["ring"], name)
             self.assertEqual(bf.state(f), "prompt", name)
 
+    def test_blue_button_counts_as_lit(self):
+        """The second real fight (a screen recording of the phone): a lit Surf button has hardly a white ring, only
+        the name under it turns from grey to white.  That was not seen, so Surf was never thrown."""
+        dim = bv.features(frame("run2_dim"))
+        self.assertTrue(dim["hud"])
+        self.assertEqual(tuple(dim["ready"]), (False, False))
+        right = bv.features(frame("run2_right_lit"))
+        self.assertEqual(tuple(right["ready"]), (False, True))
+        both = bv.features(frame("run2_both_lit"))
+        self.assertEqual(tuple(both["ready"]), (True, True))
+        self.assertEqual(bf.state(both), "fight")
+
+    def test_shield_question_is_known_by_its_picture(self):
+        """The big lilac shield tells the shield question from the switch question without reading any text."""
+        for name in ("shield_question", "run2_shield_question"):
+            f = bv.features(frame(name))
+            self.assertTrue(f["hex"], name)
+            self.assertEqual(bf.state(f), "prompt", name)
+        for name in ("switch_popup", "no_shields", "fight_ready", "fight_lanturn", "run2_both_lit", "versus"):
+            self.assertFalse(bv.features(frame(name))["hex"], name)
+
     def test_charged_attack_game_has_no_hp_bars(self):
         """The camera zooms in on the attacker: lightning bolts and sparks are not HP bars."""
         f = bv.features(frame("minigame_zoom"))

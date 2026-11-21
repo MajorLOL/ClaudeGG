@@ -20,6 +20,9 @@ import numpy as np
 BTN_Y = 0.816                     # centre of the two charged attack buttons
 BTN_X = (0.307, 0.690)            # ... left and right
 BTN_R = 0.095                     # ... radius of a ready (lit) button, in screen widths
+LABEL_Y = (0.895, 0.935)          # the name of the move under a button (bright white when it is ready)
+LABEL_LIT = 150                   # ... brightness of that text: ready ~190-250, not ready ~70-100
+LABEL_FLASH = 0.20                # ... more than this fraction white is a flash, not a text
 TAP_FAST = (0.50, 0.45)           # a tap here is a fast attack (nothing is under it)
 TAP_SHIELD = (0.50, 0.70)         # the shield on "Attack incoming! Use a Protect Shield?"
 TAP_NOT_NOW = (0.50, 0.91)        # NOT NOW on the same question
@@ -30,6 +33,7 @@ BAR_FULL = 484 / 1768.0           # the inside of a full HP bar
 SHIELD_SLOTS_Y = 0.171            # the two shield icons in each name box
 SHIELD_SLOTS = {"me": (0.235, 0.283), "foe": (0.717, 0.764)}
 COUNT_CENTER = (0.50, 0.145)      # the countdown ring of a question
+SHIELD_ICON = (0.50, 0.715)       # the big shield icon on "Use a Protect Shield?"
 
 
 def _box(img, x0, y0, x1, y1):
@@ -79,10 +83,19 @@ def _ring_fraction(img, cx, cy, r0, r1):
     return float((sub.min(axis=-1)[mask] > 215).mean())
 
 
+def _label_lit(img, bx):
+    """Is the name of the move under a button bright white?  Text is a thin line: when a large part of the
+    strip is white it is a flash of the charged attack's zoom, not a label."""
+    h, w = img.shape[:2]
+    lab = img[int(LABEL_Y[0] * h):int(LABEL_Y[1] * h), int((bx - 0.11) * w):int((bx + 0.11) * w)].min(axis=-1)
+    return float(np.percentile(lab, 98)) >= LABEL_LIT and float((lab > 200).mean()) < LABEL_FLASH
+
+
 def charge_ready(img):
-    """(left, right): is the charged attack button lit (enough energy for it)?  A lit button is bigger
-    than a dark one and has a thick white ring, which is what is measured (the radius is searched:
-    the button swells a little when it is ready)."""
+    """(left, right): is the charged attack button lit (enough energy for it)?  Two signs, either is enough:
+    the name under the button is bright white (grey when there is not enough energy: this is the sign that
+    works for every colour of button, a blue Surf button has hardly a white ring) and a lit button has a thick
+    white ring (the radius is searched: the button swells a little when it is ready)."""
     h, w = img.shape[:2]
     res = []
     for bx in BTN_X:
@@ -90,7 +103,7 @@ def charge_ready(img):
         best = 0.0
         for r in np.arange(0.080, 0.112, 0.004) * w:
             best = max(best, _ring_fraction(img, cx, cy, r - 0.004 * w, r + 0.004 * w))
-        res.append(best > 0.30)
+        res.append(best > 0.30 or _label_lit(img, bx))
     return tuple(res)
 
 
@@ -104,6 +117,20 @@ def countdown_ring(img):
                for r in np.arange(0.060, 0.096, 0.003) * w)
     digit = float(_pale(_box(img, 0.47, 0.12, 0.53, 0.17)).mean())   # ... with a white number and ring
     return dark and ring > 0.12 and digit > 0.04
+
+
+def shield_question(img):
+    """True when the pop-up shows the big lilac shield of "Attack incoming! Use a Protect Shield?" (so no OCR is
+    needed to know which question it is, the countdown ring alone also comes with the switch question)."""
+    h, w = img.shape[:2]
+    cx, cy, r = SHIELD_ICON[0] * w, SHIELD_ICON[1] * h, 0.045 * w
+    y0, y1, x0, x1 = int(cy - r), int(cy + r) + 1, int(cx - r), int(cx + r) + 1
+    hsv = cv2.cvtColor(img[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+    yy, xx = np.ogrid[y0:y1, x0:x1]
+    disc = (xx - cx) ** 2 + (yy - cy) ** 2 <= r * r
+    hue, sat, val = [hsv[..., k][disc[:hsv.shape[0], :hsv.shape[1]]] for k in range(3)]
+    lilac = (hue >= 130) & (hue <= 170) & (sat >= 25) & (sat <= 150) & (val >= 170)
+    return bool(lilac.mean() > 0.6)
 
 
 def shield_icon_slots(img):
@@ -195,8 +222,11 @@ def result_button(img):
 def features(img):
     """Everything above in one dict (for the log and the tests)."""
     mine, foe = hp_of_sides(img)
+    hud = hud_visible(img)
     return {
-        "white": is_white_screen(img), "versus": is_versus(img), "hud": hud_visible(img),
-        "ready": charge_ready(img), "ring": countdown_ring(img), "shields": shield_icon_slots(img),
-        "hp": (mine, foe), "result": result_button(img),
+        "white": is_white_screen(img), "versus": is_versus(img), "hud": hud,
+        # (the buttons only count with the HUD on the picture: a charged attack's zoom has bright sparks too)
+        "ready": charge_ready(img) if hud else (False, False),
+        "ring": countdown_ring(img), "shields": shield_icon_slots(img),
+        "hp": (mine, foe), "result": result_button(img), "hex": shield_question(img),
     }

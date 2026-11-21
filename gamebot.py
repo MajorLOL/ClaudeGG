@@ -3145,8 +3145,10 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
 FIGHT_START_SECONDS = 240      # "Finding opponent" and the loading screens before the fight can take a while
 FIGHT_SECONDS = 480            # a 3 against 3 fight is over in about four minutes
 FIGHT_TAP_MS = 70              # a fast attack is a tap anywhere
-CHARGE_HOLD = 3.3              # seconds of tapping for the little game of a charged attack
-ANSWER_PAUSE = 3.0             # after an answer: ignore the countdown ring of that question for this long
+CHARGE_HOLD = 2.8              # seconds of tapping for the little game of a charged attack
+RETAP_AFTER = 1.5              # a question that is still on the screen this long after the answer: tap again
+RETAP_MAX = 2                  # ... at most this many times
+PRE_FIGHT_TAPS = 25.0          # fast attacks start at the VS screen already (taps before the fight are ignored)
 FIGHT_WAIT_LOOK = 8.0          # unknown screen this long (before the fight / after it): read it
 
 
@@ -3157,24 +3159,44 @@ def _frac_xy(p):
 
 class FastTapper(threading.Thread):
     """Fast attacks: tap, tap, tap anywhere on the fight screen.  A screenshot takes a second or more, so
-    the tapping goes on by itself in the background while the main loop looks at the pictures (go() / pause())."""
+    the tapping goes on by itself in the background while the main loop looks at the pictures (go() / pause()).
+
+    Every tap is an 'adb shell input' command of its own; two of them at the same time spoil each other (a
+    finger that goes down twice without lifting).  So there is one lock: the taps of the main loop (tap():
+    charged attack button, shield, switch, NEXT BATTLE) wait for the fast tap that is running and go first."""
 
     def __init__(self, xy, ms=FIGHT_TAP_MS):
         super().__init__(daemon=True, name="fast-tapper")
         self.xy, self.ms = xy, ms
         self._on = threading.Event()
+        self._hold = threading.Event()         # the main loop wants to tap: the fast taps wait
+        self._lock = threading.Lock()
         self._quit = False
         self.taps = 0
 
     def run(self):
         while not self._quit:
+            if self._hold.is_set():
+                time.sleep(0.01)
+                continue
             if not self._on.wait(0.2):
                 continue
             try:
-                S.tap(self.xy[0], self.xy[1], self.ms)
-                self.taps += 1
+                with self._lock:
+                    if self._on.is_set() and not self._hold.is_set():
+                        S.tap(self.xy[0], self.xy[1], self.ms)
+                        self.taps += 1
             except Exception:  # noqa: BLE001
                 time.sleep(0.5)
+
+    def tap(self, x, y, ms=120):
+        """A tap of the main loop: after the fast tap that is running, before the next one."""
+        self._hold.set()
+        try:
+            with self._lock:
+                S.tap(x, y, ms)
+        finally:
+            self._hold.clear()
 
     def go(self):
         self._on.set()
@@ -3196,17 +3218,66 @@ def _fight_box(shot, side):
     return BN.name_box(ocr_lines(crop))
 
 
-def _fight_look(shot, fight):
+def _fight_look(shot, fight, lock):
     """Read what the fight asks for: the name boxes (who is on the field) now and then, the labels under
-    the charged attack buttons after a new Pokémon came in."""
-    if fight.foe_due:
+    the charged attack buttons after a new Pokémon came in.  The reading (OCR, seconds on a Pi) is done outside
+    the lock, what it finds is put into the fight inside it."""
+    with lock:
+        due, labels = fight.foe_due, fight.need_labels
+    if due:
         name, cp = _fight_box(shot, "foe")
-        fight.set_foe(name, cp)
-        fight.set_active(_fight_box(shot, "me")[1])
-    if fight.need_labels:
+        mine = _fight_box(shot, "me")[1]
+        with lock:
+            fight.set_foe(name, cp)
+            fight.set_active(mine)
+    if labels:
         h, w = shot.shape[:2]
         left, right = BN.button_texts(ocr_lines(shot, int(0.895 * h), int(0.96 * h), 1.0), w)
-        fight.set_buttons(left, right)
+        with lock:
+            fight.set_buttons(left, right)
+
+
+class FightLooker(threading.Thread):
+    """Reads the name boxes and the button labels next to the main loop.  The OCR takes seconds on a Pi, and the
+    main loop must not wait for that: a charged attack or a shield is worth more than a name."""
+
+    def __init__(self, fight, lock):
+        super().__init__(daemon=True, name="fight-looker")
+        self.fight, self.lock = fight, lock
+        self._shot = None
+        self._wake = threading.Event()
+        self._busy = False
+        self._quit = False
+
+    def ask(self, shot):
+        """A picture of the fight; used when something is to be read and the last reading is finished."""
+        if self._busy or self._quit:
+            return
+        with self.lock:
+            wanted = self.fight.foe_due or self.fight.need_labels
+        if wanted:
+            self._shot, self._busy = shot, True
+            self._wake.set()
+
+    def run(self):
+        while not self._quit:
+            if not self._wake.wait(0.3):
+                continue
+            self._wake.clear()
+            shot, self._shot = self._shot, None
+            if shot is None:
+                self._busy = False
+                continue
+            try:
+                _fight_look(shot, self.fight, self.lock)
+            except Exception as e:  # noqa: BLE001
+                log(f"battle: reading the name boxes failed: {type(e).__name__}: {e}")
+            finally:
+                self._busy = False
+
+    def close(self):
+        self._quit = True
+        self._wake.set()
 
 
 def _fight_sleep(seconds, beat, stop):
@@ -3218,46 +3289,71 @@ def _fight_sleep(seconds, beat, stop):
 
 
 def _fight_throw(fight, tapper, throw, beat, stop):
-    """Tap the lit button of the chosen charged attack, then keep tapping for its little game."""
+    """Tap the lit button of the chosen charged attack, check that it counted, then keep tapping for its little
+    game.  A button that is still lit on the next picture was not hit: tap it again."""
     import battle_vision as BV
     button, move, why = throw
     log(f"battle: throwing {move.name} on the {'left' if button == 0 else 'right'} button - {why}")
     tapper.go()
-    S.tap(*_frac_xy((BV.BTN_X[button], BV.BTN_Y)), 90)
-    _fight_sleep(CHARGE_HOLD, beat, stop)
+    xy = _frac_xy((BV.BTN_X[button], BV.BTN_Y))
+    t0 = time.monotonic()
+    tapper.tap(*xy, 90)
+    for _ in range(2):
+        try:
+            shot = S.screenshot()
+        except Exception:  # noqa: BLE001
+            break
+        if not (BV.hud_visible(shot) and BV.charge_ready(shot)[button] and not BV.countdown_ring(shot)):
+            break                                          # (the camera zooms in, or the button is dark: it counted)
+        log("battle: the button is still lit - the tap did not count, tapping again")
+        tapper.tap(*xy, 90)
+    _fight_sleep(max(CHARGE_HOLD - (time.monotonic() - t0), 0.5), beat, stop)
 
 
-def _fight_answer(shot, fight, state):
-    """The countdown ring is up: read the question and answer it.  state: {"unknown": n}.
-    Returns True when the question was handled (the ring is ignored for a while after that)."""
+def _fight_answer(shot, feat, fight, lock, tapper, state):
+    """The countdown ring is up: find out which question it is and answer it.  state: {"unknown": n}.
+    Returns None when the question was not read (look again at the next picture), otherwise {"xy": where was
+    tapped (None: nothing)}.  The shield question is known from its picture (the big lilac shield): the answer
+    has to be tapped within the five seconds of the countdown, there is no time to read text first."""
     import battle_vision as BV
     h, w = shot.shape[:2]
-    kind = BN.question_kind(ocr_lines(shot, int(0.44 * h), int(0.60 * h), 1.0))
-    if not kind:
-        kind = BN.question_kind(ocr_lines(shot, int(0.40 * h), int(0.66 * h), 0.8))
+    if feat.get("hex"):
+        kind = "shield"
+    else:
+        kind = BN.question_kind(ocr_lines(shot, int(0.44 * h), int(0.60 * h), 1.0))
+        if not kind:
+            kind = BN.question_kind(ocr_lines(shot, int(0.40 * h), int(0.66 * h), 0.8))
     if not kind:                                        # not read: look again at the next picture
         state["unknown"] = state.get("unknown", 0) + 1
         if state["unknown"] < 2:
-            return False
-        kind = "shield" if fight.my_shields > 0 else "noshield"   # (twice in a row: a question we must not miss)
+            return None
+        with lock:
+            kind = "shield" if fight.my_shields > 0 else "noshield"   # (twice in a row: a question we must not miss)
         log(f"battle: the question was not read - taking it for '{kind}'")
     state["unknown"] = 0
+    xy = None
     if kind == "noshield":
         log("battle: an attack is coming and we have no shields left")
     elif kind == "shield":
-        use, why = fight.shield()
+        with lock:
+            if feat.get("hex") and fight.my_shields <= 0:
+                fight.my_shields = 1                     # (the game offers a shield: the count we kept was too low)
+            use, why = fight.shield()
         log(f"battle: shield question - {'SHIELD' if use else 'no shield'}: {why}")
-        S.tap(*_frac_xy(BV.TAP_SHIELD if use else BV.TAP_NOT_NOW))
+        xy = _frac_xy(BV.TAP_SHIELD if use else BV.TAP_NOT_NOW)
+        tapper.tap(*xy)
     elif kind == "switch":
         tiles = BN.popup_tiles(ocr_lines(shot, int(0.60 * h), int(0.70 * h), 1.0))
-        idx, mon, why = fight.switch(tiles)
+        with lock:
+            idx, mon, why = fight.switch(tiles)
         if mon is None:
             log("battle: our Pokémon fainted and nobody is left")
         else:
             x = tiles[idx][1] if idx is not None else int(BV.POPUP_TILES[0] * w)
             log(f"battle: switching to {mon.label} - {why}")
-            S.tap(int(x * S.REF_W / w), int(BV.POPUP_TILE_Y * S.REF_H))
-    return True
+            xy = (int(x * S.REF_W / w), int(BV.POPUP_TILE_Y * S.REF_H))
+            tapper.tap(*xy)
+    return {"xy": xy}
 
 
 def fight_battle(beat=None, stop=None, team=None, use_spots=None):
@@ -3273,13 +3369,18 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None):
     import battle_fight as BF
     import battle_vision as BV
     fight = BF.Fight(team or BE.load_team(), log=lambda m: log("battle: " + m))
+    flock = threading.RLock()  # (the fight is changed by the loop and by the looker that reads the names)
     tapper = FastTapper(_frac_xy(BV.TAP_FAST))
     tapper.start()
+    looker = FightLooker(fight, flock)
+    looker.start()
     out = {"result": "", "why": "", "seconds": 0}
     t0 = time.monotonic()
     started = None            # when the HUD was first seen
     fight_seen = 0.0          # when a picture of the fight was last seen
-    answered = 0.0            # when a question was last answered
+    ask = {"seen": -100.0, "since": 0.0, "done": False, "xy": None, "tapped": 0.0, "tries": 0}   # the question on screen
+    versus_seen = 0.0         # when the VS screen was last seen
+    tim = {"n": 0, "shot": 0.0, "feat": 0.0, "logged": 0}   # how long the pictures take (to see what is slow)
     unknown_ring = {}
     look = {"t": t0, "n": 0}  # last time an unknown screen was read
     party_taps = result_seen = errors = 0
@@ -3296,7 +3397,9 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None):
                 out["why"] = "the fight takes too long"
                 break
             try:
+                t_shot = time.monotonic()
                 shot = S.screenshot()
+                t_shot = time.monotonic() - t_shot
             except Exception as e:  # noqa: BLE001
                 errors += 1
                 log(f"battle: screenshot failed ({e})")
@@ -3313,9 +3416,18 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None):
                 break
             try:
                 feat = BV.features(shot)
+                t_feat = time.monotonic() - now
+                tim["n"] += 1
+                tim["shot"] += t_shot
+                tim["feat"] += t_feat
+                if tim["n"] >= 40 and tim["logged"] < 3:
+                    log(f"battle: timing - {tim['n']} pictures, a picture takes {tim['shot'] / tim['n']:.1f} s, "
+                        f"reading it {tim['feat'] / tim['n']:.2f} s")
+                    tim.update(n=0, shot=0.0, feat=0.0, logged=tim["logged"] + 1)
                 st = BF.state(feat)
                 if st == "fight" or (st == "other" and started is not None and now - fight_seen < 12):
-                    fight.see(feat)
+                    with flock:
+                        fight.see(feat)
                 if st == "fight":
                     if started is None:
                         started = now
@@ -3323,16 +3435,34 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None):
                     fight_seen = look["t"] = now
                     unknown_ring = {}
                     tapper.go()
-                    _fight_look(shot, fight)
-                    throw = fight.throw()
+                    looker.ask(shot)                         # (names and labels are read next to this loop)
+                    with flock:
+                        throw = fight.throw()
                     if throw:
                         _fight_throw(fight, tapper, throw, beat, stop)
                 elif st == "prompt":
-                    tapper.pause()
                     fight_seen = look["t"] = now
-                    if now - answered > ANSWER_PAUSE and _fight_answer(shot, fight, unknown_ring):
-                        answered = time.monotonic()
-                        tapper.go()                          # (the attack plays out, then it is fast attacks again)
+                    if now - ask["seen"] > 3.0:              # (a new question)
+                        ask.update(since=now, done=False, xy=None, tapped=0.0, tries=0)
+                        unknown_ring = {}
+                    ask["seen"] = now
+                    if not ask["done"]:
+                        tapper.pause()
+                        res = _fight_answer(shot, feat, fight, flock, tapper, unknown_ring)
+                        if res is not None:
+                            ask.update(done=True, xy=res["xy"], tapped=time.monotonic(), seen=time.monotonic())
+                            log(f"battle: answered {ask['tapped'] - ask['since']:.1f} s after the question was seen "
+                                f"(the countdown is 5 s)")
+                            if res["xy"] is None:
+                                tapper.go()                  # (nothing to tap: the attack plays out)
+                    elif ask["xy"] is not None and now - ask["tapped"] >= RETAP_AFTER:
+                        if ask["tries"] < RETAP_MAX:         # (a tap that did not count: the question is still there)
+                            ask["tries"] += 1
+                            log("battle: the question is still on the screen - tapping again")
+                            tapper.tap(*ask["xy"])
+                            ask["tapped"] = time.monotonic()
+                        else:
+                            tapper.go()
                 elif st == "result":
                     tapper.pause()
                     lines = ocr_lines(shot, 100, None, 0.6)
@@ -3347,7 +3477,7 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None):
                             x, y = use_spots[min(party_taps, len(use_spots) - 1)]
                             party_taps += 1
                             log(f"battle: still on the party screen - tapping USE THIS PARTY at ({x}, {y})")
-                            S.tap(x, y)
+                            tapper.tap(x, y)
                             time.sleep(2.0)
                         elif now - look["t"] >= FIGHT_WAIT_LOOK:
                             look["t"] = now
@@ -3356,20 +3486,27 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None):
                     out["result"] = res
                     log(f"battle: the fight is over: {res or 'result not read'} ({BN.reads(lines, 90)})")
                     S.debug_save("g_battle_result.png", shot)
-                    S.tap(*_frac_xy(BV.TAP_NEXT))
+                    tapper.tap(*_frac_xy(BV.TAP_NEXT))
                     time.sleep(2.5)
                     break
                 else:                                        # VS screen, animation, banner, loading ...
+                    if feat["versus"] and started is None:
+                        versus_seen = now
                     if started is not None and now - fight_seen < 12:
                         tapper.go()                          # (an animation in the middle of the fight)
                         continue
-                    tapper.pause()
+                    if started is None and versus_seen and now - versus_seen < PRE_FIGHT_TAPS:
+                        tapper.go()                          # (the fight starts any moment: the first tap must not
+                    else:                                    # wait for a picture of the HUD; before it taps are ignored)
+                        tapper.pause()
                     if now - look["t"] < FIGHT_WAIT_LOOK:
                         continue
                     look["t"] = now
                     look["n"] += 1
                     lines = ocr_lines(shot, 100, None, 0.6)
                     kind = _battle_kind(shot, lines)
+                    if kind == "party":
+                        versus_seen = 0.0                    # (no VS screen: this is still the party screen)
                     log(f"battle: waiting - screen is {kind} ({BN.reads(lines, 90)})")
                     if look["n"] == 2:
                         S.debug_save("g_battle_wait.png", shot)
@@ -3377,21 +3514,21 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None):
                     if res and BV.result_button(shot):
                         out["result"] = res
                         log(f"battle: the fight is over: {res}")
-                        S.tap(*_frac_xy(BV.TAP_NEXT))
+                        tapper.tap(*_frac_xy(BV.TAP_NEXT))
                         time.sleep(2.5)
                         break
                     if kind == "party" and use_spots and party_taps < 3:
                         x, y = use_spots[min(party_taps, len(use_spots) - 1)]
                         party_taps += 1
                         log(f"battle: still on the party screen - tapping USE THIS PARTY at ({x}, {y})")
-                        S.tap(x, y)
+                        tapper.tap(x, y)
                     elif kind in ("home", "league", "menu", "map"):
                         out["why"] = f"back on the {kind} screen"
                         break
                     elif kind == "exit_battle":
                         spots = BN.exit_battle_spots(lines, shot.shape[0] / 2208)
                         if spots["no"]:
-                            S.tap(*spots["no"])
+                            tapper.tap(*spots["no"])
             except Exception as e:  # noqa: BLE001
                 errors += 1
                 log(f"battle: error in the fight loop: {type(e).__name__}: {e}")
@@ -3400,6 +3537,7 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None):
                     break
     finally:
         tapper.close()
+        looker.close()
         out["seconds"] = int(time.monotonic() - t0)
         log(f"battle: fight loop ended after {out['seconds']} s: " + (out["result"] or out["why"] or "no result")
             + f" ({tapper.taps} fast taps, {fight.throws} charged attacks, shields left {fight.my_shields})")
