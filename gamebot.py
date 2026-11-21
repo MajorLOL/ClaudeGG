@@ -3332,6 +3332,7 @@ class Eyes:
         self.mode = ""
         self.gap = 0.0                      # time between two pictures, summed (for the log)
         self._last_t = 0.0
+        self._said = 0.0                    # when the reason for the missing video was last logged
 
     def look(self, not_before=0.0):
         got = None
@@ -3344,6 +3345,9 @@ class Eyes:
             canvas = cv2.resize(small, (S.REF_W, S.REF_H), interpolation=cv2.INTER_LINEAR)
         else:
             self._mode("screenshots")
+            if self.stream is not None and time.monotonic() - self._said >= 20.0:
+                self._said = time.monotonic()      # (why does the video not come?  the programs' own words)
+                log("battle: the live video gives no pictures: " + self.stream.describe())
             canvas = small = S.screenshot()
             self.shots += 1
             t = time.monotonic()
@@ -3370,6 +3374,38 @@ class Eyes:
     def close(self):
         if self.stream is not None:
             self.stream.close()
+
+
+def stream_test(seconds=8.0):
+    """gamebot.py streamtest: start the live video for a few seconds and say what came out of it."""
+    stream = _fight_stream()
+    if stream is None:
+        log("streamtest: the live video could not be started (GAMEBOT_FIGHT_VIDEO=0, or see the line above)")
+        return False
+    t0 = time.monotonic()
+    first = None
+    last = None
+    seq = 0
+    try:
+        while time.monotonic() - t0 < seconds:
+            got = stream.wait_new(seq, 1.0)
+            if got is None:
+                if stream.failed:
+                    break
+                continue
+            seq, t, last = got
+            first = first if first is not None else t - t0
+        n = stream.frames
+        if last is None:
+            log("streamtest: NO pictures in %.0f s: %s" % (seconds, stream.describe()))
+            return False
+        log(f"streamtest: {n} pictures in {seconds:.0f} s ({n / seconds:.1f} per second), the first after "
+            f"{first:.1f} s, size {last.shape[1]}x{last.shape[0]}")
+        S.debug_save("g_stream.png", last)
+        log("streamtest: picture saved as ~/debug/g_stream.png; " + stream.describe())
+        return True
+    finally:
+        stream.close()
 
 
 def _fight_answer(shot, feat, fight, lock, tapper, state):
@@ -3489,8 +3525,11 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                     tim.update(n=0, t=time.monotonic(), feat=0.0, logged=tim["logged"] + 1)
                     eyes.live = eyes.shots = 0
                 st = BF.state(feat)
-                if st != "fight" and thr["b"] is not None and now - thr["t"] > 0.2:
-                    thr["b"] = None                          # (the buttons are gone, the zoom came: the tap counted)
+                if st != "fight":
+                    with flock:
+                        fight.lit = (False, False)           # (no HUD: what was lit is not known any more)
+                    if thr["b"] is not None and now - thr["t"] > 0.2:
+                        thr["b"] = None                      # (the buttons are gone, the zoom came: the tap counted)
                 if st == "fight" or (st == "other" and started is not None and now - fight_seen < 12):
                     with flock:
                         fight.see(feat)
@@ -3912,6 +3951,9 @@ def main():
         info = battle_open_menu()
         log("battle: " + ("reached the party screen '%s'" % info["title"] if info["ok"] else "failed: " + info["why"]))
         return
+    if mode == "streamtest":               # does the live video of the phone work?  (8 seconds, no taps)
+        S.detect_screen()
+        sys.exit(0 if stream_test() else 1)
     if mode == "fight":                    # fight the battles now (stop the bot first; the game on the map)
         S.detect_screen()
         try:

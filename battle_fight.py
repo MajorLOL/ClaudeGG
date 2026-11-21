@@ -80,6 +80,8 @@ class Fight:
         self.my_hp = self._believe("me", self.my_hp, mine)
         if old < self.my_hp <= old + HP_JUMP:  # (a Pokémon never heals: a small rise is a misread)
             self.my_hp = old
+        elif old < FAINTED_BELOW and self.my_hp > 0.6:
+            self._came_in()                    # (a full bar after a nearly empty one: the next one of ours)
         self.me.hp = int(round(self.my_hp * self.me.max_hp))
         old = self.foe_hp
         new = self._believe("foe", self.foe_hp, foe)
@@ -157,6 +159,18 @@ class Fight:
                     self.faint()
                 self._enter(m, keep_hp=not fainted)
                 return
+
+    def _came_in(self):
+        """Our HP bar was nearly empty and is full now: our Pokémon fainted and the next one came in.  The game
+        only asks which one when there are two or more left; with one it comes in by itself, and then the CP in
+        the name box may not be read in time (the banner 'Go, Lapras!' covers it)."""
+        others = [m for m in self.team if m.pos not in self.dead and m is not self.me]
+        if len(others) != 1:
+            return
+        self.log(f"fight: our HP bar is full again - {others[0].label} is on the field (not {self.me.label}, "
+                 f"which fainted)")
+        self.faint()
+        self._enter(others[0])
 
     def set_buttons(self, left, right):
         """The texts under the buttons were read: which move is on which button.  One side is enough when

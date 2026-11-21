@@ -1,7 +1,10 @@
 """Unit tests for battle_stream (the live picture of the phone).  No phone, no ffmpeg: _open() is replaced by a
 pipe that is filled by the test.  Run: python3 -m unittest discover -s tests"""
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -60,6 +63,59 @@ class VideoSize(unittest.TestCase):
         self.assertEqual(rec[-1], "-")
         self.assertIn("bgr24", ff)
         self.assertTrue(any("scale=704:880" in a for a in ff))
+
+
+class RealFfmpeg(unittest.TestCase):
+    """The real ffmpeg command on a real H.264 stream (made here with ffmpeg): the first version of the command had
+    "-fflags nobuffer" in it and gave no picture at all, which no test with a fake pipe could show."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = tempfile.mkdtemp()
+        cls.file = os.path.join(cls.dir, "t.h264")
+        cls.ok = False
+        if shutil.which("ffmpeg"):
+            r = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=64x80:rate=30",
+                                "-t", "2", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "ultrafast",
+                                "-profile:v", "baseline", "-f", "h264", cls.file],
+                               stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
+            cls.ok = r.returncode == 0 and os.path.getsize(cls.file) > 0
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.dir, ignore_errors=True)
+
+    def test_pictures_come_out(self):
+        if not self.ok:
+            self.skipTest("no ffmpeg with libx264")
+        outer = self
+
+        class FromFile(bs.FrameStream):
+            def _open(self):
+                _rec, ff_cmd = self.commands()
+                with open(outer.file, "rb") as src:
+                    ff = subprocess.Popen(ff_cmd, stdin=src, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                self._procs = [ff]
+                threading.Thread(target=self._drain, args=("ffmpeg", ff.stderr), daemon=True).start()
+                return ff.stdout
+
+        s = FromFile((64, 80))
+        s.start()
+        try:
+            seq, n = 0, 0
+            end = time.monotonic() + 10
+            while time.monotonic() < end and n < 10:
+                got = s.wait_new(seq, 1.0)
+                if got:
+                    seq = got[0]
+                    n += 1
+            self.assertGreaterEqual(n, 10, s.describe())
+        finally:
+            s.close()
+
+    def test_no_buffering_option(self):
+        _rec, ff = bs.FrameStream((704, 880)).commands()
+        self.assertNotIn("nobuffer", " ".join(ff))
 
 
 class Pictures(unittest.TestCase):
@@ -147,6 +203,15 @@ class Pictures(unittest.TestCase):
             self.assertIsNone(s.wait_new(0, 0.2))
         finally:
             bs.MAX_BAD_STARTS = saved
+
+    def test_describe_says_what_happened(self):
+        s = bs.FrameStream((W, H))
+        s.notes.append("screenrecord: ERROR: nope")
+        s.starts = 2
+        s.failed = True
+        text = s.describe()
+        self.assertIn("gave up", text)
+        self.assertIn("ERROR: nope", text)
 
     def test_close_stops_the_thread(self):
         s = PipeStream([[picture(1), "wait", "wait", "wait", "wait", "wait", "wait", "wait", "wait", "wait"]])

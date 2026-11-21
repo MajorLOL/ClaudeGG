@@ -51,6 +51,27 @@ class State(unittest.TestCase):
         self.assertEqual(bf.state(feat(result=True)), "fight")
 
 
+class NextOneComesIn(unittest.TestCase):
+    def test_last_pokemon_comes_in_by_itself(self):
+        """Two of three have fainted: the third comes in without a question, only the HP bar tells."""
+        fight = new_fight()
+        first, second, third = fight.team
+        fight.faint()                                   # (the first one fainted earlier, the second came in)
+        fight._enter(second)
+        see_twice(fight, hp=(0.05, 0.7), lit=(False, False))
+        self.assertEqual(fight.me, second)              # (still the second: its bar is nearly empty)
+        see_twice(fight, hp=(1.0, 0.7), lit=(False, False))
+        self.assertEqual(fight.me, third)
+        self.assertIn(second.pos, fight.dead)
+        self.assertTrue(fight.need_labels)
+
+    def test_with_two_left_the_game_asks_instead(self):
+        fight = new_fight()
+        see_twice(fight, hp=(0.05, 0.7))
+        see_twice(fight, hp=(1.0, 0.7))
+        self.assertEqual(fight.me, fight.team[0])       # (not guessed: switch() decides)
+
+
 class Buttons(unittest.TestCase):
     def test_labels_give_the_slots(self):
         fight = new_fight()

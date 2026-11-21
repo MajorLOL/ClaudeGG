@@ -10,6 +10,7 @@ uses the same trick for its live view (web.py).
 FrameStream keeps the newest picture; the fight loop in gamebot.py takes it from there.  No phone is needed
 for the tests: _open() is the only place that starts programs.
 """
+import collections
 import subprocess
 import threading
 import time
@@ -46,6 +47,7 @@ class FrameStream(threading.Thread):
         self.error = ""
         self._quit = False
         self._procs = []
+        self.notes = collections.deque(maxlen=12)   # what screenrecord and ffmpeg said (their error output)
 
     # ------------------------------------------------------------------ programs ---
     def commands(self):
@@ -54,7 +56,9 @@ class FrameStream(threading.Thread):
             rec += ["--display-id", str(self.display_id)]
         rec += ["--output-format=h264", "--size", f"{self.w}x{self.h}", "--bit-rate", str(self.bitrate),
                 "--time-limit", str(TIME_LIMIT), "-"]
-        ff = [self.ffmpeg, "-loglevel", "error", "-fflags", "nobuffer", "-flags", "low_delay",
+        # The same input options as the live view in web.py.  NOT "-fflags nobuffer": with it ffmpeg gives no
+        # picture at all from a raw H.264 stream (tried: 0 pictures of 40, without it 40 of 40).
+        ff = [self.ffmpeg, "-loglevel", "error",
               "-probesize", "32768", "-analyzeduration", "0", "-f", "h264", "-i", "pipe:0", "-an",
               "-vf", f"fps={self.fps},scale={self.w}:{self.h}", "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1"]
         return rec, ff
@@ -62,17 +66,30 @@ class FrameStream(threading.Thread):
     def _open(self):
         """Start screenrecord and ffmpeg; returns the file the raw pictures come from."""
         rec_cmd, ff_cmd = self.commands()
-        rec = subprocess.Popen(rec_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        ff = subprocess.Popen(ff_cmd, stdin=rec.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        rec = subprocess.Popen(rec_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        ff = subprocess.Popen(ff_cmd, stdin=rec.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         rec.stdout.close()
         self._procs = [ff, rec]
+        for name, p in (("ffmpeg", ff), ("screenrecord", rec)):
+            threading.Thread(target=self._drain, args=(name, p.stderr), daemon=True).start()
         return ff.stdout
+
+    def _drain(self, name, pipe):
+        """Keep the error output of a program (it would block the program when nobody reads it)."""
+        try:
+            for line in iter(pipe.readline, b""):
+                text = line.decode(errors="ignore").strip()
+                if text:
+                    self.notes.append(f"{name}: {text[:160]}")
+        except Exception:  # noqa: BLE001
+            pass
 
     def _kill(self):
         for p in self._procs:
             try:
                 if p.poll() is None:
                     p.kill()
+                p.wait(timeout=1.0)            # (reaped: no zombie processes after every restart)
             except Exception:  # noqa: BLE001
                 pass
         self._procs = []
@@ -148,6 +165,14 @@ class FrameStream(threading.Thread):
                 if left <= 0 or self.failed or self._quit:
                     return None
                 self._cond.wait(min(left, 0.2))
+
+    def describe(self):
+        """One line for the log: why there are no pictures."""
+        out = (f"{self.frames} pictures, {self.starts} start(s)"
+               + (", gave up" if self.failed else "") + (f", {self.error}" if self.error else ""))
+        if self.notes:
+            out += " - " + " | ".join(list(self.notes)[-4:])
+        return out
 
     def close(self):
         self._quit = True
