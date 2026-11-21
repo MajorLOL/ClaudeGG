@@ -46,7 +46,8 @@ class Fight:
         self.slots = [None, None]              # move id under the left / right button, None: party order
         self.labels_ok = False
         self.foe_cp = None
-        self.since_foe = FOE_CHECK_EVERY       # HUD pictures since the foe's name box was read (read it now)
+        self.foe_every = FOE_CHECK_EVERY       # (gamebot sets a higher number for the live video: ~10 pictures a second)
+        self.since_foe = 10 ** 6               # HUD pictures since the foe's name box was read (read it now)
         self._foe_miss = ""                    # the last name that was not recognised (not logged twice)
         self.need_labels = True
         self.label_tries = 0
@@ -84,7 +85,7 @@ class Fight:
         new = self._believe("foe", self.foe_hp, foe)
         if new > old + HP_JUMP:                # the foe's HP went up: its next Pokémon is on the field
             self.log("fight: the foe's HP bar is full again - a new foe")
-            self.since_foe = FOE_CHECK_EVERY   # (read its name now)
+            self.since_foe = 10 ** 6           # (read its name now)
         elif new > old:
             new = old
         self.foe_hp = new
@@ -116,7 +117,7 @@ class Fight:
     @property
     def foe_due(self):
         """Time to read the name boxes again."""
-        return self.since_foe >= FOE_CHECK_EVERY
+        return self.since_foe >= self.foe_every
 
     def set_foe(self, name, cp=None):
         """The foe's name box was read.  Returns True when the foe is known now."""

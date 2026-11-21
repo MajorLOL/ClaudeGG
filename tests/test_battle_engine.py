@@ -104,6 +104,14 @@ class Lookup(unittest.TestCase):
         self.assertEqual(be.find_species("Shadow Medicham"), "medicham")
         self.assertIsNone(be.find_species("zzzzzzzz"))
 
+    def test_species_with_forms(self):
+        # the game shows "Gourgeist", PvPoke has the forms gourgeist_average / _small / _large / _super
+        self.assertEqual(be.find_species("Gourgeist"), "gourgeist_average")
+        self.assertEqual(be.find_species("Pumpkaboo"), "pumpkaboo_average")
+        self.assertEqual(be.find_species("Galarian Corsola"), "corsola_galarian")
+        self.assertEqual(be.find_species("Alolan Marowak"), "marowak_alolan")
+        self.assertEqual(be.find_species("Cursola"), "cursola")
+
     def test_move(self):
         self.assertEqual(be.find_move("Thunder bolt"), "THUNDERBOLT")
         self.assertEqual(be.find_move("SHADOW BALL"), "SHADOW_BALL")

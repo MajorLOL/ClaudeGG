@@ -140,8 +140,23 @@ def find_species(text, cutoff=0.8):
         names.setdefault(_norm(row[0]), sid)
     if want in names:
         return names[want]
+    by_words = {}                                       # "Galarian Corsola" is "Corsola (Galarian)"
+    for n, sid in names.items():
+        by_words.setdefault(tuple(sorted(n.split())), sid)
+    if tuple(sorted(want.split())) in by_words:
+        return by_words[tuple(sorted(want.split()))]
+    forms = [(n, sid) for n, sid in names.items() if n.startswith(want + " ")]
+    if forms:                                           # the game shows "Gourgeist" for all its sizes
+        for n, sid in forms:
+            if any(w in n.split() for w in FORM_DEFAULTS):
+                return sid
+        return forms[0][1]
     close = difflib.get_close_matches(want, list(names), n=1, cutoff=cutoff)
     return names[close[0]] if close else None
+
+
+FORM_DEFAULTS = ("average", "normal", "standard", "incarnate", "ordinary", "male")   # the form to take when
+                                                                                    # the name has none
 
 
 # -------------------------------------------------------------- pokémon ---

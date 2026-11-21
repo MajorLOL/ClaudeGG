@@ -24,13 +24,14 @@ ls -la ~/models
 
 echo "== Program files =="
 if [ "$REPO" != "$HOME" ]; then
-  cp "$REPO"/gamebot.py "$REPO"/spin_stop.py "$REPO"/web.py "$REPO"/device_check.py "$REPO"/battle_engine.py "$REPO"/battle_nav.py "$REPO"/battle_vision.py "$REPO"/battle_fight.py ~/
+  cp "$REPO"/gamebot.py "$REPO"/spin_stop.py "$REPO"/web.py "$REPO"/device_check.py "$REPO"/battle_engine.py "$REPO"/battle_nav.py "$REPO"/battle_vision.py "$REPO"/battle_fight.py "$REPO"/battle_stream.py ~/
 fi
-ls -la ~/gamebot.py ~/spin_stop.py ~/web.py ~/device_check.py ~/battle_engine.py ~/battle_nav.py ~/battle_vision.py ~/battle_fight.py
+ls -la ~/gamebot.py ~/spin_stop.py ~/web.py ~/device_check.py ~/battle_engine.py ~/battle_nav.py ~/battle_vision.py ~/battle_fight.py ~/battle_stream.py
 
 echo "== Test =="
 cd ~
 ~/gbvenv/bin/python -c "from ai_edge_litert.interpreter import Interpreter; import cv2, numpy; print('LiteRT ok, OpenCV', cv2.__version__)"
+command -v ffmpeg >/dev/null || echo "WARNING: ffmpeg is not installed (sudo apt install ffmpeg): fights then use slow screenshots instead of the live video"
 echo
 echo "Done. Test with:  ~/gbvenv/bin/python gamebot.py test"
 echo "Updating an existing installation? The running services still use the old files. Restart them:"
