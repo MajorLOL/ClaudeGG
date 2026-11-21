@@ -42,7 +42,7 @@ VIDEO_WIDTH = 480                           # width of the frames sent to the br
 VIDEO_BITRATE = "2000000"
 OPTIONS = {                                 # key -> label (default: on)
     "daily_cycle": "Daily run: both Pokémon GO apps one after another until full",
-    "battle": "Battles: in the daily run the chosen app fights GO Battle League battles first (preview: no battle is started yet)",
+    "battle": "Battles: in the daily run the chosen app fights GO Battle League battles first",
     "catch": "Catch wild Pokémon",
     "spin": "Spin PokéStops",
     "gifts_open": "Open gifts from friends",
@@ -601,7 +601,7 @@ img.onerror = () => setTimeout(() => { img.src = 'stream?t=' + Date.now(); }, 30
 // Plain wording for each option: [title, extra line]. An option that is not listed shows the text from the server.
 const WORDS = {
   daily_cycle: ['Play both Pokémon GO apps', 'Each game runs until full or out of time.'],
-  battle: ['Fight battles first (preview)', 'Daily run only. The fight does not start yet.'],
+  battle: ['Fight battles first', 'Daily run only. The chosen app fights its GO Battle League battles, then spins and catches.'],
   catch: ['Catch wild Pokémon'],
   curveball: ['Always throw a curveball'],
   fast_catch: ['Fast catch', 'After a clear hit, press Back to skip the catch animation. The result is checked on the map.'],

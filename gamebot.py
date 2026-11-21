@@ -2946,8 +2946,8 @@ def game_packages():
 # ------------------------------- auto battle -------------------------------
 # Option "Battles" (web interface): in the daily run the chosen Pokémon GO app first fights some GO Battle
 # League battles, then it spins and catches as usual. The decisions (which charged attack, when to shield,
-# who comes in after a faint) are made by battle_engine.py. THIS VERSION IS A PREVIEW: the screens of a
-# battle have not been recorded yet, so no battle is started - the bot only logs what it would do.
+# who comes in after a faint) are made by battle_engine.py; battle_vision.py reads the fight screen,
+# battle_fight.py keeps the state of one fight, battle_nav.py reads the menus and questions with OCR.
 BATTLE_LEAGUE = "Great League"
 BATTLE_COUNT = 5
 
@@ -3015,16 +3015,18 @@ def _battle_to_map(beat=None, leaving_setup=False):
     return S.on_map(S.screenshot())
 
 
-def battle_open_menu(beat=None, stop=None, restart=False):
-    """Walks from the map to the party screen of the chosen league and goes back to the map.
+def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
+    """Walks from the map (or from the Battle screen after a fight) to the party screen of the chosen league.
 
     map -> main menu -> BATTLE tile -> Battle screen -> BATTLE button -> [league list] -> party screen.
     Every step looks at what is really on the screen first (see battle_nav.py); an unknown screen is
-    logged with a saved picture (debug/g_battle_s<step>.png). It NEVER presses USE THIS PARTY: the
-    fight itself is not built yet. restart: when the way back to the map fails, restart the game (the
-    daily run needs the map). Returns {"ok": bool, "why": str, "title": str, "members": [...]}."""
+    logged with a saved picture (debug/g_battle_s<step>.png). It NEVER presses USE THIS PARTY itself.
+    stay: wait on the party screen (the fight starts from there); otherwise go back to the map. restart:
+    when the way back to the map fails, restart the game (the daily run needs the map).
+    Returns {"ok": bool, "why": str, "title": str, "members": [...], "use_spots": [(x, y), ...]}."""
+    import battle_vision as BV
     league = battle_league()
-    info = {"ok": False, "why": "", "title": "", "members": []}
+    info = {"ok": False, "why": "", "title": "", "members": [], "use_spots": []}
     try:
         import battle_engine as BE
         names = [m.name for m in BE.load_team()]
@@ -3033,7 +3035,7 @@ def battle_open_menu(beat=None, stop=None, restart=False):
     t0 = time.monotonic()
     taps = {"map": 0, "home": 0, "league": 0}
     menu_spots = home_spots = None
-    others, tapped, in_setup = 0, False, False       # in_setup: the league list or party screen was seen
+    others, tapped, in_setup, pill_taps = 0, False, False, 0     # in_setup: the league list or party screen was seen
     try:
         for step in range(BATTLE_NAV_STEPS):
             if (stop and stop()) or time.monotonic() - t0 > BATTLE_NAV_SECONDS:
@@ -3054,6 +3056,7 @@ def battle_open_menu(beat=None, stop=None, restart=False):
                 info["ok"] = True
                 info["title"] = BN.party_title(lines, k)
                 info["members"] = BN.party_members(lines, names)
+                info["use_spots"] = BN.party_use_spots(lines, k)
                 S.debug_save("g_battle_party.png", shot)
                 break
             if kind == "map":
@@ -3108,6 +3111,11 @@ def battle_open_menu(beat=None, stop=None, restart=False):
             elif kind == "exit_battle":
                 info["why"] = "a battle is going on (Exit the Trainer Battle?) - not touching it"
                 break
+            elif BV.result_button(shot) and pill_taps < 3:       # (after a fight: a result or reward screen)
+                pill_taps += 1
+                log("battle: a green button at the bottom (a result screen?) - tapping it")
+                S.tap(*_frac_xy(BV.TAP_NEXT))
+                tapped = True
             else:                                    # something in the way, or still loading
                 others += 1
                 if others > 6:                     # (the league screens can take a while to load)
@@ -3118,7 +3126,9 @@ def battle_open_menu(beat=None, stop=None, restart=False):
         else:
             info["why"] = "too many steps"
     finally:
-        if not _battle_to_map(beat, in_setup):
+        if info["ok"] and stay:
+            pass                                     # (the caller starts the fight from the party screen)
+        elif not _battle_to_map(beat, in_setup):
             if restart:
                 log("battle: could not get back to the map - restarting the game")
                 S.restart_game()
@@ -3129,11 +3139,318 @@ def battle_open_menu(beat=None, stop=None, restart=False):
     return info
 
 
+# ------------------------------- the fight ---------------------------------
+# One battle: fight_battle() looks at the screen all the time (battle_vision.py: pictures, battle_nav.py: OCR),
+# keeps the state in battle_fight.Fight and takes the decisions with the PvPoke rules of battle_engine.py.
+FIGHT_START_SECONDS = 240      # "Finding opponent" and the loading screens before the fight can take a while
+FIGHT_SECONDS = 480            # a 3 against 3 fight is over in about four minutes
+FIGHT_TAP_MS = 70              # a fast attack is a tap anywhere
+CHARGE_HOLD = 3.3              # seconds of tapping for the little game of a charged attack
+ANSWER_PAUSE = 3.0             # after an answer: ignore the countdown ring of that question for this long
+FIGHT_WAIT_LOOK = 8.0          # unknown screen this long (before the fight / after it): read it
+
+
+def _frac_xy(p):
+    """A position as fractions of the screen -> canvas pixels for S.tap."""
+    return int(p[0] * S.REF_W), int(p[1] * S.REF_H)
+
+
+class FastTapper(threading.Thread):
+    """Fast attacks: tap, tap, tap anywhere on the fight screen.  A screenshot takes a second or more, so
+    the tapping goes on by itself in the background while the main loop looks at the pictures (go() / pause())."""
+
+    def __init__(self, xy, ms=FIGHT_TAP_MS):
+        super().__init__(daemon=True, name="fast-tapper")
+        self.xy, self.ms = xy, ms
+        self._on = threading.Event()
+        self._quit = False
+        self.taps = 0
+
+    def run(self):
+        while not self._quit:
+            if not self._on.wait(0.2):
+                continue
+            try:
+                S.tap(self.xy[0], self.xy[1], self.ms)
+                self.taps += 1
+            except Exception:  # noqa: BLE001
+                time.sleep(0.5)
+
+    def go(self):
+        self._on.set()
+
+    def pause(self):
+        self._on.clear()
+
+    def close(self):
+        self._quit = True
+        self._on.clear()
+
+
+def _fight_box(shot, side):
+    """(name, cp) from one of the two name boxes at the top (mine on the left, the foe's on the right)."""
+    h, w = shot.shape[:2]
+    x0, x1 = (0.03, 0.39) if side == "me" else (0.60, 0.97)
+    crop = shot[int(0.108 * h):int(0.150 * h), int(x0 * w):int(x1 * w)]
+    crop = cv2.copyMakeBorder(crop, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=(255, 255, 255))
+    return BN.name_box(ocr_lines(crop))
+
+
+def _fight_look(shot, fight):
+    """Read what the fight asks for: the name boxes (who is on the field) now and then, the labels under
+    the charged attack buttons after a new Pokémon came in."""
+    if fight.foe_due:
+        name, cp = _fight_box(shot, "foe")
+        fight.set_foe(name, cp)
+        fight.set_active(_fight_box(shot, "me")[1])
+    if fight.need_labels:
+        h, w = shot.shape[:2]
+        left, right = BN.button_texts(ocr_lines(shot, int(0.895 * h), int(0.96 * h), 1.0), w)
+        fight.set_buttons(left, right)
+
+
+def _fight_sleep(seconds, beat, stop):
+    end = time.monotonic() + seconds
+    while time.monotonic() < end and not (stop and stop()):
+        if beat:
+            beat()
+        time.sleep(min(0.5, max(end - time.monotonic(), 0)))
+
+
+def _fight_throw(fight, tapper, throw, beat, stop):
+    """Tap the lit button of the chosen charged attack, then keep tapping for its little game."""
+    import battle_vision as BV
+    button, move, why = throw
+    log(f"battle: throwing {move.name} on the {'left' if button == 0 else 'right'} button - {why}")
+    tapper.go()
+    S.tap(*_frac_xy((BV.BTN_X[button], BV.BTN_Y)), 90)
+    _fight_sleep(CHARGE_HOLD, beat, stop)
+
+
+def _fight_answer(shot, fight, state):
+    """The countdown ring is up: read the question and answer it.  state: {"unknown": n}.
+    Returns True when the question was handled (the ring is ignored for a while after that)."""
+    import battle_vision as BV
+    h, w = shot.shape[:2]
+    kind = BN.question_kind(ocr_lines(shot, int(0.44 * h), int(0.60 * h), 1.0))
+    if not kind:
+        kind = BN.question_kind(ocr_lines(shot, int(0.40 * h), int(0.66 * h), 0.8))
+    if not kind:                                        # not read: look again at the next picture
+        state["unknown"] = state.get("unknown", 0) + 1
+        if state["unknown"] < 2:
+            return False
+        kind = "shield" if fight.my_shields > 0 else "noshield"   # (twice in a row: a question we must not miss)
+        log(f"battle: the question was not read - taking it for '{kind}'")
+    state["unknown"] = 0
+    if kind == "noshield":
+        log("battle: an attack is coming and we have no shields left")
+    elif kind == "shield":
+        use, why = fight.shield()
+        log(f"battle: shield question - {'SHIELD' if use else 'no shield'}: {why}")
+        S.tap(*_frac_xy(BV.TAP_SHIELD if use else BV.TAP_NOT_NOW))
+    elif kind == "switch":
+        tiles = BN.popup_tiles(ocr_lines(shot, int(0.60 * h), int(0.70 * h), 1.0))
+        idx, mon, why = fight.switch(tiles)
+        if mon is None:
+            log("battle: our Pokémon fainted and nobody is left")
+        else:
+            x = tiles[idx][1] if idx is not None else int(BV.POPUP_TILES[0] * w)
+            log(f"battle: switching to {mon.label} - {why}")
+            S.tap(int(x * S.REF_W / w), int(BV.POPUP_TILE_Y * S.REF_H))
+    return True
+
+
+def fight_battle(beat=None, stop=None, team=None, use_spots=None):
+    """Plays the battle that is about to start (or is going on) until its result screen.
+
+    It looks at the screen all the time: VS screen and loading (wait), the fight (fast attacks in the
+    background, a charged attack when the engine wants one), the questions "Use a Protect Shield?" and
+    "Switch in a new Pokémon?" (answered by the engine), the result (NEXT BATTLE is tapped).  The
+    BACK button is never pressed during a fight.  use_spots: where USE THIS PARTY is, tapped again when the
+    party screen is still there after a while.
+    Returns {"result": "win" / "loss" / "", "why": "...", "seconds": n}: why is '' after a result screen."""
+    import battle_engine as BE
+    import battle_fight as BF
+    import battle_vision as BV
+    fight = BF.Fight(team or BE.load_team(), log=lambda m: log("battle: " + m))
+    tapper = FastTapper(_frac_xy(BV.TAP_FAST))
+    tapper.start()
+    out = {"result": "", "why": "", "seconds": 0}
+    t0 = time.monotonic()
+    started = None            # when the HUD was first seen
+    fight_seen = 0.0          # when a picture of the fight was last seen
+    answered = 0.0            # when a question was last answered
+    unknown_ring = {}
+    look = {"t": t0, "n": 0}  # last time an unknown screen was read
+    party_taps = result_seen = errors = 0
+    try:
+        while True:
+            now = time.monotonic()
+            if stop and stop():
+                out["why"] = "stopped"
+                break
+            if started is None and now - t0 > FIGHT_START_SECONDS:
+                out["why"] = "the fight did not start"
+                break
+            if started is not None and now - started > FIGHT_SECONDS:
+                out["why"] = "the fight takes too long"
+                break
+            try:
+                shot = S.screenshot()
+            except Exception as e:  # noqa: BLE001
+                errors += 1
+                log(f"battle: screenshot failed ({e})")
+                if errors > 8:
+                    out["why"] = "the phone does not answer"
+                    break
+                time.sleep(1.0)
+                continue
+            if beat:
+                beat()
+            now = time.monotonic()
+            if S.on_map(shot):
+                out["why"] = "back on the map"
+                break
+            try:
+                feat = BV.features(shot)
+                st = BF.state(feat)
+                if st == "fight" or (st == "other" and started is not None and now - fight_seen < 12):
+                    fight.see(feat)
+                if st == "fight":
+                    if started is None:
+                        started = now
+                        log("battle: the fight has started")
+                    fight_seen = look["t"] = now
+                    unknown_ring = {}
+                    tapper.go()
+                    _fight_look(shot, fight)
+                    throw = fight.throw()
+                    if throw:
+                        _fight_throw(fight, tapper, throw, beat, stop)
+                elif st == "prompt":
+                    tapper.pause()
+                    fight_seen = look["t"] = now
+                    if now - answered > ANSWER_PAUSE and _fight_answer(shot, fight, unknown_ring):
+                        answered = time.monotonic()
+                        tapper.go()                          # (the attack plays out, then it is fast attacks again)
+                elif st == "result":
+                    tapper.pause()
+                    lines = ocr_lines(shot, 100, None, 0.6)
+                    res = BN.result_kind(lines)
+                    if not res and started is not None and result_seen < 2 and _battle_kind(shot, lines) != "party":
+                        result_seen += 1                     # (the text of the result comes in: read it once more)
+                        continue
+                    if not res and (started is None or _battle_kind(shot, lines) == "party"):
+                        # a green button at the bottom that is no result: the party screen (USE THIS PARTY sits
+                        # where NEXT BATTLE does) or a pop-up before the fight
+                        if use_spots and party_taps < 3 and _battle_kind(shot, lines) == "party":
+                            x, y = use_spots[min(party_taps, len(use_spots) - 1)]
+                            party_taps += 1
+                            log(f"battle: still on the party screen - tapping USE THIS PARTY at ({x}, {y})")
+                            S.tap(x, y)
+                            time.sleep(2.0)
+                        elif now - look["t"] >= FIGHT_WAIT_LOOK:
+                            look["t"] = now
+                            log(f"battle: waiting - a green button, no result ({BN.reads(lines, 90)})")
+                        continue
+                    out["result"] = res
+                    log(f"battle: the fight is over: {res or 'result not read'} ({BN.reads(lines, 90)})")
+                    S.debug_save("g_battle_result.png", shot)
+                    S.tap(*_frac_xy(BV.TAP_NEXT))
+                    time.sleep(2.5)
+                    break
+                else:                                        # VS screen, animation, banner, loading ...
+                    if started is not None and now - fight_seen < 12:
+                        tapper.go()                          # (an animation in the middle of the fight)
+                        continue
+                    tapper.pause()
+                    if now - look["t"] < FIGHT_WAIT_LOOK:
+                        continue
+                    look["t"] = now
+                    look["n"] += 1
+                    lines = ocr_lines(shot, 100, None, 0.6)
+                    kind = _battle_kind(shot, lines)
+                    log(f"battle: waiting - screen is {kind} ({BN.reads(lines, 90)})")
+                    if look["n"] == 2:
+                        S.debug_save("g_battle_wait.png", shot)
+                    res = BN.result_kind(lines)
+                    if res and BV.result_button(shot):
+                        out["result"] = res
+                        log(f"battle: the fight is over: {res}")
+                        S.tap(*_frac_xy(BV.TAP_NEXT))
+                        time.sleep(2.5)
+                        break
+                    if kind == "party" and use_spots and party_taps < 3:
+                        x, y = use_spots[min(party_taps, len(use_spots) - 1)]
+                        party_taps += 1
+                        log(f"battle: still on the party screen - tapping USE THIS PARTY at ({x}, {y})")
+                        S.tap(x, y)
+                    elif kind in ("home", "league", "menu", "map"):
+                        out["why"] = f"back on the {kind} screen"
+                        break
+                    elif kind == "exit_battle":
+                        spots = BN.exit_battle_spots(lines, shot.shape[0] / 2208)
+                        if spots["no"]:
+                            S.tap(*spots["no"])
+            except Exception as e:  # noqa: BLE001
+                errors += 1
+                log(f"battle: error in the fight loop: {type(e).__name__}: {e}")
+                if errors > 8:
+                    out["why"] = "too many errors"
+                    break
+    finally:
+        tapper.close()
+        out["seconds"] = int(time.monotonic() - t0)
+        log(f"battle: fight loop ended after {out['seconds']} s: " + (out["result"] or out["why"] or "no result")
+            + f" ({tapper.taps} fast taps, {fight.throws} charged attacks, shields left {fight.my_shields})")
+    return out
+
+
+def battle_run(beat, stop, count, team=None):
+    """Fights `count` battles one after the other: map -> party screen -> USE THIS PARTY -> fight -> NEXT
+    BATTLE -> party screen again ... and goes back to the map at the end.  Returns {"fought": n, "wins": n}."""
+    res = {"fought": 0, "wins": 0}
+    failures = 0
+    league = battle_league()
+    try:
+        for n in range(1, count + 1):
+            if stop and stop():
+                break
+            info = battle_open_menu(beat, stop, restart=True, stay=True)
+            if not info["ok"]:
+                log(f"battle: the party screen was not reached: {info['why']}")
+                return res
+            title_ok = all(w in info["title"].upper() for w in BN.league_words(league))
+            log(f"battle: party screen '{info['title'] or '?'}' (team seen: {', '.join(info['members']) or 'not read'})"
+                + ("" if title_ok else f" - this is not '{league}', not fighting"))
+            if not title_ok:
+                break
+            x, y = info["use_spots"][0]
+            log(f"battle: battle {n} of {count} - tapping USE THIS PARTY at ({x}, {y})")
+            S.tap(x, y)
+            fought = fight_battle(beat, stop, team, info["use_spots"])
+            if fought["result"]:
+                res["fought"] += 1
+                res["wins"] += fought["result"] == "win"
+                failures = 0
+                log(f"battle: battle {n} done: {fought['result']} ({res['wins']} won of {res['fought']})")
+            else:
+                failures += 1
+                log(f"battle: battle {n} did not finish normally: {fought['why'] or 'no result'}")
+                if failures >= 2 or fought["why"] == "stopped":
+                    break
+            beat()
+    finally:
+        beat()
+        if not S.on_map(S.screenshot()):
+            if not _battle_to_map(beat, leaving_setup=True):
+                log("battle: could not get back to the map - restarting the game")
+                S.restart_game()
+    return res
+
+
 def auto_battle(pkg, beat, stop):
     """Fights the battles of this game when `pkg` is the app chosen for battles (see above).
-
-    PREVIEW: opens the battle menu as far as the party screen of the chosen league, looks, and goes
-    back to the map; no battle is started (the fight itself is not built yet).
 
     beat(): call it now and then - it books the time that has passed and tells the watchdog that the
     bot is alive (a long battle is not a stuck bot). stop(): True when the daily run is switched off,
@@ -3143,23 +3460,17 @@ def auto_battle(pkg, beat, stop):
     try:
         import battle_engine as BE
         team = BE.load_team()
+        import battle_fight  # noqa: F401  (the fight needs these files: see install.sh)
+        import battle_vision  # noqa: F401
     except Exception as e:  # noqa: BLE001
         log(f"battle: the battle engine could not be loaded ({e}) - no battles")
         return 0
-    log(f"battle: preview - {battle_count()} battle(s) in '{battle_league()}' with "
-        + ", ".join(m.label for m in team) + "; for now it only opens the battle menu as far as the party screen")
+    log(f"battle: {battle_count()} battle(s) in '{battle_league()}' with " + ", ".join(m.label for m in team))
     beat()
-    info = battle_open_menu(beat, stop, restart=True)
-    if info["ok"]:
-        league_ok = all(w in info["title"].upper() for w in BN.league_words(battle_league()))
-        log(f"battle: reached the party screen '{info['title'] or '?'}' (team seen: "
-            f"{', '.join(info['members']) or 'not read'})"
-            + ("" if league_ok else f" - this is not '{battle_league()}'")
-            + ". The fight itself is not built yet, so no battle was started")
-    else:
-        log(f"battle: the party screen was not reached: {info['why']}")
+    res = battle_run(beat, stop, battle_count(), team)
+    log(f"battle: done - {res['fought']} fought, {res['wins']} won")
     beat()
-    return 0
+    return res["fought"]
 
 
 def load_daily():
@@ -3374,6 +3685,11 @@ def main():
         S.detect_screen()
         info = battle_open_menu()
         log("battle: " + ("reached the party screen '%s'" % info["title"] if info["ok"] else "failed: " + info["why"]))
+        return
+    if mode == "fight":                    # fight the battles now (stop the bot first; the game on the map)
+        S.detect_screen()
+        res = battle_run(lambda: None, lambda: False, battle_count())
+        log(f"battle: {res['fought']} fought, {res['wins']} won")
         return
     if mode == "loop":                     # the first screenshot also picks raw or PNG capture (a few
         def first_shot():                  # seconds): do that while the models are loading

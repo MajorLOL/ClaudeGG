@@ -24,9 +24,9 @@ ls -la ~/models
 
 echo "== Program files =="
 if [ "$REPO" != "$HOME" ]; then
-  cp "$REPO"/gamebot.py "$REPO"/spin_stop.py "$REPO"/web.py "$REPO"/device_check.py "$REPO"/battle_engine.py "$REPO"/battle_nav.py ~/
+  cp "$REPO"/gamebot.py "$REPO"/spin_stop.py "$REPO"/web.py "$REPO"/device_check.py "$REPO"/battle_engine.py "$REPO"/battle_nav.py "$REPO"/battle_vision.py "$REPO"/battle_fight.py ~/
 fi
-ls -la ~/gamebot.py ~/spin_stop.py ~/web.py ~/device_check.py ~/battle_engine.py ~/battle_nav.py
+ls -la ~/gamebot.py ~/spin_stop.py ~/web.py ~/device_check.py ~/battle_engine.py ~/battle_nav.py ~/battle_vision.py ~/battle_fight.py
 
 echo "== Test =="
 cd ~

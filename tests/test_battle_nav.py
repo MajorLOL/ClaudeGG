@@ -188,5 +188,77 @@ class PartyScreen(unittest.TestCase):
         self.assertEqual(bn.party_members(lines, ["Mr. Mime", "Noctowl"]), ["Mr. Mime", "Noctowl"])
 
 
+with open(os.path.join(HERE, "fixtures", "fight", "ocr.json"), encoding="utf-8") as f:
+    FIGHT = json.load(f)
+
+
+class FightQuestions(unittest.TestCase):
+    """OCR lines of the question strip of a real fight (tests/fixtures/fight/ocr.json)."""
+
+    def test_shield_question(self):
+        for key in ("question_15", "question_34", "question_71"):
+            self.assertEqual(bn.question_kind(FIGHT[key]), "shield", key)
+
+    def test_no_shields_remaining(self):
+        for key in ("question_101", "question_125"):
+            self.assertEqual(bn.question_kind(FIGHT[key]), "noshield", key)
+
+    def test_switch_question(self):
+        self.assertEqual(bn.question_kind(FIGHT["question_65"]), "switch")
+
+    def test_unreadable_is_not_guessed(self):
+        self.assertEqual(bn.question_kind(FIGHT["question_91"]), "")
+        self.assertEqual(bn.question_kind([]), "")
+
+    def test_misread_words(self):
+        for text, kind in (("ATTACK INCOMING! USE APROTECT SHIELD?", "shield"), ("ATTACK INCOMING! USE SHIELD?", "shield"),
+                           ("SWITCH IN A NEW POKEMON?", "switch"), ("NO PROT€ET SHIELDS REMAINING!", "noshield"),
+                           ("NO FEMAINING!", "noshield"), ("SHIELDS", "noshield")):
+            self.assertEqual(bn.question_kind([line(text, 100, 100)]), kind, text)
+
+
+class FightBoxes(unittest.TestCase):
+    def test_name_boxes(self):
+        self.assertEqual(bn.name_box(FIGHT["name_me_41"]), ("Noctowl", 1497))
+        self.assertEqual(bn.name_box(FIGHT["name_foe_41"]), ("Cramorant", 1493))
+        self.assertEqual(bn.name_box(FIGHT["name_foe_55"]), ("Beedrill", 1483))
+        self.assertEqual(bn.name_box(FIGHT["name_me_79"]), ("Lanturn", 1494))
+
+    def test_name_box_nothing_read(self):
+        self.assertEqual(bn.name_box([]), ("", None))
+
+    def test_popup_tiles(self):
+        tiles = bn.popup_tiles(FIGHT["popup_cp_65"])
+        self.assertEqual([cp for cp, _x in tiles][0], 1489)
+        self.assertEqual(len(tiles), 1)                       # ('CPE1494' is misread: the other tile is missing)
+        self.assertEqual(bn.popup_tiles([line("CP1489", 570, 1428), line("CP1494", 1195, 1428)]),
+                         [(1489, 570 + 0), (1494, 1195 + 0)])
+
+    def test_button_texts(self):
+        self.assertEqual(bn.button_texts(FIGHT["buttons_41"], 1768), ("SHADOW BALL", "SKY ATTACK"))
+        left, right = bn.button_texts(FIGHT["buttons_113"], 1768)      # (a hint 'Not very effective' stands in it)
+        self.assertIn("FRUSTRATION", left)
+        self.assertIn("SURF", right)
+        left, right = bn.button_texts([line("SHADOW BALL", 540, 2040), line("SKY ATTACK", 1220, 2040)], 1768)
+        self.assertEqual((left, right), ("SHADOW BALL", "SKY ATTACK"))
+
+    def test_result(self):
+        self.assertEqual(bn.result_kind(FIGHT["result_137"]), "loss")
+        self.assertEqual(bn.result_kind(FIGHT["result_136"]), "loss")
+        self.assertEqual(bn.result_kind(FIGHT["result_135"]), "loss")       # ('GOOD' only: the rest is still coming)
+        self.assertEqual(bn.result_kind([line("VICTORY!", 800, 600)]), "win")
+        self.assertEqual(bn.result_kind(SCREENS["home"]), "")               # (the Battle screen says 'WINS: 100')
+
+
+class PartyButton(unittest.TestCase):
+    def test_use_this_party_spots(self):
+        spots = bn.party_use_spots([line("USE THIS PARTY", 700, 1930)])
+        self.assertEqual(spots[0], (884, 1930))
+        self.assertEqual(bn.party_use_spots(SCREENS["party"]), [(884, 1930)])     # (label misread: fixed spot)
+
+    def test_spots_scale(self):
+        self.assertEqual(bn.party_use_spots([], 0.5), [(442, 965)])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,7 @@ same positions work on a differently sized screenshot.
 """
 import difflib
 import re
+import unicodedata
 
 SCREEN_H = 2208
 ICON_DY = 195            # main menu: the round tile sits this far below its label
@@ -31,6 +32,8 @@ YES_ABOVE_NO = 290
 YES_BELOW_TITLE = 310
 EXIT_YES_FALLBACK = (884, 1110)
 MENU_WORDS = ("SETTINGS", "POKEDEX", "BATTLE", "SHOP", "POKEMON", "ITEMS")
+# The green USE THIS PARTY button at the bottom of the party screen: where it is when its label is not read
+PARTY_BUTTON_FALLBACK = (884, 1930)
 
 
 def like(word, target, th=0.8):
@@ -195,3 +198,94 @@ def party_members(lines, names):
         if key and (key in text or any(like(w, key, 0.8) for w in text.split())):
             out.append(n)
     return out
+
+
+# ------------------------------------------------------------------ the fight ---
+# What OCR reads during a fight: the question strip in the middle of the screen, the two name boxes at the top,
+# the labels under the two charged attack buttons and the CP numbers of the "Switch in a new Pokémon?" pop-up.
+
+def _plain(word):
+    """A word in plain capitals without accents or punctuation ('POKÉMON?' -> 'POKEMON')."""
+    word = unicodedata.normalize("NFKD", word)
+    return re.sub(r"[^A-Z0-9]+", "", "".join(c for c in word if not unicodedata.combining(c)).upper())
+
+
+def question_kind(lines):
+    """Which question is on the screen (OCR of the strip in the middle, while the countdown ring is up)?
+
+    shield     'Attack incoming! Use a Protect Shield?' - answer it with the shield or NOT NOW
+    noshield   'No Protect Shields remaining!' - an attack is coming and there is nothing to decide
+    switch     'Switch in a new Pokémon?' - pick the next Pokémon
+    ''         not read (try again on the next picture)
+    """
+    words = [_plain(w) for w, _x, _y in words_of(lines)]
+    words = [w for w in words if w]
+    if any(like(w, "SWITCH", 0.8) for w in words):
+        return "switch"
+    if any(like(w, "REMAINING", 0.75) or w == "SHIELDS" for w in words):
+        return "noshield"
+    if any(like(w, "INCOMING", 0.75) or w in ("SHIELD", "ATTACK", "USE") for w in words):
+        return "shield"
+    return ""
+
+
+def name_box(lines):
+    """(name, cp) from the OCR of one name box at the top ('NOCTOWL CP 1497' or 'CP 1493 CRAMORANT').
+    name is '' when no name is read, cp is None when the number is not read."""
+    name, cp = [], None
+    for w, _x, _y in words_of(lines):
+        plain = _plain(w)
+        m = re.fullmatch(r"CP(\d{3,4})", plain)
+        if m:
+            cp = int(m.group(1))
+        elif plain == "CP":
+            continue
+        elif re.fullmatch(r"\d{3,4}", plain):
+            cp = cp or int(plain)
+        elif len(plain) >= 3 and plain.isalpha():
+            name.append(plain.title())
+    return " ".join(name), cp
+
+
+def popup_tiles(lines):
+    """[(cp, x)] left to right: the CP numbers above the choices of 'Switch in a new Pokémon?' (the tiles
+    show no names, only the CP)."""
+    out = []
+    for w, x, _y in words_of(lines):
+        m = re.fullmatch(r"(?:CP)?(\d{3,4})", _plain(w))
+        if m:
+            out.append((int(m.group(1)), x))
+    out.sort(key=lambda t: t[1])
+    return out
+
+
+def button_texts(lines, width):
+    """(left, right): the words under the two charged attack buttons (the move names), split at the middle
+    of the screen; '' for a side where nothing is read."""
+    left, right = [], []
+    for w, x, _y in sorted(words_of(lines), key=lambda t: t[1]):
+        (left if x < width / 2 else right).append(w)
+    return " ".join(left), " ".join(right)
+
+
+def result_kind(lines):
+    """win / loss / '' from the words on the result screen ('GOOD EFFORT!' is a loss)."""
+    words = [_plain(w) for w, _x, _y in words_of(lines)]
+    if any(like(w, "EFFORT", 0.8) for w in words) or ("GOOD" in words and not any(
+            like(w, "VICTORY", 0.8) for w in words)):
+        return "loss"
+    if any(like(w, "VICTORY", 0.8) or like(w, "WINNER", 0.8) for w in words):
+        return "win"
+    return ""
+
+
+def party_use_spots(lines, k=1.0):
+    """Where to tap USE THIS PARTY: the middle of the green button (its label is the same height; the
+    label is only used for the height) and a fixed spot when the label is not read."""
+    ys = [y for t, _x, y, ws in lines if _phrase([(t, 0, y, ws)], "USE THIS PARTY", 0.7)]
+    ys += [y for t, _x, y, _ws in lines if "THIS PARTY" in t and "CHOOSE" not in t]
+    spots = []
+    if ys:
+        spots.append((int(PARTY_BUTTON_FALLBACK[0] * k), max(ys)))
+    spots.append((int(PARTY_BUTTON_FALLBACK[0] * k), int(PARTY_BUTTON_FALLBACK[1] * k)))
+    return spots
