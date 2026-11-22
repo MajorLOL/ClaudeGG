@@ -3128,6 +3128,7 @@ BATTLE_NAV_STEPS = 20        # screens looked at on the way to the party screen
 BATTLE_NAV_SECONDS = 240     # ... and the most time that may take
 # A new rank has to be claimed before the next battle: the Battle screen then has an orange CLAIM RANK REWARDS!
 # button where the green BATTLE button is.  It is tapped and the screens that follow are worked through.
+BATTLE_RESUMES = 3           # the battles go on after a Pokémon of a reward was caught, this often a run at most
 COLLECT_TAPS = 6             # gold COLLECT tiles of a Battle screen with a grey BATTLE button tapped at most
 CLAIM_TAPS = 4               # the claim button of the Battle screen is tapped this often at most
 CLAIM_STEPS = 14             # screens looked at after it (the rank-up and its rewards) ...
@@ -3298,6 +3299,18 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
             kind = _battle_kind(shot, lines)
             if kind != "party":                          # (the party screen gets its own picture below)
                 save_async(f"g_battle_s{step}.png", shot)
+            if collect["taps"] and kind not in ("home", "party", "league", "map") and not claim["since"]:
+                # a reward tile was collected and something else is on the screen: a Pokémon to catch (the
+                # rewards of a set can be an encounter, 22 November) - leave it as it is, BACK would run away
+                name, score = screen_class(shot)
+                if name == "encounterScreen" and score >= TH_CLASS and not BN.battle_words(lines):
+                    collect["catch"] = collect.get("catch", 0) + 1
+                    if collect["catch"] >= 2:
+                        save_async("g_battle_reward_catch.png", shot)
+                        info.update(why="a Pokémon to catch came up as a reward of the set", leave=True,
+                                    catch=True)
+                        break
+                    continue
             log(f"battle: step {step}: screen is {kind} ({BN.reads(lines, 90)})")
             if beat:
                 beat()
@@ -4845,6 +4858,7 @@ def battle_run(beat, stop, count, team=None):
             if not info["ok"]:
                 log(f"battle: the party screen was not reached: {info['why']}")
                 res["leave"] = bool(info.get("leave"))
+                res["catch"] = bool(info.get("catch"))
                 if info.get("done_today"):
                     res["done_today"] = True
                     battles_done_today(True)
@@ -4917,7 +4931,9 @@ def auto_battle(pkg, beat, stop):
     beat()
     res = battle_run(beat, stop, battle_count(), team)
     log(f"battle: done - {res['fought']} fought, {res['wins']} won"
-        + (" - the normal bot goes on from the screen that is there" if res.get("leave") else ""))
+        + (" - the normal bot catches the Pokémon of the reward, then the battles go on" if res.get("catch") else
+           " - the normal bot goes on from the screen that is there" if res.get("leave") else ""))
+    run_state["battle_resume"] = bool(res.get("catch"))
     beat()
     return res["fought"]
 
@@ -5028,6 +5044,7 @@ def run_one_game(brain, pkg, d):
             beat()
         saved = time.time()
         reported = played.get(pkg, 0)
+        resumes = 0
         while not run_state["done"]:
             if not wanted("daily_cycle"):
                 log("daily run switched off")
@@ -5052,6 +5069,23 @@ def run_one_game(brain, pkg, d):
             except Exception as e:  # noqa: BLE001
                 log(f"error: {e}")
                 wait = 10
+            # The reward of a set was a Pokémon to catch: the normal bot caught it (or it fled) - back on the map,
+            # the battles go on (at most a few times a run)
+            if run_state.get("battle_resume") and resumes < BATTLE_RESUMES:
+                try:
+                    back = S.on_map(S.screenshot())
+                except Exception:  # noqa: BLE001
+                    back = False
+                if back:
+                    resumes += 1
+                    run_state["battle_resume"] = False
+                    log("battle: the Pokémon of the reward was caught - back to the battles")
+                    try:
+                        auto_battle(pkg, beat, stop)
+                    except Exception as e:  # noqa: BLE001
+                        log(f"battle: error {e}")
+                    beat()
+                    continue
             time.sleep(wait)
     finally:
         watchdog.set()

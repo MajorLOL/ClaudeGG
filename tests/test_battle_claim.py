@@ -96,6 +96,7 @@ class Phone:
         self.then = then                   # ... and after a tap on the BATTLE button
         self.claim_works = True
         self.after_rewards = "home_battle"     # the Battle screen after the rewards of a claim
+        self.collect_to = "home_done1"         # the screen after the first gold tile was tapped
         self.taps, self.swipes, self.seen, self.logs = [], [], [scene], []
         self.backs = self.walks_back = 0
         self.pictures = {}
@@ -137,7 +138,7 @@ class Phone:
         elif self.scene == "rewards" and 0.33 < fx < 0.67 and 0.83 < fy < 0.89:
             self.to(self.after_rewards)                         # (its green button)
         elif self.scene == "home_done2" and 0.84 < fy < 0.88 and fx < 0.25:
-            self.to("home_done1")                               # (the first gold tile collected)
+            self.to(self.collect_to)                            # (the first gold tile collected)
         elif self.scene == "home_done1" and 0.84 < fy < 0.88 and 0.25 < fx < 0.4:
             self.to("home_claim")                               # (both collected: now a new rank is claimed)
         elif self.scene == "home_battle" and 0.32 < fx < 0.71 and fy > 0.972:
@@ -238,6 +239,19 @@ class ClaimFirst(unittest.TestCase):
         self.assertEqual(info["why"], "the BATTLE button is grey - the battles of today are done")
         self.assertEqual(phone.backs, 0, log)
         self.assertFalse([t for t in phone.taps if t[0] == "home_done"], log)   # (nothing tapped on the grey one)
+
+    def test_a_reward_that_is_a_pokemon_to_catch(self):
+        """22 November, 18:55: one of the gold tiles was a Pokémon: an encounter came up and the bot did not
+        catch it.  The walk leaves it as it is (BACK would run away) and says so: the normal bot catches it."""
+        phone = Phone("home_done2")
+        phone.collect_to = "catch"
+        info = self.walk(phone)
+        log = "\n".join(phone.logs)
+        self.assertFalse(info["ok"], log)
+        self.assertTrue(info.get("leave") and info.get("catch"), info)
+        self.assertEqual(info["why"], "a Pokémon to catch came up as a reward of the set")
+        self.assertEqual(phone.backs, 0, log)
+        self.assertFalse([t for t in phone.taps if t[0] == "catch"], log)        # (nothing tapped on it)
 
     def test_after_the_rewards_and_the_rank_a_new_set_starts(self):
         """What really came after the claim on 22 November: 'Choose a reward tier ...' with the BATTLE button
