@@ -109,5 +109,60 @@ class SmallPictures(unittest.TestCase):
         self.assertAlmostEqual(f["hp"][1], 0.31, delta=0.05)
 
 
+def small(name):
+    """The picture as the fight loop reads it: the size of the live video."""
+    img = cv2.imread(os.path.join(FIX, name + ".jpg"))
+    return cv2.resize(img, (704, 880), interpolation=cv2.INTER_AREA)
+
+
+class NameBoxes(unittest.TestCase):
+    """The fingerprint of the text in a name box: it tells when another Pokémon came in."""
+
+    def test_the_same_pokemon_gives_the_same_key(self):
+        # two pictures of the second fight with the same foe, and one fight picture / one question of the first
+        self.assertFalse(bv.key_differs(bv.name_key(small("run2_dim"), "foe"), bv.name_key(small("run2_right_lit"), "foe")))
+        self.assertFalse(bv.key_differs(bv.name_key(small("run2_dim"), "me"), bv.name_key(small("run2_both_lit"), "me")))
+        self.assertFalse(bv.key_differs(bv.name_key(small("fight_lanturn"), "foe"), bv.name_key(small("switch_popup"), "foe")))
+
+    def test_another_pokemon_gives_another_key(self):
+        self.assertTrue(bv.key_differs(bv.name_key(small("fight_ready"), "foe"), bv.name_key(small("fight_lanturn"), "foe")))
+        self.assertTrue(bv.key_differs(bv.name_key(small("fight_ready"), "foe"), bv.name_key(small("run2_dim"), "foe")))
+        self.assertTrue(bv.key_differs(bv.name_key(small("fight_ready"), "me"), bv.name_key(small("run2_dim"), "me")))
+
+    def test_no_key_yet(self):
+        self.assertTrue(bv.key_differs(None, bv.name_key(small("fight_ready"), "foe")))
+
+    def test_same_key_on_the_canvas_and_on_the_small_picture(self):
+        a = bv.name_key(frame("fight_ready"), "foe")
+        b = bv.name_key(small("fight_ready"), "foe")
+        self.assertEqual(a.shape, b.shape)
+        self.assertFalse(bv.key_differs(a, b))
+
+
+class Rings(unittest.TestCase):
+    def test_the_fast_ring_test_gives_what_the_plain_one_gives(self):
+        import numpy as np
+        rng = np.random.RandomState(3)
+        for size in ((880, 704), (2208, 1768)):
+            img = (rng.rand(size[0], size[1], 3) * 255).astype(np.uint8)
+            img[rng.rand(size[0], size[1]) > 0.6] = 255
+            h, w = img.shape[:2]
+            for cx, cy in ((bv.BTN_X[0] * w, bv.BTN_Y * h), (bv.COUNT_CENTER[0] * w, bv.COUNT_CENTER[1] * h), (5.0, 7.0)):
+                radii = np.arange(0.080, 0.112, 0.004) * w
+                plain = max(bv._ring_fraction(img, cx, cy, r - 0.004 * w, r + 0.004 * w) for r in radii)
+                self.assertAlmostEqual(bv._ring_best(img, cx, cy, radii, 0.004 * w), plain, places=9)
+                self.assertAlmostEqual(bv._ring_best(img, cx, cy, radii, 0.004 * w), plain, places=9)   # (from the cache)
+
+    def test_features_are_the_same_on_the_small_picture(self):
+        # the fight loop reads the small picture (six times as fast): it must tell the same story as the canvas
+        for name in ("fight_ready", "fight_lanturn", "shield_question", "run2_shield_question", "switch_popup",
+                     "no_shields", "result_loss", "versus", "run2_both_lit", "run2_right_lit", "run2_dim"):
+            a, b = bv.features(frame(name)), bv.features(small(name))
+            for key in ("white", "versus", "hud", "ring", "result", "hex", "shields"):
+                self.assertEqual(a[key], b[key], (name, key))
+            self.assertEqual(tuple(a["ready"]), tuple(b["ready"]), name)
+            self.assertEqual(bf.state(a), bf.state(b), name)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -43,6 +43,8 @@ class FrameStream(threading.Thread):
         self.t = 0.0                    # when it came in (time.monotonic())
         self.frames = 0
         self.starts = 0
+        self.opened = 0.0               # when screenrecord was last started ...
+        self.since_open = 0             # ... and the pictures that came from it since
         self.failed = False             # gave up: no pictures came
         self.error = ""
         self._quit = False
@@ -85,14 +87,22 @@ class FrameStream(threading.Thread):
             pass
 
     def _kill(self):
-        for p in self._procs:
+        procs, self._procs = self._procs, []
+        for p in procs:
             try:
                 if p.poll() is None:
                     p.kill()
                 p.wait(timeout=1.0)            # (reaped: no zombie processes after every restart)
             except Exception:  # noqa: BLE001
                 pass
-        self._procs = []
+            if p.poll() is None:
+                continue                       # (it did not stop: its pipes are left alone)
+            for pipe in (p.stdout, p.stderr):  # (a stopped program: reading its pipes ends at once)
+                try:
+                    if pipe is not None:
+                        pipe.close()
+                except Exception:  # noqa: BLE001
+                    pass
 
     # ------------------------------------------------------------------ the thread ---
     def run(self):
@@ -102,6 +112,7 @@ class FrameStream(threading.Thread):
             got = 0
             out = None
             try:
+                self.opened, self.since_open = time.monotonic(), 0
                 out = self._open()
                 self.starts += 1
                 while not self._quit:
@@ -130,13 +141,14 @@ class FrameStream(threading.Thread):
                 with self._cond:
                     self._cond.notify_all()
                 break
-            time.sleep(0.3)
+            time.sleep(0.05 if got else 0.5)       # (it ended at its time limit: start again at once)
 
     def _publish(self, frame):
         with self._cond:
             self._frame = frame            # (frombuffer of bytes: read-only, not touched afterwards)
             self.seq += 1
             self.frames += 1
+            self.since_open += 1
             self.t = time.monotonic()
             self._cond.notify_all()
 
@@ -148,6 +160,12 @@ class FrameStream(threading.Thread):
         if self.frames == 0:
             return True                    # (starting up: wait_new() has a time-out of its own)
         return time.monotonic() - self.t < max_age
+
+    def starting(self, patience=4.0):
+        """screenrecord was (re)started a moment ago and its first picture has not come yet.  It stops by
+        itself every three minutes; the next pictures are there within a second or two."""
+        return (not self.failed and not self._quit and self.since_open == 0
+                and time.monotonic() - self.opened < patience)
 
     def latest(self):
         with self._cond:

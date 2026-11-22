@@ -43,9 +43,10 @@ def _box(img, x0, y0, x1, y1):
 
 def _pale(px):
     """Pale, hardly coloured pixels (the name boxes at the top, the white of a ring)."""
-    mn = px.min(axis=-1).astype(np.int16)
-    mx = px.max(axis=-1).astype(np.int16)
-    return (mn > 190) & (mx - mn < 50)
+    b, g, r = cv2.split(np.ascontiguousarray(px))
+    mn = cv2.min(cv2.min(b, g), r)
+    mx = cv2.max(cv2.max(b, g), r)
+    return (mn > 190) & (cv2.subtract(mx, mn) < 50)
 
 
 def is_white_screen(img):
@@ -83,6 +84,31 @@ def _ring_fraction(img, cx, cy, r0, r1):
     return float((sub.min(axis=-1)[mask] > 215).mean())
 
 
+_rings = {}                       # which pixels belong to which ring: the same for every picture of one size
+
+
+def _ring_best(img, cx, cy, radii, half):
+    """The whitest of the rings with the given radii (each `half` thick to both sides) around (cx, cy): the
+    share of white pixels in it.  The same as max(_ring_fraction(...)) over the radii, but the pixels of every
+    ring are worked out only once per picture size (the fight loop asks this for every picture)."""
+    h, w = img.shape[:2]
+    key = (h, w, round(cx, 2), round(cy, 2), tuple(round(float(r), 3) for r in radii), round(float(half), 3))
+    geo = _rings.get(key)
+    if geo is None:
+        r1 = max(radii) + half
+        y0, y1 = max(int(cy - r1), 0), min(int(cy + r1) + 1, h)
+        x0, x1 = max(int(cx - r1), 0), min(int(cx + r1) + 1, w)
+        yy, xx = np.ogrid[y0:y1, x0:x1]
+        d2 = ((xx - cx) ** 2 + (yy - cy) ** 2).ravel()
+        idx = [np.flatnonzero((d2 >= (r - half) ** 2) & (d2 <= (r + half) ** 2)) for r in radii]
+        if len(_rings) > 64:
+            _rings.clear()
+        geo = _rings[key] = (y0, y1, x0, x1, idx)
+    y0, y1, x0, x1, idx = geo
+    white = (img[y0:y1, x0:x1].min(axis=-1) > 215).ravel()
+    return max((float(white[i].mean()) for i in idx if i.size), default=0.0)
+
+
 def _label_lit(img, bx):
     """Is the name of the move under a button bright white?  Text is a thin line: when a large part of the
     strip is white it is a flash of the charged attack's zoom, not a label."""
@@ -97,13 +123,10 @@ def charge_ready(img):
     works for every colour of button, a blue Surf button has hardly a white ring) and a lit button has a thick
     white ring (the radius is searched: the button swells a little when it is ready)."""
     h, w = img.shape[:2]
+    radii = np.arange(0.080, 0.112, 0.004) * w
     res = []
     for bx in BTN_X:
-        cx, cy = bx * w, BTN_Y * h
-        best = 0.0
-        for r in np.arange(0.080, 0.112, 0.004) * w:
-            best = max(best, _ring_fraction(img, cx, cy, r - 0.004 * w, r + 0.004 * w))
-        res.append(best > 0.30 or _label_lit(img, bx))
+        res.append(_label_lit(img, bx) or _ring_best(img, bx * w, BTN_Y * h, radii, 0.004 * w) > 0.30)
     return tuple(res)
 
 
@@ -112,11 +135,32 @@ def countdown_ring(img):
     h, w = img.shape[:2]
     cx, cy = COUNT_CENTER[0] * w, COUNT_CENTER[1] * h
     inner = _box(img, 0.46, 0.115, 0.54, 0.175)
-    dark = float(inner.max(axis=-1).mean()) < 150                    # a dark disc ...
-    ring = max(_ring_fraction(img, cx, cy, r - 0.003 * w, r + 0.003 * w)
-               for r in np.arange(0.060, 0.096, 0.003) * w)
+    if float(inner.max(axis=-1).mean()) >= 150:                      # a dark disc ...
+        return False
     digit = float(_pale(_box(img, 0.47, 0.12, 0.53, 0.17)).mean())   # ... with a white number and ring
-    return dark and ring > 0.12 and digit > 0.04
+    if digit <= 0.04:
+        return False
+    return _ring_best(img, cx, cy, np.arange(0.060, 0.096, 0.003) * w, 0.003 * w) > 0.12
+
+
+def name_key(img, side):
+    """A small fingerprint of the text line of a name box ('me' / 'foe': the name and the CP).  It changes when
+    another Pokémon comes in, so the fight loop knows when to read the names again without reading them all
+    the time (reading text is the slowest thing the bot does)."""
+    x0, x1 = (0.035, 0.385) if side == "me" else (0.615, 0.965)
+    box = _box(img, x0, 0.118, x1, 0.148)
+    ink = (box.max(axis=-1) < 150).astype(np.uint8) * 255            # the letters are dark on the pale box
+    return cv2.resize(ink, (40, 4), interpolation=cv2.INTER_AREA)
+
+
+def key_differs(a, b):
+    """Do two name_key() fingerprints show another text?"""
+    if a is None or b is None:
+        return True
+    return float(np.abs(a.astype(np.int16) - b.astype(np.int16)).mean()) > KEY_DIFF
+
+
+KEY_DIFF = 7.0                    # (0-255) the same text gives 0-5 on the next picture, another name 9 and more
 
 
 def shield_question(img):
@@ -136,14 +180,15 @@ def shield_question(img):
 def shield_icon_slots(img):
     """{'me': n, 'foe': n}: the shields each side still has (lilac icons in the name box), or None."""
     h, w = img.shape[:2]
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    y, r = int(SHIELD_SLOTS_Y * h), max(int(0.007 * w), 3)
+    top = max(y - r, 0)
+    hsv = cv2.cvtColor(img[top:y + r + 1], cv2.COLOR_BGR2HSV)         # (only the strip the icons are in)
     out = {}
     for side, xs in SHIELD_SLOTS.items():
         n = 0
         for xf in xs:
-            x, y = int(xf * w), int(SHIELD_SLOTS_Y * h)
-            r = max(int(0.007 * w), 3)
-            patch = hsv[y - r:y + r + 1, x - r:x + r + 1].reshape(-1, 3)
+            x = int(xf * w)
+            patch = hsv[y - r - top:y + r + 1 - top, x - r:x + r + 1].reshape(-1, 3)
             hue, sat, val = np.median(patch, axis=0)
             if 125 <= hue <= 155 and 45 <= sat <= 120 and val >= 200:
                 n += 1
@@ -159,11 +204,10 @@ def hp_bars(img):
     top, bot = int(0.20 * h), int(0.62 * h)
     reg = img[top:bot]
     hsv = cv2.cvtColor(reg, cv2.COLOR_BGR2HSV)
-    hh, ss, vv = [hsv[..., k].astype(np.int16) for k in range(3)]
-    green = (hh >= 70) & (hh <= 90) & (ss > 150) & (vv > 200)
-    yellow = (hh >= 22) & (hh <= 34) & (ss > 90) & (vv > 220)
-    red = ((hh <= 6) | (hh >= 170)) & (ss > 110) & (vv > 200)
-    fill = (green | yellow | red).astype(np.uint8)
+    green = cv2.inRange(hsv, (70, 151, 201), (90, 255, 255))
+    yellow = cv2.inRange(hsv, (22, 91, 221), (34, 255, 255))
+    red = cv2.inRange(hsv, (0, 111, 201), (6, 255, 255)) | cv2.inRange(hsv, (170, 111, 201), (180, 255, 255))
+    fill = ((green | yellow | red) > 0).astype(np.uint8)
     fill = cv2.morphologyEx(fill, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (max(3, w // 190), 1)))
     n, _lab, stats, _ = cv2.connectedComponentsWithStats(fill, connectivity=8)
     full = BAR_FULL * w

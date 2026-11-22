@@ -46,16 +46,16 @@ def grep(text, *words, keep=12):
 
 
 def speed_test(rounds=4):
-    """How long does a screenshot take as PNG and as raw data, and do the two show the same colours?
-    (The raw way is much faster, but the bot only uses it when the colours match.) Leave the phone
-    on a screen that does not move (e.g. the item bag) while this runs."""
+    """How long does a screenshot take as PNG and as raw data, and do the two show the same picture?
+    (The raw way is much faster, but the bot only uses it when the picture is the same.) The comparison is
+    the bot's own (spin_stop.compare_shots): PNG, raw, PNG again, judged on the parts of the screen that did
+    not move in between - so it also works on a screen that moves a little."""
     import time
 
     import cv2
     import numpy as np
-    print("Screenshot speed test (keep the screen still) ...", flush=True)
-    t_png, t_raw, diffs, fitted = [], [], [], []
-    small = lambda im: cv2.resize(im, (221, 276), interpolation=cv2.INTER_AREA).astype(np.int16)
+    print("Screenshot speed test ...", flush=True)
+    t_png, t_raw, diffs, verdicts = [], [], [], []
     for i in range(rounds):
         t0 = time.time()
         png = S._grab_png()
@@ -63,28 +63,29 @@ def speed_test(rounds=4):
         t0 = time.time()
         raw = S._grab_raw()
         t_raw.append(time.time() - t0)
-        if raw.shape != png.shape:
-            print(f"  round {i + 1}: raw {raw.shape[1]}x{raw.shape[0]} and PNG {png.shape[1]}x{png.shape[0]} differ in size")
-            continue
-        diff = float(np.abs(small(png) - small(raw)).mean())
-        xf = S._fit_colours(raw, png)
-        after = float(np.abs(small(png) - small(cv2.transform(raw, xf))).mean())
-        diffs.append(diff)
-        fitted.append(after)
-        print(f"  round {i + 1}: PNG {t_png[-1]:.2f} s, raw {t_raw[-1]:.2f} s, colour difference {diff:.1f}"
-              f" -> {after:.1f} after the colour fit", flush=True)
+        t0 = time.time()
+        png2 = S._grab_png()
+        t_png.append(time.time() - t0)
+        res = S.compare_shots(png, raw, png2)
+        verdicts.append(res["same"])
+        if res["same"] is not None:
+            diffs.append(res["diff"])
+        word = {True: "the same picture", False: "DIFFERENT", None: "cannot tell (too much moves)"}[res["same"]]
+        print(f"  round {i + 1}: PNG {t_png[-2]:.2f} s, raw {t_raw[-1]:.2f} s: {word} - difference {res['diff']:.1f} "
+              f"on the {res['still']:.0%} of the screen that stood still"
+              + (f", {res['note']}" if res["note"] else ""), flush=True)
         if i == 0:
             cv2.imwrite(os.path.join(OUT_DIR, "speed_png.png"), png)
             cv2.imwrite(os.path.join(OUT_DIR, "speed_raw.png"), raw)
-    if not diffs:
-        say("== Screenshot speed: no comparable pairs")
-        return
     say("\n== Screenshot speed")
     say(f"  PNG  {np.mean(t_png):.2f} s on average ({min(t_png):.2f} - {max(t_png):.2f})")
     say(f"  raw  {np.mean(t_raw):.2f} s on average ({min(t_raw):.2f} - {max(t_raw):.2f})")
-    say(f"  colour difference raw against PNG: {np.mean(diffs):.1f}, after fitting {np.mean(fitted):.1f} "
-        f"(the bot uses raw screenshots when this is below 4 and raw is clearly faster)")
-    say("  pictures: ~/debug/speed_png.png and speed_raw.png (compare them: is the raw one paler or more saturated?)")
+    if diffs:
+        say(f"  difference raw against PNG where the screen stood still: {np.mean(diffs):.1f} "
+            f"(the bot uses raw screenshots when this is at most {S.SHOT_SAME} and raw is clearly faster)")
+    say(f"  verdicts: {verdicts.count(True)} x the same, {verdicts.count(False)} x different, "
+        f"{verdicts.count(None)} x not judged")
+    say("  pictures: ~/debug/speed_png.png and speed_raw.png (compare them: is the raw one paler, more saturated, shifted?)")
 
 
 def layout_report():

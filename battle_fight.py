@@ -30,6 +30,8 @@ FAINTED_BELOW = 0.25      # a Pokémon with less HP than this that is replaced h
 LABEL_TRIES = 8           # pictures to read the labels under the buttons from (they are hidden at times)
 FOE_CHECK_EVERY = 3       # read the name boxes again every this many pictures with the HUD (a new foe comes in
                           # without a sign other than its name)
+SHIELDS_BACK = 6          # pictures in a row that show more shields of ours than we counted: believe them
+FOE_RETRY = 8             # a name box that gave nothing is read again after this many pictures at most
 
 
 class Fight:
@@ -55,6 +57,9 @@ class Fight:
         self.throws = 0
         self._pending = {}                     # unconfirmed big changes: side -> value
         self._shield_seen = {}                 # unconfirmed shield counts: side -> value
+        self.shields_back = SHIELDS_BACK       # (gamebot sets a higher number for the live video, as foe_every)
+        self._shield_more = 0                  # pictures in a row that show more shields of ours than counted
+        self._shield_more_n = None
 
     # ------------------------------------------------------------ what is seen ---
     def _believe(self, side, old, new):
@@ -100,9 +105,22 @@ class Fight:
             self._calibrate()
 
     def _see_shields(self, sh):
-        """Shield icons: a lower number is believed after two pictures that agree; it never goes up."""
+        """Shield icons: a lower number is believed after two pictures that agree.  The foe's never goes up.
+        Ours does, after SHIELDS_BACK pictures that agree: we counted a shield as used, but the tap came too
+        late and the game did not use it.  (The icon of a shield that IS used turns grey within two seconds.)"""
         for side, now in (("me", self.my_shields), ("foe", self.foe_shields)):
             n = sh.get(side)
+            if side == "me" and n is not None and n > now:
+                self._shield_more = self._shield_more + 1 if self._shield_more_n == n else 1
+                self._shield_more_n = n
+                if self._shield_more >= self.shields_back:
+                    self.log(f"fight: we still have {n} shield(s) - one that was counted as used was not used")
+                    self.my_shields = n
+                    self._shield_more = 0
+                self._shield_seen.pop(side, None)
+                continue
+            if side == "me":
+                self._shield_more = 0
             if n is None or n >= now:
                 self._shield_seen.pop(side, None)
                 continue
@@ -121,11 +139,17 @@ class Fight:
         """Time to read the name boxes again."""
         return self.since_foe >= self.foe_every
 
+    def read_names(self):
+        """Something changed in a name box: read the names at the next picture."""
+        self.since_foe = 10 ** 6
+
     def set_foe(self, name, cp=None):
         """The foe's name box was read.  Returns True when the foe is known now."""
         self.since_foe = 0
         foe = BE.foe_from_text(name) if name else None
         if foe is None:
+            if not name:                       # (nothing was read: a banner over the box?  try again soon)
+                self.since_foe = max(self.foe_every - FOE_RETRY, 0)
             if name and name != self._foe_miss:
                 self._foe_miss = name
                 self.log(f"fight: foe '{name}' not recognised" + (" - playing without knowing it"

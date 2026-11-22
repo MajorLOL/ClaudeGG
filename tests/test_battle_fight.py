@@ -72,6 +72,61 @@ class NextOneComesIn(unittest.TestCase):
         self.assertEqual(fight.me, fight.team[0])       # (not guessed: switch() decides)
 
 
+class ShieldsAndNames(unittest.TestCase):
+    def test_a_shield_that_was_not_used_comes_back(self):
+        fight = new_fight()
+        fight.me.hp = 1                                      # (so that the engine wants the shield)
+        fight.my_hp = 0.01
+        use, _why = fight.shield()
+        self.assertTrue(use)
+        self.assertEqual(fight.my_shields, 1)
+        for _ in range(bf.SHIELDS_BACK - 1):                 # the icons still show two: the tap came too late
+            fight.see(feat(shields={"me": 2, "foe": 2}))
+        self.assertEqual(fight.my_shields, 1)
+        fight.see(feat(shields={"me": 2, "foe": 2}))
+        self.assertEqual(fight.my_shields, 2)
+
+    def test_a_shield_that_is_used_does_not_come_back(self):
+        fight = new_fight()
+        fight.my_shields = 1
+        for _ in range(3):                                   # for a moment the icons still show two ...
+            fight.see(feat(shields={"me": 2, "foe": 2}))
+        for _ in range(4):                                   # ... then one turns grey
+            fight.see(feat(shields={"me": 1, "foe": 2}))
+        for _ in range(3):
+            fight.see(feat(shields={"me": 2, "foe": 2}))     # (a misread now and then does not count)
+            fight.see(feat(shields={"me": 1, "foe": 2}))
+        self.assertEqual(fight.my_shields, 1)
+
+    def test_the_foes_shields_never_come_back(self):
+        fight = new_fight()
+        fight.foe_shields = 0
+        for _ in range(20):
+            fight.see(feat(shields={"me": 2, "foe": 2}))
+        self.assertEqual(fight.foe_shields, 0)
+
+    def test_names_are_read_when_asked(self):
+        fight = new_fight()
+        self.assertFalse(fight.foe_due)
+        fight.read_names()
+        self.assertTrue(fight.foe_due)
+        fight.set_foe("Cramorant", 1493)
+        self.assertFalse(fight.foe_due)
+
+    def test_a_name_box_that_gave_nothing_is_read_again_soon(self):
+        fight = new_fight()
+        fight.foe_every = 50                                 # (the live video: ten pictures a second)
+        fight.set_foe("", None)
+        seen = 0
+        while not fight.foe_due:
+            fight.see(feat())
+            seen += 1
+        self.assertLessEqual(seen, bf.FOE_RETRY)
+        fight.set_foe("Cramorant", 1493)                     # read well: the next look is far away
+        fight.see(feat())
+        self.assertFalse(fight.foe_due)
+
+
 class Buttons(unittest.TestCase):
     def test_labels_give_the_slots(self):
         fight = new_fight()

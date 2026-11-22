@@ -747,12 +747,44 @@ BERRY_RULES = {                                # name -> (must contain, must not
 }
 
 
+OCR = {"env": None}                            # environment for tesseract (None: as it is), see ocr_probe()
+
+
+def ocr_probe():
+    """How does tesseract read fastest on this computer?  It can use all processor cores for one picture, but
+    on a small computer that often costs more than it brings, and the cores are needed by the rest of the bot
+    (the live video of a battle, the map detector).  One picture with text is read both ways; the faster way is
+    used from then on (one core wins a tie).  Returns a line for the log."""
+    img = np.full((520, 900), 255, np.uint8)
+    for i, text in enumerate(("GREAT LEAGUE BATTLE", "USE THIS PARTY 1489", "Attack incoming!", "POKEMON ITEMS SHOP",
+                              "Noctowl CP 1497 Lanturn", "NEXT BATTLE GOOD EFFORT")):
+        cv2.putText(img, text, (30, 70 + i * 80), cv2.FONT_HERSHEY_SIMPLEX, 1.6 if i % 2 else 1.1, 0, 3, cv2.LINE_AA)
+    buf = cv2.imencode(".png", img)[1].tobytes()
+    one = dict(os.environ, OMP_THREAD_LIMIT="1")
+
+    def once(env):
+        t0 = time.time()
+        subprocess.run(["tesseract", "stdin", "stdout", "--psm", "11", "tsv"], input=buf, capture_output=True,
+                       timeout=60, env=env)
+        return time.time() - t0
+
+    try:
+        once(None)                                 # (the first run also loads the program from disk)
+        t_all = min(once(None) for _ in range(2))
+        t_one = min(once(one) for _ in range(2))
+    except Exception as e:  # noqa: BLE001
+        return f"text reading speed not measured ({e})"
+    OCR["env"] = one if t_one <= 1.1 * t_all else None
+    return (f"text reading: {t_all:.2f} s with all processor cores, {t_one:.2f} s with one - using "
+            + ("one" if OCR["env"] else "all"))
+
+
 def ocr_text(img, y0, y1):
     """All text in a horizontal strip of the screen (upper case)."""
     gray = cv2.cvtColor(img[y0:y1], cv2.COLOR_BGR2GRAY)
     ok, buf = cv2.imencode(".png", gray)
     try:
-        out = subprocess.run(["tesseract", "stdin", "stdout", "--psm", "6"],
+        out = subprocess.run(["tesseract", "stdin", "stdout", "--psm", "6"], env=OCR["env"],
                              input=buf.tobytes(), capture_output=True, timeout=30).stdout.decode()
     except FileNotFoundError:
         return ""
@@ -791,7 +823,7 @@ def check_menu_full():
         S.tap(*MENU_BTN)                           # X button closes the menu (BACK on the map
         time.sleep(2)                              # would ask "exit Pokémon GO?")
     else:
-        S.debug_save("g_menu.png", img)
+        save_async("g_menu.png", img)
         log("menu check: main menu not recognised")
 
 
@@ -1074,11 +1106,15 @@ def _screen_kind(img, lines):
 
 
 def _settled(first_wait=2.0):
-    """A screenshot of a screen that has stopped moving (after a tap: transitions and animations)."""
+    """A screenshot of a screen that has stopped moving (after a tap: transitions and animations): two
+    screenshots, taken at least a second apart, that show the same.  A screenshot takes one to three seconds
+    itself, which is that second already (the picture is taken at the start of it)."""
     time.sleep(first_wait)
+    t0 = time.time()
     prev = S.screenshot()
     for _ in range(3):
-        time.sleep(1.0)
+        time.sleep(max(1.0 - (time.time() - t0), 0.0))
+        t0 = time.time()
         cur = S.screenshot()
         if not screen_changed(prev, cur, 0.01):
             return cur
@@ -1125,7 +1161,7 @@ def _open_bag():
         shot = _settled(2.5 if step == 0 or tapped else 1.5)
         lines = ocr_lines(shot, 100, 2150)
         kind = _screen_kind(shot, lines)
-        S.debug_save(f"g_incense_s{step}.png", shot)
+        save_async(f"g_incense_s{step}.png", shot)
         log(f"daily incense: step {step}: screen is {kind} ({_reads(lines, 90)})")
         if kind == "bag":
             return shot, lines
@@ -1143,7 +1179,7 @@ def _open_bag():
                 S.back()
         else:                                        # menu
             if spots is None:
-                S.debug_save("g_incense_menu.png", shot)
+                save_async("g_incense_menu.png", shot)
                 items = sorted([(x, y) for w, x, y in _words(lines) if _like(w, "ITEMS", 0.75) and y > 1250],
                                key=lambda p: -p[0])
                 if not items:
@@ -1206,7 +1242,7 @@ def _incense_visit():
         _bag_to_map()
         return "failed"
     img, lines = page
-    S.debug_save("g_incense_bag.png", img)
+    save_async("g_incense_bag.png", img)
     lines = bag_ocr(img)
     if len(_words(lines)) < 4 and not (bag_like(lines) or incense_tile(lines)):
         log(f"daily incense: the bag opened but no item names can be read on it ({_reads(lines, 100)}) - "
@@ -1218,7 +1254,7 @@ def _incense_visit():
         if i:
             img = S.screenshot()
             lines = bag_ocr(img)
-        S.debug_save(f"g_incense_p{i}.jpg", img)
+        save_async(f"g_incense_p{i}.jpg", img)
         log(f"daily incense: bag page {i}: {_reads(lines, 100)}")
         if S.on_map(img) or any("DISCARD" in t for t, _, _, _ in lines):
             log("daily incense: the bag is not on the screen any more - stopping")
@@ -1239,7 +1275,7 @@ def _incense_visit():
         time.sleep(1.2)
     if not tile:
         log(f"daily incense: last page of the bag reads: {_reads(lines)}")
-        S.debug_save("g_incense_bag_end.png", img)
+        save_async("g_incense_bag_end.png", img)
         _bag_to_map()
         return "absent"
     log(f"daily incense: found in the item bag at ({tile[0]}, {tile[1]}) - opening it")
@@ -1251,7 +1287,7 @@ def _incense_visit():
         log("daily incense: ACTIVATED (the bag closed after the tap)")
         return "activated"
     lines = bag_ocr(img, 100)        # (the card's title is high up: from y=100)
-    S.debug_save("g_incense_card.png", img)
+    save_async("g_incense_card.png", img)
     log(f"daily incense: after the tap the screen reads: {_reads(lines, 110)}")
     if any("DISCARD" in t for t, _, _, _ in lines):
         _leave_question("discard", lines)
@@ -1308,7 +1344,7 @@ def _incense_visit():
             cv2.arrowedLine(marked, (args[0], args[1]), (args[2], args[3]), (0, 0, 255), 6)
         elif kind == "touch":
             cv2.arrowedLine(marked, (x1, y1), (args[-1][1], args[-1][2]), (0, 0, 255), 6)
-        S.debug_save(f"g_incense_t{shot_n}.jpg", marked)
+        save_async(f"g_incense_t{shot_n}.jpg", marked)
         if kind == "tap":
             S.tap(*args)
         elif kind == "swipe":
@@ -1332,7 +1368,7 @@ def _incense_visit():
             if incense_card(lines):
                 time.sleep(2.0)                        # lighting it may take a moment before the card closes
                 img, lines = S.screenshot(), None
-        S.debug_save(f"g_incense_a{shot_n}.png", img)
+        save_async(f"g_incense_a{shot_n}.png", img)
         if S.on_map(img):
             log("daily incense: ACTIVATED (the card closed, the map is back)")
             return "activated"
@@ -1461,7 +1497,7 @@ def tray_labels(img):
     gray = cv2.cvtColor(img[y0:], cv2.COLOR_BGR2GRAY)
     ok, buf = cv2.imencode(".png", gray)
     try:
-        out = subprocess.run(["tesseract", "stdin", "stdout", "--psm", "11", "tsv"],
+        out = subprocess.run(["tesseract", "stdin", "stdout", "--psm", "11", "tsv"], env=OCR["env"],
                              input=buf.tobytes(), capture_output=True, timeout=30).stdout.decode()
     except FileNotFoundError:
         log("tesseract missing (sudo apt install tesseract-ocr) - no berries")
@@ -1525,7 +1561,7 @@ def ocr_lines(img, y0=0, y1=None, scale=1.0):
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     ok, buf = cv2.imencode(".png", gray)
     try:
-        out = subprocess.run(["tesseract", "stdin", "stdout", "--psm", "11", "tsv"],
+        out = subprocess.run(["tesseract", "stdin", "stdout", "--psm", "11", "tsv"], env=OCR["env"],
                              input=buf.tobytes(), capture_output=True, timeout=40).stdout.decode()
     except FileNotFoundError:
         return []
@@ -1694,7 +1730,7 @@ def visit_friend(f, want_open, want_send, st):
             S.tap(btn[0], btn[1])                  # OPEN
             time.sleep(6)
             img = S.screenshot()
-            S.debug_save("g_gift_opened.png", img)
+            save_async("g_gift_opened.png", img)
             lines = ocr_lines(img)
             if is_gift_screen(img) and not any_text(lines, "LIMIT"):
                 log(f"gifts: tapped OPEN for {name} but the gift screen is still open")
@@ -1741,7 +1777,7 @@ def visit_friend(f, want_open, want_send, st):
             time.sleep(2)
         else:
             log(f"gifts: SEND GIFT button not found on the profile of {name}")
-        S.debug_save("g_friend_profile.png", img)
+        save_async("g_friend_profile.png", img)
         if any_text(lines, "GIFT", "SENT"):
             st["sent"].append(name)
         else:
@@ -1779,9 +1815,9 @@ def visit_friend(f, want_open, want_send, st):
                         btn = send_button(img)
                         if btn:
                             break
-                        S.debug_save("g_gift_select.png", img)
+                        save_async("g_gift_select.png", img)
                     if not btn:
-                        S.debug_save("g_send_nobutton.png", img)
+                        save_async("g_send_nobutton.png", img)
                         log(f"gifts: SEND button not found for {name}")
                         S.back()
                         time.sleep(2)
@@ -1790,7 +1826,7 @@ def visit_friend(f, want_open, want_send, st):
                         time.sleep(6)
                         img = S.screenshot()
                         if has_sticker_button(img):
-                            S.debug_save("g_send_stuck.png", img)
+                            save_async("g_send_stuck.png", img)
                             log(f"gifts: tapped SEND for {name} but the send screen is still open")
                             S.back()
                             time.sleep(2)
@@ -1798,7 +1834,7 @@ def visit_friend(f, want_open, want_send, st):
                             st["sent"].append(name)
                             log(f"gift sent to {name} ✔")
                 else:
-                    S.debug_save("g_send_failed.png", img)
+                    save_async("g_send_failed.png", img)
                     full = ocr_lines(img)
                     if any_text(full, "NO", "GIFT") or any_text(full, "DON'T HAVE"):
                         log("no gifts left to send - stopping for today")
@@ -1824,7 +1860,7 @@ def gifts_round():
     S.tap(*FRIENDS_TAB)
     time.sleep(3)
     img = S.screenshot()
-    S.debug_save("g_gifts_start.png", img)
+    save_async("g_gifts_start.png", img)
     if not is_friend_list(img):
         log("gifts: friend list not found - aborting (see debug/g_gifts_start.png)")
         for _ in range(3):
@@ -2804,7 +2840,7 @@ def step(brain):
         away["since"] = time.time()
     elif time.time() - away["since"] > AWAY_LIMIT:
         log(f"not back on the map for {AWAY_LIMIT // 60} min (now '{name}') - restarting Pokémon GO")
-        S.debug_save("g_stuck.png", img)
+        save_async("g_stuck.png", img)
         S.restart_game()
         away["since"] = None
         same_screen.update(name=None, count=0)
@@ -2837,7 +2873,7 @@ def step(brain):
             x, y = last_tap["xy"]
             cooldown.append((x, y, time.time() + ROCKET_COOLDOWN))
         log(f"Team Rocket - not battling, leaving (stop skipped for {ROCKET_COOLDOWN // 60} min)")
-        S.debug_save("g_rocket.png", img)
+        save_async("g_rocket.png", img)
         for _ in range(3):                       # back out of the dialogue / battle party screen
             S.back()
             time.sleep(1.5)
@@ -2883,7 +2919,7 @@ def step(brain):
         S.tap(btn[0], btn[1])
         return 3
     if name in ("menusScreen", "onbekend", "rewardScreen") and storage_full(img):
-        S.debug_save("g_opslag_vol.png", img)
+        save_async("g_opslag_vol.png", img)
         S.back()                                 # close the notification (never tap MANAGE POKÉMON)
         if CATCH:
             pause_catching()
@@ -3041,11 +3077,11 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
             if (stop and stop()) or time.monotonic() - t0 > BATTLE_NAV_SECONDS:
                 info["why"] = "stopped or out of time"
                 break
-            shot = _settled(1.5 if step == 0 else 2.5)
+            shot = _settled(1.0 if step == 0 else 1.8)
             lines = [] if S.on_map(shot) else ocr_lines(shot, 100, None, 0.6)    # (the map needs no reading)
             kind = _battle_kind(shot, lines)
             if kind != "party":                          # (the party screen gets its own picture below)
-                S.debug_save(f"g_battle_s{step}.png", shot)
+                save_async(f"g_battle_s{step}.png", shot)
             log(f"battle: step {step}: screen is {kind} ({BN.reads(lines, 90)})")
             if beat:
                 beat()
@@ -3057,7 +3093,7 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
                 info["title"] = BN.party_title(lines, k)
                 info["members"] = BN.party_members(lines, names)
                 info["use_spots"] = BN.party_use_spots(lines, k)
-                S.debug_save("g_battle_party.png", shot)
+                save_async("g_battle_party.png", shot)
                 break
             if kind == "map":
                 taps["map"] += 1
@@ -3070,7 +3106,7 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
                 if menu_spots is None:
                     menu_spots = BN.menu_battle_spots(lines, k)
                     if not menu_spots:
-                        S.debug_save("g_battle_menu.png", shot)
+                        save_async("g_battle_menu.png", shot)
                         info["why"] = "the BATTLE tile is not in the main menu (see debug/g_battle_menu.png)"
                         break
                 if not menu_spots:
@@ -3084,7 +3120,7 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
                 if home_spots is None:
                     lines_full = ocr_lines(shot, 1500, None, 0.8)
                     home_spots = BN.home_battle_spots(lines_full, k)
-                    S.debug_save("g_battle_home.png", shot)
+                    save_async("g_battle_home.png", shot)
                 if not home_spots:
                     info["why"] = "tapped every spot of the BATTLE button and nothing happened"
                     break
@@ -3096,7 +3132,7 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
                 taps["league"] += 1
                 spots = BN.league_lines(lines, league)
                 if not spots:
-                    S.debug_save("g_battle_leagues.png", shot)
+                    save_async("g_battle_leagues.png", shot)
                     info["why"] = (f"the league '{league}' is not on the league list: "
                                    + BN.reads(lines, 120) + " (see debug/g_battle_leagues.png)")
                     break
@@ -3145,9 +3181,12 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
 FIGHT_START_SECONDS = 240      # "Finding opponent" and the loading screens before the fight can take a while
 FIGHT_SECONDS = 480            # a 3 against 3 fight is over in about four minutes
 FIGHT_TAP_MS = 70              # a fast attack is a tap anywhere
-CHARGE_HOLD = 2.8              # seconds of tapping for the little game of a charged attack
+CHARGE_HOLD = 2.8              # s after the tap on a charged attack button: no other charged attack is thrown
+GAME_BLOCK = 8.5               # ... and this long when the icons of its little game were seen (it takes about 9 s)
 THROW_CHECK = 1.1              # s after the tap on a charged attack button: still lit = the tap did not count
 THROW_RETRIES = 2              # ... tap again this many times at most
+HELD_LIT = 5                   # a charged attack that waits for the other side's: its button lit again on this many
+                               # pictures in a row = it was not thrown after all
 FIGHT_VIDEO = os.environ.get("GAMEBOT_FIGHT_VIDEO", "1") != "0"   # the live video in a fight (0: screenshots only)
 RETAP_AFTER = 1.5              # a question that is still on the screen this long after the answer: tap again
 RETAP_MAX = 2                  # ... at most this many times
@@ -3166,7 +3205,10 @@ class FastTapper(threading.Thread):
 
     Every tap is an 'adb shell input' command of its own; two of them at the same time spoil each other (a
     finger that goes down twice without lifting).  So there is one lock: the taps of the main loop (tap():
-    charged attack button, shield, switch, NEXT BATTLE) wait for the fast tap that is running and go first."""
+    charged attack button, shield, switch, NEXT BATTLE) wait for the fast tap that is running and go first.
+
+    sweep(planner): the little game of a charged attack.  While a planner is set the thread asks it what to
+    swipe now and swipes that instead of tapping; when it gives nothing the fast taps go on."""
 
     def __init__(self, xy, ms=FIGHT_TAP_MS):
         super().__init__(daemon=True, name="fast-tapper")
@@ -3175,13 +3217,30 @@ class FastTapper(threading.Thread):
         self._hold = threading.Event()         # the main loop wants to tap: the fast taps wait
         self._lock = threading.Lock()
         self._quit = False
+        self._sweep = None                     # gives the swipes of the little game (see sweep())
         self.taps = 0
+        self.swipes = 0
 
     def run(self):
         while not self._quit:
             if self._hold.is_set():
                 time.sleep(0.01)
                 continue
+            planner = self._sweep
+            if planner is not None:
+                try:
+                    strokes = planner()
+                except Exception:  # noqa: BLE001
+                    strokes = []
+                if strokes:
+                    try:
+                        with self._lock:
+                            if self._sweep is planner and not self._hold.is_set():
+                                S.swipes(strokes)
+                                self.swipes += len(strokes)
+                    except Exception:  # noqa: BLE001
+                        time.sleep(0.3)
+                    continue
             if not self._on.wait(0.2):
                 continue
             try:
@@ -3201,6 +3260,11 @@ class FastTapper(threading.Thread):
         finally:
             self._hold.clear()
 
+    def sweep(self, planner):
+        """planner(): -> [(x1, y1, x2, y2, ms), ...] on the canvas, the swipes to make now ([]: none).
+        None: no little game any more."""
+        self._sweep = planner
+
     def go(self):
         self._on.set()
 
@@ -3209,6 +3273,7 @@ class FastTapper(threading.Thread):
 
     def close(self):
         self._quit = True
+        self._sweep = None
         self._on.clear()
 
 
@@ -3255,15 +3320,17 @@ class FightLooker(threading.Thread):
         self._busy = False
         self._quit = False
         self.empty = 0                         # name boxes that gave nothing, in a row
+        self.video = False                     # the pictures come from the live video (small text is hard to read)
 
     def ask(self, shot):
-        """A picture of the fight; used when something is to be read and the last reading is finished."""
+        """A picture of the fight; used when something is to be read and the last reading is finished.
+        shot: the picture, or a function that gives it (so that it is only made when it is needed)."""
         if self._busy or self._quit:
             return
         with self.lock:
             wanted = self.fight.foe_due or self.fight.need_labels
         if wanted:
-            self._shot, self._busy = shot, True
+            self._shot, self._busy = (shot() if callable(shot) else shot), True
             self._wake.set()
 
     def run(self):
@@ -3276,7 +3343,7 @@ class FightLooker(threading.Thread):
                 self._busy = False
                 continue
             try:
-                if self.empty >= 2:            # (the picture of the video is too small for this text: a real one)
+                if self.empty >= 2 and self.video:     # (the video picture is too small for this text: a real one)
                     self.empty = 0
                     try:
                         shot = S.screenshot()
@@ -3318,42 +3385,51 @@ def _fight_stream():
         return None
 
 
+VIEW = (704, int(round(704 * S.REF_H / float(S.REF_W) / 16.0)) * 16)   # the picture the readers of a fight look at
+
+
 class Eyes:
     """The pictures of the fight.  A screenshot takes 1 to 3 seconds on the phone, which is too slow for a question
     that is on the screen for five seconds, so the live video is used (about ten pictures a second, see
     battle_stream.py) and a screenshot only when no video comes.  look() gives (picture on the 1768 x 2208
-    canvas, the picture the readers use, when it came in): the readers (battle_vision) work on the small
-    picture of the video, the text readers and the rest of the bot on the canvas."""
+    canvas, the small picture the readers use, when it came in): the readers (battle_vision) are six times as
+    fast on the small picture, the text readers and the rest of the bot use the canvas.  video: the last
+    picture came from the live video (it is fresh, but too small for small text)."""
 
     def __init__(self, stream):
         self.stream = stream
         self.seq = 0
         self.live = self.shots = 0
         self.mode = ""
-        self.gap = 0.0                      # time between two pictures, summed (for the log)
-        self._last_t = 0.0
-        self._said = 0.0                    # when the reason for the missing video was last logged
+        self.video = False
+        self._said = 0.0                    # when the reason for the missing video was last logged ...
+        self._told = 0                      # ... and how often
 
     def look(self, not_before=0.0):
         got = None
         if self.stream is not None and self.stream.healthy():
             got = self.stream.wait_new(self.seq, 1.0, not_before)
+            if got is None and self.live and self.stream.starting():
+                # (screenrecord stops by itself every three minutes and is started again: its pictures are
+                # back within a second or two, a screenshot would take longer)
+                got = self.stream.wait_new(self.seq, 2.5, not_before)
         if got is not None:
             self.seq, t, small = got
             self._mode("live video", f"{small.shape[1]}x{small.shape[0]}")
             self.live += 1
+            self.video = True
             canvas = cv2.resize(small, (S.REF_W, S.REF_H), interpolation=cv2.INTER_LINEAR)
         else:
             self._mode("screenshots")
-            if self.stream is not None and time.monotonic() - self._said >= 20.0:
+            if self.stream is not None and self._told < 3 and time.monotonic() - self._said >= 30.0:
                 self._said = time.monotonic()      # (why does the video not come?  the programs' own words)
+                self._told += 1
                 log("battle: the live video gives no pictures: " + self.stream.describe())
-            canvas = small = S.screenshot()
+            canvas = S.screenshot()
+            small = cv2.resize(canvas, VIEW, interpolation=cv2.INTER_AREA)
             self.shots += 1
+            self.video = False
             t = time.monotonic()
-        if self._last_t:
-            self.gap += t - self._last_t
-        self._last_t = t
         return canvas, small, t
 
     def _mode(self, mode, note=""):
@@ -3363,8 +3439,9 @@ class Eyes:
                 if mode == "live video" else "battle: no live video - the pictures are screenshots (slow)")
 
     def real(self, canvas):
-        """A real screenshot for reading text (the video picture is small), the canvas when that fails."""
-        if self.stream is None:
+        """A real screenshot for reading text (the video picture is small); the canvas itself when that is a
+        screenshot already, or when taking one fails."""
+        if not self.video:
             return canvas
         try:
             return S.screenshot()
@@ -3408,19 +3485,24 @@ def stream_test(seconds=8.0):
         stream.close()
 
 
-def _fight_answer(shot, feat, fight, lock, tapper, state):
+def _fight_answer(shot, feat, fight, lock, tapper, state, eyes=None):
     """The countdown ring is up: find out which question it is and answer it.  state: {"unknown": n}.
     Returns None when the question was not read (look again at the next picture), otherwise {"xy": where was
-    tapped (None: nothing)}.  The shield question is known from its picture (the big lilac shield): the answer
-    has to be tapped within the five seconds of the countdown, there is no time to read text first."""
+    tapped (None: nothing), "kind": "shield" / "noshield" / "switch"}.  The shield question is known from its
+    picture (the big lilac shield): the answer has to be tapped within the five seconds of the countdown, there
+    is no time to read text first.  The other questions are read as text from the picture at hand (the words
+    are big enough for the picture of the video); only for the small CP numbers on the tiles of the switch
+    question a real screenshot is taken when the video picture did not give them (eyes: where the picture came
+    from)."""
     import battle_vision as BV
-    h, w = shot.shape[:2]
-    if feat.get("hex"):
-        kind = "shield"
-    else:
-        kind = BN.question_kind(ocr_lines(shot, int(0.44 * h), int(0.60 * h), 1.0))
-        if not kind:
-            kind = BN.question_kind(ocr_lines(shot, int(0.40 * h), int(0.66 * h), 0.8))
+
+    def read(pic):
+        h = pic.shape[0]
+        return (BN.question_kind(ocr_lines(pic, int(0.44 * h), int(0.60 * h), 1.0))
+                or BN.question_kind(ocr_lines(pic, int(0.40 * h), int(0.66 * h), 0.8)))
+
+    video = eyes is not None and eyes.video
+    kind = "shield" if feat.get("hex") else read(shot)
     if not kind:                                        # not read: look again at the next picture
         state["unknown"] = state.get("unknown", 0) + 1
         if state["unknown"] < 2:
@@ -3429,6 +3511,7 @@ def _fight_answer(shot, feat, fight, lock, tapper, state):
             kind = "shield" if fight.my_shields > 0 else "noshield"   # (twice in a row: a question we must not miss)
         log(f"battle: the question was not read - taking it for '{kind}'")
     state["unknown"] = 0
+    h, w = shot.shape[:2]
     xy = None
     if kind == "noshield":
         log("battle: an attack is coming and we have no shields left")
@@ -3442,6 +3525,10 @@ def _fight_answer(shot, feat, fight, lock, tapper, state):
         tapper.tap(*xy)
     elif kind == "switch":
         tiles = BN.popup_tiles(ocr_lines(shot, int(0.60 * h), int(0.70 * h), 1.0))
+        if not tiles and video:                          # (the CPs on the tiles are small: a real screenshot)
+            shot = eyes.real(shot)
+            h, w = shot.shape[:2]
+            tiles = BN.popup_tiles(ocr_lines(shot, int(0.60 * h), int(0.70 * h), 1.0))
         with lock:
             idx, mon, why = fight.switch(tiles)
         if mon is None:
@@ -3451,26 +3538,129 @@ def _fight_answer(shot, feat, fight, lock, tapper, state):
             log(f"battle: switching to {mon.label} - {why}")
             xy = (int(x * S.REF_W / w), int(BV.POPUP_TILE_Y * S.REF_H))
             tapper.tap(*xy)
-    return {"xy": xy}
+    return {"xy": xy, "kind": kind}
+
+
+MINIGAME_FILE = os.path.expanduser("~/battle_minigame.json")   # what the little games of earlier fights taught
+SWEEP_SECONDS = 0.6            # the swipes of the little game are sent in pieces of about this long
+
+
+def load_minigames():
+    """{type: {"gates": [...], "rows": [...]}}: where the icons of the little game of a charged attack came by
+    in earlier fights (for the types that battle_minigame.py does not know from recordings)."""
+    try:
+        with open(MINIGAME_FILE) as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_minigames(d):
+    try:
+        with open(MINIGAME_FILE, "w") as f:
+            json.dump(d, f, indent=1)
+    except OSError:
+        pass
+
+
+class Minigame:
+    """The little game of one charged attack (see battle_minigame.py): the fight loop gives it the pictures
+    (see()), the tapper thread asks it for the swipes (strokes())."""
+
+    def __init__(self, move, t0, learned=None, button=0):
+        import battle_minigame as BMG
+        import battle_vision as BV
+        self.BMG, self.BV = BMG, BV
+        self.move = move
+        self.button = button               # the charged attack button that was tapped (0: left, 1: right)
+        self.game = BMG.Game(move.type, t0, (learned or {}).get(move.type))
+        self.lock = threading.Lock()
+        self.on = False                    # its icons were seen: the attack was thrown, the little game runs
+        self.saved = False                 # a picture of it was saved for checking
+        self.mon = None                    # the Pokémon that threw it (set by the fight loop)
+        self.held = False                  # the other side's attack went first: ours is waited for (see hold())
+        self.asked = 0.0
+        self.lit = 0                       # ... pictures in a row on which its button was lit again meanwhile
+
+    def look(self, small):
+        """The icons of the attack's type on a picture (fractions of the screen).  A lit charged attack button
+        of the same type looks like an icon, so what is found at a button only counts when the picture clearly
+        shows the little game: three icons or more, or two away from the buttons (then self.on is set: the
+        attack was thrown, the little game runs)."""
+        BV = self.BV
+        aspect = small.shape[0] / float(small.shape[1])
+        found = self.BMG.find_icons(small, self.game.kind)
+        away = [p for p in found if not any(abs(p[0] - bx) < 0.10 and abs(p[1] - BV.BTN_Y) * aspect < 0.10
+                                            for bx in BV.BTN_X)]
+        if len(away) >= 2 or len(found) >= 3:
+            self.on = True
+            return found
+        return away
+
+    def see(self, icons, t):
+        """The icons of a picture of the live video that came in at time t (for the swipes)."""
+        with self.lock:
+            self.game.see(t, icons)
+
+    def strokes(self):
+        """The swipes to make now, on the canvas (asked by the tapper thread)."""
+        with self.lock:
+            plan = self.game.plan(time.monotonic())
+        out, total = [], 0.0
+        for x1, y1, x2, y2, ms in plan:
+            out.append((int(x1 * S.REF_W), int(y1 * S.REF_H), int(x2 * S.REF_W), int(y2 * S.REF_H), ms))
+            total += ms / 1000.0 + 0.06
+            if total >= SWEEP_SECONDS:
+                break
+        return out
+
+    def over(self, now):
+        with self.lock:
+            return self.game.over(now)
+
+    def hold(self, now):
+        """A question came up before the icons did: the other side's charged attack goes first, ours comes
+        after it (when both are thrown in the same turn) or not at all.  It is waited for; only icons that are
+        seen are swiped."""
+        self.held = True
+        self.asked = now                   # (when the question was last on the screen)
+        with self.lock:
+            self.game.hold(now)
+
+    def report(self):
+        g = self.game
+        text = (f"battle: little game of {self.move.name} ({g.kind}): icons on {g.pictures} picture(s), "
+                f"{g.swipes} swipes planned")
+        if self.held:
+            text += ", it had to wait for the other side's attack"
+        if g.gate:
+            text += f", the stream crossed {g.gate}"
+        rows = [tuple(round(float(v), 2) for v in r) for r, t in g.rows.items() if t is not None]
+        if rows:
+            text += f", rows seen {rows}"
+        if not g.pictures and g.swipes:
+            text += " - no icons seen: what is known of this type was swiped"
+        return text
 
 
 def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
     """Plays the battle that is about to start (or is going on) until its result screen.
 
     It looks at the screen all the time (the live video of the phone, see Eyes): VS screen and loading (wait), the
-    fight (fast attacks in the background, a charged attack when the engine wants one), the questions "Use a
-    Protect Shield?" and "Switch in a new Pokémon?" (answered by the engine), the result (NEXT BATTLE is tapped).
-    The BACK button is never pressed during a fight.  use_spots: where USE THIS PARTY is, tapped again when the
-    party screen is still there after a while.  stream: a battle_stream.FrameStream to use (default: start one).
+    fight (fast attacks in the background, a charged attack when the engine wants one and then its little game:
+    swiping the icons), the questions "Use a Protect Shield?" and "Switch in a new Pokémon?" (answered by the
+    engine), the result (NEXT BATTLE is tapped).  The BACK button is never pressed during a fight.  use_spots:
+    where USE THIS PARTY is, tapped again when the party screen is still there after a while.  stream: a
+    battle_stream.FrameStream to use (default: start one).
     Returns {"result": "win" / "loss" / "", "why": "...", "seconds": n}: why is '' after a result screen."""
     import battle_engine as BE
     import battle_fight as BF
     import battle_vision as BV
     fight = BF.Fight(team or BE.load_team(), log=lambda m: log("battle: " + m))
     flock = threading.RLock()  # (the fight is changed by the loop and by the looker that reads the names)
+    S.busy(FIGHT_START_SECONDS + FIGHT_SECONDS)        # (no screen check, no screenshot test during the fight)
     eyes = Eyes(stream if stream is not None else _fight_stream())
-    if eyes.stream is not None:
-        fight.foe_every = 12   # (the video gives ~10 pictures a second: read the name boxes every second or so)
     tapper = FastTapper(_frac_xy(BV.TAP_FAST))
     tapper.start()
     looker = FightLooker(fight, flock)
@@ -3480,12 +3670,29 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
     started = None            # when the HUD was first seen
     fight_seen = 0.0          # when a picture of the fight was last seen
     ask = {"seen": -100.0, "since": 0.0, "done": False, "xy": None, "tapped": 0.0, "tries": 0}   # the question on screen
-    thr = {"b": None, "xy": None, "t": 0.0, "tries": 0, "until": 0.0}    # the charged attack that was tapped
+    thr = {"b": None, "xy": None, "t": 0.0, "tries": 0, "until": 0.0, "dark": 0}   # the charged attack that was tapped
+    mini = None               # the little game of the charged attack that was thrown (Minigame)
+    lit_prev = (False, False) # the buttons that were lit on the picture before
+    learned = load_minigames()
+    keys = {}                 # fingerprints of the two name boxes: side -> [the text now, a new one, times seen]
     versus_seen = 0.0         # when the VS screen was last seen
     tim = {"n": 0, "t": time.monotonic(), "feat": 0.0, "logged": 0}     # how long the pictures take
     unknown_ring = {}
     look = {"t": t0, "n": 0}  # last time an unknown screen was read
     party_taps = result_seen = errors = 0
+
+    def end_minigame(why=""):
+        nonlocal mini
+        if mini is None:
+            return
+        tapper.sweep(None)
+        log(mini.report() + (f" ({why})" if why else ""))
+        found = mini.game.learned()
+        if found:                                    # (a type that is not known from recordings: remember it)
+            learned[mini.game.kind] = found
+            save_minigames(learned)
+        mini = None
+
     try:
         while True:
             now = time.monotonic()
@@ -3499,7 +3706,7 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                 out["why"] = "the fight takes too long"
                 break
             try:
-                shot, small, _t_seen = eyes.look()
+                shot, small, t_seen = eyes.look()
             except Exception as e:  # noqa: BLE001
                 errors += 1
                 log(f"battle: screenshot failed ({e})")
@@ -3514,22 +3721,66 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
             if S.on_map(shot):
                 out["why"] = "back on the map"
                 break
+            # the video gives ~10 pictures a second: the names are then read when a name box changes (and every
+            # five seconds to be sure) and a shield that was not used is believed after six seconds; with
+            # screenshots (one every one to three seconds) these are counted in pictures as before
+            fight.foe_every, fight.shields_back = (50, 60) if eyes.video else (BF.FOE_CHECK_EVERY, BF.SHIELDS_BACK)
+            looker.video = eyes.video
             try:
                 feat = BV.features(small)
                 tim["n"] += 1
                 tim["feat"] += time.monotonic() - now
-                if tim["n"] >= 60 and tim["logged"] < 3:
+                if tim["n"] >= 100 and tim["logged"] < 3:
                     log(f"battle: timing - {tim['n']} pictures in {time.monotonic() - tim['t']:.0f} s "
                         f"({eyes.live} from the live video, {eyes.shots} screenshots), reading one takes "
-                        f"{tim['feat'] / tim['n']:.2f} s")
+                        f"{tim['feat'] / tim['n'] * 1000:.0f} ms")
                     tim.update(n=0, t=time.monotonic(), feat=0.0, logged=tim["logged"] + 1)
                     eyes.live = eyes.shots = 0
                 st = BF.state(feat)
+                if mini is not None:                         # the little game of our charged attack
+                    with flock:
+                        other = mini.mon is not None and fight.me is not mini.mon
+                    if st == "result":
+                        end_minigame("the fight is over")
+                    elif other:                              # (the one that threw it is not on the field any more)
+                        end_minigame("another Pokémon is on the field")
+                    elif st == "prompt":
+                        if mini.on or not eyes.video:
+                            end_minigame("a question came up")
+                        elif mini.held and now - mini.asked > 3.0:
+                            end_minigame("the charged attack did not start")   # (a second question, and ours did
+                        else:                                                  # not come in between)
+                            mini.hold(now)                   # before its icons came: the other side's attack goes
+                                                             # first, ours may follow - wait for its icons
+                    elif mini.over(now):
+                        end_minigame()
+                    else:
+                        icons = mini.look(small)
+                        if eyes.video:                       # (a screenshot is too old to aim with)
+                            mini.see(icons, t_seen)
+                        if len(icons) >= 3 and not mini.saved:
+                            mini.saved = True                # (one picture of it, to check what was seen)
+                            pic = small.copy()
+                            for x, y in icons:
+                                cv2.circle(pic, (int(x * pic.shape[1]), int(y * pic.shape[0])),
+                                           int(0.065 * pic.shape[1]), (0, 0, 255), 2)
+                            save_async("g_battle_minigame.png", pic)
+                        if mini.held and not mini.on:        # waited for: the fight is back and the button is lit
+                            again = st == "fight" and not icons and feat["ready"][mini.button]   # = it does not come
+                            mini.lit = mini.lit + 1 if again else 0
+                        if icons:                            # (icons, so no buttons: what looks lit there is an icon)
+                            feat = dict(feat, ready=(False, False))
+                        if mini.on:                          # (the attack was thrown: no other one before it is over)
+                            thr["until"] = max(thr["until"], thr["t"] + GAME_BLOCK)
+                        elif mini.lit >= HELD_LIT:
+                            end_minigame("the charged attack did not start")
+                ready = feat["ready"]                        # what this picture says about the two buttons
+                if eyes.video:                               # on the video a button is lit when two pictures in a
+                    feat = dict(feat, ready=tuple(a and b for a, b in zip(ready, lit_prev)))   # row say so (one can
+                lit_prev = ready if st == "fight" else (False, False)   # be a flash or a banner over the label)
                 if st != "fight":
                     with flock:
                         fight.lit = (False, False)           # (no HUD: what was lit is not known any more)
-                    if thr["b"] is not None and now - thr["t"] > 0.2:
-                        thr["b"] = None                      # (the buttons are gone, the zoom came: the tap counted)
                 if st == "fight" or (st == "other" and started is not None and now - fight_seen < 12):
                     with flock:
                         fight.see(feat)
@@ -3540,18 +3791,43 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                     fight_seen = look["t"] = now
                     unknown_ring = {}
                     tapper.go()
+                    for side in ("me", "foe"):               # another text in a name box: read the names now
+                        key = BV.name_key(small, side)
+                        k = keys.setdefault(side, [None, None, 0])
+                        if not BV.key_differs(key, k[0]):
+                            k[1], k[2] = None, 0
+                        elif k[1] is not None and not BV.key_differs(key, k[1]):
+                            k[2] += 1
+                        else:
+                            k[1], k[2] = key, 1
+                        if k[2] >= (2 if eyes.video else 1):  # (the same new text twice: no flicker)
+                            first = k[0] is None
+                            k[0], k[1], k[2] = key, None, 0
+                            if not first:
+                                with flock:
+                                    fight.read_names()
                     looker.ask(shot)                         # (names and labels are read next to this loop)
                     if thr["b"] is not None:                 # a charged attack was tapped: did it count?
-                        if now - thr["t"] >= THROW_CHECK:
-                            if feat["ready"][thr["b"]] and not feat["ring"] and thr["tries"] < THROW_RETRIES:
+                        if mini is not None and mini.on:
+                            thr["b"] = None                  # (the icons of the little game are there: it counted)
+                        elif now - thr["t"] >= THROW_CHECK:
+                            if not ready[thr["b"]]:
+                                thr["dark"] += 1             # (the button is gone or dark: it counted - on the
+                                if thr["dark"] >= (3 if eyes.video else 1):    # video only after three pictures
+                                    thr["b"] = None          # in a row, one could be a flicker)
+                            elif thr["tries"] < THROW_RETRIES:
+                                thr["dark"] = 0
                                 thr["tries"] += 1
                                 log("battle: the button is still lit - the tap did not count, tapping again")
                                 tapper.tap(*thr["xy"], 90)
                                 thr["t"] = time.monotonic()
                                 thr["until"] = thr["t"] + CHARGE_HOLD
+                                if mini is not None:
+                                    mini.game.t0 = thr["t"]
                             else:
-                                thr["b"] = None              # (the zoom came, or the button is dark: it counted)
-                    elif now >= thr["until"]:
+                                thr["b"] = None
+                                end_minigame("the charged attack did not start")
+                    elif mini is None and now >= thr["until"]:
                         with flock:
                             throw = fight.throw()
                         if throw:
@@ -3559,24 +3835,28 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                             log(f"battle: throwing {move.name} on the {'left' if button == 0 else 'right'} button - {why}")
                             xy = _frac_xy((BV.BTN_X[button], BV.BTN_Y))
                             tapper.tap(*xy, 90)
-                            thr.update(b=button, xy=xy, t=time.monotonic(), tries=0)
-                            thr["until"] = thr["t"] + CHARGE_HOLD   # (the little game: fast taps go on meanwhile)
+                            thr.update(b=button, xy=xy, t=time.monotonic(), tries=0, dark=0)
+                            thr["until"] = thr["t"] + CHARGE_HOLD
+                            mini = Minigame(move, thr["t"], learned, button)   # its little game: swipe the icons
+                            with flock:
+                                mini.mon = fight.me
+                            tapper.sweep(mini.strokes)
                 elif st == "prompt":
                     fight_seen = look["t"] = now
                     if now - ask["seen"] > 3.0:              # (a new question)
                         ask.update(since=now, done=False, xy=None, tapped=0.0, tries=0)
                         unknown_ring = {}
                     ask["seen"] = now
+                    thr["b"] = None
                     if not ask["done"]:
                         tapper.pause()
-                        # (the shield question is known from its picture; any other question is read as text,
-                        # and that needs a real screenshot: the video picture is too small for it)
-                        res = _fight_answer(shot if feat.get("hex") else eyes.real(shot), feat, fight, flock, tapper,
-                                            unknown_ring)
+                        res = _fight_answer(shot, feat, fight, flock, tapper, unknown_ring, eyes)
                         if res is not None:
                             ask.update(done=True, xy=res["xy"], tapped=time.monotonic(), seen=time.monotonic())
                             log(f"battle: answered {ask['tapped'] - ask['since']:.1f} s after the question was seen "
                                 f"(the countdown is 5 s)")
+                            if res["kind"] == "switch":      # (ours fainted: its charged attack does not come)
+                                end_minigame("another Pokémon comes in")
                             if res["xy"] is None:
                                 tapper.go()                  # (nothing to tap: the attack plays out)
                     elif ask["xy"] is not None and now - ask["tapped"] >= RETAP_AFTER:
@@ -3610,7 +3890,7 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                         continue
                     out["result"] = res
                     log(f"battle: the fight is over: {res or 'result not read'} ({BN.reads(lines, 90)})")
-                    S.debug_save("g_battle_result.png", real)
+                    save_async("g_battle_result.png", real)
                     tapper.tap(*_frac_xy(BV.TAP_NEXT))
                     time.sleep(2.5)
                     break
@@ -3635,7 +3915,7 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                         versus_seen = 0.0                    # (no VS screen: this is still the party screen)
                     log(f"battle: waiting - screen is {kind} ({BN.reads(lines, 90)})")
                     if look["n"] == 2:
-                        S.debug_save("g_battle_wait.png", real)
+                        save_async("g_battle_wait.png", real)
                     res = BN.result_kind(lines)
                     if res and BV.result_button(real):
                         out["result"] = res
@@ -3662,12 +3942,17 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                     out["why"] = "too many errors"
                     break
     finally:
+        tapper.sweep(None)
         tapper.close()
         looker.close()
         eyes.close()
+        S.busy(0)
+        if mini is not None:
+            log(mini.report())
         out["seconds"] = int(time.monotonic() - t0)
         log(f"battle: fight loop ended after {out['seconds']} s: " + (out["result"] or out["why"] or "no result")
-            + f" ({tapper.taps} fast taps, {fight.throws} charged attacks, shields left {fight.my_shields})")
+            + f" ({tapper.taps} fast taps, {fight.throws} charged attacks with {tapper.swipes} swipes, "
+            f"shields left {fight.my_shields})")
     return out
 
 
@@ -3677,10 +3962,12 @@ def battle_run(beat, stop, count, team=None):
     res = {"fought": 0, "wins": 0}
     failures = 0
     league = battle_league()
+    interrupted = False
     try:
         for n in range(1, count + 1):
             if stop and stop():
                 break
+            S.recheck_shot_mode()                    # (the quiet screens before a battle: a good moment to compare)
             info = battle_open_menu(beat, stop, restart=True, stay=True)
             if not info["ok"]:
                 log(f"battle: the party screen was not reached: {info['why']}")
@@ -3705,12 +3992,16 @@ def battle_run(beat, stop, count, team=None):
                 if failures >= 2 or fought["why"] == "stopped":
                     break
             beat()
+    except KeyboardInterrupt:
+        interrupted = True                           # (Ctrl+C: stop here, do not walk back through the menus -
+        raise                                        # BACK in a running battle would give it up)
     finally:
-        beat()
-        if not S.on_map(S.screenshot()):
-            if not _battle_to_map(beat, leaving_setup=True):
-                log("battle: could not get back to the map - restarting the game")
-                S.restart_game()
+        if not interrupted:
+            beat()
+            if not S.on_map(S.screenshot()):
+                if not _battle_to_map(beat, leaving_setup=True):
+                    log("battle: could not get back to the map - restarting the game")
+                    S.restart_game()
     return res
 
 
@@ -3726,6 +4017,7 @@ def auto_battle(pkg, beat, stop):
         import battle_engine as BE
         team = BE.load_team()
         import battle_fight  # noqa: F401  (the fight needs these files: see install.sh)
+        import battle_minigame  # noqa: F401
         import battle_vision  # noqa: F401
     except Exception as e:  # noqa: BLE001
         log(f"battle: the battle engine could not be loaded ({e}) - no battles")
@@ -3960,7 +4252,12 @@ def main():
             log(S.probe_input())           # (the faster 'cmd input' when the phone has it: lighter for the phone)
         except Exception as e:  # noqa: BLE001
             log(f"input speed test failed: {e}")
-        res = battle_run(lambda: None, lambda: False, battle_count())
+        log(ocr_probe())
+        try:
+            res = battle_run(lambda: None, lambda: False, battle_count())
+        except KeyboardInterrupt:
+            log("stopped with Ctrl+C - the game is left as it is")
+            os._exit(0)                    # (at once: no thread or adb command is waited for)
         log(f"battle: {res['fought']} fought, {res['wins']} won")
         return
     if mode == "loop":                     # the first screenshot also picks raw or PNG capture (a few
@@ -4003,6 +4300,7 @@ def main():
         log(S.probe_input())
     except Exception as e:  # noqa: BLE001
         log(f"input speed test failed: {e}")
+    log(ocr_probe())
     log("gamebot v3 started")
     while True:
         if not S.screen["ok"]:                # a screen shape the bot cannot play on: do not tap

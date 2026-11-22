@@ -399,6 +399,18 @@ def swipe(x1, y1, x2, y2, ms=300):
     adb("shell", *INPUT, "swipe", str(x1), str(y1), str(x2), str(y2), str(ms))
 
 
+def swipes(strokes):
+    """Several swipes one after the other in ONE adb command: [(x1, y1, x2, y2, ms), ...] on the canvas.
+    The phone starts the next swipe the moment the one before is finished, without a round trip to the Pi
+    in between (used for the little game of a charged attack, where every tenth of a second counts)."""
+    parts = []
+    for x1, y1, x2, y2, ms in strokes:
+        (a, b), (c, d) = to_real(x1, y1), to_real(x2, y2)
+        parts.append(f"{' '.join(INPUT)} swipe {a} {b} {c} {d} {max(int(ms), 1)}")
+    if parts:
+        adb("shell", "; ".join(parts))
+
+
 _bg = []                       # swipes that are still running in the background
 
 
@@ -416,10 +428,10 @@ def back():
 
 
 def probe_input():
-    """How long does one input command take on the phone? On some phones every 'input ...'
-    starts a new Java process (0.3 s each, 22 of them for one curveball spin). 'cmd input' is
-    the same command without that process. Only the usage text is asked for: nothing is sent
-    to the game. Returns a one-line report and switches INPUT to the faster one."""
+    """How long does one input command take on the phone? 'input' is a script that starts 'cmd input' (on
+    older phones a whole Java process: 0.3 s each, 22 of them for one curveball spin). 'cmd input' is the same
+    command without the detour. Only the usage text is asked for: nothing is sent to the game. Returns a
+    one-line report and switches INPUT to 'cmd input' when the phone has it and it is clearly faster."""
     def per_call(cmd, n=4):
         line = "; ".join([f"{cmd} >/dev/null 2>&1"] * n)
         t0 = time.time()
@@ -430,15 +442,25 @@ def probe_input():
         base = min(per_call("true") for _ in range(2))          # adb round trip alone
         t_in = max(min(per_call("input") for _ in range(2)) - base, 0) / 4
         t_cmd = max(min(per_call("cmd input") for _ in range(2)) - base, 0) / 4
-        usage = subprocess.run(["adb", "shell", "cmd input 2>&1 | head -c 600"],
+        usage = subprocess.run(["adb", "shell", "cmd input 2>&1"],
                                capture_output=True, timeout=30).stdout.decode(errors="ignore")
     except Exception as e:  # noqa: BLE001
         return f"input speed not measured ({e})"
-    works = "motionevent" in usage and "swipe" in usage
-    if works and t_cmd < 0.6 * t_in and t_in > 0.08:
+    works = input_usage_ok(usage)
+    if works and t_cmd < INPUT_GAIN * t_in and t_in - t_cmd >= 0.010:
         INPUT[:] = ["cmd", "input"]
     return (f"input commands: 'input' {t_in * 1000:.0f} ms each, 'cmd input' "
             f"{t_cmd * 1000:.0f} ms each{'' if works else ' (not available)'} - using '{' '.join(INPUT)}'")
+
+
+INPUT_GAIN = 0.8               # 'cmd input' is used when it takes less than this share of the time of 'input'
+
+
+def input_usage_ok(usage):
+    """Does the usage text of 'cmd input' show the commands the bot needs? (The text is long: the commands
+    come after the list of sources, so all of it has to be looked at.)"""
+    text = (usage or "").lower()
+    return all(word in text for word in ("swipe", "motionevent", "keyevent"))
 
 
 def keyguard_showing():
@@ -521,72 +543,141 @@ def _grab_raw(on_grab=None):
     return img
 
 
-def _fit_colours(raw, png):
+def _fit_colours(raw, png, keep=None):
     """3x4 matrix that turns the colours of the raw screenshot into those of the PNG one (the
     raw data can be in another colour space; the ring measurement is sensitive to that).
     Fitted on two small copies of the same scene; the pixels that differ most (things that
-    moved between the two screenshots) are left out."""
+    moved between the two screenshots) are left out. keep: the pixels to start from (a mask over
+    the small copy), e.g. the ones that did not move."""
     sm = lambda im: cv2.resize(im, (221, 276), interpolation=cv2.INTER_AREA).reshape(-1, 3).astype(np.float64)
     a, b = sm(raw), sm(png)
     X = np.hstack([a, np.ones((len(a), 1))])
-    keep = np.ones(len(a), bool)
+    keep = np.ones(len(a), bool) if keep is None else np.asarray(keep, bool).reshape(-1).copy()
     for _ in range(3):
         coef = np.linalg.lstsq(X[keep], b[keep], rcond=None)[0]            # 4 x 3
         err = np.abs(X @ coef - b).sum(axis=1)
-        keep = err <= np.percentile(err, 85)
+        keep = keep & (err <= np.percentile(err[keep], 85))
     return coef.T.astype(np.float32)                                         # 3 x 4
 
 
-_shot = {"mode": None, "fails": 0, "tries": 0, "retry": 0.0, "xf": None}
+_shot = {"mode": None, "fails": 0, "tries": 0, "retry": 0.0, "xf": None,
+         "raw_ok": False, "t_raw": 0.0, "png_avg": 0.0, "png_n": 0, "saved": False,
+         "auto": False, "raw_n": 0}
 _shot_lock = threading.Lock()
+_busy = {"until": 0.0}         # until then: no screen check and no new choice of the screenshot method
+SHOT_SAME = 2.5                # raw and PNG show the same picture when they differ less than this (0-255) ...
+SHOT_STILL = 6                 # ... on the parts of the screen that moved less than this between two PNGs
+SHOT_STILL_SHARE = 0.25        # ... which must be at least this share of the screen
+SHOT_FASTER = 0.85             # raw is used when it takes less than this share of the time of a PNG
+SHOT_TRIES = 6                 # how often the comparison is made at most
+SHOT_PROBE = 30                # raw used because PNGs were slow: one PNG per so many screenshots, to see how they are now
+
+
+def busy(seconds):
+    """Something that cannot wait is going on for the next `seconds` (a battle): screenshot() then does not
+    stop to find the display again after a black picture (black is normal between two scenes of a battle; the
+    check takes seconds) and does not try the raw screenshot again. busy(0) ends it.
+    A battle is also where PNG screenshots take two or three times as long as elsewhere: the raw screenshot is
+    used from the start when it was found right, and PNGs again afterwards when they are quicker."""
+    _busy["until"] = time.time() + seconds if seconds > 0 else 0.0
+    if seconds > 0:
+        if _shot["mode"] == "png" and _shot["raw_ok"]:
+            _shot.update(mode="raw", auto=True, raw_n=0)
+            log("screenshots: raw capture for now (PNGs are slow on a screen that moves this much)")
+    elif _shot["auto"]:
+        _shot["raw_n"] = SHOT_PROBE                # (it is over: the next screenshot shows whether PNGs are quick again)
+
+
+def compare_shots(png, raw, png2):
+    """Is the raw screenshot the same picture as the PNG one? The game moves between two screenshots (the
+    map is alive, a battle even more), so a plain difference says little: the raw one is compared with a PNG
+    taken just before it, on the parts of the screen that did not change between that PNG and one taken just
+    after. Returns {"same": True / False / None (too much moves to tell), "diff": ..., "still": share of the
+    screen that stood still, "moved": difference between the two PNGs, "xf": colour correction or None,
+    "note": text for the log}."""
+    out = {"same": None, "diff": 0.0, "still": 0.0, "moved": 0.0, "xf": None, "note": ""}
+    if raw.shape != png.shape or png2.shape != png.shape:
+        out.update(same=False, note=f"another size: raw {raw.shape[1]}x{raw.shape[0]}, PNG {png.shape[1]}x{png.shape[0]}")
+        return out
+    small = lambda im: cv2.resize(im, (221, 276), interpolation=cv2.INTER_AREA).astype(np.int16)
+    a, b, r = small(png), small(png2), small(raw)
+    still = np.abs(a - b).max(axis=2) <= SHOT_STILL
+    out["still"], out["moved"] = float(still.mean()), float(np.abs(a - b).mean())
+    if out["still"] < SHOT_STILL_SHARE:
+        out["note"] = f"only {out['still']:.0%} of the screen stood still"
+        return out
+    diff = float(np.abs(a - r)[still].mean())
+    if SHOT_SAME < diff <= 14:                     # not the same colours: try to correct them
+        xf = _fit_colours(raw, png, still)
+        after = float(np.abs(a - small(cv2.transform(raw, xf)))[still].mean())
+        if after < 0.6 * diff and after <= SHOT_SAME:
+            out["xf"] = xf
+            out["note"] = f"colours corrected (difference {diff:.1f} -> {after:.1f})"
+            diff = after
+    out["diff"] = diff
+    out["same"] = diff <= SHOT_SAME
+    return out
 
 
 def _choose_shot_mode():
-    """First screenshot: take it both ways and keep the raw one when it is clearly faster
-    and shows the same picture (not skewed, same colours - or colours that can be corrected)."""
+    """First screenshot: take it both ways (PNG, raw, PNG again) and keep the raw one when it is clearly
+    faster and shows the same picture (not skewed, same colours - or colours that can be corrected)."""
     _shot["tries"] += 1
-    _shot["xf"] = None
-    mode, why, png = "png", "", None
+    _shot.update(xf=None, raw_ok=False)
+    mode, why, png, again = "png", "", None, 300
     try:
-        small = lambda im: cv2.resize(im, (221, 276), interpolation=cv2.INTER_AREA).astype(np.int16)
-        for pair in range(2):
-            t0 = time.time()
-            png = _grab_png()
-            t_png = time.time() - t0
-            t0 = time.time()
-            raw = _grab_raw()
-            t_raw = time.time() - t0
-            diff = float(np.abs(small(png) - small(raw)).mean())
-            if diff < 25 or pair == 1:
-                break
-            time.sleep(1)                # a difference this big is not about colours: the screen changed
-                                         # between the two captures (the game is starting): once more
-        note = ""
-        if raw.shape == png.shape and 2.5 < diff <= 14:      # not the same colours: try to correct them
-            xf = _fit_colours(raw, png)
-            after = float(np.abs(small(png) - small(cv2.transform(raw, xf))).mean())
-            if after < 0.6 * diff and after < 4:
-                _shot["xf"] = xf
-                note = f", colours corrected (difference {diff:.1f} -> {after:.1f})"
-                diff = after
-        if raw.shape != png.shape or diff > 4:
-            why = (f"raw screenshot differs from PNG (difference {diff:.1f}{note}; "
-                   f"raw {t_raw:.1f} s, PNG {t_png:.1f} s) - keeping PNG")
-        elif t_raw > 0.85 * t_png:
-            why = f"raw screenshot is not faster ({t_raw:.1f} s against {t_png:.1f} s) - keeping PNG"
+        t0 = time.time()
+        png = _grab_png()
+        t_png = time.time() - t0
+        t0 = time.time()
+        raw = _grab_raw()
+        t_raw = time.time() - t0
+        t0 = time.time()
+        png2 = _grab_png()
+        t_png = (t_png + time.time() - t0) / 2.0
+        res = compare_shots(png, raw, png2)
+        times = f"raw {t_raw:.1f} s, PNG {t_png:.1f} s"
+        detail = (f"difference {res['diff']:.1f} on the {res['still']:.0%} of the screen that stood still"
+                  + (f", {res['note']}" if res["note"] else ""))
+        if res["same"] is None:
+            why, again = f"raw screenshot not judged yet ({res['note']}; {times}) - keeping PNG for now", 60
+        elif not res["same"]:
+            why = f"raw screenshot differs from PNG ({res['note'] or detail}; {times}) - keeping PNG"
+            if not _shot["saved"]:                 # (once: the two pictures, to see what differs)
+                _shot["saved"] = True
+                try:
+                    os.makedirs(DEBUG_DIR, exist_ok=True)
+                    cv2.imwrite(os.path.join(DEBUG_DIR, "g_shot_png.png"), png)
+                    cv2.imwrite(os.path.join(DEBUG_DIR, "g_shot_raw.png"), raw)
+                    why += " (both saved: debug/g_shot_png.png and g_shot_raw.png)"
+                except Exception:  # noqa: BLE001
+                    pass
         else:
-            mode = "raw"
-            why = (f"screenshots: raw capture {t_raw:.1f} s instead of PNG {t_png:.1f} s "
-                   f"(colour difference with PNG {diff:.1f}{note})")
+            _shot.update(raw_ok=True, t_raw=t_raw, xf=res["xf"])
+            if t_raw > SHOT_FASTER * t_png:
+                why = (f"raw screenshot is right but not faster here ({times}) - keeping PNG until PNGs "
+                       f"take longer ({detail})")
+            else:
+                mode = "raw"
+                why = f"screenshots: raw capture {t_raw:.1f} s instead of PNG {t_png:.1f} s ({detail})"
     except Exception as e:  # noqa: BLE001
         why = f"raw screenshot not possible ({e}) - keeping PNG"
-    if mode != "raw":
+    if mode != "raw" and not _shot["raw_ok"]:
         _shot["xf"] = None
-    _shot.update(mode=mode, fails=0, retry=time.time() + 300 if mode == "png" and _shot["tries"] < 4 else 0.0)
+    more = mode == "png" and not _shot["raw_ok"] and _shot["tries"] < SHOT_TRIES
+    _shot.update(mode=mode, fails=0, retry=time.time() + again if more else 0.0, png_avg=0.0, png_n=0,
+                 auto=False, raw_n=0)
     log(why)
     if png is None:                                    # (not even the PNG worked: let that error come through)
         png = _grab_png()
     return _normalize(png)
+
+
+def recheck_shot_mode():
+    """Ask for the comparison of raw and PNG screenshots to be made again at the next screenshot (when the
+    raw one was not accepted yet): for a moment at which the screen is quiet."""
+    if _shot["mode"] == "png" and not _shot["raw_ok"] and _shot["tries"] < SHOT_TRIES:
+        _shot["retry"] = time.time() - 1
 
 
 def screenshot(on_grab=None):
@@ -607,7 +698,7 @@ def screenshot(on_grab=None):
     if not screen["checked"]:
         detect_screen()                            # first screenshot of this run: which phone, which display?
     img = _screenshot(hook)
-    if float(img[::16, ::16].mean()) < 1.5 and time.time() - screen["checked"] > 60:
+    if float(img[::16, ::16].mean()) < 1.5 and time.time() - screen["checked"] > 60 and time.time() > _busy["until"]:
         old = screen["id"]                         # a black screen: a foldable that was folded or unfolded?
         detect_screen()
         if str(screen["id"]) != str(old):
@@ -618,24 +709,51 @@ def screenshot(on_grab=None):
 
 
 def _screenshot(hook):
-    with_retry = _shot["mode"] == "png" and _shot["retry"] and time.time() > _shot["retry"]
-    if _shot["mode"] is None or with_retry:
+    def choose():                                   # the first screenshot, or time to try the raw one again
+        return _shot["mode"] is None or (_shot["mode"] == "png" and _shot["retry"]
+                                         and time.time() > max(_shot["retry"], _busy["until"]))
+    if choose():
         with _shot_lock:
-            if _shot["mode"] is None or (_shot["retry"] and time.time() > _shot["retry"]):
+            if choose():                            # (another thread may have done it meanwhile)
                 _shot["retry"] = 0.0
                 return _choose_shot_mode()
     img = None
-    if _shot["mode"] == "raw":
+    # A PNG of a busy screen (a battle) takes two or three times as long as one of a quiet screen; the raw
+    # screenshot always takes the same time. When the raw one was found right ("raw_ok") the faster of the two
+    # is used: raw while PNGs are slow ("auto"), and PNG again when they are quick again - a PNG now and then
+    # ("probe") shows that.
+    probe = (_shot["mode"] == "raw" and _shot["auto"] and _shot["raw_n"] >= SHOT_PROBE
+             and time.time() > _busy["until"])
+    if _shot["mode"] == "raw" and not probe:
         try:
+            t0 = time.time()
             img = _grab_raw(hook)
             _shot["fails"] = 0
+            if _shot["auto"]:
+                _shot["raw_n"] += 1
+                if hook is None:                   # (with a hook the time of what it does would be counted too)
+                    _shot["t_raw"] += (time.time() - t0 - _shot["t_raw"]) / 4.0
         except Exception as e:  # noqa: BLE001
             _shot["fails"] += 1
             log(f"raw screenshot failed ({e}) - taking a PNG" + (" from now on" if _shot["fails"] >= 3 else ""))
             if _shot["fails"] >= 3:
-                _shot["mode"] = "png"
+                _shot.update(mode="png", auto=False, raw_ok=False)
     if img is None:
+        t0 = time.time()
         img = _grab_png()
+        took = time.time() - t0
+        if probe:
+            _shot["raw_n"] = 0
+            if took < SHOT_FASTER * _shot["t_raw"]:
+                _shot.update(mode="png", auto=False, png_avg=took, png_n=1)
+                log(f"screenshots: a PNG takes {took:.1f} s again, raw capture {_shot['t_raw']:.1f} s - using PNG again")
+        elif _shot["mode"] == "png" and _shot["raw_ok"]:
+            _shot["png_n"] += 1
+            _shot["png_avg"] += (took - _shot["png_avg"]) / min(_shot["png_n"], 4)
+            if _shot["png_n"] >= 3 and _shot["t_raw"] < SHOT_FASTER * _shot["png_avg"]:
+                _shot.update(mode="raw", auto=True, raw_n=0)
+                log(f"screenshots: a PNG now takes {_shot['png_avg']:.1f} s, raw capture {_shot['t_raw']:.1f} s "
+                    f"- using raw capture while PNGs are this slow")
     return _normalize(img)
 
 
