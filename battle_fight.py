@@ -125,17 +125,17 @@ class Fight:
         if old < self.my_hp <= old + HP_JUMP:  # (a Pokémon never heals: a small rise is a misread ...
             self.my_hp = old
             r = self._rise
-            if feat["hud"] and r[0] is not None and abs(mine - r[0]) <= 0.06:
+            if feat["hud"] and r[0] is not None and abs(mine - r[0]) <= 0.10:
                 r[1] += 1
-            else:
-                r[0], r[1] = (mine if feat["hud"] else None), 1
+            elif feat["hud"]:
+                r[0], r[1] = mine, 1
             if r[1] >= HP_BACK_UP:             # ... unless the bar says so on picture after picture: then what
                 self.my_hp = mine              # was believed before was the misread (31% on the bar, 6% kept)
                 r[0], r[1] = None, 0
         elif old < FAINTED_BELOW and self.my_hp > 0.6:
             self._came_in()                    # (a full bar after a nearly empty one: the next one of ours)
-        if mine is None or not (old < mine <= old + HP_JUMP):
-            self._rise = [None, 0]             # (the bar does not read higher on this picture)
+        if mine is not None and mine <= old + 0.03:
+            self._rise = [None, 0]             # (the bar does not read higher on this picture: no misread below)
         if mine is not None and feat["hud"] and abs(mine - self.my_hp) <= 0.06:
             self._my_reads += 1                # (its HP is known from its own bar, read in the plain fight - not
             self._my_read = self.my_hp         # from what was kept, not from a picture with a banner over the bar)
@@ -449,6 +449,20 @@ class Fight:
                  f"which fainted)")
         self.faint()
         self._enter(others[0])
+
+    def buttons_swapped(self, mon):
+        """The icons of a little game showed that our tap on a button threw the other attack: the names under
+        the buttons were read the wrong way round.  Swap them (for the Pokémon that threw it, if it is still on
+        the field)."""
+        if mon is not self.me or len(self.me.charged) != 2:
+            return
+        a, b = self.move_of(0), self.move_of(1)
+        if a is None or b is None:
+            return
+        self.slots = [b.id, a.id]
+        self.labels_ok = True
+        self.need_labels = False
+        self.log(f"fight: the buttons are the other way round - {b.name} on the left, {a.name} on the right")
 
     def set_buttons(self, left, right):
         """The texts under the buttons were read: which move is on which button.  One side is enough when

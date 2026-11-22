@@ -303,7 +303,8 @@ class FightLoop(unittest.TestCase):
     def setUp(self):
         self.saved = {n: getattr(G, n) for n in ("time", "log", "ocr_lines", "ocr_line", "save_async", "MINIGAME_FILE",
                                                  "SEEN_FILE", "FIGHT_AIM", "battle_give_up")}
-        self.saved_s = {n: getattr(S, n) for n in ("tap", "swipes", "screenshot", "on_map", "debug_save")}
+        self.saved_s = {n: getattr(S, n) for n in ("tap", "swipes", "screenshot", "on_map", "debug_save",
+                                                   "tap_quick", "tap_motion")}
         self.dir = tempfile.mkdtemp()
         G.time = Clock
         G.FIGHT_AIM = False                # (the fast attacks stay in the middle: the tests of the aim switch it on)
@@ -327,6 +328,8 @@ class FightLoop(unittest.TestCase):
         G.ocr_lines = phone.ocr
         G.ocr_line = phone.line
         S.tap, S.swipes, S.screenshot = phone.tap, phone.swipe, phone.screenshot
+        S.tap_quick = lambda x, y: phone.tap(x, y, 1)
+        S.tap_motion = lambda x, y, ms=80: phone.tap(x, y, ms)
         if video:
             res = G.fight_battle(stream=phone)
         else:
@@ -980,6 +983,19 @@ class FightLoop(unittest.TestCase):
         finally:
             for n, f in saved.items():
                 setattr(G, n, f)
+
+    def test_the_switch_tile_is_tried_with_other_kinds_of_touch(self):
+        """22 November, 19:39: eleven presses on the tile of Lanturn, none counted, the game chose Lapras.  The
+        retaps now try other kinds of touch, and the log says which."""
+        script = [("versus", 0.5), ("day_start", 1.0), ("day_switch", 6.0), ("day_result", "next")]
+        phone, res = self.play(video=True, script=script)
+        log = "\n".join(phone.logs)
+        self.assertIn("battle: switching to ", log)
+        for how in ("quick tap", "finger down and up", "press 60 ms", "press 220 ms"):
+            self.assertIn(f"tapping again ({how} at", log)
+        taps = [t for t in phone.taps if t[0] == "day_switch" and t[2] > 0.6]    # (on the tiles, not fast taps)
+        self.assertGreaterEqual(len(taps), 5, log)
+        self.assertEqual(len({t[1] for t in taps}), 1, taps)                  # (always the same tile)
 
     def test_a_file_that_cannot_be_read_is_no_trouble(self):
         with open(G.SEEN_FILE, "w") as f:

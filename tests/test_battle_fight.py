@@ -249,6 +249,28 @@ class Throwing(unittest.TestCase):
             fight.see(feat(hp=(0.31, 0.8)))
         self.assertAlmostEqual(fight.my_hp, 0.31)
 
+    def test_a_noisy_bar_that_stays_higher_is_believed(self):
+        """22 November, 19:29: 'last 30%, taken to be 8%' again - the readings of the bar wander a little and
+        pictures without one (a question) came in between."""
+        fight = new_fight()
+        see_twice(fight, hp=(0.08, 0.8))
+        for i in range(30):
+            fight.see(feat(hp=((0.27, 0.31, 0.33, None)[i % 4], 0.8)))
+        self.assertGreater(fight.my_hp, 0.25)
+
+    def test_the_buttons_the_other_way_round(self):
+        """The names under Lanturn's buttons were read as 'Thunderbolt / Surf'; the icons of the little game
+        showed that the tap on 'Surf' threw Thunderbolt."""
+        team = be.load_team()
+        fight = bf.Fight([team[2], team[0], team[1]], log=lambda _m: None)
+        fight.set_foe("Leafeon", 1459)
+        fight.set_buttons("THUNDERBOLT", "SURF")
+        self.assertEqual(fight.move_of(1).name, "Surf")
+        fight.buttons_swapped(fight.me)
+        self.assertEqual((fight.move_of(0).name, fight.move_of(1).name), ("Surf", "Thunderbolt"))
+        fight.buttons_swapped(team[0])                         # (another Pokémon: nothing changes)
+        self.assertEqual(fight.move_of(0).name, "Surf")
+
     def test_a_flicker_upwards_is_still_no_healing(self):
         fight = new_fight()
         see_twice(fight, hp=(0.40, 0.8))

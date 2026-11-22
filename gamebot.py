@@ -3561,6 +3561,10 @@ USED_EVERY = 0.35                      # comes after about six seconds and stays
 MAP_PICTURES, MAP_SECONDS = 3, 2.0   # the fight loop ends on the map: this many pictures in a row, this long
 SWITCH_TAP_MS = 220            # the tile of 'Switch in a new Pokémon?' is pressed this long ...
 SWITCH_TAP_Y = (0.74, 0.78, 0.71, 0.81)   # the heights of the tile that are tried in turn
+SWITCH_TOUCHES = (("quick tap", lambda x, y: S.tap_quick(x, y), ()),
+                  ("finger down and up", lambda x, y: S.tap_motion(x, y), ()),
+                  ("press 60 ms", lambda x, y, ms: S.tap(x, y, ms), (60,)),
+                  ("press 220 ms", lambda x, y, ms: S.tap(x, y, ms), (220,)))
 SWITCH_RETAPS = 13             # ... and tapped again (every RETAP_AFTER s) for as long as the question stays: in the
                                # first seconds, while our Pokémon faints, the game does not seem to take the tap -
                                # three taps in 3.5 s were ignored again and again, the game then chose by itself
@@ -3637,6 +3641,15 @@ class FastTapper(threading.Thread):
         try:
             with self._lock:
                 S.tap(x, y, ms)
+        finally:
+            self._hold.clear()
+
+    def do(self, fn, *args):
+        """Like tap(), for another kind of touch: fn(*args) after the fast tap that is running."""
+        self._hold.set()
+        try:
+            with self._lock:
+                fn(*args)
         finally:
             self._hold.clear()
 
@@ -4102,6 +4115,7 @@ class Minigame:
         self.unseen = False                # nobody saw it being thrown: it is known from 'Get Ready!' alone
         self.alt = None                    # ... and it may be this other attack of ours (the icons will tell)
         self.alt_n = 0                     # ... pictures in a row with the icons of that other attack
+        self.race = False                  # ... because the fast taps were on the other button (not the labels)
 
     def look(self, small):
         """The icons of the attack's type on a picture (fractions of the screen).  A lit charged attack button
@@ -4426,6 +4440,9 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                                                             and len(mini.others(small)) >= 3) else 0
                             if mini.alt_n >= (2 if eyes.video else 1):
                                 log(f"battle: the icons are those of {mini.alt.name}, not of {mini.move.name}")
+                                if not mini.unseen and not mini.race:    # (our own tap on a button that was
+                                    with flock:                          # taken for the other attack)
+                                        fight.buttons_swapped(mini.mon)
                                 was, mini = mini, Minigame(mini.alt, mini.game.t0, learned, 1 - mini.button)
                                 mini.mon, mini.unseen = was.mon, True
                                 mini.started(now)
@@ -4580,11 +4597,14 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                             with flock:
                                 mini.mon = fight.me
                                 other = fight.move_of(1 - button)
-                            if (arm["b"] is not None and arm["b"] != button and now - arm["t"] <= AIM_RECENT
-                                    and other is not None and other.type != move.type):
-                                mini.alt = other             # (the fast taps were on the other button a moment
-                            tapper.sweep(mini.strokes)       # ago: one of them may have thrown that one - the icons
-                                                             # will tell)
+                            if other is not None and other.type != move.type:
+                                # The icons tell which attack it really was: the fast taps were on the other
+                                # button a moment ago and one of them may have thrown that one - or the names
+                                # under the buttons were read the wrong way round (22 November: 'Thunderbolt /
+                                # Surf' for Lanturn, every Thunderbolt was swiped as a Surf)
+                                mini.alt = other
+                                mini.race = arm["b"] is not None and arm["b"] != button and now - arm["t"] <= AIM_RECENT
+                            tapper.sweep(mini.strokes)
                     # Where the fast attacks are tapped: on the button of the charged attack that is to be thrown
                     # the moment it is ready - only while our HP bar is on the picture (the plain fight: when our
                     # Pokémon faints, the tiles of the switch question come up right where the buttons are)
@@ -4692,12 +4712,23 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                     elif ask["xy"] is not None and now - ask["tapped"] >= RETAP_AFTER:
                         if ask["tries"] < (SWITCH_RETAPS if ask["kind"] == "switch" else RETAP_MAX):
                             ask["tries"] += 1                # (a tap that did not count: the question is still there)
-                            log("battle: the question is still on the screen - tapping again")
                             tapper.sweep(None)
                             x, y = ask["xy"]
-                            if ask["kind"] == "switch":      # (another height of the tile each time: its picture,
-                                y = int(SWITCH_TAP_Y[ask["tries"] % len(SWITCH_TAP_Y)] * S.REF_H)   # middle, name)
-                            tapper.tap(x, y, SWITCH_TAP_MS if ask["kind"] == "switch" else 120)
+                            if ask["kind"] == "switch":
+                                # 22 November: eleven presses on the tile in eleven seconds and none counted - so
+                                # each time another kind of touch (and another height of the tile); the log says
+                                # which one, to find the one the game takes
+                                y = int(SWITCH_TAP_Y[ask["tries"] % len(SWITCH_TAP_Y)] * S.REF_H)
+                                how, fn, args = SWITCH_TOUCHES[ask["tries"] % len(SWITCH_TOUCHES)]
+                                log(f"battle: the question is still on the screen - tapping again ({how} at "
+                                    f"{x}, {y})")
+                                try:
+                                    tapper.do(fn, x, y, *args)
+                                except Exception as e:  # noqa: BLE001
+                                    log(f"battle: that touch did not work here ({e})")
+                            else:
+                                log("battle: the question is still on the screen - tapping again")
+                                tapper.tap(x, y, 120)
                             ask["tapped"] = time.monotonic()
                         else:
                             tapper.go()

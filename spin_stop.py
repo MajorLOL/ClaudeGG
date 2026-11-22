@@ -394,6 +394,19 @@ def tap(x, y, ms=120):
     adb("shell", *INPUT, "swipe", str(x), str(y), str(x), str(y), str(ms))
 
 
+def tap_quick(x, y):
+    """A plain 'input tap' (finger down and up at once): some screens of the game take this and not a press."""
+    x, y = to_real(x, y)
+    adb("shell", *INPUT, "tap", str(x), str(y))
+
+
+def tap_motion(x, y, ms=80):
+    """Finger down, a moment, finger up - as separate touch events (input motionevent, Android 11 and newer)."""
+    x, y = to_real(x, y)
+    adb("shell", f"{' '.join(INPUT)} motionevent DOWN {x} {y}; sleep {ms / 1000.0:.2f}; "
+                 f"{' '.join(INPUT)} motionevent UP {x} {y}")
+
+
 def swipe(x1, y1, x2, y2, ms=300):
     (x1, y1), (x2, y2) = to_real(x1, y1), to_real(x2, y2)
     adb("shell", *INPUT, "swipe", str(x1), str(y1), str(x2), str(y2), str(ms))
