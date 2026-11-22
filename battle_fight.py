@@ -32,6 +32,8 @@ FOE_CHECK_EVERY = 3       # read the name boxes again every this many pictures w
                           # without a sign other than its name)
 SHIELDS_BACK = 6          # pictures in a row that show more shields of ours than we counted: believe them
 FOE_RETRY = 8             # a name box that gave nothing is read again after this many pictures at most
+GOING_DOWN_HP = 0.20      # our HP below this part of the full bar: we are about to faint ...
+GOING_DOWN_FAST = 4       # ... or it is no more than this many fast attacks of the foe
 
 
 class Fight:
@@ -60,6 +62,7 @@ class Fight:
         self.shields_back = SHIELDS_BACK       # (gamebot sets a higher number for the live video, as foe_every)
         self._shield_more = 0                  # pictures in a row that show more shields of ours than counted
         self._shield_more_n = None
+        self.tile = (0, 1)                     # where the Pokémon chosen by switch() stands: (place, tiles)
 
     # ------------------------------------------------------------ what is seen ---
     def _believe(self, side, old, new):
@@ -272,13 +275,27 @@ class Fight:
         self.me.energy = self.energy
         move, why = BE.pick_charged(self.me, self.foe, self.energy, self.foe_shields, self.foe.hp)
         if move is None:
-            return None
+            if not self._going_down():
+                return None
+            # the plan was to go on with the fast attack (or to save up for the dearer move), but we will not
+            # live to see it: energy that is not used is lost, and even an attack that is shielded costs the
+            # foe a shield - the next one of ours is glad of that
+            i, m = max(lit, key=lambda t: (BE.damage(t[1], self.me, self.foe), -t[1].energy))
+            return self._thrown(i, m, f"{m.name} before we go down (our HP is {self.my_hp:.0%})")
         for i, m in lit:
             if m.id == move.id:
                 return self._thrown(i, move, why)
         # the picked move is not on a lit button (labels not read, the buttons may be the other way round)
         i, m = max(lit, key=lambda t: t[1].energy)
         return self._thrown(i, m, f"{m.name} (lit) instead of {move.name}")
+
+    def _going_down(self):
+        """Are we about to faint while the foe is not?  (Our HP is low, and the foe needs more than two more
+        of our fast attacks.)"""
+        if self.foe is None:
+            return False
+        low = max(GOING_DOWN_HP * self.me.max_hp, GOING_DOWN_FAST * BE.damage(self.foe.fast, self.foe, self.me))
+        return self.me.hp <= low and self.foe.hp > 2 * BE.damage(self.me.fast, self.me, self.foe)
 
     def _thrown(self, button, move, why):
         self.throws += 1
@@ -307,8 +324,11 @@ class Fight:
         return [m for m in self.team if m.pos not in self.dead and m.hp > 0]
 
     def switch(self, tiles):
-        """'Switch in a new Pokémon?'  tiles: [(cp, x)] left to right as read on the pop-up.
-        Returns (index into tiles or None, Mon or None, why)."""
+        """'Switch in a new Pokémon?'  tiles: [(cp, x)] left to right as read on the pop-up.  The CP numbers are
+        small: often only one of them is read, or none.  Every Pokémon that is left is a choice all the same
+        (the tiles stand in party order), so the best one is taken, read or not.
+        Returns (index into tiles or None, Mon or None, why).  self.tile: (the place of the chosen one among
+        the tiles, the number of tiles) - where to tap when its CP was not read."""
         self.faint()
         left = self.alive()
         if not left:
@@ -318,18 +338,18 @@ class Fight:
             m = next((m for m in left if abs(m.cp - cp) <= 1 and all(m is not s for _i, s in shown)), None)
             if m:
                 shown.append((i, m))
-        how = "by CP"
-        if not shown and tiles:                # CPs not read: the tiles are in party order
+        if not shown and len(tiles) == len(left):  # no CP read, but as many tiles as choices: in party order
             shown = list(zip(range(len(tiles)), left))
-            how = "by party order"
-        cands = [m for _i, m in shown] or left
         if self.foe is not None:
-            best, score = BE.best_switch(cands, self.foe, self.my_shields, self.foe_shields)
-            best = best or cands[0]
-            why = f"{best.label} fares best against {self.foe.label} (score {score:+.2f}, {how})"
+            best, score = BE.best_switch(left, self.foe, self.my_shields, self.foe_shields)
+            best = best or left[0]
+            why = f"{best.label} fares best against {self.foe.label} (score {score:+.2f}"
         else:
-            best, why = cands[0], f"foe not known, taking {cands[0].label} ({how})"
+            best, why = left[0], f"foe not known, taking {left[0].label} ("
         idx = next((i for i, m in shown if m is best), None)
+        by_cp = idx is not None and abs(tiles[idx][0] - best.cp) <= 1
+        why += ("" if why.endswith("(") else ", ") + ("by CP)" if by_cp else "by party order)")
+        self.tile = (left.index(best), len(left))
         self._enter(best)
         return idx, best, why
 

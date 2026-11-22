@@ -207,6 +207,7 @@ class MinigameParts(unittest.TestCase):
     def test_strokes_are_canvas_pixels_in_short_pieces(self):
         mini = self.game("SURF")
         mini.game.t0 = time.monotonic() - 3.0                    # (thrown three seconds ago: the icons are due)
+        mini.view(True, False)                                   # (and the camera is on the attacker)
         strokes = mini.strokes()
         self.assertTrue(strokes)
         for x1, y1, x2, y2, ms in strokes:
@@ -221,6 +222,33 @@ class MinigameParts(unittest.TestCase):
 
     def test_nothing_to_swipe_right_after_the_throw(self):
         self.assertEqual(self.game("SURF").strokes(), [])
+
+    def test_nothing_is_swiped_blind_over_the_plain_fight(self):
+        """Without icons, the known lines of the type are only swiped once the camera is on the attacker (the
+        name boxes without any HP bar): never over the plain fight, where the buttons are."""
+        mini = self.game("SHADOW_BALL")                          # (its rows run right over the two buttons)
+        mini.game.t0 = time.monotonic() - 3.0
+        self.assertEqual(mini.strokes(), [])                     # no picture yet: nothing
+        self.assertEqual(mini.view(True, True, need=3), 1)       # the plain fight (an HP bar is shown)
+        self.assertEqual(mini.view(True, True, need=3), 2)
+        self.assertEqual(mini.strokes(), [])
+        self.assertEqual(mini.view(False, False, need=3), 0)     # a flash without the name boxes says nothing
+        self.assertEqual(mini.strokes(), [])
+        mini.view(True, False, need=3)                           # 'Get Ready!': the camera goes to the attacker
+        mini.view(True, False, need=3)
+        self.assertEqual(mini.strokes(), [])                     # (two pictures are not enough on the video)
+        mini.view(True, False, need=3)
+        self.assertTrue(mini.strokes())
+        mini.view(True, True, need=3)                            # the plain fight again: stop at once
+        self.assertEqual(mini.strokes(), [])
+        mini.give_up()                                           # given up: nothing blind any more, whatever comes
+        for _ in range(4):
+            mini.view(True, False, need=3)
+        self.assertEqual(mini.strokes(), [])
+        icons = mini.look(self.picture("ghost"))                 # ... but icons that are seen are swiped
+        mini.see(icons, time.monotonic())
+        self.assertTrue(mini.on)
+        self.assertTrue(mini.strokes())
 
     def test_what_was_learned_is_kept_in_a_file(self):
         old = G.MINIGAME_FILE

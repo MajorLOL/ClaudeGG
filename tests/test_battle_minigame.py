@@ -302,6 +302,21 @@ class Plans(unittest.TestCase):
         game.hold(t)                                                       # (a question after it: nothing changes)
         self.assertTrue(game.blind is False and game.first == first)
 
+    def test_nothing_blind_while_the_plain_fight_is_on_the_pictures(self):
+        """The rows of a ghost attack run right over the two charged attack buttons.  In one real fight the bot
+        had 'thrown' an attack that was not lit, swiped those rows over the plain fight and so threw whatever
+        lit up next - without playing its little game."""
+        game = bm.Game("ghost", t0=100.0)
+        game.plain = True                                                  # (the fight loop: an HP bar is shown)
+        for t in (100.5, 102.1, 104.0, 108.0):
+            self.assertEqual(game.plan(t), [], t)
+        game.plain = False                                                 # the camera went to the attacker
+        self.assertTrue(game.plan(102.5))
+        self.assertEqual(game.plan(101.0), [])                             # (but not before the icons can come)
+        game.plain = True
+        game.see(103.0, [(0.42, 0.56), (0.62, 0.56)])                      # icons that are seen are always swiped
+        self.assertTrue(game.plan(103.05))
+
     def test_holding_does_not_change_a_game_that_runs(self):
         game = bm.Game("water", t0=100.0)
         game.see(102.8, [(0.7, 0.5), (0.6, 0.6)])

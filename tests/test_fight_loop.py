@@ -54,10 +54,21 @@ class Clock:
         return real_time.strftime(*a)
 
 
-class Phone:
-    """What is on the screen, and what was done to it."""
+FIGHT_SCENES = ("fight_ready", "day_start", "day_dim", "day_lit", "day_lines")     # the plain fight, buttons shown
 
-    def __init__(self, video=True, tie=""):
+
+class Phone:
+    """What is on the screen, and what was done to it.
+
+    Without a script the phone plays the fight of the first recording (by night): VS screen, the fight with both
+    buttons lit, the little game of the attack that is thrown, the fight again, a shield question, the result.
+    script: [(scene, how it ends), ...] for another story.  A scene ends after a number of seconds or with a
+    tap: "throw" (a charged attack button), "ignore" (the same, but the game does not take the tap), "shield"
+    (the shield or NOT NOW), "switch" (a tile of the switch question), "next" (NEXT BATTLE).  The scene "icons"
+    is the little game of the attack that was thrown; "name#word" shows the picture `name` (to tell two
+    scenes with the same picture apart)."""
+
+    def __init__(self, video=True, tie="", script=None):
         self.video = video
         self.tie = tie                     # "first": the other side's charged attack goes first, ours follows it;
         self.tied = False                  # "lost": theirs goes first and ours was not thrown at all
@@ -65,10 +76,26 @@ class Phone:
         self.since = Clock.t
         self.taps, self.swipes, self.logs = [], [], []
         self.thrown = None
+        self.switched = None               # the tile that was tapped on the switch question (0: left, 1: right)
         self.boxes = 0
         self.pictures = {}
+        self.script = list(script or [])
+        self.step = -1
+        if self.script:
+            self.advance()
+
+    def advance(self):
+        self.step += 1
+        if self.step < len(self.script):
+            self.to(self.script[self.step][0])
+
+    def ends_with(self):
+        return self.script[self.step][1] if self.script and self.step < len(self.script) else None
 
     def picture(self, name, size=(704, 880)):
+        name = name.split("#")[0]                                    # ("day_dim#wait": the picture day_dim)
+        if name == "icons":
+            name = "ghost" if self.thrown == 0 else "flying"
         key = (name, size)
         if key not in self.pictures:
             folder = "minigame" if name in ("flying", "ghost") else "fight"
@@ -83,6 +110,11 @@ class Phone:
     def tick(self):
         """The game goes on by itself."""
         age = Clock.t - self.since
+        if self.script:
+            end = self.ends_with()
+            if isinstance(end, (int, float)) and age > end:
+                self.advance()
+            return
         if self.scene == "versus" and age > 0.5:
             self.to("fight_ready")
         elif self.scene == "their_attack" and age > 2.0:             # the other side's attack is over:
@@ -90,23 +122,43 @@ class Phone:
         elif self.scene == "minigame_zoom" and age > 2.5:            # "Get Ready!" ...
             self.to("ghost" if self.thrown == 0 else "flying")       # ... then the icons
         elif self.scene in ("ghost", "flying") and age > 4.0:
-            self.to("run2_dim")                                      # the fight goes on, nothing lit
-        elif self.scene == "run2_dim" and age > 3.0:
+            self.to("day_dim")                                       # the fight goes on, nothing lit
+        elif self.scene == "day_dim" and age > 3.0:
             self.to("shield_question")
+
+    def button(self, fx, fy):
+        """The charged attack button at a spot (0 / 1), None when there is none."""
+        if abs(fy - BV.BTN_Y) < 0.05:
+            for i, bx in enumerate(BV.BTN_X):
+                if abs(fx - bx) < 0.08:
+                    return i
+        return None
 
     def tap(self, x, y, ms=120):
         fx, fy = x / float(S.REF_W), y / float(S.REF_H)
         self.taps.append((self.scene, round(fx, 3), round(fy, 3)))
         answer = abs(fx - 0.5) < 0.2 and (abs(fy - BV.TAP_SHIELD[1]) < 0.05 or abs(fy - BV.TAP_NOT_NOW[1]) < 0.05)
-        if self.scene == "fight_ready" and abs(fy - BV.BTN_Y) < 0.05:
-            for i, bx in enumerate(BV.BTN_X):
-                if abs(fx - bx) < 0.08:
-                    self.thrown = i
-                    if self.tie and not self.tied:                   # (the other side was a little earlier)
-                        self.tied = True
-                        self.to("tie_question")
-                    else:
-                        self.to("minigame_zoom")
+        if self.script:
+            end = self.ends_with()
+            if end in ("throw", "ignore") and self.button(fx, fy) is not None:
+                if end == "throw":
+                    self.thrown = self.button(fx, fy)
+                self.advance()
+            elif end == "shield" and answer:
+                self.advance()
+            elif (end == "switch" and abs(fy - BV.POPUP_TILE_Y) < 0.06
+                  and min(abs(fx - t) for t in BV.POPUP_TILES) < 0.09):
+                self.switched = 0 if fx < 0.5 else 1
+                self.advance()
+            elif end == "next" and abs(fx - BV.TAP_NEXT[0]) < 0.15 and abs(fy - BV.TAP_NEXT[1]) < 0.03:
+                self.advance()
+        elif self.scene == "fight_ready" and self.button(fx, fy) is not None:
+            self.thrown = self.button(fx, fy)
+            if self.tie and not self.tied:                           # (the other side was a little earlier)
+                self.tied = True
+                self.to("tie_question")
+            else:
+                self.to("minigame_zoom")
         elif self.scene == "tie_question" and answer:
             self.to("their_attack")
         elif self.scene == "shield_question" and answer:
@@ -132,10 +184,13 @@ class Phone:
             if self.thrown is None or self.tie == "lost":
                 return []
             return OCR["name_foe_41"] if self.boxes % 2 else OCR["name_me_41"]
+        scene = self.scene.split("#")[0]
         if y0 > 0.8 * img.shape[0]:                                  # the labels under the buttons
-            return OCR["buttons_41"] if self.scene == "fight_ready" else []
-        if self.scene == "result_loss":
+            return OCR["buttons_41"] if scene in FIGHT_SCENES else []
+        if scene in ("result_loss", "day_result"):
             return OCR["result_135"]
+        if scene in ("day_switch", "switch_popup"):                  # the question, and the CPs on its tiles
+            return OCR["popup_cp_65"] if y0 >= 0.59 * img.shape[0] else OCR["question_65"]
         return []
 
     # ---- the live video
@@ -178,8 +233,8 @@ class FightLoop(unittest.TestCase):
         for n, v in self.saved_s.items():
             setattr(S, n, v)
 
-    def play(self, video, tie=""):
-        phone = Phone(video, tie)
+    def play(self, video, tie="", script=None):
+        phone = Phone(video, tie, script)
         G.log = phone.logs.append
         G.ocr_lines = phone.ocr
         S.tap, S.swipes, S.screenshot = phone.tap, phone.swipe, phone.screenshot
@@ -279,8 +334,118 @@ class FightLoop(unittest.TestCase):
                                                           round(int(BV.TAP_FAST[1] * S.REF_H) / S.REF_H, 3))]
         self.assertGreater(len(fast), 10)
         self.assertTrue([t for t in fast if t[0] == "fight_ready"])
-        self.assertTrue([t for t in fast if t[0] == "run2_dim"])
+        self.assertTrue([t for t in fast if t[0] == "day_dim"])
         self.assertFalse([t for t in fast if t[0] == "result_loss"][3:])      # (hardly any on the result screen)
+
+    # ---- the fight by day that went wrong (see test_battle_vision.py for the pictures) -------------------
+    # (after the icons of the little game the attack itself is shown, with a banner: 'Noctowl used Shadow Ball!')
+    DAY = [("versus", 0.5), ("day_intro", 2.0), ("day_start", 1.5), ("day_dim#first", 1.0), ("day_lit", "throw"),
+           ("day_get_ready", 2.0), ("icons", 4.0), ("day_banner", 1.0), ("day_flash", 1.0), ("day_lines", 2.0),
+           ("day_dim", 2.0), ("day_switch", "switch"), ("day_dim#next", 1.5), ("day_shield", "shield"),
+           ("day_flash#theirs", 1.0), ("day_faint", 1.5), ("day_result", "next")]
+    AFTER = ("icons", "day_banner", "day_flash")       # (the rows are swiped a second longer: the icons come back)
+
+    def fast_taps(self, phone):
+        spot = (round(int(BV.TAP_FAST[0] * S.REF_W) / S.REF_W, 3), round(int(BV.TAP_FAST[1] * S.REF_H) / S.REF_H, 3))
+        return [t for t in phone.taps if (t[1], t[2]) == spot]
+
+    def throws(self, phone):
+        return [t for t in phone.taps if abs(t[2] - BV.BTN_Y) < 0.01 and min(abs(t[1] - x) for x in BV.BTN_X) < 0.01]
+
+    def test_a_whole_fight_by_day(self):
+        phone, res = self.play(video=True, script=self.DAY)
+        log = "\n".join(phone.logs)
+        self.assertNotIn("error in the fight loop", log)
+        self.assertEqual(res["result"], "loss", log)
+        # one charged attack was thrown, when a button was really lit: not at the intro ('Go, Noctowl!'), not
+        # at an attack's flash, not when the white lines of the field ran through the label zones, not when
+        # our Pokémon fainted
+        self.assertEqual([t[0] for t in self.throws(phone)], ["day_lit"], log)
+        self.assertEqual(log.count("battle: throwing "), 1, log)
+        self.assertNotIn("did not start", log)
+        self.assertIn("the fight has started", log)
+        started = phone.logs.index(next(line for line in phone.logs if "the fight has started" in line))
+        self.assertFalse([line for line in phone.logs[:started] if "throwing" in line], log)
+        # its little game was played, and nothing was swiped anywhere else
+        self.assertGreater(len([s for sc, strokes in phone.swipes if sc == "icons" for s in strokes]), 3, log)
+        self.assertEqual({sc for sc, _s in phone.swipes} - {"day_get_ready"} - set(self.AFTER), set(), log)
+        # the switch question was seen (its countdown is grey over the clouds) and answered with a tile
+        self.assertIn(phone.switched, (0, 1), log)
+        self.assertIn("battle: switching to ", log)
+        tiles = [t for t in phone.taps if t[0] == "day_switch" and abs(t[2] - BV.POPUP_TILE_Y) < 0.06]
+        self.assertEqual(len(tiles), 1, log)
+        # the shield question too, and the result screen (clouds where the name boxes were) was not taken for
+        # the fight: NEXT BATTLE was tapped
+        # the shield question came a second and a half after the switch question: it is another question, and
+        # it got its own answer (the shield or NOT NOW, not a second tap on the tile)
+        answers = [t for t in phone.taps if t[0] == "day_shield" and t[2] > 0.6]
+        self.assertEqual(len(answers), 1, log)
+        self.assertEqual(answers[0][1], 0.5, log)
+        self.assertIn("shield question", log)
+        self.assertNotIn("still on the screen", log)
+        # the result screen (clouds where the name boxes were) was not taken for the fight: NEXT BATTLE
+        nxt = [t for t in phone.taps if t[0] == "day_result" and abs(t[2] - BV.TAP_NEXT[1]) < 0.01]
+        self.assertEqual(len(nxt), 1, log)
+        # and the fast attacks went on in between
+        fast = {t[0] for t in self.fast_taps(phone)}
+        self.assertTrue({"day_start", "day_dim#first", "day_lit", "day_lines", "day_dim", "day_dim#next"} <= fast, fast)
+
+    def test_a_whole_fight_by_day_with_screenshots_only(self):
+        phone, res = self.play(video=False, script=self.DAY)
+        log = "\n".join(phone.logs)
+        self.assertEqual(res["result"], "loss", log)
+        self.assertEqual([t[0] for t in self.throws(phone)], ["day_lit"], log)
+        self.assertIn(phone.switched, (0, 1), log)
+        self.assertNotIn("did not start", log)
+
+    def test_a_tap_that_the_game_does_not_take(self):
+        """The button is tapped and nothing happens: the plain fight stays on the screen (with its HP bars).
+        Nothing may be swiped then - the rows of a ghost attack run right over the buttons - and the fast
+        attacks go on; the next time a button is lit it is thrown as usual."""
+        script = [("versus", 0.5), ("day_start", 1.0), ("day_lit#first", "ignore"), ("day_dim#wait", 7.0),
+                  ("day_lit", "throw"), ("day_get_ready", 2.0), ("icons", 4.0), ("day_banner", 2.0), ("day_dim", 2.0),
+                  ("day_shield", "shield"), ("day_result", "next")]
+        phone, res = self.play(video=True, script=script)
+        log = "\n".join(phone.logs)
+        self.assertEqual(res["result"], "loss", log)
+        self.assertEqual([t[0] for t in self.throws(phone)], ["day_lit#first", "day_lit"], log)
+        self.assertEqual(log.count(" did not start - the fight is still on the screen"), 1, log)
+        self.assertEqual({sc for sc, _s in phone.swipes} - {"day_get_ready"} - set(self.AFTER), set(), log)
+        self.assertGreater(len([t for t in self.fast_taps(phone) if t[0] == "day_dim#wait"]), 10, log)
+        self.assertGreater(len([s for sc, strokes in phone.swipes if sc == "icons" for s in strokes]), 3, log)
+        self.assertNotIn("started after all", log)
+        gave_up = next(line for line in phone.logs if " did not start - " in line)
+        self.assertLess(float(gave_up.split("screen ")[1].split(" s after")[0]), 4.0)   # (soon: about 3 s)
+        self.assertRegex(log, r"1 charged attacks? with")             # (the one that was not thrown is not counted)
+
+    def test_a_tap_that_is_not_taken_with_screenshots_only(self):
+        script = [("versus", 0.5), ("day_start", 1.0), ("day_lit#first", "ignore"), ("day_dim#wait", 12.0),
+                  ("day_lit", "throw"), ("day_get_ready", 2.0), ("icons", 4.0), ("day_banner", 2.0), ("day_dim", 2.0),
+                  ("day_shield", "shield"), ("day_result", "next")]
+        phone, res = self.play(video=False, script=script)
+        log = "\n".join(phone.logs)
+        self.assertEqual(res["result"], "loss", log)
+        self.assertEqual(log.count(" did not start - the fight is still on the screen"), 1, log)
+        quiet = ("day_dim#wait", "day_lit#first", "day_lit", "day_start")
+        self.assertFalse([sc for sc, _s in phone.swipes if sc in quiet], log)
+        self.assertEqual([t[0] for t in self.throws(phone)], ["day_lit#first", "day_lit"], log)
+
+    def test_an_attack_that_starts_late(self):
+        """The game takes the tap, but the attack only starts seconds later (after it was given up): its
+        little game is played all the same, and no second attack is thrown meanwhile."""
+        script = [("versus", 0.5), ("day_start", 1.0), ("day_lit", "throw"), ("day_dim#wait", 4.5),
+                  ("day_get_ready", 2.0), ("icons", 4.0), ("day_banner", 2.0), ("day_dim", 2.0),
+                  ("day_shield", "shield"), ("day_result", "next")]
+        phone, res = self.play(video=True, script=script)
+        log = "\n".join(phone.logs)
+        self.assertEqual(res["result"], "loss", log)
+        self.assertEqual(len(self.throws(phone)), 1, log)
+        self.assertIn(" did not start - the fight is still on the screen", log)
+        self.assertIn("started after all", log)
+        self.assertEqual({sc for sc, _s in phone.swipes} - set(self.AFTER), set(), log)   # (nothing blind this time)
+        self.assertGreater(len([s for sc, strokes in phone.swipes if sc == "icons" for s in strokes]), 3, log)
+        self.assertRegex(log, r"little game of .* icons on \d+ picture.*it did not start after the tap but came later")
+        self.assertRegex(log, r"1 charged attacks? with")
 
 
 if __name__ == "__main__":

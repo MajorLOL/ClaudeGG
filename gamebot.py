@@ -1531,7 +1531,7 @@ def tray_labels(img):
         log("tesseract missing (sudo apt install tesseract-ocr) - no berries")
         return {}
     cells = {}
-    for r in csv.DictReader(io.StringIO(out), delimiter="\t"):
+    for r in csv.DictReader(io.StringIO(out), delimiter="\t", quoting=csv.QUOTE_NONE):
         t = (r.get("text") or "").strip().upper()
         if not t or float(r.get("conf") or -1) < 30:
             continue
@@ -1582,7 +1582,9 @@ def gift_state_file():
 
 def ocr_lines(img, y0=0, y1=None, scale=1.0):
     """OCR with positions: [(TEXT, x_first_word, y, [(word, x, y), ...]), ...] (upper case).
-    scale < 1: read a smaller picture (faster; for big letters), positions are still full size."""
+    scale < 1: read a smaller picture (faster; for big letters), positions are still full size.
+    (The table Tesseract gives is read without quoting rules: a word that is read as a single double quote
+    would otherwise swallow every word after it - a result screen was "not read" that way.)"""
     crop = img[y0:y1]
     if scale != 1.0:
         crop = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
@@ -1594,7 +1596,7 @@ def ocr_lines(img, y0=0, y1=None, scale=1.0):
     except FileNotFoundError:
         return []
     words = []
-    for r in csv.DictReader(io.StringIO(out), delimiter="\t"):
+    for r in csv.DictReader(io.StringIO(out), delimiter="\t", quoting=csv.QUOTE_NONE):
         t = (r.get("text") or "").strip()
         if t and float(r.get("conf") or -1) >= 40:
             words.append((t.upper(), int((int(r["left"]) + int(r["width"]) / 2) / scale),
@@ -3424,6 +3426,11 @@ CHARGE_HOLD = 2.8              # s after the tap on a charged attack button: no 
 GAME_BLOCK = 8.5               # ... and this long when the icons of its little game were seen (it takes about 9 s)
 THROW_CHECK = 1.1              # s after the tap on a charged attack button: still lit = the tap did not count
 THROW_RETRIES = 2              # ... tap again this many times at most
+THROW_LATEST = 3.0             # s after the tap: the camera is on the attacker by now ("Get Ready!" comes after
+                               # about 1.5 s).  Pictures of the plain fight that are taken later than this say that
+PLAIN_PICTURES = (5, 2)        # the attack did not start: this many in a row (live video, screenshots)
+ZOOM_PICTURES = (3, 1)         # ... and this many pictures of the camera on the attacker before anything is swiped
+                               # that was not seen
 HELD_LIT = 5                   # a charged attack that waits for the other side's: its button lit again on this many
                                # pictures in a row = it was not thrown after all
 FIGHT_VIDEO = os.environ.get("GAMEBOT_FIGHT_VIDEO", "1") != "0"   # the live video in a fight (0: screenshots only)
@@ -3724,15 +3731,22 @@ def stream_test(seconds=8.0):
         stream.close()
 
 
+def _question_seen(feat):
+    """Which question a picture with the countdown shows, as far as the picture itself tells: 'shield' (the big
+    lilac shield), 'switch' (its countdown sits lower than that of the other questions, between the name
+    boxes) or ''."""
+    return "shield" if feat.get("hex") else "switch" if feat.get("count") == "switch" else ""
+
+
 def _fight_answer(shot, feat, fight, lock, tapper, state, eyes=None):
     """The countdown ring is up: find out which question it is and answer it.  state: {"unknown": n}.
     Returns None when the question was not read (look again at the next picture), otherwise {"xy": where was
     tapped (None: nothing), "kind": "shield" / "noshield" / "switch"}.  The shield question is known from its
     picture (the big lilac shield): the answer has to be tapped within the five seconds of the countdown, there
-    is no time to read text first.  The other questions are read as text from the picture at hand (the words
-    are big enough for the picture of the video); only for the small CP numbers on the tiles of the switch
-    question a real screenshot is taken when the video picture did not give them (eyes: where the picture came
-    from)."""
+    is no time to read text first.  The switch question is known from its picture too: its countdown sits at
+    another place.  What is left is read as text from the picture at hand (the words are big enough for the
+    picture of the video); only for the small CP numbers on the tiles of the switch question a real screenshot
+    is taken when the video picture did not give them (eyes: where the picture came from)."""
     import battle_vision as BV
 
     def read(pic):
@@ -3741,7 +3755,7 @@ def _fight_answer(shot, feat, fight, lock, tapper, state, eyes=None):
                 or BN.question_kind(ocr_lines(pic, int(0.40 * h), int(0.66 * h), 0.8)))
 
     video = eyes is not None and eyes.video
-    kind = "shield" if feat.get("hex") else read(shot)
+    kind = _question_seen(feat) or read(shot)
     if not kind:                                        # not read: look again at the next picture
         state["unknown"] = state.get("unknown", 0) + 1
         if state["unknown"] < 2:
@@ -3770,10 +3784,14 @@ def _fight_answer(shot, feat, fight, lock, tapper, state, eyes=None):
             tiles = BN.popup_tiles(ocr_lines(shot, int(0.60 * h), int(0.70 * h), 1.0))
         with lock:
             idx, mon, why = fight.switch(tiles)
+            place, n = fight.tile
         if mon is None:
             log("battle: our Pokémon fainted and nobody is left")
         else:
-            x = tiles[idx][1] if idx is not None else int(BV.POPUP_TILES[0] * w)
+            if idx is not None:
+                x = tiles[idx][1]
+            else:                                        # its CP was not read: the tiles stand in party order
+                x = int((0.5 if n < 2 else BV.POPUP_TILES[min(place, 1)]) * w)
             log(f"battle: switching to {mon.label} - {why}")
             xy = (int(x * S.REF_W / w), int(BV.POPUP_TILE_Y * S.REF_H))
             tapper.tap(*xy)
@@ -3821,6 +3839,12 @@ class Minigame:
         self.held = False                  # the other side's attack went first: ours is waited for (see hold())
         self.asked = 0.0
         self.lit = 0                       # ... pictures in a row on which its button was lit again meanwhile
+        self.plain = 0                     # pictures in a row that show the plain fight (see view())
+        self.zoomed = 0                    # ... and that show the camera on the attacker
+        self.game.plain = True             # (nothing is swiped blind before the camera was seen there)
+        self.doubt = False                 # the attack did not start in time: its icons are still watched for,
+                                           # nothing is swiped blind and the next throw does not wait for it
+        self.late = False                  # ... and they came after all
 
     def look(self, small):
         """The icons of the attack's type on a picture (fractions of the screen).  A lit charged attack button
@@ -3858,6 +3882,30 @@ class Minigame:
         with self.lock:
             return self.game.over(now)
 
+    def view(self, fight, bars, need=1):
+        """Tell the game what the newest picture shows.  fight: the name boxes are on it.  bars: an HP bar is.
+        Both: the plain fight, the attack has not started (yet).  The name boxes without any HP bar: the camera
+        is on the attacker, that is the charged attack (from 'Get Ready!' until it is over).  Only after `need`
+        such pictures the known lines of the attack's type are swiped without their icons being seen: the rows
+        of some types run right over the charged attack buttons, a blind swipe over the plain fight would
+        throw whatever lights up.  Returns the number of pictures of the plain fight in a row."""
+        if fight and bars:
+            self.plain, self.zoomed = self.plain + 1, 0
+        elif fight:
+            self.plain, self.zoomed = 0, self.zoomed + 1
+        else:
+            self.plain = 0                 # (an animation, a flash: says nothing)
+        with self.lock:
+            self.game.plain = self.zoomed < need
+        return self.plain
+
+    def give_up(self):
+        """The attack did not start in time (the plain fight is still on the pictures): from now on only icons
+        that are seen are swiped, should it start after all."""
+        self.doubt = True
+        with self.lock:
+            self.game.blind = False
+
     def hold(self, now):
         """A question came up before the icons did: the other side's charged attack goes first, ours comes
         after it (when both are thrown in the same turn) or not at all.  It is waited for; only icons that are
@@ -3873,6 +3921,8 @@ class Minigame:
                 f"{g.swipes} swipes planned")
         if self.held:
             text += ", it had to wait for the other side's attack"
+        if self.doubt:
+            text += ", it did not start after the tap" + (" but came later" if self.on else "")
         if g.gate:
             text += f", the stream crossed {g.gate}"
         rows = [tuple(round(float(v), 2) for v in r) for r, t in g.rows.items() if t is not None]
@@ -3908,7 +3958,8 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
     t0 = time.monotonic()
     started = None            # when the HUD was first seen
     fight_seen = 0.0          # when a picture of the fight was last seen
-    ask = {"seen": -100.0, "since": 0.0, "done": False, "xy": None, "tapped": 0.0, "tries": 0}   # the question on screen
+    ask = {"seen": -100.0, "since": 0.0, "done": False, "xy": None, "tapped": 0.0, "tries": 0,   # the question on
+           "kind": "", "n": 0}                                                                 # the screen
     thr = {"b": None, "xy": None, "t": 0.0, "tries": 0, "until": 0.0, "dark": 0}   # the charged attack that was tapped
     mini = None               # the little game of the charged attack that was thrown (Minigame)
     lit_prev = (False, False) # the buttons that were lit on the picture before
@@ -3984,7 +4035,7 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                     elif other:                              # (the one that threw it is not on the field any more)
                         end_minigame("another Pokémon is on the field")
                     elif st == "prompt":
-                        if mini.on or not eyes.video:
+                        if mini.on or mini.doubt or not eyes.video:
                             end_minigame("a question came up")
                         elif mini.held and now - mini.asked > 3.0:
                             end_minigame("the charged attack did not start")   # (a second question, and ours did
@@ -4007,12 +4058,32 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                         if mini.held and not mini.on:        # waited for: the fight is back and the button is lit
                             again = st == "fight" and not icons and feat["ready"][mini.button]   # = it does not come
                             mini.lit = mini.lit + 1 if again else 0
-                        if icons:                            # (icons, so no buttons: what looks lit there is an icon)
+                        if icons and not mini.doubt:         # (icons, so no buttons: what looks lit there is an icon)
                             feat = dict(feat, ready=(False, False))
                         if mini.on:                          # (the attack was thrown: no other one before it is over)
+                            if mini.doubt and not mini.late:
+                                mini.late = True             # (it was given up, and its icons are there after all)
+                                log(f"battle: the little game of {mini.move.name} started after all")
+                                with flock:
+                                    fight.throws += 1
+                                thr["t"] = now - mini.BMG.LEAD
                             thr["until"] = max(thr["until"], thr["t"] + GAME_BLOCK)
                         elif mini.lit >= HELD_LIT:
                             end_minigame("the charged attack did not start")
+                        elif not mini.held and not mini.doubt:
+                            # no icons yet.  The camera goes to the attacker when a charged attack starts and no HP
+                            # bar is shown until it is over: pictures of the plain fight say "not started"
+                            k = 0 if eyes.video else 1
+                            n = mini.view(st == "fight", feat["hp"][0] is not None or feat["hp"][1] is not None,
+                                          ZOOM_PICTURES[k])
+                            if n >= PLAIN_PICTURES[k] and t_seen - thr["t"] >= THROW_LATEST:
+                                mini.give_up()               # (a throw of something that was not lit, or a tap the
+                                thr["b"] = None              # game did not take: the fast attacks go on, the next
+                                thr["until"] = 0.0           # throw does not wait, the icons are still watched for)
+                                with flock:
+                                    fight.throws = max(fight.throws - 1, 0)
+                                log(f"battle: {mini.move.name} did not start - the fight is still on the screen "
+                                    f"{t_seen - thr['t']:.1f} s after the tap, going on")
                 ready = feat["ready"]                        # what this picture says about the two buttons
                 if eyes.video:                               # on the video a button is lit when two pictures in a
                     feat = dict(feat, ready=tuple(a and b for a, b in zip(ready, lit_prev)))   # row say so (one can
@@ -4063,13 +4134,19 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                                 thr["until"] = thr["t"] + CHARGE_HOLD
                                 if mini is not None:
                                     mini.game.t0 = thr["t"]
-                            else:
-                                thr["b"] = None
-                                end_minigame("the charged attack did not start")
-                    elif mini is None and now >= thr["until"]:
+                            else:                            # tapped again and again, and it is still lit:
+                                thr["b"] = None              # the game is slow, or it does not take the taps.  The
+                                if mini is not None and not mini.doubt:      # icons are still watched for and the
+                                    mini.give_up()           # next throw (the button is lit!) does not wait
+                                    with flock:
+                                        fight.throws = max(fight.throws - 1, 0)
+                                    log(f"battle: {mini.move.name} did not start - the button is still lit after "
+                                        f"{THROW_RETRIES + 1} taps, going on")
+                    elif (mini is None or (mini.doubt and not mini.on)) and now >= thr["until"]:
                         with flock:
                             throw = fight.throw()
                         if throw:
+                            end_minigame()                   # (one that was given up: this throw takes its place)
                             button, move, why = throw
                             log(f"battle: throwing {move.name} on the {'left' if button == 0 else 'right'} button - {why}")
                             xy = _frac_xy((BV.BTN_X[button], BV.BTN_Y))
@@ -4082,16 +4159,24 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                             tapper.sweep(mini.strokes)
                 elif st == "prompt":
                     fight_seen = look["t"] = now
-                    if now - ask["seen"] > 3.0:              # (a new question)
-                        ask.update(since=now, done=False, xy=None, tapped=0.0, tries=0)
+                    seen = _question_seen(feat)
+                    if now - ask["seen"] > 3.0 or (ask["done"] and seen and seen != ask["kind"]):
+                        # a new question: after a while without one - or another one than the one that was
+                        # answered (the shield question can follow the switch question within a second or two)
+                        ask.update(since=now, done=False, xy=None, tapped=0.0, tries=0, kind="", n=0)
                         unknown_ring = {}
                     ask["seen"] = now
+                    ask["n"] += 1
                     thr["b"] = None
                     if not ask["done"]:
                         tapper.pause()
-                        res = _fight_answer(shot, feat, fight, flock, tapper, unknown_ring, eyes)
+                        # (the switch question stays for eleven seconds and its answer tells the bot that our
+                        # Pokémon fainted: on the video that waits for a second picture of it)
+                        res = (None if seen == "switch" and eyes.video and ask["n"] < 2 else
+                               _fight_answer(shot, feat, fight, flock, tapper, unknown_ring, eyes))
                         if res is not None:
-                            ask.update(done=True, xy=res["xy"], tapped=time.monotonic(), seen=time.monotonic())
+                            ask.update(done=True, xy=res["xy"], tapped=time.monotonic(), seen=time.monotonic(),
+                                       kind=res["kind"])
                             log(f"battle: answered {ask['tapped'] - ask['since']:.1f} s after the question was seen "
                                 f"(the countdown is 5 s)")
                             if res["kind"] == "switch":      # (ours fainted: its charged attack does not come)

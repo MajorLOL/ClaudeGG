@@ -1,8 +1,10 @@
 """Unit tests for battle_fight (the state and the decisions of one GO Battle League fight).  Run:
 python3 -m unittest discover -s tests
 
-features.json holds what battle_vision saw on the 141 pictures of a recorded fight (every 1.3 s): replaying it
-checks that the fight state survives real, noisy readings."""
+features.json holds what battle_vision sees on the 141 pictures of a recorded fight (every 1.3 s, an arena by
+night), features_day.json the same for the fight itself of a second recording (113 pictures, an arena by day):
+replaying them checks that the fight state survives real, noisy readings.  Both files are made from the
+recordings with the readers as they are now; when a reader changes they are made again."""
 import json
 import os
 import sys
@@ -97,6 +99,21 @@ class ShieldsAndNames(unittest.TestCase):
             fight.see(feat(shields={"me": 2, "foe": 2}))     # (a misread now and then does not count)
             fight.see(feat(shields={"me": 1, "foe": 2}))
         self.assertEqual(fight.my_shields, 1)
+
+    def test_a_banner_over_the_name_boxes_takes_no_shields_away(self):
+        """'Slowbro used Ice Beam!' lies over the shield icons for a second or two: they are not seen then
+        (None), which is not the same as none left.  It used to count as 0 for both sides - and the foe's
+        shields never come back, so the engine played the rest of the fight as if the foe had none."""
+        fight = new_fight()
+        for _ in range(30):
+            fight.see(feat(shields={"me": None, "foe": None}))
+        self.assertEqual((fight.my_shields, fight.foe_shields), (2, 2))
+        for _ in range(2):
+            fight.see(feat(shields={"me": 2, "foe": 1}))         # the foe used one: seen on two clear pictures
+        for _ in range(30):
+            fight.see(feat(shields={"me": None, "foe": None}))
+            fight.see(feat(shields={"me": 2, "foe": None}))
+        self.assertEqual((fight.my_shields, fight.foe_shields), (2, 1))
 
     def test_the_foes_shields_never_come_back(self):
         fight = new_fight()
@@ -206,6 +223,33 @@ class Throwing(unittest.TestCase):
         fight.see(feat(lit=(False, True)))
         button, move, _why = fight.throw()
         self.assertEqual(button, 1)
+
+    def test_what_is_lit_is_thrown_before_we_go_down(self):
+        """The first recorded fight, picture 41: Noctowl at 17 % with both buttons lit against a Cramorant at
+        31 % with two shields.  The plan says 'farm it down with the fast attack' (ten more of them) - but
+        Noctowl does not live that long.  Its energy would be lost; a charged attack costs the foe a shield."""
+        fight = new_fight()
+        see_twice(fight, hp=(0.17, 0.31), lit=(True, True))
+        self.assertEqual(be.pick_charged(fight.me, fight.foe, fight.energy, 2, fight.foe.hp)[0], None)
+        button, move, why = fight.throw()
+        self.assertIn("before we go down", why)
+        self.assertEqual(move.id, max(fight.me.charged, key=lambda m: be.damage(m, fight.me, fight.foe)).id)
+        self.assertEqual(fight.move_of(button).id, move.id)
+
+    def test_not_thrown_early_when_the_foe_is_as_good_as_down(self):
+        fight = new_fight()
+        see_twice(fight, hp=(0.10, 0.05), lit=(True, True))      # two more fast attacks finish it: go on with those
+        self.assertIsNone(fight.throw())
+
+    def test_going_down_takes_the_dearer_button_only_when_it_is_lit(self):
+        fight = new_fight()
+        see_twice(fight, hp=(0.12, 0.31), lit=(True, False))
+        cheap = min(fight.me.charged, key=lambda m: m.energy)
+        if fight.move_of(0).id != cheap.id:                      # (only the cheaper move can be lit alone)
+            fight.slots = [cheap.id, next(m.id for m in fight.me.charged if m.id != cheap.id)]
+        fight.lit = (True, False)
+        button, move, _why = fight.throw()
+        self.assertEqual((button, move.id), (0, cheap.id))
 
 
 class Shields(unittest.TestCase):
@@ -352,9 +396,37 @@ class Switching(unittest.TestCase):
 
     def test_no_tiles_read(self):
         fight = new_fight("Beedrill")
-        idx, mon, _why = fight.switch([])
+        best, _score = be.best_switch([m for m in fight.team if m.pos != 0], fight.foe, 2, 2)
+        idx, mon, why = fight.switch([])
         self.assertIsNone(idx)
-        self.assertIsNotNone(mon)
+        self.assertEqual(mon, best)                      # (still the best one, not simply the first)
+        self.assertIn("party order", why)
+        self.assertEqual(fight.tile, (best.pos - 1, 2))  # ... and where its tile is: the tiles are in party order
+
+    def test_one_tile_read_and_the_other_one_is_better(self):
+        """The CP numbers on the tiles are small: often only one is read.  The Pokémon whose number was not
+        read is still a choice (before, the one that happened to be read was taken)."""
+        for foe in ("Beedrill", "Ampharos", "Slowbro", "Garchomp"):
+            fight = new_fight(foe)
+            left = [m for m in fight.team if m.pos != 0]
+            best, _score = be.best_switch(left, fight.foe, fight.my_shields, fight.foe_shields)
+            other = next(m for m in left if m is not best)
+            idx, mon, why = fight.switch([(other.cp, 570 if other.pos == 1 else 1195)])
+            self.assertEqual(mon, best, foe)
+            self.assertIsNone(idx, foe)                  # (its own tile was not read ...)
+            self.assertEqual(fight.tile, (best.pos - 1, 2), foe)     # ... so it is tapped by its place
+            self.assertIn("party order", why, foe)
+            fight = new_fight(foe)                       # (a new fight: the same team again)
+            idx, mon, why = fight.switch([(best.cp, 570 if best.pos == 1 else 1195)])
+            self.assertEqual((idx, mon.pos), (0, best.pos), foe)
+            self.assertIn("by CP", why, foe)
+
+    def test_the_last_one_has_a_tile_of_its_own(self):
+        fight = new_fight("Beedrill")
+        fight.dead = {1}
+        idx, mon, _why = fight.switch([])
+        self.assertEqual(mon, fight.team[2])
+        self.assertEqual(fight.tile, (0, 1))             # (one tile, in the middle)
 
     def test_foe_not_known(self):
         fight = new_fight(foe=None)
@@ -432,6 +504,82 @@ class Replay(unittest.TestCase):
         mine = [t[2] for t in trace]
         rises = [i + 1 for i, (a, b) in enumerate(zip(mine, mine[1:])) if b > a + 1e-9]
         self.assertEqual(rises, [65, 108])                  # (the two times a new Pokémon came in)
+
+
+with open(os.path.join(HERE, "fixtures", "fight", "features_day.json"), encoding="utf-8") as f:
+    DAY = json.load(f)
+DAY_FIRST = 181                                             # (the number of the first picture in the recording)
+
+
+class ReplayByDay(unittest.TestCase):
+    """The second recorded fight, in an arena by day (features_day.json: pictures 181 to 293 of that recording,
+    one every 1.6 s).  White clouds stand where the name boxes and the countdown are; with the readers of that
+    day the bot saw a fight before it began, at least seven charged attacks that were not there, no switch question
+    and no result screen."""
+
+    LIT = [195, 227, 268, 269, 270, 280, 281, 282]          # pictures with (both) buttons really lit
+    QUESTIONS = {204: "attack", 235: "switch", 236: "switch", 237: "switch", 240: "attack", 241: "attack",
+                 242: "attack", 249: "attack", 259: "attack", 260: "attack", 261: "attack", 284: "attack",
+                 285: "attack", 286: "attack"}
+
+    def at(self, picture):
+        return DAY[picture - DAY_FIRST]
+
+    def run_fight(self):
+        """What the loop knows besides the pictures: the names it reads in the foe's name box, our Pokémon
+        that came in after the switch question (238) and the last one, which came in by itself (253)."""
+        fight = new_fight("Slowbro")
+        events = {225: lambda: fight.set_foe("Ampharos", 1499), 235: lambda: fight.switch([]),
+                  238: lambda: fight.set_active(1489), 253: lambda: fight.set_active(1494),
+                  267: lambda: fight.set_foe("Slowbro", 1496), 278: lambda: fight.set_foe("Garchomp", 1472)}
+        trace = {}
+        for i, f in enumerate(DAY):
+            picture = DAY_FIRST + i
+            if picture in events:
+                events[picture]()
+            if bf.state(f) in ("fight", "other"):
+                fight.see(f)
+            trace[picture] = (fight.foe_shields, fight.my_shields, fight.me.label, fight.my_hp)
+        return fight, trace
+
+    def test_the_fight_starts_at_go(self):
+        states = {DAY_FIRST + i: bf.state(f) for i, f in enumerate(DAY)}
+        self.assertEqual({states[p] for p in range(181, 191)}, {"other"})      # VS screen, 'Go, Noctowl!', 3-2-1
+        self.assertEqual(states[191], "fight")
+        self.assertEqual([p for p, st in states.items() if st == "result"], [292, 293])
+
+    def test_buttons_are_lit_only_when_they_are(self):
+        lit = [DAY_FIRST + i for i, f in enumerate(DAY) if any(f["ready"])]
+        self.assertEqual(lit, self.LIT)
+        for p in self.LIT:
+            self.assertEqual(self.at(p)["ready"], [True, True], p)
+
+    def test_every_question_is_seen_with_its_kind(self):
+        seen = {DAY_FIRST + i: f["count"] for i, f in enumerate(DAY) if f["ring"]}
+        self.assertEqual(seen, self.QUESTIONS)
+        self.assertTrue(self.at(204)["hex"])                                    # the shield question
+        self.assertFalse(any(self.at(p)["hex"] for p in self.QUESTIONS if p != 204))
+
+    def test_no_hp_bar_while_our_charged_attack_runs(self):
+        # 'Get Ready!' and the little games: 197-201 (Shadow Ball), 213-217, 228-231, 272-275 (Thunderbolt)
+        for p in list(range(197, 202)) + list(range(213, 218)) + list(range(228, 232)) + list(range(272, 276)):
+            self.assertEqual(self.at(p)["hp"], [None, None], p)
+            self.assertTrue(self.at(p)["hud"], p)
+
+    def test_shields_are_counted_from_clear_pictures_only(self):
+        fight, trace = self.run_fight()
+        for p in range(191, 209):                    # (banners over the name boxes at 202 and 207: still two each)
+            self.assertEqual(trace[p][:2], (2, 2), p)
+        self.assertEqual(trace[211][:2], (1, 1))     # each side used one (the icons turned dark)
+        self.assertEqual(trace[227][:2], (0, 0))     # ... and the second one
+        self.assertEqual((fight.foe_shields, fight.my_shields), (0, 0))
+
+    def test_who_is_on_the_field(self):
+        _fight, trace = self.run_fight()
+        self.assertIn("Noctowl", trace[234][2])
+        self.assertIn("Lapras", trace[240][2])
+        self.assertIn("Lanturn", trace[256][2])
+        self.assertIn("Lanturn", trace[289][2])
 
 
 if __name__ == "__main__":

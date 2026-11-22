@@ -323,10 +323,11 @@ def name_box(lines):
 
 def popup_tiles(lines):
     """[(cp, x)] left to right: the CP numbers above the choices of 'Switch in a new Pokémon?' (the tiles
-    show no names, only the CP)."""
+    show no names, only the CP).  The small 'CP' in front of the number is often misread ('CPE1494'): a few
+    letters and then three or four digits is such a number."""
     out = []
     for w, x, _y in words_of(lines):
-        m = re.fullmatch(r"(?:CP)?(\d{3,4})", _plain(w))
+        m = re.fullmatch(r"[A-Z]{0,4}(\d{3,4})", _plain(w))
         if m:
             out.append((int(m.group(1)), x))
     out.sort(key=lambda t: t[1])

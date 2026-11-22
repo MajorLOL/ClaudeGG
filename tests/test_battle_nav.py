@@ -228,9 +228,12 @@ class FightBoxes(unittest.TestCase):
         self.assertEqual(bn.name_box([]), ("", None))
 
     def test_popup_tiles(self):
-        tiles = bn.popup_tiles(FIGHT["popup_cp_65"])
-        self.assertEqual([cp for cp, _x in tiles][0], 1489)
-        self.assertEqual(len(tiles), 1)                       # ('CPE1494' is misread: the other tile is missing)
+        tiles = bn.popup_tiles(FIGHT["popup_cp_65"])          # ('CP1489 CPE1494': the small CP is misread)
+        self.assertEqual([cp for cp, _x in tiles], [1489, 1494])
+        self.assertLess(tiles[0][1], 884)                     # the left tile and the right one
+        self.assertGreater(tiles[1][1], 884)
+        self.assertEqual(bn.popup_tiles([line("LAPRAS", 560, 1890), line("12", 900, 1400), line("C1494", 1195, 1428)]),
+                         [(1494, 1195)])                      # (a name or a short number is no CP)
         self.assertEqual(bn.popup_tiles([line("CP1489", 570, 1428), line("CP1494", 1195, 1428)]),
                          [(1489, 570 + 0), (1494, 1195 + 0)])
 

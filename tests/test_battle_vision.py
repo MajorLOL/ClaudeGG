@@ -1,8 +1,11 @@
 """Unit tests for battle_vision (reading the picture of a GO Battle League fight).
 
-The pictures in tests/fixtures/fight/ are frames of a real fight that was recorded with the recorder of the web
-interface (35 % of the 1768 x 2208 canvas).  The tests bring them back to the full canvas, as the bot does with
-every screenshot.   Run:  python3 -m unittest discover -s tests"""
+The pictures in tests/fixtures/fight/ are frames of real fights that were recorded with the recorder of the web
+interface (35 % of the 1768 x 2208 canvas): one fight in an arena by night and one in an arena by day (day_*).
+By day the sky is full of white clouds - exactly where the name boxes and the countdown are - and that fight
+went wrong in many ways: the bot saw name boxes in the clouds, lit buttons in every flash and no countdown at
+all on the switch question.  The tests bring the pictures back to the full canvas, as the bot does with every
+screenshot.   Run:  python3 -m unittest discover -s tests"""
 import os
 import sys
 import unittest
@@ -49,30 +52,88 @@ class FightPictures(unittest.TestCase):
         self.assertEqual(f["shields"], {"me": 0, "foe": 1})
 
     def test_questions_have_a_countdown_ring(self):
-        for name in ("shield_question", "switch_popup", "no_shields"):
+        # by night the disc of the countdown is dark blue, by day it is grey over white clouds (it is
+        # see-through): 5, 5 and 11 seconds left at night; 5, 1, 11 and 3 seconds left by day
+        for name in ("shield_question", "switch_popup", "no_shields",
+                     "day_shield", "day_no_shields", "day_switch", "day_switch_late"):
             f = bv.features(frame(name))
             self.assertTrue(f["ring"], name)
             self.assertEqual(bf.state(f), "prompt", name)
 
-    def test_blue_button_counts_as_lit(self):
-        """The second real fight (a screen recording of the phone): a lit Surf button has hardly a white ring, only
-        the name under it turns from grey to white.  That was not seen, so Surf was never thrown."""
-        dim = bv.features(frame("run2_dim"))
-        self.assertTrue(dim["hud"])
+    def test_the_countdown_tells_the_switch_question_from_the_others(self):
+        """The countdown of the switch question sits a little lower (between the name boxes) and is a little
+        bigger: no text has to be read to know that our Pokémon fainted."""
+        for name in ("switch_popup", "day_switch", "day_switch_late"):
+            self.assertEqual(bv.countdown_kind(frame(name)), "switch", name)
+            self.assertEqual(bv.countdown_kind(small(name)), "switch", name)
+        for name in ("shield_question", "no_shields", "day_shield", "day_no_shields"):
+            self.assertEqual(bv.countdown_kind(frame(name)), "attack", name)
+            self.assertEqual(bv.countdown_kind(small(name)), "attack", name)
+        self.assertEqual(bv.features(frame("day_switch"))["count"], "switch")
+        self.assertEqual(bv.features(frame("day_dim"))["count"], "")
+
+    def test_no_countdown_without_a_question(self):
+        """Clouds are white and round, banners are grey with white text: none of them is a countdown."""
+        for name in ("day_intro", "day_start", "day_dim", "day_lit", "day_lines", "day_flash", "day_faint",
+                     "day_minigame", "day_banner", "day_get_ready", "day_result", "fight_ready", "fight_lanturn",
+                     "minigame_zoom", "banner_over_hud", "result_loss", "versus"):
+            self.assertFalse(bv.features(frame(name))["ring"], name)
+
+    def test_a_white_screen_is_no_countdown(self):
+        self.assertFalse(bv.countdown_ring(np.full((2208, 1768, 3), 255, np.uint8)))
+        self.assertFalse(bv.countdown_ring(np.zeros((2208, 1768, 3), np.uint8)))
+        self.assertFalse(bv.countdown_ring(np.full((2208, 1768, 3), 128, np.uint8)))
+
+    def test_the_arc_of_the_countdown_is_what_counts(self):
+        """A grey disc with a white number but without the white arc (the time is up) is no question any more;
+        with the last piece of the arc it is."""
+        img = np.full((2208, 1768, 3), (250, 235, 215), np.uint8)             # a pale sky
+        cx, cy, r = [int(round(v)) for v in (bv.COUNT_DISCS[0][0] * 1768, bv.COUNT_DISCS[0][1] * 2208,
+                                             bv.COUNT_DISCS[0][2] * 1768)]
+        cv2.circle(img, (cx, cy), int(0.087 * 1768), (135, 130, 128), -1)     # the disc
+        cv2.putText(img, "1", (cx - 30, cy + 45), cv2.FONT_HERSHEY_SIMPLEX, 4.0, (255, 255, 255), 14)
+        self.assertFalse(bv.countdown_ring(img))
+        cv2.ellipse(img, (cx, cy), (r, r), 0, 225, 270, (255, 255, 255), 12)   # the last eighth, left of the top
+        self.assertTrue(bv.countdown_ring(img))
+
+    def test_a_lit_button_has_a_white_label_and_a_white_ring(self):
+        """By day: Lanturn with Surf (a blue button) and Thunderbolt both ready, and the same fight a little
+        earlier with nothing ready."""
+        lit = bv.features(frame("day_lit"))
+        self.assertEqual(bf.state(lit), "fight")
+        self.assertEqual(tuple(lit["ready"]), (True, True))
+        dim = bv.features(frame("day_dim"))
+        self.assertEqual(bf.state(dim), "fight")
         self.assertEqual(tuple(dim["ready"]), (False, False))
-        right = bv.features(frame("run2_right_lit"))
-        self.assertEqual(tuple(right["ready"]), (False, True))
-        both = bv.features(frame("run2_both_lit"))
-        self.assertEqual(tuple(both["ready"]), (True, True))
-        self.assertEqual(bf.state(both), "fight")
+
+    def test_one_sign_alone_does_not_light_a_button(self):
+        """What made the bot throw charged attacks that were not there (at least seven times in one fight):
+        day_intro   'Go, Noctowl!': the white Poké Ball of the intro lies in the label zone
+        day_lines   'Go, Garchomp!': the white lines of the field run through both label zones
+        day_flash   the flash of an Ice Beam: white where the rings are
+        day_faint   the glitter of a Pokémon that faints, right where the left button was
+        and the pictures of a charged attack of our own (no buttons on them at all)."""
+        for name in ("day_intro", "day_lines", "day_flash", "day_faint", "day_start", "day_get_ready",
+                     "day_minigame", "day_banner", "day_switch", "day_shield", "day_result", "minigame_zoom"):
+            f = bv.features(frame(name))
+            self.assertEqual(tuple(f["ready"]), (False, False), name)
+            self.assertEqual(bv.charge_ready(frame(name)), (False, False), name)    # (also without the name boxes)
+
+    def test_a_recording_of_the_pc_screen_is_not_what_the_bot_sees(self):
+        # (run2_*: a window on the PC that was filmed, with a border: the buttons are not at their places, so
+        # nothing is taken for lit - these pictures are only used for the texts in the name boxes)
+        for name in ("run2_dim", "run2_right_lit", "run2_both_lit"):
+            self.assertEqual(tuple(bv.features(frame(name))["ready"]), (False, False), name)
 
     def test_shield_question_is_known_by_its_picture(self):
         """The big lilac shield tells the shield question from the switch question without reading any text."""
-        for name in ("shield_question", "run2_shield_question"):
+        for name in ("shield_question", "day_shield"):
             f = bv.features(frame(name))
             self.assertTrue(f["hex"], name)
             self.assertEqual(bf.state(f), "prompt", name)
-        for name in ("switch_popup", "no_shields", "fight_ready", "fight_lanturn", "run2_both_lit", "versus"):
+        self.assertTrue(bv.features(frame("run2_shield_question"))["hex"])
+        for name in ("switch_popup", "no_shields", "fight_ready", "fight_lanturn", "run2_both_lit", "versus",
+                     "day_switch", "day_switch_late", "day_no_shields", "day_lit", "day_dim", "day_result"):
             self.assertFalse(bv.features(frame(name))["hex"], name)
 
     def test_charged_attack_game_has_no_hp_bars(self):
@@ -82,20 +143,86 @@ class FightPictures(unittest.TestCase):
         self.assertEqual(tuple(f["ready"]), (False, False))
 
     def test_banner_over_the_name_boxes(self):
-        f = bv.features(frame("banner_over_hud"))
-        self.assertTrue(f["hud"])
-        self.assertEqual(tuple(f["ready"]), (False, False))     # (the buttons are hidden while the Pokémon is down)
+        for name in ("banner_over_hud", "day_banner"):
+            f = bv.features(frame(name))
+            self.assertTrue(f["hud"], name)
+            self.assertEqual(tuple(f["ready"]), (False, False), name)   # (the buttons are hidden meanwhile)
+
+    def test_name_boxes_are_known_by_their_poke_balls(self):
+        """By day the sky behind the name boxes is as pale as the boxes are: the intro of the fight, the flash
+        of an attack, a Pokémon that faints and the result screen all show clouds where the boxes would be."""
+        for name in ("day_start", "day_dim", "day_lit", "day_lines", "day_minigame", "day_get_ready", "day_switch",
+                     "day_switch_late", "fight_ready", "fight_lanturn", "switch_popup", "minigame_zoom"):
+            self.assertTrue(bv.features(frame(name))["hud"], name)
+        for name in ("day_intro", "day_flash", "day_faint", "day_result", "day_shield", "day_no_shields",
+                     "shield_question", "no_shields", "result_loss", "versus"):
+            self.assertFalse(bv.features(frame(name))["hud"], name)
+        self.assertFalse(bv.hud_visible(np.full((2208, 1768, 3), 255, np.uint8)))      # (a white screen)
+        self.assertFalse(bv.hud_visible(np.zeros((2208, 1768, 3), np.uint8)))          # (a black one)
+
+    def test_shield_icons_left_used_and_not_seen(self):
+        self.assertEqual(bv.shield_icon_slots(frame("day_start")), {"me": 2, "foe": 2})
+        self.assertEqual(bv.shield_icon_slots(frame("day_dim")), {"me": 0, "foe": 0})       # all four are used
+        self.assertEqual(bv.shield_icon_slots(frame("fight_ready")), {"me": 1, "foe": 2})
+        self.assertEqual(bv.shield_icon_slots(frame("day_minigame")), {"me": 2, "foe": 2})  # (the camera on ours)
+        # a banner over the name boxes, or no name boxes at all: not seen, which is not "none left"
+        for name in ("day_banner", "banner_over_hud", "day_shield", "day_intro", "day_result", "day_flash"):
+            self.assertEqual(bv.shield_icon_slots(frame(name)), {"me": None, "foe": None}, name)
+            self.assertEqual(bv.shield_icon_slots(small(name)), {"me": None, "foe": None}, name)
+
+    def test_poke_balls_red_and_grey(self):
+        self.assertEqual(bv.ball_slots(frame("day_start")), {"me": (3, 0), "foe": (3, 0)})
+        self.assertEqual(bv.ball_slots(frame("day_lit")), {"me": (1, 2), "foe": (2, 1)})     # two of ours are down
+        self.assertEqual(bv.ball_slots(frame("fight_ready")), {"me": (3, 0), "foe": (3, 0)})
+        self.assertEqual(bv.ball_slots(frame("day_result")), {"me": (0, 0), "foe": (0, 0)})
+
+    def test_the_fight_before_it_starts_is_no_fight(self):
+        # 'Go, Noctowl!' was taken for the fight (name boxes in the clouds) with a lit button (the Poké Ball):
+        # the bot threw a charged attack before the countdown 3-2-1 had even begun
+        self.assertEqual(bf.state(bv.features(frame("day_intro"))), "other")
+        self.assertEqual(bf.state(bv.features(frame("day_start"))), "fight")           # (GO!)
 
     def test_result_screen(self):
-        f = bv.features(frame("result_loss"))
-        self.assertTrue(f["result"])
-        self.assertFalse(f["hud"])
-        self.assertEqual(bf.state(f), "result")
+        for name in ("result_loss", "day_result"):
+            f = bv.features(frame(name))
+            self.assertTrue(f["result"], name)
+            self.assertFalse(f["hud"], name)
+            self.assertEqual(bf.state(f), "result", name)
 
     def test_fight_pictures_are_no_results(self):
         for name in ("fight_ready", "fight_lanturn", "shield_question", "switch_popup", "no_shields",
-                     "minigame_zoom", "banner_over_hud", "versus"):
+                     "minigame_zoom", "banner_over_hud", "versus", "day_intro", "day_start", "day_dim", "day_lit",
+                     "day_lines", "day_flash", "day_faint", "day_shield", "day_no_shields", "day_switch",
+                     "day_minigame", "day_banner", "day_get_ready"):
             self.assertFalse(bv.features(frame(name))["result"], name)
+
+    def test_green_from_edge_to_edge_is_no_result(self):
+        """The map and the grass of an arena by day are green where NEXT BATTLE would be."""
+        green = (160, 205, 100)                                   # the green of NEXT BATTLE (BGR)
+        img = np.full((2208, 1768, 3), 255, np.uint8)
+        img[1700:2100] = green                                    # green over the whole width
+        self.assertFalse(bv.result_button(img))
+        img[1700:2100, :300] = 255                                # ... also with something else at the sides
+        img[1700:2100, 1450:] = 255                               # (the buttons of the map): no pill
+        self.assertFalse(bv.result_button(img))
+        img[:] = (60, 90, 40)
+        cv2.rectangle(img, (560, 1835), (1200, 1975), green, -1)  # a green pill around TAP_NEXT
+        self.assertTrue(bv.result_button(img))
+        img[:] = (60, 90, 40)
+        cv2.rectangle(img, (560, 1300), (1200, 1440), green, -1)  # the same pill higher up is another button
+        self.assertFalse(bv.result_button(img))
+
+    def test_no_hp_bars_while_a_charged_attack_of_ours_runs(self):
+        """The camera is on the attacker from 'Get Ready!' until the attack is over and no HP bar is shown:
+        that tells the fight loop whether a charged attack really started."""
+        for name in ("day_get_ready", "day_minigame", "minigame_zoom"):
+            self.assertEqual(bv.features(frame(name))["hp"], (None, None), name)
+        for name in ("day_dim", "day_lit", "day_start", "fight_ready", "fight_lanturn"):
+            mine, foe = bv.features(frame(name))["hp"]
+            self.assertTrue(mine is not None and foe is not None, name)
+        mine, foe = bv.features(frame("day_dim"))["hp"]
+        self.assertAlmostEqual(mine, 0.22, delta=0.04)
+        self.assertAlmostEqual(foe, 0.93, delta=0.04)
 
 
 class SmallPictures(unittest.TestCase):
@@ -259,7 +386,10 @@ class Rings(unittest.TestCase):
     def test_features_are_the_same_on_the_small_picture(self):
         # the fight loop reads the small picture (six times as fast): it must tell the same story as the canvas
         for name in ("fight_ready", "fight_lanturn", "shield_question", "run2_shield_question", "switch_popup",
-                     "no_shields", "result_loss", "versus", "run2_both_lit", "run2_right_lit", "run2_dim"):
+                     "no_shields", "result_loss", "versus", "run2_both_lit", "run2_right_lit", "run2_dim",
+                     "day_intro", "day_start", "day_dim", "day_lit", "day_lines", "day_flash", "day_faint",
+                     "day_shield", "day_no_shields", "day_switch", "day_switch_late", "day_minigame", "day_banner",
+                     "day_result", "day_get_ready"):
             a, b = bv.features(frame(name)), bv.features(small(name))
             for key in ("white", "versus", "hud", "ring", "result", "hex", "shields"):
                 self.assertEqual(a[key], b[key], (name, key))

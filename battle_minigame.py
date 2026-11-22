@@ -24,7 +24,10 @@ so the swipes do not aim at single icons:
     there the finger already comes by;
   * for water, flying, electric and ghost the gates and rows are known from recordings of real fights; for the
     other types the finger starts with a cross over the middle of the screen, follows the icons it sees and
-    remembers what it found for the next time (Game.learned()).
+    remembers what it found for the next time (Game.learned());
+  * known lines are swiped "blind" (before the first icon is seen) only while the camera is on the attacker:
+    as long as the pictures show the plain fight (Game.plain, set by the fight loop) nothing is swiped, for
+    the rows of some types run right over the charged attack buttons.
 
 Sizes are fractions of the screen width (x) and height (y); distances are measured in screen widths.
 """
@@ -237,6 +240,7 @@ class Game:
         self.builtin = self.kind in KNOWN
         self.turn = 0
         self.blind = True                  # swipe what is known of the type when no icons are seen (see hold())
+        self.plain = False                 # the newest picture shows the plain fight, not the attack: nothing blind
 
     # ---------------------------------------------------------------- what is seen ---
     def see(self, t, icons):
@@ -354,8 +358,9 @@ class Game:
         icons are not there yet, or the game is over)."""
         if self.over(now):
             return []
-        if self.first is None and (not self.blind or now - self.t0 < START):
-            return []
+        if self.first is None and (not self.blind or self.plain or now - self.t0 < START):
+            return []                                  # (nothing seen yet: wait - or the attack has not started:
+                                                       # a blind swipe over the fight itself could tap a button)
         pts = []
         if self.frames and now - self.frames[-1][0] <= FRESH:
             pts = list(self.frames[-1][1])             # (the newest picture, when it is not too old)
