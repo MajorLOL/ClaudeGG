@@ -15,8 +15,10 @@ What to look for: `the fight has started` at the first picture of the fight and 
 at pictures with a button that is ready (its name in white - the white ring may still be missing), `'Get Ready!'`
 before every little game, an answer at every question, `the fight is over` at the result screen.  A film cannot
 show whether a tap would have worked: after a throw the pictures go on as they were recorded, so lines like
-`the button is still ready - the tap did not count`, `... did not start` and `the question to leave the battle
-did not come up` are normal here.  The fast attacks are only counted: in the middle of the screen and on a
+`the button is still ready - the tap did not count`, `... did not start`, `the question is still on the screen
+- tapping again` and `the question to leave the battle did not come up` are normal here.  A question whose
+countdown is only in place between two pictures of the recording is not answered in the film (the real bot sees
+ten pictures a second).  The fast attacks are only counted: in the middle of the screen and on a
 charged attack button (where they are tapped while that attack charges, see FIGHT_AIM in gamebot.py).
 
 The team is the one of ~/battle_team.json (or the preset).  Run it with HOME set to an empty folder to leave

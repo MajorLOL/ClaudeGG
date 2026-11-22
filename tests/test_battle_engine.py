@@ -309,6 +309,110 @@ class Shielding(unittest.TestCase):
         self.assertEqual(dmg, max(be.damage(m, f, self.noctowl) for m in f.charged))
 
 
+class ShieldsInARealBattle(unittest.TestCase):
+    """use_shield: three against three.  PvPoke's duel rule (should_shield, above) keeps the last shield for
+    the hit that would knock the Pokémon out; a battle that ends with a shield unused has wasted it."""
+
+    def setUp(self):
+        self.noctowl, self.lapras, self.lanturn = be.build_team(be.DEFAULT_TEAM)
+
+    def test_a_big_hit_is_shielded_with_the_last_shield_too(self):
+        """The fourth recorded battle: Megahorn on a Lanturn with 93% of its HP and one shield left.  The duel
+        rule kept the shield ('survivable'), Megahorn took 61% of the HP bar and the battle ended with the
+        shield unused."""
+        f = be.foe_from_text("scolipede")
+        hp = int(0.93 * self.lanturn.max_hp)
+        self.assertEqual(be.should_shield(f, self.lanturn, 1, None, hp)[0], False)      # (the duel rule)
+        for shields in (1, 2):
+            ok, why = be.use_shield(f, self.lanturn, shields, hp)
+            self.assertTrue(ok, why)
+            self.assertIn("Megahorn would take 61% of our HP", why)
+
+    def test_the_second_question_of_that_battle(self):
+        """Noctowl with two thirds of its HP and one shield left against Mismagius: the duel rule let Dark
+        Pulse through (36% of the HP bar)."""
+        f = be.foe_from_text("mismagius")
+        hp = int(0.67 * self.noctowl.max_hp)
+        self.assertEqual(be.should_shield(f, self.noctowl, 1, None, hp)[0], False)
+        ok, why = be.use_shield(f, self.noctowl, 1, hp)                 # (with the moves that were guessed)
+        self.assertTrue(ok, why)
+        f.charged = [be.Move("DARK_PULSE"), be.Move("SHADOW_BALL")]     # (with the one it really used)
+        ok, why = be.use_shield(f, self.noctowl, 1, hp)
+        self.assertTrue(ok, why)
+        self.assertIn("Dark Pulse would take 36% of our HP", why)
+
+    def test_a_small_hit_is_let_through(self):
+        f = be.Mon("medicham", fast="COUNTER", charged=["POWER_UP_PUNCH"])
+        self.assertEqual(be.damage(f.charged[0], f, self.noctowl), 15)                  # 9% of 162 HP
+        for shields in (1, 2):
+            ok, why = be.use_shield(f, self.noctowl, shields)
+            self.assertFalse(ok, why)
+            self.assertIn("small hit", why)
+
+    def test_the_hit_is_taken_for_the_hardest_one(self):
+        f = be.Mon("medicham", fast="COUNTER", charged=["POWER_UP_PUNCH", "ICE_PUNCH"])
+        ok, why = be.use_shield(f, self.noctowl, 2)
+        self.assertTrue(ok, why)
+        self.assertIn("Ice Punch", why)
+
+    def test_a_pokemon_that_is_nearly_finished_does_not_get_the_shield(self):
+        """15% of its HP left and two more waiting: there is hardly anything to save.  It faints, the foe has
+        spent its energy and the next one comes in with the shield."""
+        f = be.foe_from_text("scolipede")
+        hp = int(0.15 * self.lanturn.max_hp)
+        ok, why = be.use_shield(f, self.lanturn, 1, hp, mine_left=2)
+        self.assertFalse(ok, why)
+        self.assertIn("kept for the next Pokémon", why)
+        ok, why = be.use_shield(f, self.lanturn, 1, int(0.25 * self.lanturn.max_hp), mine_left=2)
+        self.assertTrue(ok, why)                                        # (a quarter of the bar is worth it)
+
+    def test_unless_it_is_the_last_one(self):
+        f = be.foe_from_text("scolipede")
+        ok, why = be.use_shield(f, self.lanturn, 1, int(0.15 * self.lanturn.max_hp), mine_left=1)
+        self.assertTrue(ok, why)
+        self.assertIn("our last Pokémon", why)
+        ok, why = be.use_shield(f, self.lanturn, 1, 1, mine_left=1)     # (even for a single HP)
+        self.assertTrue(ok, why)
+
+    def test_or_its_own_charged_attack_is_ready(self):
+        f = be.foe_from_text("scolipede")
+        hp = int(0.15 * self.lanturn.max_hp)
+        ok, why = be.use_shield(f, self.lanturn, 1, hp, mine_left=2, ready=True)
+        self.assertTrue(ok, why)
+        self.assertIn("our own charged attack is ready", why)
+        # (ready or not: a hit that does not knock us out and is small stays a small hit)
+        weak = be.Mon("medicham", fast="COUNTER", charged=["POWER_UP_PUNCH"])
+        self.assertFalse(be.use_shield(weak, self.noctowl, 1, ready=True)[0])
+
+    def test_nothing_to_keep_the_shield_for(self):
+        """The foe's last Pokémon (or ours): after this duel a shield is worth nothing, so a hit of a seventh
+        of the HP bar is shielded as well - but not next to nothing."""
+        f = be.Mon("medicham", fast="COUNTER", charged=["POWER_UP_PUNCH"])
+        lapras = self.lapras
+        dmg = be.damage(f.charged[0], f, lapras)
+        part = dmg / float(lapras.max_hp)
+        self.assertTrue(be.SHIELD_HIT_LAST <= part < be.SHIELD_HIT, part)
+        self.assertFalse(be.use_shield(f, lapras, 1, foes_left=2)[0])
+        ok, why = be.use_shield(f, lapras, 1, foes_left=1)
+        self.assertTrue(ok, why)
+        self.assertIn("the foe is on its last Pokémon", why)
+        ok, why = be.use_shield(f, lapras, 1, mine_left=1, foes_left=3)
+        self.assertTrue(ok, why)
+        self.assertIn("this is our last Pokémon", why)
+        self.assertFalse(be.use_shield(f, self.noctowl, 1, foes_left=1)[0])             # (9%: let it through)
+
+    def test_a_foe_that_is_not_known(self):
+        ok, why = be.use_shield(None, self.noctowl, 2, int(0.9 * self.noctowl.max_hp))
+        self.assertTrue(ok, why)
+        self.assertIn("not known", why)
+        ok, why = be.use_shield(None, self.noctowl, 2, int(0.1 * self.noctowl.max_hp), mine_left=3)
+        self.assertFalse(ok, why)
+
+    def test_no_shields_left(self):
+        f = be.foe_from_text("scolipede")
+        self.assertEqual(be.use_shield(f, self.lanturn, 0), (False, "no shields left"))
+
+
 class Matchups(unittest.TestCase):
     def setUp(self):
         self.team = be.build_team(be.DEFAULT_TEAM)

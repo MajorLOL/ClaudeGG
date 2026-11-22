@@ -15,7 +15,9 @@ and a button that is ready by the white TEXT under it (a flash, a field line or 
     prompt  a ring with a countdown at the top: "Attack incoming! Use a Protect Shield?" or the
             "Switch in a new Pokémon?" question (told apart by OCR, see battle_nav.py)
     ready   the banner "Get Ready!" between the name boxes: our own charged attack starts, its icons follow
-    result  "GOOD EFFORT!" ..., a green button NEXT BATTLE at the bottom
+    result  "GOOD EFFORT!" / "YOU WIN!": a green button NEXT BATTLE at the bottom and, under it, a small round
+            button with a check mark.  After a battle that was won only the check mark is there (the reward of
+            that win is collected on the Battle screen first)
 """
 import cv2
 import numpy as np
@@ -35,6 +37,8 @@ TAP_FAST = (0.50, 0.45)           # a tap here is a fast attack (nothing is unde
 TAP_SHIELD = (0.50, 0.70)         # the shield on "Attack incoming! Use a Protect Shield?"
 TAP_NOT_NOW = (0.50, 0.91)        # NOT NOW on the same question
 TAP_NEXT = (0.50, 0.866)          # the green NEXT BATTLE button
+TAP_DONE = (0.50, 0.926)          # the round button with the check mark under it (the only one after a win)
+DONE_R = 0.040                    # ... its radius (in screen widths)
 POPUP_TILES = (0.32, 0.68)        # "Switch in a new Pokémon?": the two choices (x); y below
 POPUP_TILE_Y = 0.74
 BAR_FULL = 484 / 1768.0           # the inside of a full HP bar
@@ -425,6 +429,37 @@ def result_button(img):
     return False
 
 
+def done_button(img):
+    """True when the round button with the check mark is at the bottom of the screen: the result of a battle
+    ('YOU WIN!' has nothing else to tap; 'GOOD EFFORT!' has it under NEXT BATTLE).  It is a blue-green disc
+    with a lighter check mark in it and nothing blue-green around it.  The Battle screen has the same disc at
+    the same place with an X in it (close): an X has strokes in all four quarters of the disc, the check mark
+    only goes from the lower left to the upper right."""
+    h, w = img.shape[:2]
+    cx, cy, r = TAP_DONE[0] * w, TAP_DONE[1] * h, DONE_R * w
+    x0, y0 = int(cx - 1.8 * r), int(cy - 1.8 * r)
+    x1, y1 = int(cx + 1.8 * r) + 1, min(int(cy + 1.8 * r) + 1, h)
+    if x0 < 0 or y0 < 0 or x1 > w or r < 6:
+        return False
+    hsv = cv2.cvtColor(img[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+    hue, sat, val = hsv[..., 0].astype(np.int16), hsv[..., 1].astype(np.int16), hsv[..., 2].astype(np.int16)
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    dx, dy = (xx - cx) / r, (yy - cy) / r
+    d = np.hypot(dx, dy)
+    teal = (hue >= 84) & (hue <= 104) & (sat >= 110) & (val >= 105)       # the disc: about (93, 205, 148)
+    inside, around = d <= 0.85, (d >= 1.2) & (d <= 1.7)
+    if teal[inside].mean() < 0.85 or teal[around].mean() > 0.12:
+        return False
+    light = val >= int(np.median(val[d <= 0.5])) + 32                     # the drawing in it (about 240)
+    part = []
+    for sx, sy in ((-1, -1), (1, -1), (-1, 1), (1, 1)):     # the upper left, upper right, lower left, lower right
+        quarter = (d <= 0.55) & (sx * dx > 0.06) & (sy * dy > 0.06)
+        part.append(float(light[quarter].mean()) if quarter.any() else 0.0)
+    ul, ur, ll, lr = part
+    stroke = min(ur, ll)
+    return stroke >= 0.035 and ul <= 0.4 * stroke and lr <= 0.4 * stroke
+
+
 # ---- the buttons of the screens around a fight --------------------------------------------------------
 # The game's buttons are wide pills in one colour with a white label: green (BATTLE, USE THIS PARTY, NEXT
 # BATTLE, OK, CLAIM REWARD!) or orange (CLAIM RANK REWARDS!).  White text on such a button is often not read
@@ -553,6 +588,7 @@ def features(img):
         "ready": charge_ready(img) if hud else (False, False),
         "ring": bool(count), "count": count, "shields": shield_icon_slots(img),
         "hp": (mine, foe), "result": result_button(img), "hex": shield_question(img),
+        "done": not hud and done_button(img),            # (the check mark of a result screen without NEXT BATTLE)
         "get_ready": hud and not count and get_ready(img),
         "balls": ball_slots(img) if hud else None,       # (who can still fight: only with the name boxes)
     }

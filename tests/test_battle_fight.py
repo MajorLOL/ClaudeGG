@@ -2,10 +2,10 @@
 python3 -m unittest discover -s tests
 
 features.json holds what battle_vision sees on the 141 pictures of a recorded fight (every 1.3 s, an arena by
-night), features_day.json and features_day2.json the same for the fights of two more recordings (113 and 119
-pictures, an arena by day): replaying them checks that the fight state survives real, noisy readings.  The
-files are made from the recordings with the readers as they are now; when a reader changes they are made
-again."""
+night), features_day.json, features_day2.json and features_day3.json the same for the fights of three more
+recordings (113, 119 and 95 pictures, an arena by day): replaying them checks that the fight state survives
+real, noisy readings.  The files are made from the recordings with the readers as they are now; when a reader
+changes they are made again."""
 import json
 import os
 import sys
@@ -77,9 +77,7 @@ class NextOneComesIn(unittest.TestCase):
 
 class ShieldsAndNames(unittest.TestCase):
     def test_a_shield_that_was_not_used_comes_back(self):
-        fight = new_fight()
-        fight.me.hp = 1                                      # (so that the engine wants the shield)
-        fight.my_hp = 0.01
+        fight = new_fight()                                  # (Cramorant's Surf takes 40% of Noctowl's HP)
         use, _why = fight.shield()
         self.assertTrue(use)
         self.assertEqual(fight.my_shields, 1)
@@ -266,19 +264,63 @@ class Shields(unittest.TestCase):
         fight.my_shields = 0
         self.assertEqual(fight.shield()[0], False)
 
-    def test_keeps_the_shield_for_a_small_hit(self):
+    def test_a_hit_worth_it_gets_the_shield_also_the_last_one(self):
         fight = new_fight()
         fight.see(feat(hp=(1.0, 1.0)))
-        use, _why = fight.shield()
-        self.assertFalse(use)
+        use, why = fight.shield()
+        self.assertTrue(use, why)                            # (Surf: 40% of our HP)
+        self.assertEqual(fight.my_shields, 1)
+        use, why = fight.shield()
+        self.assertTrue(use, why)
+        self.assertEqual(fight.my_shields, 0)
+        self.assertEqual(fight.shield(), (False, "no shields left"))
+
+    def test_keeps_the_shield_for_a_small_hit(self):
+        fight = new_fight()
+        fight.foe = be.Mon("medicham", fast="COUNTER", charged=["POWER_UP_PUNCH"])
+        fight.see(feat(hp=(1.0, 1.0)))
+        use, why = fight.shield()
+        self.assertFalse(use, why)
         self.assertEqual(fight.my_shields, 2)
 
+    def test_keeps_the_shield_for_the_next_pokemon_when_this_one_is_nearly_finished(self):
+        fight = new_fight()
+        see_twice(fight, hp=(0.12, 0.80))
+        use, why = fight.shield()
+        self.assertFalse(use, why)
+        self.assertIn("next Pokémon", why)
+        self.assertEqual(fight.my_shields, 2)
+        use, why = fight.shield(ready=True)                  # (unless its own charged attack is ready)
+        self.assertTrue(use, why)
+
+    def test_the_last_pokemon_is_always_saved(self):
+        fight = new_fight()
+        fight.dead.update({1, 2})
+        see_twice(fight, hp=(0.05, 0.80))
+        use, why = fight.shield()
+        self.assertTrue(use, why)
+        self.assertIn("our last Pokémon", why)
+
+    def test_the_foes_last_pokemon(self):
+        """Nothing to keep the shield for: a hit that would be let through otherwise is shielded."""
+        fight = new_fight()
+        fight.foe = be.Mon("medicham", fast="COUNTER", charged=["POWER_UP_PUNCH"])
+        fight.me = fight.team[1]                             # (Power-Up Punch: 17% of Lapras' HP)
+        fight.see(feat(hp=(1.0, 1.0)))
+        self.assertFalse(fight.shield(foes=2)[0])
+        self.assertFalse(fight.shield()[0])                  # (how many the foe has left is not known)
+        use, why = fight.shield(foes=1)
+        self.assertTrue(use, why)
+
     def test_foe_not_known(self):
+        """Its attack is taken for a hit of nearly half our HP."""
         fight = new_fight(foe=None)
-        fight.my_hp = 0.9
-        self.assertFalse(fight.shield()[0])
-        fight.my_hp = 0.3
+        fight.see(feat(hp=(0.9, 1.0)))
         self.assertTrue(fight.shield()[0])
+        fight = new_fight(foe=None)
+        see_twice(fight, hp=(0.1, 1.0))                      # (hardly anything left to save)
+        use, why = fight.shield()
+        self.assertFalse(use, why)
 
     def test_icons_are_believed_after_two_pictures(self):
         fight = new_fight()
@@ -673,6 +715,163 @@ class ReplayOfTheLateAttacks(unittest.TestCase):
             fight = self.run_fight(until=until)
             self.assertEqual(len(fight.alive()), 1, until)
             self.assertEqual(fight.hopeless(2), (False, ""), until)
+
+
+with open(os.path.join(HERE, "fixtures", "fight", "features_day3.json"), encoding="utf-8") as f:
+    DAY3 = json.load(f)
+DAY3_FIRST = 24
+
+
+class ReplayOfTheFirstWin(unittest.TestCase):
+    """The fourth recorded fight (features_day3.json: pictures 24 to 118 of that recording), the first one the
+    bot won.  Three times the other side threw a charged attack while we had a shield.  The first was shielded;
+    at the second and the third the bot tapped NOT NOW on purpose: one shield was left and the rule of the
+    duel simulator keeps the last one for a hit that would knock the Pokémon out.  Dark Pulse took 36% of
+    Noctowl's HP, Megahorn 61% of Lanturn's, and the battle ended with the shield unused.  And then the bot
+    stood in front of 'YOU WIN!': that screen has no NEXT BATTLE button."""
+
+    def at(self, picture):
+        return DAY3[picture - DAY3_FIRST]
+
+    def run_fight(self, until=10 ** 6, on=None):
+        """What the loop knows besides the pictures: the names it reads and, at picture 91, that Lanturn is on
+        the field (the switch question was answered between two pictures of the recording).  on: {picture:
+        what to do there with the fight}."""
+        fight = new_fight("Scolipede")
+        events = {30: lambda: fight.set_foe("Mismagius", 1460), 75: lambda: fight.set_foe("Dusknoir", 1386),
+                  87: lambda: fight.set_foe("Scolipede", 1375), 91: lambda: fight.set_active(1494)}
+        for i, f in enumerate(DAY3):
+            picture = DAY3_FIRST + i
+            if picture > until:
+                break
+            if picture in events:
+                events[picture]()
+            if bf.state(f) in ("fight", "other"):
+                fight.see(f)
+            if on and picture in on:
+                on[picture](fight)
+        return fight
+
+    def test_the_questions_are_on_the_pictures(self):
+        hexes = [DAY3_FIRST + i for i, f in enumerate(DAY3) if f["hex"] and not f["hud"]]
+        self.assertEqual(hexes, [41, 58, 94])                # (41 and 94: the countdown is still sliding in)
+        self.assertEqual({DAY3_FIRST + i: f["count"] for i, f in enumerate(DAY3) if f["ring"]}, {58: "attack"})
+
+    def test_every_attack_that_is_worth_it_gets_a_shield(self):
+        said = {}
+
+        def ask(picture, foes):
+            def do(fight):
+                said[picture] = (fight.my_shields,) + fight.shield(foes)
+            return do
+        fight = self.run_fight(on={41: ask(41, 3), 58: ask(58, 3), 94: ask(94, 1)})
+        self.assertEqual(said[41][0], 2)
+        self.assertTrue(said[41][1], said[41])
+        self.assertEqual(said[58][0], 1)                     # the second question: one shield left ...
+        self.assertTrue(said[58][1], said[58])               # ... and it is used
+        self.assertIn("of our HP", said[58][2])
+        # (in the recording that shield was not used: the icons of the name box bring it back for the replay)
+        self.assertEqual(said[94][0], 1)
+        self.assertTrue(said[94][1], said[94])
+        self.assertIn("Megahorn would take 61% of our HP", said[94][2])
+        self.assertEqual(fight.me.species, "lanturn")
+
+    def test_what_the_old_rule_said(self):
+        """The duel rule of the engine, with what the fight knew at each question."""
+        said = {}
+
+        def ask(picture):
+            def do(fight):
+                said[picture] = be.should_shield(fight.foe, fight.me, fight.my_shields, None, fight.me.hp)[0]
+                if picture == 41:
+                    fight.my_shields -= 1                    # (that one was used)
+            return do
+        self.run_fight(on={41: ask(41), 58: ask(58), 94: ask(94)})
+        self.assertEqual(said, {41: True, 58: False, 94: False})
+
+    def test_the_banner_of_their_attack_names_it(self):
+        """'Mismagius used Dark Pulse!' (pictures 45 and 46): not one of the two attacks that were guessed for a
+        Mismagius.  From then on the bot knows what hits it."""
+        said = {}
+
+        def banner(fight):
+            self.assertEqual([m.name for m in fight.foe.charged], ["Shadow Ball", "Mystical Fire"])
+            self.assertEqual(fight.foe_used("LI Mismagius used Dark Pulse! Ne 4").name, "Dark Pulse")
+
+        def ask(fight):
+            said["why"] = fight.shield(3)[1]
+        self.run_fight(until=58, on={41: lambda fight: fight.shield(3), 45: banner, 58: ask})
+        self.assertIn("Dark Pulse would take 36% of our HP", said["why"])
+
+    def test_who_can_still_fight(self):
+        self.assertEqual(self.at(49)["balls"], {"me": [3, 0], "foe": [3, 0]})
+        self.assertEqual(self.at(79)["balls"], {"me": [3, 0], "foe": [2, 1]})   # Mismagius fainted
+        self.assertEqual(self.at(92)["balls"], {"me": [2, 1], "foe": [1, 2]})   # Noctowl and Dusknoir too
+        fight = self.run_fight(until=92)
+        self.assertEqual(len(fight.alive()), 2)
+
+    def test_get_ready_is_seen_before_each_of_the_five_little_games(self):
+        self.assertEqual([DAY3_FIRST + i for i, f in enumerate(DAY3) if f["get_ready"]], [33, 50, 66, 79, 103])
+        self.assertEqual({DAY3_FIRST + i: f["ready"] for i, f in enumerate(DAY3) if any(f["ready"])},
+                         {49: [True, True], 65: [True, True]})
+
+    def test_the_result_of_a_win_is_known_by_its_check_mark(self):
+        results = [DAY3_FIRST + i for i, f in enumerate(DAY3) if bf.state(f) == "result"]
+        self.assertEqual(results, [115, 116, 117, 118])
+        for p in results:
+            self.assertFalse(self.at(p)["result"], p)        # (no NEXT BATTLE)
+            self.assertTrue(self.at(p)["done"], p)
+
+
+class TheirAttackIsNamed(unittest.TestCase):
+    """foe_used: the banner of a charged attack, as the text reader gave it on pictures of real fights."""
+
+    def test_the_attack_takes_the_place_of_a_guess(self):
+        logs = []
+        fight = bf.Fight(be.load_team(), log=logs.append)
+        fight.set_foe("Mismagius", 1460)
+        self.assertEqual([m.id for m in fight.foe.charged], ["SHADOW_BALL", "MYSTICAL_FIRE"])
+        for text in ("pe: Mismagius used Dark Pulse!", "Misinagius uscd Dark Pulse! )@ 4",
+                     "Se Mismagius uscd Dark Pulse! Bh"):
+            self.assertEqual(fight.foe_used(text).id, "DARK_PULSE", text)
+        self.assertEqual([m.id for m in fight.foe.charged], ["DARK_PULSE", "SHADOW_BALL"])
+        self.assertEqual(len([m for m in logs if "used Dark Pulse" in m]), 1)       # (said once)
+        self.assertIn("the guess was Shadow Ball, Mystical Fire", "\n".join(logs))
+
+    def test_our_own_banner_and_other_banners_change_nothing(self):
+        fight = bf.Fight(be.load_team(), log=lambda _m: None)
+        fight.set_foe("Mismagius", 1460)
+        for text in ("AE Noctowl used Shadow Ball! dub", "pie < Nociowl used Shadow dail! e4", "Go, Mismagius!",
+                     "Attack incoming!", "Get Ready!", "", "Mismagius used", "used Dark Pulse!",
+                     "Mismagius used Hydro Cannon!"):                               # (not an attack it can have)
+            self.assertIsNone(fight.foe_used(text), text)
+        self.assertEqual([m.id for m in fight.foe.charged], ["SHADOW_BALL", "MYSTICAL_FIRE"])
+        fight.foe = None
+        self.assertIsNone(fight.foe_used("Mismagius used Dark Pulse!"))
+
+    def test_an_attack_that_was_guessed_right_stays(self):
+        logs = []
+        fight = bf.Fight(be.load_team(), log=logs.append)
+        fight.set_foe("Scolipede", 1375)
+        guess = sorted(m.id for m in fight.foe.charged)
+        self.assertEqual(fight.foe_used("pe Scolipede used Megahorn! pes").id, "MEGAHORN")
+        self.assertEqual(sorted(m.id for m in fight.foe.charged), guess)
+        self.assertFalse([m for m in logs if "used Megahorn" in m])                 # (nothing new: nothing said)
+
+    def test_it_is_remembered_when_the_foe_comes_back(self):
+        logs = []
+        fight = bf.Fight(be.load_team(), log=logs.append)
+        fight.set_foe("Mismagius", 1460)
+        fight.foe_used("Mismagius used Dark Pulse!")
+        fight.set_foe("Scolipede", 1375)
+        fight.set_foe("Mismagius", 1460)
+        self.assertEqual(fight.foe.charged[0].id, "DARK_PULSE")
+        self.assertIn("(as seen before)", logs[-1])
+
+    def test_the_same_species_on_both_sides_tells_nothing(self):
+        fight = bf.Fight(be.load_team(), log=lambda _m: None)
+        fight.set_foe("Lanturn", 1490)
+        self.assertIsNone(fight.foe_used("Lanturn used Surf!"))                     # (theirs or ours?)
 
 
 class Aim(unittest.TestCase):

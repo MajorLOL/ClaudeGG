@@ -277,12 +277,52 @@ class Plans(unittest.TestCase):
         game = bm.Game("water", t0=0.0)
         self.assertFalse(game.over(5.0))
         self.assertTrue(game.over(bm.GAME_SECONDS + 0.1))                  # nothing seen: only the clock ends it
-        game.see(3.0, [(0.5, 0.5)])
-        self.assertFalse(game.over(3.0 + bm.QUIET - 0.1))
-        self.assertTrue(game.over(3.0 + bm.QUIET + 0.1))                   # the icons are gone
-        self.assertEqual(game.plan(3.0 + bm.QUIET + 0.1), [])
-        game.see(5.0, [(0.5, 0.5)])                                        # (they were only hidden for a moment)
-        self.assertFalse(game.over(5.1))
+        late = bm.LEAD + bm.ICONS_FOR                                      # (when the icons have had their time)
+        game.see(late, [(0.5, 0.5)])
+        self.assertFalse(game.over(late + bm.QUIET - 0.1))
+        self.assertTrue(game.over(late + bm.QUIET + 0.1))                  # the icons are gone
+        self.assertEqual(game.plan(late + bm.QUIET + 0.1), [])
+        game.see(late + 1.5, [(0.5, 0.5)])                                 # (they were only hidden for a moment)
+        self.assertFalse(game.over(late + 1.6))
+
+    def test_a_gap_in_the_icons_is_not_the_end(self):
+        """The icons come for about five and a half seconds, with gaps: the smoke of a Shadow Ball lies over
+        them, a row flashes up where the picture does not show it.  A game that ended after one second without
+        icons went back to the fast attacks while the icons kept coming (the third Shadow Ball of the fourth
+        recording: icons two seconds after the bot had stopped swiping)."""
+        game = bm.Game("ghost", t0=100.0)
+        game.started(101.5)                                                # 'Get Ready!'
+        game.plain = False
+        game.see(103.0, [(0.43, 0.57), (0.62, 0.57)])
+        for now in (104.5, 105.5, 106.5):                                  # nothing seen for seconds
+            self.assertFalse(game.over(now), now)
+            self.assertTrue(game.plan(now), now)                           # (the rows it knows are swiped on)
+        self.assertGreater(100.0 + bm.LEAD + bm.ICONS_FOR, 106.5)
+        self.assertTrue(game.over(100.0 + bm.LEAD + bm.ICONS_FOR + 0.1))   # their time is up and none is seen
+        self.assertTrue(game.over(100.0 + bm.GAME_SECONDS + 0.1))
+
+    def test_the_plain_fight_still_stops_the_swipes_at_once(self):
+        game = bm.Game("ghost", t0=100.0)
+        game.started(101.5)
+        game.plain = False
+        game.see(103.0, [(0.43, 0.57), (0.62, 0.57)])
+        game.see(104.5, [])
+        game.plain = True                                                  # the fight is back (says the fight loop)
+        self.assertEqual(game.plan(104.6), [])
+
+    def test_a_row_with_icons_on_it_is_swiped_first(self):
+        game = bm.Game("ghost", t0=100.0)
+        game.started(101.5)
+        game.plain = False
+        rows = bm.KNOWN["ghost"]["rows"]
+        for row in rows:
+            icons = [(row[0], row[1] + 0.01), (row[2], row[3] + 0.01)]     # two icons on this row
+            game.see(103.0, icons)
+            x1, y1, x2, y2, _ms = game.plan(103.05)[0]
+            self.assertAlmostEqual((y1 + y2) / 2, row[1], delta=0.02)
+            self.assertTrue(min(x1, x2) < row[0] and max(x1, x2) > row[2], (row, x1, x2))
+        game.see(103.2, [])                                                # nothing on the picture: the usual order
+        self.assertEqual(len(game.plan(103.25)), len(rows))
 
     def test_an_attack_that_has_to_wait_swipes_only_what_is_seen(self):
         game = bm.Game("water", t0=100.0)

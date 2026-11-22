@@ -1,12 +1,13 @@
 """Unit tests for battle_vision (reading the picture of a GO Battle League fight).
 
 The pictures in tests/fixtures/fight/ are frames of real fights that were recorded with the recorder of the web
-interface (35 % of the 1768 x 2208 canvas): one fight in an arena by night and two in an arena by day (day_*,
-day2_*).  By day the sky is full of white clouds - exactly where the name boxes and the countdown are - and the
-first of those fights went wrong in many ways: the bot saw name boxes in the clouds, lit buttons in every flash
-and no countdown at all on the switch question.  In the second one the charged attacks came late: the bot waited
-for the white ring of a button, which comes up to a second after the button is ready.  The tests bring the
-pictures back to the full canvas, as the bot does with every screenshot.
+interface (35 % of the 1768 x 2208 canvas): one fight in an arena by night and three in an arena by day (day_*,
+day2_*, day3_*).  By day the sky is full of white clouds - exactly where the name boxes and the countdown are -
+and the first of those fights went wrong in many ways: the bot saw name boxes in the clouds, lit buttons in
+every flash and no countdown at all on the switch question.  In the second one the charged attacks came late:
+the bot waited for the white ring of a button, which comes up to a second after the button is ready.  The third
+one was the first battle the bot won - and the result screen of a win has no NEXT BATTLE button.  The tests
+bring the pictures back to the full canvas, as the bot does with every screenshot.
 Run:  python3 -m unittest discover -s tests"""
 import os
 import sys
@@ -297,12 +298,75 @@ class FightPictures(unittest.TestCase):
             self.assertFalse(f["hud"], name)
             self.assertEqual(bf.state(f), "result", name)
 
+    FIGHT = ("fight_ready", "fight_lanturn", "shield_question", "switch_popup", "no_shields",
+             "minigame_zoom", "banner_over_hud", "versus", "day_intro", "day_start", "day_dim", "day_lit",
+             "day_lines", "day_flash", "day_faint", "day_shield", "day_no_shields", "day_switch",
+             "day_minigame", "day_banner", "day_get_ready", "day2_ready_new", "day2_surf_new", "day2_blocked",
+             "day2_their_attack", "day2_last", "day2_no_shields", "day3_get_ready_sky", "day3_their_attack",
+             "day3_shield_last", "day3_ghost_row")
+
     def test_fight_pictures_are_no_results(self):
-        for name in ("fight_ready", "fight_lanturn", "shield_question", "switch_popup", "no_shields",
-                     "minigame_zoom", "banner_over_hud", "versus", "day_intro", "day_start", "day_dim", "day_lit",
-                     "day_lines", "day_flash", "day_faint", "day_shield", "day_no_shields", "day_switch",
-                     "day_minigame", "day_banner", "day_get_ready"):
-            self.assertFalse(bv.features(frame(name))["result"], name)
+        for name in self.FIGHT:
+            f = bv.features(frame(name))
+            self.assertFalse(f["result"], name)
+            self.assertFalse(f["done"], name)
+            self.assertFalse(bv.done_button(frame(name)), name)
+            self.assertNotEqual(bf.state(f), "result", name)
+
+    def test_a_battle_that_was_won_ends_with_a_check_mark(self):
+        """'YOU WIN!' has no NEXT BATTLE button (the reward of the win is collected on the Battle screen first):
+        the only thing to tap is a small round button with a check mark at the bottom.  The bot knew a result
+        screen by NEXT BATTLE alone and stood in front of its first win until the recording was stopped."""
+        f = bv.features(frame("day3_win"))
+        self.assertFalse(f["result"])                             # (no NEXT BATTLE)
+        self.assertTrue(f["done"])
+        self.assertFalse(f["hud"])
+        self.assertEqual(bf.state(f), "result")
+        self.assertTrue(bv.done_button(small("day3_win")))        # (the picture of the live video)
+        self.assertTrue(bv.done_button(frame("day_result")))      # 'GOOD EFFORT!': it is under NEXT BATTLE there
+        self.assertTrue(bv.features(frame("day_result"))["result"])
+        x, y = bv.TAP_DONE
+        self.assertTrue(0.45 < x < 0.55 and bv.TAP_NEXT[1] + 0.04 < y < 0.96)   # (below NEXT BATTLE, on the screen)
+
+    def test_the_x_of_the_battle_screen_is_no_check_mark(self):
+        """The Battle screen has the same round button at the same place with an X in it (close).  Taken for
+        the check mark of a result, the bot would never see the Battle screen for what it is."""
+        img = frame("day3_win")
+        h, w = img.shape[:2]
+        close = cv2.imread(os.path.join(FIX, "close_button.png"))             # (cut from the Battle screen)
+        k = w / 618.0
+        close = cv2.resize(close, None, fx=k, fy=k, interpolation=cv2.INTER_CUBIC)
+        x0, y0 = int(bv.TAP_DONE[0] * w) - close.shape[1] // 2, int(bv.TAP_DONE[1] * h) - close.shape[0] // 2
+        rows = min(close.shape[0], h - y0)
+        img[y0:y0 + rows, x0:x0 + close.shape[1]] = close[:rows]
+        self.assertFalse(bv.done_button(img))
+        self.assertNotEqual(bf.state(bv.features(img)), "result")
+        for name in ("home_battle", "home_claim", "home_newset", "welcome"):
+            self.assertFalse(bv.done_button(battle_screen(name)), name)
+
+    def test_the_check_mark_is_a_disc_with_a_check_in_it(self):
+        teal, mint = (170, 150, 40), (220, 245, 130)                            # (BGR: the disc and its drawing)
+        img = np.full((2208, 1768, 3), (40, 70, 30), np.uint8)
+        c = (int(bv.TAP_DONE[0] * 1768), int(bv.TAP_DONE[1] * 2208))
+        r = int(bv.DONE_R * 1768)
+        cv2.circle(img, c, r, teal, -1)
+        self.assertFalse(bv.done_button(img))                                   # an empty disc
+        left, low, right = ((c[0] - int(0.33 * r), c[1]), (c[0] - int(0.08 * r), c[1] + int(0.25 * r)),
+                            (c[0] + int(0.38 * r), c[1] - int(0.28 * r)))      # the three corners of a check mark
+        check = img.copy()
+        cv2.line(check, left, low, mint, 7)
+        cv2.line(check, low, right, mint, 7)
+        self.assertTrue(bv.done_button(check))
+        cross = img.copy()
+        for sx in (-1, 1):
+            cv2.line(cross, (c[0] - sx * int(0.3 * r), c[1] - int(0.3 * r)),
+                     (c[0] + sx * int(0.3 * r), c[1] + int(0.3 * r)), mint, 7)
+        self.assertFalse(bv.done_button(cross))                                 # an X
+        sea = check.copy()
+        cv2.rectangle(sea, (c[0] - 3 * r, c[1] - 2 * r), (c[0] + 3 * r, 2207), teal, -1)
+        cv2.line(sea, left, low, mint, 7)
+        cv2.line(sea, low, right, mint, 7)
+        self.assertFalse(bv.done_button(sea))                                   # the same colour all around: no disc
 
     def test_green_from_edge_to_edge_is_no_result(self):
         """The map and the grass of an arena by day are green where NEXT BATTLE would be."""
@@ -485,9 +549,10 @@ class TheSmallPicture(unittest.TestCase):
                      "day_intro", "day_start", "day_dim", "day_lit", "day_lines", "day_flash", "day_faint",
                      "day_shield", "day_no_shields", "day_switch", "day_switch_late", "day_minigame", "day_banner",
                      "day_result", "day_get_ready", "day2_ready_new", "day2_surf_new", "day2_get_ready",
-                     "day2_blocked", "day2_their_attack", "day2_last", "day2_no_shields"):
+                     "day2_blocked", "day2_their_attack", "day2_last", "day2_no_shields", "day3_win",
+                     "day3_get_ready_sky", "day3_their_attack", "day3_shield_last", "day3_ghost_row"):
             a, b = bv.features(frame(name)), bv.features(small(name))
-            for key in ("white", "versus", "hud", "ring", "result", "hex", "shields", "get_ready", "balls"):
+            for key in ("white", "versus", "hud", "ring", "result", "done", "hex", "shields", "get_ready", "balls"):
                 self.assertEqual(a[key], b[key], (name, key))
             self.assertEqual(tuple(a["ready"]), tuple(b["ready"]), name)
             self.assertEqual(bf.state(a), bf.state(b), name)

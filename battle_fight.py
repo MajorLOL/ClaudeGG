@@ -15,20 +15,23 @@ What the fight loop in gamebot.py does with it:
     fight.throw()                        -> (button 0 / 1, Move, why) or None: a charged attack to throw now
     fight.aim()                          -> (button, Move) or None: the charged attack to throw the moment it is
                                             ready (the fast attacks are then tapped on its button)
-    fight.shield()                       -> (True / False, why): the question "Use a Protect Shield?"
+    fight.shield(foes, ready)            -> (True / False, why): the question "Use a Protect Shield?"
     fight.switch(tiles)                  -> (index of the tile, Mon, why): "Switch in a new Pokémon?"
     fight.doomed() / fight.hopeless(n)   -> (True / False, why): is the fight lost (see "giving up")?
 
+    fight.foe_used(text)                 the banner 'Mismagius used Dark Pulse!' was read: that attack is one of
+                                         the foe's two for sure
+
 What it cannot see is estimated: the energy from which buttons are lit (a lit button means the energy is at
-least its cost), the foe's moves from PvPoke's recommended moveset for its species, an incoming attack is taken
-to be the foe's hardest one.
+least its cost), the foe's moves from PvPoke's recommended moveset for its species - until the banner of a
+charged attack names one of them (foe_used) - and an incoming attack is taken to be the foe's hardest one.
 """
 import difflib
+import re
 
 import battle_engine as BE
 
 HP_JUMP = 0.30            # a bigger change between two pictures has to be seen twice before it is believed
-UNKNOWN_FOE_SHIELD_BELOW = 0.5   # (foe not known) shield when our HP is below this fraction
 FAINTED_BELOW = 0.25      # a Pokémon with less HP than this that is replaced has fainted
 LABEL_TRIES = 8           # pictures to read the labels under the buttons from (they are hidden at times)
 FOE_CHECK_EVERY = 3       # read the name boxes again every this many pictures with the HUD (a new foe comes in
@@ -74,6 +77,7 @@ class Fight:
         self._my_read = 1.0                    # ... and the last of them
         self._came = (self.me, self.me.hp)     # who came in last, and the HP it had before that
         self._aim = (None, None)               # (what aim() was worked out for, its answer)
+        self.foe_seen = {}                     # species -> the charged attacks it was seen to use in this battle
 
     # ------------------------------------------------------------ what is seen ---
     def _believe(self, side, old, new):
@@ -214,10 +218,73 @@ class Fight:
             self.foe_hp = 1.0
             self._pending.pop("foe", None)
         foe.hp = int(round(self.foe_hp * foe.max_hp))
+        known = self._apply_seen(foe)          # (it was on the field before: what it used then is known)
         self.foe, self.foe_cp = foe, cp
         self.log(f"fight: foe is {foe.label}" + (f" (CP {cp})" if cp else "")
-                 + f" - moves {foe.fast.name} / " + ", ".join(m.name for m in foe.charged))
+                 + f" - moves {foe.fast.name} / " + ", ".join(m.name for m in foe.charged)
+                 + (" (as seen before)" if known else ""))
         return True
+
+    def _apply_seen(self, foe):
+        """Put the charged attacks this species was seen to use at the front of the attacks of `foe` (a Pokémon
+        has two at most: a guessed one makes room).  True when that changed something."""
+        seen = [i for i in self.foe_seen.get(foe.species, [])]
+        if not seen:
+            return False
+        ids = (seen + [m.id for m in foe.charged if m.id not in seen])[:max(len(foe.charged), len(seen), 1)][:2]
+        if ids == [m.id for m in foe.charged]:
+            return False
+        foe.charged = [BE.Move(i) for i in ids]
+        return True
+
+    def foe_used(self, text):
+        """The banner at the top was read: 'Mismagius used Dark Pulse!'.  When it names the foe on the field
+        and one of the charged attacks its species can have, that attack is one of its two for sure: it takes
+        the place of one that was only guessed (the guess is PvPoke's recommended moveset; players use others
+        too).  Our own banner ('Noctowl used Shadow Ball!') and anything misread change nothing.
+        Returns the Move, or None."""
+        foe = self.foe
+        if foe is None or not text:
+            return None
+        words = text.replace("!", "! ").split()
+        at = next((i for i, w in enumerate(words)
+                   if 3 <= len(w) <= 5 and difflib.SequenceMatcher(None, w.lower(), "used").ratio() >= 0.75), None)
+        if at is None or at == 0 or at + 1 >= len(words):
+            return None
+
+        def plain(name):
+            return BE._norm(re.sub(r"\(.*?\)", " ", name)).replace(" ", "")
+
+        def like(name):                        # how well the words before 'used' fit this name
+            return max(difflib.SequenceMatcher(None, plain(" ".join(words[max(at - n, 0):at])), plain(name)).ratio()
+                       for n in (1, 2, 3))
+        theirs = like(foe.name)
+        if theirs < 0.75 or theirs <= max(like(m.name) for m in self.team):
+            return None                        # (ours, or not a name at all)
+        rest = words[at + 1:]
+        end = next((i for i, w in enumerate(rest) if "!" in w), len(rest) - 1)
+        rest = rest[:end + 1][:4]
+        pool = BE.load()["mons"][foe.species][6]
+        best, found = 0.0, None
+        for mid in pool:
+            target = plain(BE.load()["moves"][mid][0])
+            for n in range(1, len(rest) + 1):
+                r = difflib.SequenceMatcher(None, plain(" ".join(rest[:n])), target).ratio()
+                if r > best:
+                    best, found = r, mid
+        if found is None or best < 0.82:
+            return None
+        seen = self.foe_seen.setdefault(foe.species, [])
+        if found in seen:
+            return BE.Move(found)
+        seen.append(found)
+        del seen[:-2]                          # (two at most: the newest count)
+        guess = [m.name for m in foe.charged]
+        self._apply_seen(foe)
+        if sorted(guess) != sorted(m.name for m in foe.charged):       # (not when only their order changed)
+            self.log(f"fight: {foe.label} used {BE.Move(found).name} - its charged attacks are taken to be "
+                     + ", ".join(m.name for m in foe.charged) + f" now (the guess was {', '.join(guess)})")
+        return BE.Move(found)
 
     def set_active(self, cp):
         """The CP in my name box: correct who is on the field when it is somebody else than expected.  A
@@ -444,14 +511,14 @@ class Fight:
         self.lit = (False, False)              # (spent: the next picture shows what is lit now)
         return button, move, why
 
-    def shield(self):
-        """The question 'Attack incoming! Use a Protect Shield?': (use it, why)."""
+    def shield(self, foes=None, ready=False):
+        """The question 'Attack incoming! Use a Protect Shield?': (use it, why).  foes: how many Pokémon the foe
+        can still fight with (the red Poké Balls of its name box; None: not known).  ready: a charged attack of
+        ours was ready when the question came up.  See battle_engine.use_shield for the rule."""
         if self.my_shields <= 0:
             return False, "no shields left"
-        if self.foe is None:
-            use = self.my_hp < UNKNOWN_FOE_SHIELD_BELOW
-            return use, f"foe not known, our HP is {self.my_hp:.0%}"
-        use, why = BE.should_shield(self.foe, self.me, self.my_shields, None, self.me.hp)
+        mine = max(len([m for m in self.team if m.pos not in self.dead]), 1)
+        use, why = BE.use_shield(self.foe, self.me, self.my_shields, self.me.hp, mine, foes, ready)
         if use:
             self.my_shields -= 1
         return use, why
@@ -509,11 +576,12 @@ class Fight:
 
 
 def state(feat):
-    """What a picture shows: 'result' (green NEXT BATTLE button), 'prompt' (the countdown ring of a question),
-    'fight' (the HUD with the name boxes) or 'other' (VS screen, animation, banner, loading ...)."""
+    """What a picture shows: 'result' (the green NEXT BATTLE button, or the round check mark that is the only
+    button after a battle that was won), 'prompt' (the countdown ring of a question), 'fight' (the HUD with the
+    name boxes) or 'other' (VS screen, animation, banner, loading ...)."""
     if feat["white"] or feat["versus"]:
         return "other"
-    if feat["result"] and not feat["hud"]:
+    if (feat["result"] or feat.get("done")) and not feat["hud"]:
         return "result"
     if feat["ring"]:
         return "prompt"

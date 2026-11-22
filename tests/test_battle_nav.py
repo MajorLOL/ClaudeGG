@@ -252,6 +252,20 @@ class FightBoxes(unittest.TestCase):
         self.assertEqual(bn.result_kind([line("VICTORY!", 800, 600)]), "win")
         self.assertEqual(bn.result_kind(SCREENS["home"]), "")               # (the Battle screen says 'WINS: 100')
 
+    def test_you_win(self):
+        """The result of a battle that was won says 'YOU WIN!' in big white letters over the trainer; the text
+        reader does not always give them in one piece (what it made of seven pictures of that screen)."""
+        for text in ("YOU WIN!", "IM HE F HY, UE YOU. WIN!", "LS , YOU W IN", "AK = RE YOU WIN",
+                     "AIE A AKE: AON YOU W IN", "AE 3 YOU WIN!", "YOUWIN!"):
+            self.assertEqual(bn.result_kind([line(text, 500, 1100)]), "win", text)
+        for text in ("V OF, FN A, >", "HE: AY = > YOU A", "WIN 30 TRAINER BATTLES IN THE", "4 RESEARCH TASKS UPDATED",
+                     "BATTLE IN THE GO BATTLE LEAGUE 60"):
+            self.assertEqual(bn.result_kind([line(text, 500, 1100)]), "", text)
+        # a line of the research on the screen of a battle that was lost does not turn it into a win
+        self.assertEqual(bn.result_kind([line("GOOD EFFORT!", 600, 1000), line("WIN 30 TRAINER BATTLES", 500, 1700)]),
+                         "loss")
+        self.assertEqual(bn.result_kind([line("YOU", 700, 1100), line("WIN 30 TRAINER BATTLES", 500, 1700)]), "")
+
 
 class Claims(unittest.TestCase):
     """A new rank has to be claimed before the next battle: the button of the Battle screen says so."""

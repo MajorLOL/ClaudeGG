@@ -344,12 +344,33 @@ def button_texts(lines, width):
 
 
 def result_kind(lines):
-    """win / loss / '' from the words on the result screen ('GOOD EFFORT!' is a loss)."""
+    """win / loss / '' from the words on the result screen: 'GOOD EFFORT!' is a loss, 'YOU WIN!' a win.  The
+    big white letters stand over the trainer and are not always read in one piece ('YOU W IN', 'YOU. WIN!');
+    WIN alone is not enough (a line of the research can say 'Win 30 Trainer Battles ...')."""
     words = [_plain(w) for w, _x, _y in words_of(lines)]
+    words = [w for w in words if w]
     if any(like(w, "EFFORT", 0.8) for w in words) or ("GOOD" in words and not any(
             like(w, "VICTORY", 0.8) for w in words)):
         return "loss"
     if any(like(w, "VICTORY", 0.8) or like(w, "WINNER", 0.8) for w in words):
+        return "win"
+    for line in lines:                                   # YOU WIN, in one line
+        ws = [w for w in (_plain(w) for w, _x, _y in line[3]) if w]
+        for i, w in enumerate(ws):
+            if w in ("YOUWIN", "YOUWINS") or (w == "YOU" and "".join(ws[i + 1:i + 3])[:3] in ("WIN", "W1N", "WLN")):
+                return "win"
+    return ""
+
+
+def result_word(text):
+    """win / loss / '' from the big white words in the middle of a result screen when they were read on their
+    own (gamebot._result_words): 'YOU WIN!' or 'GOOD EFFORT!'.  Nothing else stands there in white, so WIN is
+    enough here."""
+    words = [w for w in (_plain(w) for w in (text or "").split()) if w]
+    joined = "".join(words)
+    if "EFFORT" in joined or any(like(w, "EFFORT", 0.75) for w in words) or ("GOOD" in words and "WIN" not in joined):
+        return "loss"
+    if "YOUWIN" in joined or any(w in ("WIN", "WINS") for w in words):
         return "win"
     return ""
 

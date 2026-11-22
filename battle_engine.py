@@ -12,8 +12,9 @@ Game data (base stats, moves, type chart, CP multipliers) comes from
 models/battle_data.json, built by tools/build_battle_data.py from the open
 PvPoke data (MIT License, Copyright (c) 2019 pvpoke), including the moveset
 PvPoke's Great League rankings recommend for each opponent.  The choice of
-charged attack (plan_kill, best_charged, bait) and the shield decision
-(should_shield, cycle_damage) follow PvPoke's ActionLogic.js;
+charged attack (plan_kill, best_charged, bait) and the shield decision of a
+duel (should_shield, cycle_damage) follow PvPoke's ActionLogic.js; a real
+battle of three against three decides on its shields with use_shield;
 tools/crosscheck_gbl_lab.py compares the duels with a simulator that matches
 PvPoke.
 
@@ -587,6 +588,71 @@ def should_shield(foe, me, shields, foe_move=None, my_hp=None, foe_energy=None):
                               c.name, cd, my_hp - cycle))
     return False, "%s (%d dmg) is survivable, keeping the shield" % (mv.name,
                                                                       dmg)
+
+
+# In a battle of three against three a shield is worth what it saves, and it is worth nothing once the
+# battle is over.  PvPoke's rule above is made for a duel of one against one: there the last shield is kept
+# for the hit that would knock the Pokémon out.  In a real battle that rule let a Megahorn take 61% of a
+# Lanturn's HP and a Dark Pulse 36% of a Noctowl's, and the battle ended with the shield unused.
+SHIELD_HIT = 0.20         # a charged attack is shielded when it takes this part of our full HP or more ...
+SHIELD_HIT_LAST = 0.10    # ... or this part when nothing is left to keep the shield for: the foe's last Pokémon
+UNKNOWN_HIT = 0.45        # the charged attack of a foe that is not known is taken for this part of our full HP
+
+
+def use_shield(foe, me, shields, my_hp=None, mine_left=3, foes_left=None,
+               ready=False, foe_move=None):
+    """Use a shield on the charged attack that is coming, in a real battle?
+
+    Returns (bool, reason).  `foe` (None: not known) throws at `me`, who has
+    `my_hp` HP and `shields` left.  mine_left / foes_left: how many Pokémon
+    each side can still fight with, the ones on the field included (None: not
+    known).  ready: a charged attack of ours was ready when theirs came.
+
+      * our last Pokémon: a hit that knocks it out is always shielded;
+      * a hit that knocks us out while our own charged attack is ready is
+        shielded: that attack is still thrown then;
+      * otherwise the shield is used on a hit worth it - one that takes
+        SHIELD_HIT of our full HP or more (SHIELD_HIT_LAST when the foe or we
+        are on the last Pokémon: no later use for the shield then);
+      * it is kept for a small hit, and for a Pokémon that has so little HP
+        left that there is hardly anything to save: it faints, the foe has
+        spent its energy, and the next Pokémon comes in with the shield.
+
+    What counts is the HP the shield saves: the damage of the hit, or what is
+    left of our HP when that is less.  Which move is coming is not known, so
+    it is taken to be the foe's hardest one (foe_hit).
+    """
+    my_hp = me.hp if my_hp is None else my_hp
+    if shields <= 0:
+        return False, "no shields left"
+    if foe is None:
+        dmg, name = int(round(UNKNOWN_HIT * me.max_hp)), "the attack of a foe that is not known"
+    else:
+        dmg, mv = foe_hit(foe, me, foe_move)
+        name = mv.name
+    saved = max(min(dmg, my_hp), 0)
+    part = saved / float(me.max_hp)
+    pct = "%d%%" % int(round(100 * part))
+    lethal = dmg >= my_hp
+    if lethal and mine_left is not None and mine_left <= 1:
+        return True, "%s would knock out our last Pokémon (%d >= %d HP)" % (name, dmg, my_hp)
+    if lethal and ready:
+        return True, ("%s would knock us out (%d >= %d HP) and our own charged "
+                      "attack is ready" % (name, dmg, my_hp))
+    last = ""
+    if mine_left is not None and mine_left <= 1:
+        last = "this is our last Pokémon"
+    elif foes_left is not None and foes_left <= 1:
+        last = "the foe is on its last Pokémon"
+    limit = SHIELD_HIT_LAST if last else SHIELD_HIT
+    if part >= limit:
+        return True, ("%s would take %s of our HP (%d of %d)" % (name, pct, saved, me.max_hp)
+                      + (" and %s: nothing to keep the shield for" % last
+                         if last and part < SHIELD_HIT else ""))
+    if lethal:
+        return False, ("only %d HP (%s) left to save from %s - the shield is kept for the "
+                       "next Pokémon" % (saved, pct, name))
+    return False, "%s is a small hit (%d dmg, %s of our HP) - keeping the shield" % (name, dmg, pct)
 
 
 # ----------------------------------------------------------- simulation ---

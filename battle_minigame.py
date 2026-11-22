@@ -21,7 +21,7 @@ so the swipes do not aim at single icons:
   * a stream gets a "gate": a line across it that the finger swipes there and back all the time.  Every icon
     has to pass the gate, whatever way the stream bends in between;
   * a row that stands still gets a swipe along it, and the row is remembered: the next time icons flash up
-    there the finger already comes by;
+    there the finger already comes by (a row that has icons on it right now is swiped first);
   * for water, flying, electric and ghost the gates and rows are known from recordings of real fights; for the
     other types the finger starts with a cross over the middle of the screen, follows the icons it sees and
     remembers what it found for the next time (Game.learned());
@@ -173,7 +173,9 @@ STILL_FOR = 0.2           # ... of which the oldest must be at least this old
 MOVED = 0.17              # an icon that moves is at most this far from where one was on the picture before
 GAME_SECONDS = 10.0       # s after the throw: the little game is certainly over
 GET_READY = 1.5           # s between the tap on the button and the banner "Get Ready!" (the icons: see LEAD)
-QUIET = 1.2               # s without icons (after some were seen): the little game is over
+QUIET = 1.2               # s without icons (after some were seen): the little game is over - but not before
+ICONS_FOR = 4.5           # ... the icons have had this long since the first of them was due (they come for about
+                          # five and a half seconds; smoke over them or a row that flashes up elsewhere is no end)
 ROW_LIFE = 3.0            # s a row that was seen standing still is still visited
 GATE_ICONS = 12           # moving icons seen before the place to wait for the stream is chosen
 GATE_LONG = 0.40          # ... and they must lie at least this far apart along the stream
@@ -335,9 +337,14 @@ class Game:
             self.t0 = now - GET_READY
 
     def over(self, now):
+        """Is the little game over?  Its icons come for about five and a half seconds, with gaps: a second
+        without one is only the end when that time is (nearly) up.  (When the plain fight is back before that,
+        the fight loop ends the game: nothing is swiped over the fight.)"""
         if now - self.t0 > GAME_SECONDS:
             return True
-        return self.last is not None and now - self.last > QUIET
+        if self.last is None or now - self.last <= QUIET:
+            return False
+        return now - self.t0 > LEAD + ICONS_FOR
 
     def moving(self, grp):
         """Do the icons of this group move (a stream: True) or stand still (a row that flashes up: False)?
@@ -384,7 +391,9 @@ class Game:
         flip = self.turn % 2 == 1                      # (there and back: not always from the same side)
         out = []
         rows = [r for r, seen in self.rows.items() if seen is None or now - seen <= ROW_LIFE]
-        for row in rows:                               # rows of icons that stand still: they come back there
+        rows.sort(key=lambda r: -sum(_near_line(p, r) <= ICON_R for p in pts))      # (the row with the most icons
+        for row in rows:                               # on it right now goes first) rows of icons that stand
+                                                       # still: they come back there
             a, b = _stretch(row[:2], row[2:], REACH)
             out.append(_swipe(b, a) if flip else _swipe(a, b))
         gates = self.prior or ([self.gate] if self.gate else [])
