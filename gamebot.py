@@ -3458,6 +3458,7 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
                     break
                 t, x, y = spots[0]
                 log(f"battle: choosing the league '{t}' at ({x}, {y})")
+                info["chosen"] = t                   # (the party screen that follows is the one of this league)
                 S.tap(x, y)
             elif kind == "exit":
                 _cancel_exit(lines)
@@ -4848,8 +4849,18 @@ def battle_run(beat, stop, count, team=None):
                     res["done_today"] = True
                     battles_done_today(True)
                 return res
-            title_ok = all(w in info["title"].upper() for w in BN.league_words(league))
+            words = BN.league_words(league)
+            title = info["title"].upper()
+            title_ok = all(w in title for w in words)
+            # The title is read with OCR and a word can be missing ('2026 LEAGUE EDITION' for the Great League
+            # edition: the bot went back and fought nothing, 22 November).  When the bot chose the league itself
+            # on the list a moment ago, by its name, this is its party screen - unless the title names another.
+            chosen = str(info.get("chosen") or "").upper()
+            other = any(w in title for w in ("ULTRA", "MASTER", "LITTLE")) and not any(w in title for w in words[:1])
+            by_choice = not title_ok and chosen and all(w in chosen for w in words) and not other
+            title_ok = title_ok or by_choice
             log(f"battle: party screen '{info['title'] or '?'}' (team seen: {', '.join(info['members']) or 'not read'})"
+                + (f" - the league '{info['chosen']}' was chosen on the list just now" if by_choice else "")
                 + ("" if title_ok else f" - this is not '{league}', not fighting"))
             if not title_ok:
                 break

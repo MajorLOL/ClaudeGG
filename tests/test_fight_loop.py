@@ -936,6 +936,32 @@ class FightLoop(unittest.TestCase):
         finally:
             G.BATTLE_DONE_FILE, G.setting = saved
 
+    def test_a_title_with_a_word_missing_after_the_league_was_chosen(self):
+        """22 November, 18:42: the party screen was read as '2026 LEAGUE EDITION' (GREAT missing), and the bot
+        went back without a fight - although it had chosen 'GREAT LEAGUE EDITION' on the list itself."""
+        names = ("battle_open_menu", "fight_battle", "_battle_to_map", "battle_league")
+        saved = {n: getattr(G, n) for n in names}
+        logs = []
+        G.log = logs.append
+        G.battle_league = lambda: "Great League"
+        G._battle_to_map = lambda *a, **k: True
+        S.tap = lambda *a, **k: None
+        S.on_map = lambda img: True
+        S.screenshot = lambda *a, **k: Phone().picture("day_start")
+        try:
+            for title, chosen, want in (("2026 LEAGUE EDITION", "GREAT LEAGUE EDITION", 1),
+                                        ("2026 LEAGUE EDITION", None, 0),
+                                        ("ULTRA LEAGUE", "GREAT LEAGUE EDITION", 0)):
+                G.battle_open_menu = lambda *a, t=title, c=chosen, **k: {
+                    "ok": True, "title": t, "chosen": c, "members": [], "use_spots": [(884, 1930)]}
+                G.fight_battle = lambda *a, **k: {"result": "win", "why": ""}
+                res = G.battle_run(lambda: None, lambda: False, 1, team=[])
+                self.assertEqual(res["fought"], want, (title, chosen, logs[-3:]))
+        finally:
+            for n, f in saved.items():
+                setattr(G, n, f)
+        self.assertTrue(any("was chosen on the list just now" in line for line in logs), logs)
+
     def test_a_file_that_cannot_be_read_is_no_trouble(self):
         with open(G.SEEN_FILE, "w") as f:
             f.write("{ not json")
