@@ -449,6 +449,25 @@ def battle_screen(name):
     return cv2.resize(full, (1768, 2208), interpolation=cv2.INTER_CUBIC)
 
 
+class NoBattlesLeftToday(unittest.TestCase):
+    """22 November, 17:55: the BATTLE button of the Battle screen was grey - the sets of the day were played.
+    (The picture is the phone screen out of the live view of the web interface.)"""
+
+    def test_the_grey_battle_button(self):
+        img = cv2.imread(os.path.join(HERE, "fixtures", "nav", "home_done.jpg"))
+        self.assertIsNone(bv.home_button(img))                 # (no green or orange button)
+        self.assertTrue(bv.home_button_off(img))
+
+    def test_not_on_other_screens(self):
+        for name in sorted(n[:-4] for n in os.listdir(FIX) if n.endswith(".jpg")):
+            img = cv2.imread(os.path.join(FIX, name + ".jpg"))
+            if bv.home_button(img) is not None:                # (a green button: it is not grey)
+                continue
+            if name in ("day_flash",):                         # (the flash of an attack: never on the Battle screen)
+                continue
+            self.assertFalse(bv.home_button_off(img), name)
+
+
 class Buttons(unittest.TestCase):
     """The wide green and orange buttons of the screens around a fight."""
 

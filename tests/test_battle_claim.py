@@ -79,6 +79,11 @@ LINES = {
     "party": [line("GREAT LEAGUE", 600, 300), line("MAX CP PER POKEMON: 1500", 500, 380),
               line("CHOOSE YOUR PARTY", 500, 800), line("USE THIS PARTY", 700, 1930)],
     "catch": [], "stuck": [],
+    # the sets of the day are played: the BATTLE button is grey; the rewards of the last set wait in gold tiles
+    "home_done2": [line("GO BATTLE LEAGUE", 600, 900), line("BASIC REWARDS", 650, 1700),
+                   line("COLLECT COLLECT", 230, 1985)],
+    "home_done1": [line("GO BATTLE LEAGUE", 600, 900), line("BASIC REWARDS", 650, 1700), line("COLLECT", 560, 1985)],
+    "home_done": [line("GO BATTLE LEAGUE", 600, 900), line("BASIC REWARDS", 650, 1700)],
 }
 
 
@@ -90,6 +95,7 @@ class Phone:
         self.after = after                 # the screen that comes after a tap on the claim button
         self.then = then                   # ... and after a tap on the BATTLE button
         self.claim_works = True
+        self.after_rewards = "home_battle"     # the Battle screen after the rewards of a claim
         self.taps, self.swipes, self.seen, self.logs = [], [], [scene], []
         self.backs = self.walks_back = 0
         self.pictures = {}
@@ -102,6 +108,12 @@ class Phone:
                 self.pictures[name] = scrolled_screen()
             elif name == "home_too_far":
                 self.pictures[name] = scrolled_screen(upper=False)       # (only the lower button is in view)
+            elif name.startswith("home_done"):                           # (the real grey button, 22 November)
+                img = cv2.resize(cv2.imread(os.path.join(FIX, "nav", "home_done.jpg")), (W, H),
+                                 interpolation=cv2.INTER_CUBIC)
+                if name == "home_done":                                  # (the gold tiles are collected)
+                    img[int(0.80 * H):int(0.92 * H), int(0.08 * W):int(0.42 * W)] = 255
+                self.pictures[name] = img
             elif (name.startswith("home_") and name != "home_empty") or name == "welcome":
                 self.pictures[name] = battle_screen(name)
             elif name in ("party", "premium", "home_empty"):
@@ -123,7 +135,11 @@ class Phone:
         elif self.scene == "rankup":
             self.to("rewards")                                  # (it goes on with a tap anywhere)
         elif self.scene == "rewards" and 0.33 < fx < 0.67 and 0.83 < fy < 0.89:
-            self.to("home_battle")                              # (its green button)
+            self.to(self.after_rewards)                         # (its green button)
+        elif self.scene == "home_done2" and 0.84 < fy < 0.88 and fx < 0.25:
+            self.to("home_done1")                               # (the first gold tile collected)
+        elif self.scene == "home_done1" and 0.84 < fy < 0.88 and 0.25 < fx < 0.4:
+            self.to("home_claim")                               # (both collected: now a new rank is claimed)
         elif self.scene == "home_battle" and 0.32 < fx < 0.71 and fy > 0.972:
             self.to(self.then)
         elif self.scene == "welcome" and 0.32 < fx < 0.68 and 0.88 < fy < 0.95:
@@ -206,6 +222,48 @@ class ClaimFirst(unittest.TestCase):
         self.assertIn("claimed - the BATTLE button is there", log)
         self.assertNotIn("leave", info)
         self.assertEqual(phone.swipes, [], log)
+
+    def test_a_grey_battle_button_after_the_rewards_and_the_rank(self):
+        """22 November, 17:55: a set was finished.  The Battle screen had a grey BATTLE button and two gold tiles
+        with COLLECT under them; once they were collected, CLAIM RANK REWARDS! came up (and after it a new set).
+        The bot collects and claims - and stops for today when the button is still grey after that."""
+        phone = Phone("home_done2")
+        phone.after_rewards = "home_done"
+        info = self.walk(phone)
+        log = "\n".join(phone.logs)
+        self.assertFalse(info["ok"], log)
+        self.assertTrue(info.get("done_today"), log)
+        self.assertEqual(phone.seen, ["home_done2", "home_done1", "home_claim", "rankup", "rewards", "home_done"], log)
+        self.assertIn("the BATTLE button is grey - collecting a reward first", log)
+        self.assertEqual(info["why"], "the BATTLE button is grey - the battles of today are done")
+        self.assertEqual(phone.backs, 0, log)
+        self.assertFalse([t for t in phone.taps if t[0] == "home_done"], log)   # (nothing tapped on the grey one)
+
+    def test_after_the_rewards_and_the_rank_a_new_set_starts(self):
+        """What really came after the claim on 22 November: 'Choose a reward tier ...' with the BATTLE button
+        below the edge - the battles go on."""
+        phone = Phone("home_done2")
+        phone.after_rewards = "home_newset"
+        info = self.walk(phone)
+        log = "\n".join(phone.logs)
+        self.assertTrue(info["ok"], log)
+        self.assertFalse(info.get("done_today"), log)
+        self.assertEqual(phone.seen[:5], ["home_done2", "home_done1", "home_claim", "rankup", "rewards"], log)
+        self.assertEqual(phone.seen[-1], "party", log)
+
+    def test_the_gold_tiles_are_found_when_collect_is_not_read(self):
+        """White on gold is not always read: the tiles are found by their colour as well."""
+        phone = Phone("home_done2")
+        phone.after_rewards = "home_done"
+        LINES["home_done2_saved"] = LINES["home_done2"]
+        LINES["home_done2"] = LINES["home_done"]
+        try:
+            self.walk(phone)
+        finally:
+            LINES["home_done2"] = LINES.pop("home_done2_saved")
+        log = "\n".join(phone.logs)
+        first = [t for t in phone.taps if t[0] == "home_done2"]
+        self.assertTrue(first and first[0][1] < 0.25 and 0.84 < first[0][2] < 0.88, log)
 
     def test_nothing_changes_without_a_claim(self):
         phone = Phone("home_battle")

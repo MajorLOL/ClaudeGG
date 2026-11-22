@@ -3079,7 +3079,28 @@ BATTLE_COUNT = 5
 
 
 def battle_wanted():
-    return bool(setting("battle", False))
+    return bool(setting("battle", False)) and not battles_done_today()
+
+
+BATTLE_DONE_FILE = os.path.expanduser("~/battle_done.json")   # the day on which the BATTLE button was grey
+
+
+def battles_done_today(mark=False):
+    """True when the Battle screen showed a grey BATTLE button today (all sets of the day are played): the
+    daily run then skips the battles until tomorrow.  mark=True: write that down for today."""
+    today = time.strftime("%Y-%m-%d")
+    if mark:
+        try:
+            with open(BATTLE_DONE_FILE, "w") as f:
+                json.dump({"day": today}, f)
+        except OSError:
+            pass
+        return True
+    try:
+        with open(BATTLE_DONE_FILE) as f:
+            return json.load(f).get("day") == today
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def battle_app():
@@ -3107,6 +3128,7 @@ BATTLE_NAV_STEPS = 20        # screens looked at on the way to the party screen
 BATTLE_NAV_SECONDS = 240     # ... and the most time that may take
 # A new rank has to be claimed before the next battle: the Battle screen then has an orange CLAIM RANK REWARDS!
 # button where the green BATTLE button is.  It is tapped and the screens that follow are worked through.
+COLLECT_TAPS = 6             # gold COLLECT tiles of a Battle screen with a grey BATTLE button tapped at most
 CLAIM_TAPS = 4               # the claim button of the Battle screen is tapped this often at most
 CLAIM_STEPS = 14             # screens looked at after it (the rank-up and its rewards) ...
 CLAIM_SECONDS = 150          # ... and the most time that may take
@@ -3189,6 +3211,7 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
     menu_spots = None
     others, tapped, in_setup = 0, False, False   # in_setup: the league list or party screen was seen
     claim = {"taps": 0, "since": 0.0, "steps": 0, "idle": 0, "catch": 0}    # the claim button and what follows it
+    collect = {"taps": 0}     # the gold COLLECT tiles of the rewards of a set (tapped when the BATTLE button is grey)
     scroll = {"down": 0, "up": 0}                # how often the Battle screen was scrolled
     popups = 0                                   # pop-ups that were tapped away
     max_steps, max_seconds = BATTLE_NAV_STEPS, BATTLE_NAV_SECONDS
@@ -3323,6 +3346,25 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
                 tapped = True
             elif kind == "home":
                 button = BV.home_button(shot)        # orange: claim first; green: BATTLE; None: not in view
+                if button is None and BV.home_button_off(shot):
+                    # The BATTLE button is grey.  First the rewards of the last set have to be collected: the
+                    # gold tiles with COLLECT under them (22 November: two of them); after them the game asks to
+                    # claim a new rank (the orange button, see above), and then a new set starts with a green
+                    # BATTLE button.  Grey with nothing to collect: no set is left today.
+                    tiles = BN.collect_spots(lines, shot.shape[0]) or [
+                        (int(fx * shot.shape[1]), int(fy * shot.shape[0])) for fx, fy in BV.gold_tiles(shot)]
+                    if tiles and collect["taps"] < COLLECT_TAPS:
+                        collect["taps"] += 1
+                        x, y = tiles[0]
+                        log(f"battle: the BATTLE button is grey - collecting a reward first (COLLECT at ({x}, {y}))")
+                        save_async(f"g_battle_collect_{collect['taps']}.png", shot)
+                        S.tap(x, y)
+                        tapped = True
+                        continue
+                    save_async("g_battle_home.png", shot)
+                    info["why"] = "the BATTLE button is grey - the battles of today are done"
+                    info["done_today"] = True
+                    break
                 label = BN.claim_label(lines, k)
                 if (button is not None and button["color"] == "orange") or label:
                     claim["taps"] += 1               # something has to be claimed before the next battle
@@ -4791,6 +4833,9 @@ def battle_run(beat, stop, count, team=None):
             if not info["ok"]:
                 log(f"battle: the party screen was not reached: {info['why']}")
                 res["leave"] = bool(info.get("leave"))
+                if info.get("done_today"):
+                    res["done_today"] = True
+                    battles_done_today(True)
                 return res
             title_ok = all(w in info["title"].upper() for w in BN.league_words(league))
             log(f"battle: party screen '{info['title'] or '?'}' (team seen: {', '.join(info['members']) or 'not read'})"
@@ -4834,6 +4879,8 @@ def auto_battle(pkg, beat, stop):
     bot is alive (a long battle is not a stuck bot). stop(): True when the daily run is switched off,
     the max time is over or the run is done - then stop at once. Returns the number of battles fought."""
     if not battle_wanted() or pkg != battle_app():
+        if setting("battle", False) and pkg == battle_app() and battles_done_today():
+            log("battle: the battles of today are done (the BATTLE button was grey) - spinning and catching")
         return 0
     try:
         import battle_engine as BE

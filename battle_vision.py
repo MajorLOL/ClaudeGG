@@ -565,6 +565,39 @@ def home_button(img):
     return min(found, key=lambda b: b["y0"]) if found else None
 
 
+def home_button_off(img):
+    """True when the BATTLE button at the bottom of the Battle screen is grey (pale green, faded): it cannot
+    be pressed - the sets of today have all been played.  Only asked on the Battle screen, when no green or
+    orange button is found (the flash of an attack in a fight looks the same)."""
+    h, w = img.shape[:2]
+    roi = img[int(0.955 * h):int(0.995 * h), int(0.32 * w):int(0.68 * w)]
+    if roi.size == 0:
+        return False
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    hue, sat, val = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+    pale = (hue >= 70) & (hue <= 100) & (sat >= 15) & (sat <= 75) & (val >= 190)
+    vivid = (hue >= 45) & (hue <= 100) & (sat > 90)
+    return float(pale.mean()) >= 0.6 and float(vivid.mean()) < 0.2
+
+
+def gold_tiles(img):
+    """[(x, y)] in fractions, left to right: the middles of the gold reward tiles of the Battle screen (the
+    rewards of a finished set that wait to be collected; COLLECT is written under them).  Tiles that are not
+    won yet are pale green with a lock."""
+    h, w = img.shape[:2]
+    y0, y1 = int(0.76 * h), int(0.95 * h)
+    hsv = cv2.cvtColor(img[y0:y1], cv2.COLOR_BGR2HSV)
+    gold = ((hsv[..., 0] >= 8) & (hsv[..., 0] <= 25) & (hsv[..., 1] >= 120) & (hsv[..., 2] >= 200)).astype(np.uint8)
+    gold = cv2.morphologyEx(gold, cv2.MORPH_CLOSE, np.ones((max(3, h // 60),) * 2, np.uint8))
+    n, _lab, stats, _c = cv2.connectedComponentsWithStats(gold)
+    out = []
+    for i in range(1, n):
+        x, y, bw, bh, area = stats[i]
+        if bw >= 0.08 * w and bh >= 0.05 * h and bw <= 0.22 * w and area >= 0.3 * bw * bh:
+            out.append((round(float(x + bw / 2.0) / w, 3), round(float(y0 + y + bh / 2.0) / h, 3)))
+    return sorted(out)
+
+
 def exit_yes(img):
     """Where to tap YES on the question 'Exit the Trainer Battle?' (it comes up after a tap on the button
     with the running trainer): the middle of a wide green button in the middle of the screen, (x, y) in

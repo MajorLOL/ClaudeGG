@@ -922,6 +922,20 @@ class FightLoop(unittest.TestCase):
         self.assertIn("battle: a fight is on the screen - fighting it", logs)
         self.assertEqual(fights, [4, 3], logs)               # (the second without the spots of USE THIS PARTY)
 
+    def test_a_grey_battle_button_ends_the_battles_of_the_day(self):
+        saved = (G.BATTLE_DONE_FILE, G.setting)
+        G.BATTLE_DONE_FILE = os.path.join(self.dir, "done.json")
+        G.setting = lambda key, default=None: True if key == "battle" else default
+        try:
+            self.assertTrue(G.battle_wanted())
+            G.battles_done_today(True)
+            self.assertFalse(G.battle_wanted())
+            with open(G.BATTLE_DONE_FILE, "w") as f:
+                json.dump({"day": "2026-11-21"}, f)                    # (yesterday: today it starts again)
+            self.assertTrue(G.battle_wanted())
+        finally:
+            G.BATTLE_DONE_FILE, G.setting = saved
+
     def test_a_file_that_cannot_be_read_is_no_trouble(self):
         with open(G.SEEN_FILE, "w") as f:
             f.write("{ not json")

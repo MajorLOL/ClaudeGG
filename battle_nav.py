@@ -174,6 +174,14 @@ CLAIM_WORDS = ("CLAIM", "COLLECT")
 NEXT_WORDS = CLAIM_WORDS + ("CONTINUE", "OK", "OKAY", "NEXT", "DONE", "CLOSE")
 
 
+def collect_spots(lines, height):
+    """[(x, y)] left to right: where to tap the reward tiles of the Battle screen that say COLLECT under them
+    (gold tiles: the rewards of the wins of a set).  The tile is tapped a little above its label."""
+    out = [(int(x), int(y - 0.035 * height)) for w, x, y in words_of(lines)
+           if y > 0.75 * height and like(_plain(w), "COLLECT", 0.8)]
+    return sorted(out)
+
+
 def claim_label(lines, k=1.0):
     """The text of the button at the bottom of the Battle screen when it asks to claim something before the
     next battle ('CLAIM RANK REWARDS!'), '' when no such text is read (white text on a coloured button is
