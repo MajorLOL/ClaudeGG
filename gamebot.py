@@ -3502,6 +3502,7 @@ READY_RECENT = 3.0             # s: a charged attack button of ours that was rea
                                # the shield question comes up (the question hides the buttons)
 USED_FROM, USED_UNTIL = 4.0, 11.0      # s after the shield question: the banner 'X used Y!' is looked for (it
 USED_EVERY = 0.35                      # comes after about six seconds and stays for two), a picture every ... s
+MAP_PICTURES, MAP_SECONDS = 3, 2.0   # the fight loop ends on the map: this many pictures in a row, this long
 RESULT_SETTLE = 0.7            # s the button of a result screen has to be there before it is tapped (it fades in)
 THEIR_ATTACK = 12.0            # s after a question: name boxes without an HP bar are the banner of their attack,
 OUR_ATTACK = 4.0               # ... and this long after our little game the banner of ours - not the plain fight
@@ -4195,6 +4196,7 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
     balls = {"me": 3, "foe": 3, "t": 0.0}  # the red Poké Balls of the name boxes: who can still fight
     give = {"on": battle_give_up(), "tried": False, "n": 0, "t": 0.0, "yes": 0.0}   # giving up a lost fight (once)
     used = {"since": 0.0, "until": 0.0, "t": 0.0}    # the banner 'X used Y!' of the foe's charged attack is read
+    on_map = {"n": 0, "t": None}  # pictures in a row on which the map was seen, since when
     clock = {"t": None, "bars": False, "mini": -100.0}   # the clock of the plain fight (the foe's energy): the last
     # picture that counted, an HP bar was seen in this fight, when a little game of ours last ended
     bars = {"n": 0, "on": False}   # the fight is known by its HP bars only (see BARS_ONLY)
@@ -4273,9 +4275,18 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
             if beat:
                 beat()
             now = time.monotonic()
+            # Back on the map: only when the map is on every picture for a while.  One picture of the loading
+            # screens before a fight was once taken for the map, the loop ended and the bot did not fight at all.
             if S.on_map(shot):
-                out["why"] = "back on the map"
-                break
+                if on_map["t"] is None:
+                    on_map["t"] = now
+                    save_async("g_battle_map.png", shot)     # (to see afterwards what was taken for the map)
+                on_map["n"] += 1
+                if on_map["n"] >= MAP_PICTURES and now - on_map["t"] >= MAP_SECONDS:
+                    out["why"] = "back on the map"
+                    break
+                continue
+            on_map.update(n=0, t=None)
             # the video gives ~10 pictures a second: the names are then read when a name box changes (and every
             # five seconds to be sure) and a shield that was not used is believed after six seconds; with
             # screenshots (one every one to three seconds) these are counted in pictures as before
@@ -4736,6 +4747,19 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
     return out
 
 
+def _fight_on_screen():
+    """True when the screen shows a running fight (name boxes or a question with its countdown)."""
+    import battle_fight as BF
+    import battle_vision as BV
+    try:
+        shot = S.screenshot()
+        h, w = shot.shape[:2]
+        small = cv2.resize(shot, (704, int(round(h * 704.0 / w))), interpolation=cv2.INTER_AREA)
+        return BF.state(BV.features(small)) in ("fight", "prompt")
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def battle_run(beat, stop, count, team=None):
     """Fights `count` battles one after the other: map -> party screen -> USE THIS PARTY -> fight -> NEXT
     BATTLE (or the check mark when that is all there is: it leads to the Battle screen) -> party screen again
@@ -4744,11 +4768,25 @@ def battle_run(beat, stop, count, team=None):
     failures = 0
     league = battle_league()
     interrupted = False
+    unfinished = False                               # the last fight ended without a result
     try:
         for n in range(1, count + 1):
             if stop and stop():
                 break
             S.recheck_shot_mode()                    # (the quiet screens before a battle: a good moment to compare)
+            if unfinished and _fight_on_screen():    # the last fight ended without a result and a fight is still
+                log("battle: a fight is on the screen - fighting it")   # going on (the loop let go of it too
+                unfinished = False                                        # early): fight it, the menus do not
+                fought = fight_battle(beat, stop, team)                   # lead anywhere from here
+                if fought["result"]:
+                    res["fought"] += 1
+                    res["wins"] += fought["result"] == "win"
+                    failures = 0
+                    log(f"battle: battle {n} done: {fought['result']} ({res['wins']} won of {res['fought']})")
+                    beat()
+                    continue
+                if stop and stop():
+                    break
             info = battle_open_menu(beat, stop, restart=True, stay=True)
             if not info["ok"]:
                 log(f"battle: the party screen was not reached: {info['why']}")
@@ -4771,6 +4809,7 @@ def battle_run(beat, stop, count, team=None):
                     + f" ({res['wins']} won of {res['fought']})")
             else:
                 failures += 1
+                unfinished = True
                 log(f"battle: battle {n} did not finish normally: {fought['why'] or 'no result'}")
                 if failures >= 2 or fought["why"] == "stopped":
                     break

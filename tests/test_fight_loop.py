@@ -130,7 +130,8 @@ class Phone:
         if key not in self.pictures:
             folder = "minigame" if name in ("flying", "ghost") else "fight"
             # (the other side's attack: its banner over the name boxes - 'Get Ready!' is only shown for ours)
-            file = {"their_attack": "banner_over_hud", "tie_question": "shield_question", "exit": "day_dim"}.get(name, name)
+            file = {"their_attack": "banner_over_hud", "tie_question": "shield_question", "exit": "day_dim",
+                    "map_like": "versus"}.get(name, name)
             img = cv2.resize(cv2.imread(os.path.join(FIX, folder, file + ".jpg")), size, interpolation=cv2.INTER_AREA)
             if name == "exit":                                       # a white box with a green YES and a plain NO
                 h, w = img.shape[:2]
@@ -318,8 +319,10 @@ class FightLoop(unittest.TestCase):
         for n, v in self.saved_s.items():
             setattr(S, n, v)
 
-    def play(self, video, tie="", script=None, names=None, words=True, thrown=None):
+    def play(self, video, tie="", script=None, names=None, words=True, thrown=None, map_scene=None):
         phone = Phone(video, tie, script, names, words, thrown)
+        if map_scene:                      # (pictures of this scene are taken for the map)
+            S.on_map = lambda img: phone.scene.split("#")[0] == map_scene
         G.log = phone.log
         G.ocr_lines = phone.ocr
         G.ocr_line = phone.line
@@ -868,6 +871,56 @@ class FightLoop(unittest.TestCase):
         self.assertRegex(log, r"it can only be Mud Bomb \(Blizzard costs 75 energy, Whiscash has \d\d at most\)")
         answers = [t for t in phone.taps if t[0] == "day_shield" and abs(t[1] - 0.5) < 0.05 and t[2] > 0.6]
         self.assertEqual([round(t[2], 2) for t in answers], [round(BV.TAP_NOT_NOW[1], 2)], log)   # (NOT NOW, once)
+
+    def test_one_picture_that_looks_like_the_map_does_not_end_the_fight(self):
+        """22 November, 17:34: one picture of the loading screens before the fight was taken for the map, the
+        loop ended ('back on the map') and the bot let the whole fight play out without a tap."""
+        script = [("versus", 0.5), ("map_like", 0.15), ("versus#again", 0.5), ("day_start", 3.0),
+                  ("day_result", "next")]
+        phone, res = self.play(video=True, script=script, map_scene="map_like")
+        log = "\n".join(phone.logs)
+        self.assertEqual(res["result"], "loss", log)
+        self.assertNotIn("back on the map", log)
+        self.assertIn("the fight has started", log)
+
+    def test_the_map_for_a_while_ends_the_loop(self):
+        script = [("versus", 0.5), ("map_like", 5.0), ("day_result", "next")]
+        phone, res = self.play(video=True, script=script, map_scene="map_like")
+        self.assertEqual(res["why"], "back on the map", "\n".join(phone.logs))
+
+    def test_a_fight_on_the_screen_is_known_before_the_menus_are_walked(self):
+        """After the loop let go of a fight the walk through the menus saw 'other' screens for a minute; now
+        battle_run first looks whether a fight is on the screen."""
+        for scene, want in (("day_start", True), ("day3_shield_last", True), ("versus", False),
+                            ("day_result", False)):
+            S.screenshot = lambda on_grab=None, sc=scene: Phone().picture(sc, (S.REF_W, S.REF_H))
+            self.assertEqual(G._fight_on_screen(), want, scene)
+
+    def test_a_fight_the_loop_let_go_of_is_fought_all_the_same(self):
+        """22 November, 17:34: the fight loop ended at once ('back on the map') and the fight went on without
+        the bot, which walked the menus and saw 'other' screens.  Now battle_run sees the fight on the screen
+        and fights it."""
+        names = ("battle_open_menu", "fight_battle", "_fight_on_screen", "_battle_to_map")
+        saved = {n: getattr(G, n) for n in names}
+        fights, logs = [], []
+        G.log = logs.append
+        G.battle_open_menu = lambda *a, **k: {"ok": True, "title": "GREAT LEAGUE", "members": [],
+                                              "use_spots": [(884, 1930)]}
+        G.fight_battle = lambda *a, **k: fights.append(len(a)) or (
+            {"result": "", "why": "back on the map"} if len(fights) == 1 else {"result": "win", "why": ""})
+        G._fight_on_screen = lambda: True
+        G._battle_to_map = lambda *a, **k: True
+        S.tap = lambda *a, **k: None
+        S.on_map = lambda img: True
+        S.screenshot = lambda *a, **k: Phone().picture("day_start")
+        try:
+            res = G.battle_run(lambda: None, lambda: False, 2, team=[])
+        finally:
+            for n, f in saved.items():
+                setattr(G, n, f)
+        self.assertEqual((res["fought"], res["wins"]), (1, 1), logs)
+        self.assertIn("battle: a fight is on the screen - fighting it", logs)
+        self.assertEqual(fights, [4, 3], logs)               # (the second without the spots of USE THIS PARTY)
 
     def test_a_file_that_cannot_be_read_is_no_trouble(self):
         with open(G.SEEN_FILE, "w") as f:
