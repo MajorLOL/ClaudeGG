@@ -5060,19 +5060,29 @@ def run_one_game(brain, pkg, d):
     return True
 
 
+def daily_order():
+    """The apps of the daily run in the order they are played: the one that fights battles first when battles
+    are wanted (the battles come first in the run - 22 November: the other app was started first, while the
+    one that fights was open already), then the rest in the usual order (Play Store first)."""
+    pkgs = game_packages()
+    if battle_wanted() and battle_app() in pkgs:
+        pkgs = [battle_app()] + [p for p in pkgs if p != battle_app()]
+    return pkgs
+
+
 def daily_cycle(brain):
     d = load_daily()
     now = time.time()
     if force_start["pending"]:
         how, force_start["pending"] = force_start["pending"], False
-        unfinished = [p for p in game_packages() if p not in d.get("done", [])]
+        unfinished = [p for p in daily_order() if p not in d.get("done", [])]
         # Start button: always a fresh run. Otherwise (e.g. restart after an update) a run that is
         # still going just continues, and a finished one starts again.
         if how == "button" or not unfinished:
             d = {"start": now, "done": [], "slot": last_slot(now)}
             save_daily(d)
             log(f"{'Start pressed' if how == 'button' else 'bot started'} - daily run starts now: "
-                f"{', '.join(game_packages())}")
+                f"{', '.join(daily_order())}")
             run_state["waiting_logged"] = None
     served = d.get("slot")                                 # the latest start time that a run has already used
     if served is None:                                     # file of an older version
@@ -5080,10 +5090,10 @@ def daily_cycle(brain):
     if now >= last_slot(now) > served:                     # today's start time passed and no run has used it yet
         d = {"start": now, "done": [], "slot": last_slot(now)}
         save_daily(d)
-        pkgs = game_packages()
+        pkgs = daily_order()
         log(f"daily run started: {', '.join(pkgs)}")
         run_state["waiting_logged"] = None
-    pkgs = [p for p in game_packages() if p not in d["done"]]
+    pkgs = [p for p in daily_order() if p not in d["done"]]
     if pkgs:                                       # (also continues a run after a restart)
         pkg = pkgs[0]
         if run_one_game(brain, pkg, d):

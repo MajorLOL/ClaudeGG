@@ -962,6 +962,25 @@ class FightLoop(unittest.TestCase):
                 setattr(G, n, f)
         self.assertTrue(any("was chosen on the list just now" in line for line in logs), logs)
 
+    def test_the_app_that_fights_is_played_first(self):
+        """22 November, 18:51: the daily run started the Play Store app first, while the one that fights battles
+        (the other one) was open already - the battles came only after a whole game of spinning and catching."""
+        names = ("game_packages", "battle_wanted", "battle_app")
+        saved = {n: getattr(G, n) for n in names}
+        try:
+            G.game_packages = lambda: ["com.nianticlabs.pokemongo", "com.nianticlabs.pokemongo.ares"]
+            G.battle_app = lambda: "com.nianticlabs.pokemongo.ares"
+            G.battle_wanted = lambda: True
+            self.assertEqual(G.daily_order(), ["com.nianticlabs.pokemongo.ares", "com.nianticlabs.pokemongo"])
+            G.battle_wanted = lambda: False                          # (no battles, or done for today)
+            self.assertEqual(G.daily_order(), ["com.nianticlabs.pokemongo", "com.nianticlabs.pokemongo.ares"])
+            G.battle_wanted = lambda: True
+            G.battle_app = lambda: "com.nianticlabs.pokemongo.other"  # (not installed: the usual order)
+            self.assertEqual(G.daily_order(), ["com.nianticlabs.pokemongo", "com.nianticlabs.pokemongo.ares"])
+        finally:
+            for n, f in saved.items():
+                setattr(G, n, f)
+
     def test_a_file_that_cannot_be_read_is_no_trouble(self):
         with open(G.SEEN_FILE, "w") as f:
             f.write("{ not json")
