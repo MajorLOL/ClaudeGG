@@ -44,6 +44,7 @@ VIDEO_BITRATE = "2000000"
 OPTIONS = {                                 # key -> label (default: on)
     "daily_cycle": "Daily run: both Pokémon GO apps one after another until full",
     "battle": "Battles: in the daily run the chosen app fights GO Battle League battles first",
+    "battle_give_up": "Battles: give up a battle that is lost (our last Pokémon cannot win any more)",
     "catch": "Catch wild Pokémon",
     "spin": "Spin PokéStops",
     "gifts_open": "Open gifts from friends",
@@ -599,7 +600,7 @@ PAGE = r"""<!DOCTYPE html>
         <span class="h">Then the next game starts.</span></label>
        <span><input type="number" id="dmax" class="inp" min="5" max="1440" step="5" onchange="setMax(this.value)"> <span class="unit">min</span></span></div>
      </div>
-     <div class="group" id="g_battle" data-keys="battle">
+     <div class="group" id="g_battle" data-keys="battle battle_give_up">
       <h2>Battles</h2>
       <div class="switches"></div>
       <div class="row field"><label class="txt" for="bapp"><span class="t">Battle in</span>
@@ -655,6 +656,7 @@ img.onerror = () => setTimeout(() => { img.src = 'stream?t=' + Date.now(); }, 30
 const WORDS = {
   daily_cycle: ['Play both Pokémon GO apps', 'Each game runs until full or out of time.'],
   battle: ['Fight battles first', 'Daily run only. The chosen app fights its GO Battle League battles, then spins and catches.'],
+  battle_give_up: ['Give up a lost battle', 'When the last Pokémon cannot win any more, leave the battle instead of playing it out.'],
   catch: ['Catch wild Pokémon'],
   curveball: ['Always throw a curveball'],
   fast_catch: ['Fast catch', 'After a clear hit, press Back to skip the catch animation. The result is checked on the map.'],

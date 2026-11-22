@@ -161,13 +161,17 @@ class Stream:
 
 
 class Plans(unittest.TestCase):
-    def test_nothing_before_the_icons_can_be_there(self):
-        self.assertEqual(bm.Game("water", t0=100.0).plan(101.0), [])
+    def test_nothing_before_the_camera_is_on_the_attacker(self):
+        # (when that is, the fight loop tells from the pictures: no seconds are counted from the tap)
+        game = bm.Game("water", t0=100.0)
+        for t in (100.1, 101.0, 103.0, 106.0):
+            self.assertEqual(game.plan(t), [], t)
 
     def test_known_stream_types_swipe_their_gate(self):
         for kind in ("water", "flying", "electric"):
             game = bm.Game(kind, t0=100.0)
-            plan = game.plan(100.0 + bm.START + 0.1)
+            game.plain = False                                            # (the camera is on the attacker)
+            plan = game.plan(100.1)
             gate = bm.KNOWN[kind]["gates"][0]
             self.assertEqual(len(plan), bm.GATE_TIMES)
             self.assertEqual(plan[0][:4], gate)
@@ -176,15 +180,18 @@ class Plans(unittest.TestCase):
             self.assertTrue(all(s[4] >= bm.MIN_MS for s in plan))
 
     def test_ghost_swipes_its_rows(self):
-        plan = bm.Game("ghost", t0=0.0).plan(bm.START + 0.1)
+        game = bm.Game("ghost", t0=0.0)
+        game.plain = False
+        plan = game.plan(0.1)
         self.assertEqual(len(plan), 3)
         for row, swipe in zip(bm.KNOWN["ghost"]["rows"], plan):
             for x in (row[0], row[2]):                                    # every icon of the row lies on the swipe
                 self.assertLessEqual(bm._near_line((x, row[1]), swipe[:4]), 0.01)
 
     def test_unknown_type_starts_with_the_star(self):
-        plan = bm.Game("fire", t0=0.0).plan(bm.START + 0.1)
-        self.assertEqual([s[:4] for s in plan], bm.STAR)
+        game = bm.Game("fire", t0=0.0)
+        game.plain = False
+        self.assertEqual([s[:4] for s in game.plan(0.1)], bm.STAR)
 
     def test_swipe_time_follows_the_length(self):
         s = bm._swipe((0.2, 0.5), (0.7, 0.5))
@@ -212,7 +219,8 @@ class Plans(unittest.TestCase):
         learned = game.learned()
         self.assertEqual(learned["gates"], [game.gate])
         nxt = bm.Game("fire", t0=0.0, learned=learned)                    # the next game of this type starts with it
-        self.assertEqual(nxt.plan(bm.START + 0.1)[0][:4], game.gate)
+        nxt.plain = False
+        self.assertEqual(nxt.plan(0.1)[0][:4], game.gate)
 
     def test_before_the_gate_is_found_the_icons_themselves_are_swiped(self):
         stream = Stream((1.0, 0.35), (-0.55, 0.45))
@@ -279,11 +287,31 @@ class Plans(unittest.TestCase):
     def test_an_attack_that_has_to_wait_swipes_only_what_is_seen(self):
         game = bm.Game("water", t0=100.0)
         game.hold(101.0)                                                   # the other side's attack goes first
-        for t in (101.5, 103.5, 106.0, 108.9):
+        game.plain = False                                                 # (their attack: no HP bars either)
+        for t in (101.5, 103.5, 106.0, 108.9, 112.0, 118.0):               # (in a recorded fight ours came 9 s after it)
             self.assertEqual(game.plan(t), [], t)                          # nothing blind, however long it takes
             self.assertFalse(game.over(t), t)
         self.assertTrue(game.over(101.0 + bm.HOLD + 0.1))                  # ... it is given up in the end
         self.assertEqual(game.plan(101.0 + bm.HOLD + 0.1), [])
+
+    def test_get_ready_starts_an_attack_that_had_to_wait(self):
+        """The banner 'Get Ready!' is the sign that our attack starts: from there the known lines are swiped
+        again without waiting for the first icon, and the game runs its full time from there."""
+        game = bm.Game("ghost", t0=100.0)
+        game.hold(101.0)
+        game.hold(104.0)
+        self.assertEqual(game.plan(109.9), [])
+        game.started(110.0)                                                # 'Get Ready!', nine seconds after the question
+        self.assertTrue(game.blind)
+        self.assertEqual(len(game.plan(110.05)), 3)                        # the three rows of a ghost attack
+        self.assertFalse(game.over(110.0 + 1.5 + 5.5))                     # (banner, then five seconds of icons)
+        self.assertTrue(game.over(110.0 - bm.GET_READY + bm.GAME_SECONDS + 0.1))
+
+    def test_get_ready_does_not_change_a_game_that_runs(self):
+        game = bm.Game("water", t0=100.0)
+        game.see(102.8, [(0.7, 0.5), (0.6, 0.6)])
+        game.started(103.0)
+        self.assertEqual(game.t0, 100.0)
 
     def test_an_attack_that_waited_plays_its_whole_game(self):
         game = bm.Game("water", t0=100.0)
@@ -312,7 +340,6 @@ class Plans(unittest.TestCase):
             self.assertEqual(game.plan(t), [], t)
         game.plain = False                                                 # the camera went to the attacker
         self.assertTrue(game.plan(102.5))
-        self.assertEqual(game.plan(101.0), [])                             # (but not before the icons can come)
         game.plain = True
         game.see(103.0, [(0.42, 0.56), (0.62, 0.56)])                      # icons that are seen are always swiped
         self.assertTrue(game.plan(103.05))

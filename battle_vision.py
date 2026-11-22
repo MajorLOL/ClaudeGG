@@ -4,16 +4,17 @@
 Pure picture tests (NumPy + OpenCV, no OCR, no phone): they are fast, so the fight loop can look at every
 screenshot.  Every position is a fraction of the screen, so the same code works on the 1768 x 2208 canvas
 of the Galaxy Z Fold3 and on a smaller copy of it.  The numbers come from recordings of whole fights
-(tests/fixtures/fight/, made with the recorder of the web interface): one in an arena by night and one in an
+(tests/fixtures/fight/, made with the recorder of the web interface): one in an arena by night and two in an
 arena by day.  By day the sky is full of white clouds, so nothing in here may take "pale" or "white" alone
 for a sign: the name boxes are known by their Poké Balls, the countdown by its white arc on the darker disc
-and a lit button by its white ring together with its white label.
+and a button that is ready by the white TEXT under it (a flash, a field line or a Poké Ball is no text).
 
     VERSUS  "Finding opponent" / "Battle starting": two halves with a white line in the middle
     HUD     the two name boxes at the top: name, CP, Poké Balls (alive), shields
     fight   the HUD, HP bars above the two Pokémon and, at the bottom, the two charged attack buttons
     prompt  a ring with a countdown at the top: "Attack incoming! Use a Protect Shield?" or the
             "Switch in a new Pokémon?" question (told apart by OCR, see battle_nav.py)
+    ready   the banner "Get Ready!" between the name boxes: our own charged attack starts, its icons follow
     result  "GOOD EFFORT!" ..., a green button NEXT BATTLE at the bottom
 """
 import cv2
@@ -22,12 +23,14 @@ import numpy as np
 # ---- where things are (fractions of the screen width / height) --------------------------------------
 BTN_Y = 0.816                     # centre of the two charged attack buttons
 BTN_X = (0.307, 0.690)            # ... left and right
-BTN_R = 0.095                     # ... radius of a ready (lit) button, in screen widths
 LABEL_Y = (0.895, 0.935)          # the name of the move under a button (bright white when it is ready)
-LABEL_LIT = 215                   # ... brightness of that text: ready 234-255, not ready 60-150
-LABEL_FLASH = 0.20                # ... more than this fraction white is a flash, not a text (a text: 0.04-0.11)
-RING_LIT = 0.45                   # the white ring of a lit button: 0.70-0.82 of it is white (0.56 and more on a
-                                  # badly blurred video).  With a bright label and no ring: 0.21 at most
+LABEL_HALF = 0.11                 # ... the zone that is looked at reaches this far to both sides of the button
+LABEL_RUNS = 4                    # ... a row of text: this many short white stretches or more, and no long one
+LABEL_ROWS = (0.008, 0.026)       # ... a text: such rows on top of each other over this part of the screen height
+                                  # (the label of a button that is ready: 0.014-0.018; anything else: none at all)
+LABEL_INK = 0.18                  # ... of which this much is white (letters: 0.24-0.32)
+LABEL_STROKES = 2                 # ... with upright strokes in it, white from its top to its bottom (SURF has 4,
+                                  # THUNDERBOLT 15; white dots - glitter - have none)
 TAP_FAST = (0.50, 0.45)           # a tap here is a fast attack (nothing is under it)
 TAP_SHIELD = (0.50, 0.70)         # the shield on "Attack incoming! Use a Protect Shield?"
 TAP_NOT_NOW = (0.50, 0.91)        # NOT NOW on the same question
@@ -46,6 +49,8 @@ BALL_Y = 0.170                    # the three Poké Balls in each name box (red:
 BALL_X = {"me": (0.053, 0.107, 0.161), "foe": (0.836, 0.890, 0.944)}
 BALL_R = 0.011                    # ... half the side of the patch that is looked at (in screen widths)
 SHIELD_ICON = (0.50, 0.715)       # the big shield icon on "Use a Protect Shield?"
+RUN_BUTTON = (0.081, 0.268)       # the round button with the running trainer, top left: leave the battle (it asks first)
+EXIT_YES_Y = (0.42, 0.64)         # 'Exit the Trainer Battle?': the green YES button lies in this part of the screen
 
 
 def _box(img, x0, y0, x1, y1):
@@ -114,65 +119,105 @@ def hud_visible(img):
     return all(red >= 1 and red + grey >= 2 for red, grey in ball_slots(img).values())
 
 
-def _ring_fraction(img, cx, cy, r0, r1):
+def _label_text(img, bx):
+    """Is the name of the move under a button written in bright white?  It is grey while there is not enough
+    energy and turns white the moment the attack can be thrown.  White alone is no sign (the lines of the field,
+    the Poké Ball of the intro and the flash of an attack are white there too), so the white has to be TEXT: a
+    band of rows that each have several short white stretches (the strokes of the letters) and no long one,
+    in the middle under the button, as high as a line of text, a quarter of it white, with at least two
+    strokes that stand upright over its whole height (U, R, F, T, B, L ...).  In three recorded fights only
+    the labels of buttons that were ready gave such a band (12 rows and more of the 35 of the zone; everything
+    else not even 3)."""
     h, w = img.shape[:2]
-    y0, y1 = max(int(cy - r1), 0), min(int(cy + r1) + 1, h)
-    x0, x1 = max(int(cx - r1), 0), min(int(cx + r1) + 1, w)
-    sub = img[y0:y1, x0:x1]
-    yy, xx = np.ogrid[y0:y1, x0:x1]
-    d2 = (xx - cx) ** 2 + (yy - cy) ** 2
-    mask = (d2 >= r0 * r0) & (d2 <= r1 * r1)
-    if not mask.any():
-        return 0.0
-    return float((sub.min(axis=-1)[mask] > 215).mean())
-
-
-_rings = {}                       # which pixels belong to which ring: the same for every picture of one size
-
-
-def _ring_best(img, cx, cy, radii, half):
-    """The whitest of the rings with the given radii (each `half` thick to both sides) around (cx, cy): the
-    share of white pixels in it.  The same as max(_ring_fraction(...)) over the radii, but the pixels of every
-    ring are worked out only once per picture size (the fight loop asks this for every picture)."""
-    h, w = img.shape[:2]
-    key = (h, w, round(cx, 2), round(cy, 2), tuple(round(float(r), 3) for r in radii), round(float(half), 3))
-    geo = _rings.get(key)
-    if geo is None:
-        r1 = max(radii) + half
-        y0, y1 = max(int(cy - r1), 0), min(int(cy + r1) + 1, h)
-        x0, x1 = max(int(cx - r1), 0), min(int(cx + r1) + 1, w)
-        yy, xx = np.ogrid[y0:y1, x0:x1]
-        d2 = ((xx - cx) ** 2 + (yy - cy) ** 2).ravel()
-        idx = [np.flatnonzero((d2 >= (r - half) ** 2) & (d2 <= (r + half) ** 2)) for r in radii]
-        if len(_rings) > 64:
-            _rings.clear()
-        geo = _rings[key] = (y0, y1, x0, x1, idx)
-    y0, y1, x0, x1, idx = geo
-    white = (img[y0:y1, x0:x1].min(axis=-1) > 215).ravel()
-    return max((float(white[i].mean()) for i in idx if i.size), default=0.0)
-
-
-def _label_lit(img, bx):
-    """Is the name of the move under a button bright white?  Text is a thin line: when a large part of the
-    strip is white it is a flash of the charged attack's zoom, not a label."""
-    h, w = img.shape[:2]
-    lab = img[int(LABEL_Y[0] * h):int(LABEL_Y[1] * h), int((bx - 0.11) * w):int((bx + 0.11) * w)].min(axis=-1)
-    return float(np.percentile(lab, 98)) >= LABEL_LIT and float((lab > 200).mean()) < LABEL_FLASH
+    white = img[int(LABEL_Y[0] * h):int(LABEL_Y[1] * h),
+                max(int((bx - LABEL_HALF) * w), 0):int((bx + LABEL_HALF) * w)].min(axis=-1) > 200
+    rows, zw = white.shape
+    if rows < 4 or zw < 16:
+        return False
+    short = 0.1 * zw
+    best = cur = end = 0
+    for r in range(rows):
+        d = np.diff(np.concatenate(([0], white[r].view(np.int8), [0])))
+        length = np.where(d == -1)[0] - np.where(d == 1)[0]
+        cur = cur + 1 if length.size >= LABEL_RUNS and float(length.max()) <= short else 0
+        if cur > best:
+            best, end = cur, r
+    if not max(LABEL_ROWS[0] * h, 3) <= best <= LABEL_ROWS[1] * h:
+        return False
+    band = white[end - best + 1:end + 1]
+    cols = np.where(band.any(axis=0))[0]
+    if abs((int(cols[0]) + int(cols[-1])) / 2.0 / zw - 0.5) > 0.15:
+        return False
+    if float(band[:, cols[0]:cols[-1] + 1].mean()) < LABEL_INK:
+        return False
+    upright = band.sum(axis=0) >= 0.7 * best
+    return int((np.diff(np.concatenate(([0], upright.view(np.int8)))) == 1).sum()) >= LABEL_STROKES
 
 
 def charge_ready(img):
-    """(left, right): is the charged attack button lit (enough energy for it)?  Both signs must be there: the
-    name under the button is bright white (grey when there is not enough energy) AND the button has its thick
-    white ring (the radius is searched: the button swells a little when it is ready).  One sign alone is not
-    enough: the white lines of the field, the Poké Ball of the intro and the flash of an attack make the label
-    zone white, a flash or the glitter of a fainting Pokémon looks like a ring - and each of those made the
-    bot throw a charged attack that was not there."""
-    h, w = img.shape[:2]
-    radii = np.arange(0.080, 0.112, 0.004) * w
-    res = []
-    for bx in BTN_X:
-        res.append(_label_lit(img, bx) and _ring_best(img, bx * w, BTN_Y * h, radii, 0.004 * w) >= RING_LIT)
-    return tuple(res)
+    """(left, right): can the charged attack of a button be thrown (enough energy for it)?  The sign is the name
+    under the button: grey while it charges, bright white text when it is ready (see _label_text()).  The thick
+    white ring around the button comes up to a second LATER than the white name (that second is a turn or two of
+    the fight, so the ring is not waited for), and it is still there while a tapped button waits for its turn:
+    the name has moved down by then, so a button that was tapped does not count as ready any more."""
+    return tuple(_label_text(img, bx) for bx in BTN_X)
+
+
+# The banner "Get Ready!" as it is drawn on the screen: the white of its letters between the two name boxes
+# ("et Read", the rest lies over the boxes), from a recording, on a grid of 62 x 22.
+GET_READY_ZONE = (0.412, 0.154, 0.588, 0.204)
+GET_READY = (
+    "..............................................................",
+    "..............................................................",
+    "..............................................................",
+    "..............................................................",
+    "..............................................................",
+    "......................######..............................#...",
+    "............##........########............................#...",
+    "............##........###...###...........................##..",
+    "............##........###...###..........................###..",
+    "...#####..######......###...###...######...######....#######.#",
+    "..##..###..####.......###...##...########..######...########.#",
+    ".##....##...##........########...##....##......###.###...###..",
+    ".########...##........#######....########......###.###...###..",
+    ".########..###........###.###....########..#######.###...###..",
+    ".##.........##........##...###...##.......###..###.###...###..",
+    "..##........##........##....##...###......##...###..##...###..",
+    "..#######...####......##....###...#######.########..########..",
+    "....###......###......##.....##....#####...####.##...###..#...",
+    "..............................................................",
+    "..............................................................",
+    "..............................................................",
+    "..............................................................",
+)
+GET_READY_MATCH = 0.65            # the banner itself: 0.89-1.00 (by day and by night); any other text there: 0.39 at most
+_get_ready = []
+
+
+def get_ready(img):
+    """True when the banner 'Get Ready!' is on the picture.  The game shows it for a good second when OUR
+    charged attack starts (the other side's starts with 'Attack incoming!'), right before the icons of its
+    little game come: the one sure sign that an attack of ours was thrown, whoever tapped what and when.
+    The letters are white on the grey see-through box of the banner (dark by night, grey over the clouds by
+    day), so "white" is taken from the picture itself: more than halfway from the box to the brightest."""
+    if not _get_ready:
+        _get_ready.append(np.array([[c == "#" for c in row] for row in GET_READY]))
+    want = _get_ready[0]
+    zone = cv2.resize(_box(img, *GET_READY_ZONE), (want.shape[1], want.shape[0]),
+                      interpolation=cv2.INTER_AREA).min(axis=-1).astype(np.float32)
+    base, top = float(np.median(zone)), float(np.percentile(zone, 99))
+    if top - base < 25:
+        return False                                                 # (nothing bright on something darker; the
+                                                                     # banner over clouds, fading in: 30 and more)
+    text = zone > base + 0.5 * (top - base)
+    best = 0.0
+    for dy in (-1, 0, 1):                                            # (a pixel of play: the video is a little
+        for dx in (-1, 0, 1):                                        # blurred and not always cut at the same place)
+            moved = np.roll(np.roll(text, dy, axis=0), dx, axis=1)
+            union = float((moved | want).sum())
+            if union:
+                best = max(best, float((moved & want).sum()) / union)
+    return best >= GET_READY_MATCH
 
 
 _arcs = {}                        # the pixels of the last piece of the countdown's arc, per picture size
@@ -323,6 +368,18 @@ def hp_bars(img):
         edge = ((side.min(axis=-1) > 150) & (side.max(axis=-1) - side.min(axis=-1) < 90)).mean(axis=0)
         if edge.size == 0 or edge.max() < 0.6:
             continue
+        # ... and so are the lines of the frame above and below the part that is not filled.  The banner of a
+        # question ('No Protect Shields remaining!') lies over our bar and leaves a sliver of it: that read as
+        # "6 % HP" (and the white letters of the banner passed for the right edge of the frame)
+        e0, e1 = int(x + bw + 0.012 * w), int(x + full - 0.004 * w)
+        if e1 - e0 >= max(0.02 * w, 6):
+            lines = []
+            for y0, y1 in ((yc - int(0.012 * h), yc - int(0.003 * h)), (yc + int(0.004 * h), yc + int(0.013 * h))):
+                band = reg[max(y0, 0):max(y1, 1), e0:e1].astype(np.int16)
+                pale = (band.min(axis=-1) > 150) & (band.max(axis=-1) - band.min(axis=-1) < 90)
+                lines.append(float(pale.mean(axis=1).max()) if pale.size else 0.0)
+            if min(lines) < 0.6:               # (a bar in clear view: 0.96 and more for both lines)
+                continue
         col = "green" if green[yc, min(x + 1, w - 1)] else "yellow" if yellow[yc, min(x + 1, w - 1)] else "red"
         out.append({"x0": x, "frac": min(bw / full, 1.0), "color": col, "y": top + yc})
     out.sort(key=lambda b: b["x0"])
@@ -473,6 +530,18 @@ def home_button(img):
     return min(found, key=lambda b: b["y0"]) if found else None
 
 
+def exit_yes(img):
+    """Where to tap YES on the question 'Exit the Trainer Battle?' (it comes up after a tap on the button
+    with the running trainer): the middle of a wide green button in the middle of the screen, (x, y) in
+    fractions, or None when there is no such button.  A fight itself has no green buttons, and the grass of an
+    arena reaches from edge to edge (wide_buttons() leaves that out)."""
+    for b in wide_buttons(img, EXIT_YES_Y[0] - 0.04):
+        if (b["color"] == "green" and b["y0"] >= EXIT_YES_Y[0] and b["y1"] <= EXIT_YES_Y[1]
+                and abs((b["x0"] + b["x1"]) / 2.0 - 0.5) <= 0.10 and 0.20 <= b["x1"] - b["x0"] <= 0.75):
+            return (round((b["x0"] + b["x1"]) / 2.0, 3), round((b["y0"] + b["y1"]) / 2.0, 3))
+    return None
+
+
 def features(img):
     """Everything above in one dict (for the log and the tests)."""
     mine, foe = hp_of_sides(img)
@@ -484,4 +553,6 @@ def features(img):
         "ready": charge_ready(img) if hud else (False, False),
         "ring": bool(count), "count": count, "shields": shield_icon_slots(img),
         "hp": (mine, foe), "result": result_button(img), "hex": shield_question(img),
+        "get_ready": hud and not count and get_ready(img),
+        "balls": ball_slots(img) if hud else None,       # (who can still fight: only with the name boxes)
     }

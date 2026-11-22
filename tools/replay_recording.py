@@ -12,9 +12,12 @@ in the recording.
     python3 tools/replay_recording.py ~/battle-recording --first 181 --last 293   # only the fight
 
 What to look for: `the fight has started` at the first picture of the fight and not before, `throwing ...` only
-at pictures with a lit button, an answer at every question, `the fight is over` at the result screen.  A film
-cannot show whether a tap would have worked: after a throw the pictures go on as they were recorded, so lines
-like `the button is still lit - the tap did not count` and `... did not start` are normal here.
+at pictures with a button that is ready (its name in white - the white ring may still be missing), `'Get Ready!'`
+before every little game, an answer at every question, `the fight is over` at the result screen.  A film cannot
+show whether a tap would have worked: after a throw the pictures go on as they were recorded, so lines like
+`the button is still ready - the tap did not count`, `... did not start` and `the question to leave the battle
+did not come up` are normal here.  The fast attacks are only counted: in the middle of the screen and on a
+charged attack button (where they are tapped while that attack charges, see FIGHT_AIM in gamebot.py).
 
 The team is the one of ~/battle_team.json (or the preset).  Run it with HOME set to an empty folder to leave
 the settings and the learned little games of the real bot alone:  HOME=$(mktemp -d) python3 tools/...
@@ -128,13 +131,18 @@ def main():
     film = Film(args.folder, rows, args.pace)
     Clock.t = int(rows[0]["ms"]) / 1000.0
     end = int(rows[-1]["ms"]) / 1000.0 + 12.0
-    fast = [0]
+    fast = [0, 0]                                   # fast attacks: in the middle, on a charged attack button
+    aimed = {}                                      # pictures with fast attacks on a button -> which button
     swept = {}
 
     def tap(x, y, ms=120):
         fx, fy = x / float(S.REF_W), y / float(S.REF_H)
+        button = next((i for i, bx in enumerate(BV.BTN_X) if abs(fx - bx) < 0.01 and abs(fy - BV.BTN_Y) < 0.01), None)
         if abs(fx - BV.TAP_FAST[0]) < 0.01 and abs(fy - BV.TAP_FAST[1]) < 0.01:
             fast[0] += 1                            # (the fast attacks: only counted)
+        elif button is not None and ms == G.FIGHT_TAP_MS:
+            fast[1] += 1                            # (the fast attacks on a button: the pictures are listed)
+            aimed.setdefault(int(film.row()["index"]), "LR"[button])
         else:
             film.say(f"TAP at ({fx:.2f}, {fy:.2f})")
         real_time.sleep(0.001)
@@ -157,8 +165,11 @@ def main():
     S.screenshot = lambda on_grab=None: film.picture((S.REF_W, S.REF_H))
     res = G.fight_battle(stop=lambda: Clock.t > end, stream=film)
     print(f"result: {res['result'] or '-'}" + (f" ({res['why']})" if res["why"] else "")
-          + f"; {fast[0]} fast taps (the film runs faster than the phone: the number says nothing); "
-          f"swipes on pictures {sorted(swept) or '-'}")
+          + (" - given up" if res.get("gave_up") else "")
+          + f"; {fast[0]} fast taps in the middle and {fast[1]} on a button (the film runs faster than the phone: the "
+          f"numbers say nothing); swipes on pictures {sorted(swept) or '-'}")
+    if aimed:
+        print("fast attacks on a button (L / R) on pictures: " + " ".join(f"{k}{v}" for k, v in sorted(aimed.items())))
 
 
 if __name__ == "__main__":

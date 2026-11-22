@@ -27,7 +27,9 @@ so the swipes do not aim at single icons:
     remembers what it found for the next time (Game.learned());
   * known lines are swiped "blind" (before the first icon is seen) only while the camera is on the attacker:
     as long as the pictures show the plain fight (Game.plain, set by the fight loop) nothing is swiped, for
-    the rows of some types run right over the charged attack buttons.
+    the rows of some types run right over the charged attack buttons.  When that starts is not counted in
+    seconds from the tap (the game takes two to three seconds, and a tap may come twice): the fight loop tells
+    it from the pictures, the surest sign being the banner "Get Ready!" (Game.started()).
 
 Sizes are fractions of the screen width (x) and height (y); distances are measured in screen widths.
 """
@@ -169,8 +171,8 @@ STILL = 0.03              # an icon that moved less than this stands still ...
 STILL_FROM, STILL_TO = 0.08, 0.32      # ... compared with the pictures that are this many seconds older
 STILL_FOR = 0.2           # ... of which the oldest must be at least this old
 MOVED = 0.17              # an icon that moves is at most this far from where one was on the picture before
-START = 2.0               # s after the throw: from here on the known lines are swiped when nothing was seen yet
 GAME_SECONDS = 10.0       # s after the throw: the little game is certainly over
+GET_READY = 1.5           # s between the tap on the button and the banner "Get Ready!" (the icons: see LEAD)
 QUIET = 1.2               # s without icons (after some were seen): the little game is over
 ROW_LIFE = 3.0            # s a row that was seen standing still is still visited
 GATE_ICONS = 12           # moving icons seen before the place to wait for the stream is chosen
@@ -180,7 +182,8 @@ GATE_SIDE = 0.07          # the gate reaches this far past the outermost of them
 GATE_HALF = 0.12          # ... and at least this far to both sides
 GATE_TIMES = 4            # swipes over the gate in one go (there and back)
 LEAD = 2.8                # s between the tap on the button and the first icons
-HOLD = 8.0                # the other side's charged attack goes first: ours is waited for this long after it
+HOLD = 25.0               # the other side's charged attack goes first: ours is waited for this long after its
+                          # question at most (the question, their attack and its animation take 9 to 12 s)
 
 # Where the icons of a type come by, from recordings of real fights: "gates" are lines across a stream of
 # icons (every icon has to pass there), "rows" are places where icons flash up standing still.
@@ -240,7 +243,8 @@ class Game:
         self.builtin = self.kind in KNOWN
         self.turn = 0
         self.blind = True                  # swipe what is known of the type when no icons are seen (see hold())
-        self.plain = False                 # the newest picture shows the plain fight, not the attack: nothing blind
+        self.plain = True                  # the camera is not on the attacker (yet): nothing blind.  The fight loop
+                                           # sets this from the pictures; started() says that the attack begins
 
     # ---------------------------------------------------------------- what is seen ---
     def see(self, t, icons):
@@ -315,11 +319,20 @@ class Game:
     def hold(self, now, wait=HOLD):
         """The attack has to wait: the other side threw a charged attack in the same turn and theirs goes
         first.  Ours comes after it, nobody knows exactly when - or not at all.  So from now on only icons
-        that are seen are swiped (nothing blind: a swipe over the fight itself could tap a button), and the
-        game is given up `wait` seconds from now when none came."""
+        that are seen are swiped (nothing blind: a swipe over the fight itself could tap a button) until the
+        banner 'Get Ready!' says that it starts (started()), and the game is given up `wait` seconds from now
+        when nothing came."""
         if self.first is None:
             self.blind = False
             self.t0 = now + wait - GAME_SECONDS
+
+    def started(self, now):
+        """The banner 'Get Ready!' is on the screen: the attack starts now and its icons follow within a second
+        or two.  From here on what is known of the type is swiped without waiting for the first icon, whatever
+        was decided before (an attack that had to wait, one that was given up)."""
+        if self.first is None:
+            self.blind, self.plain = True, False
+            self.t0 = now - GET_READY
 
     def over(self, now):
         if now - self.t0 > GAME_SECONDS:
@@ -358,12 +371,15 @@ class Game:
         icons are not there yet, or the game is over)."""
         if self.over(now):
             return []
-        if self.first is None and (not self.blind or self.plain or now - self.t0 < START):
-            return []                                  # (nothing seen yet: wait - or the attack has not started:
-                                                       # a blind swipe over the fight itself could tap a button)
+        if self.first is None and (not self.blind or self.plain):
+            return []                                  # (nothing seen yet and the attack has not started: a blind
+                                                       # swipe over the fight itself could tap a button)
         pts = []
         if self.frames and now - self.frames[-1][0] <= FRESH:
             pts = list(self.frames[-1][1])             # (the newest picture, when it is not too old)
+        if self.plain and not pts:
+            return []                                  # (the plain fight is back and no icon on it: the rows are
+                                                       # not swiped "a little longer" over the buttons)
         self.turn += 1
         flip = self.turn % 2 == 1                      # (there and back: not always from the same side)
         out = []

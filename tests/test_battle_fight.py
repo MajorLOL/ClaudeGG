@@ -2,9 +2,10 @@
 python3 -m unittest discover -s tests
 
 features.json holds what battle_vision sees on the 141 pictures of a recorded fight (every 1.3 s, an arena by
-night), features_day.json the same for the fight itself of a second recording (113 pictures, an arena by day):
-replaying them checks that the fight state survives real, noisy readings.  Both files are made from the
-recordings with the readers as they are now; when a reader changes they are made again."""
+night), features_day.json and features_day2.json the same for the fights of two more recordings (113 and 119
+pictures, an arena by day): replaying them checks that the fight state survives real, noisy readings.  The
+files are made from the recordings with the readers as they are now; when a reader changes they are made
+again."""
 import json
 import os
 import sys
@@ -566,6 +567,10 @@ class ReplayByDay(unittest.TestCase):
             self.assertEqual(self.at(p)["hp"], [None, None], p)
             self.assertTrue(self.at(p)["hud"], p)
 
+    def test_get_ready_is_seen_before_the_little_games(self):
+        seen = [DAY_FIRST + i for i, f in enumerate(DAY) if f["get_ready"]]
+        self.assertEqual(seen, [213, 228])           # (the two that were on a picture: 213 fading in, 228 full)
+
     def test_shields_are_counted_from_clear_pictures_only(self):
         fight, trace = self.run_fight()
         for p in range(191, 209):                    # (banners over the name boxes at 202 and 207: still two each)
@@ -580,6 +585,363 @@ class ReplayByDay(unittest.TestCase):
         self.assertIn("Lapras", trace[240][2])
         self.assertIn("Lanturn", trace[256][2])
         self.assertIn("Lanturn", trace[289][2])
+
+
+with open(os.path.join(HERE, "fixtures", "fight", "features_day2.json"), encoding="utf-8") as f:
+    DAY2 = json.load(f)
+DAY2_FIRST = 20
+
+
+class ReplayOfTheLateAttacks(unittest.TestCase):
+    """The third recorded fight (features_day2.json: pictures 20 to 138 of that recording).  The bot fought it
+    itself and lost it by a hair: its charged attacks came a turn or two late (it waited for the white ring of a
+    button), the little game of an attack that had to wait for the other side's was not played at all, the
+    switch question was not answered in the three seconds it stayed, and it fought on to the last second."""
+
+    READY = {30: [True, True], 47: [True, True], 64: [True, True], 76: [True, True], 108: [True, True],
+             119: [True, False]}                              # (30 and 119: the white ring is not there yet)
+    QUESTIONS = {33: "attack", 77: "switch", 78: "switch", 81: "attack", 82: "attack", 83: "attack", 92: "attack",
+                 93: "attack", 94: "attack", 103: "attack", 104: "attack", 105: "attack", 130: "attack",
+                 131: "attack", 132: "attack"}
+
+    def at(self, picture):
+        return DAY2[picture - DAY2_FIRST]
+
+    def run_fight(self, until=10 ** 6):
+        """What the loop knows besides the pictures: the names it reads, our Pokémon after the switch question
+        (the game chose Lapras: the question was not answered in time) and the last one, which came in by
+        itself."""
+        fight = new_fight("Slowbro")
+        events = {73: lambda: fight.set_foe("Dragalge", 1482), 77: lambda: fight.switch([]),
+                  79: lambda: fight.set_active(1489), 87: lambda: fight.set_foe("Hitmonchan", 1487),
+                  97: lambda: fight.set_active(1494), 117: lambda: fight.set_foe("Dragalge", 1482)}
+        for i, f in enumerate(DAY2):
+            picture = DAY2_FIRST + i
+            if picture > until:
+                break
+            if picture in events:
+                events[picture]()
+            if bf.state(f) in ("fight", "other"):
+                fight.see(f)
+        return fight
+
+    def test_a_button_is_ready_before_its_ring_is_there(self):
+        ready = {DAY2_FIRST + i: f["ready"] for i, f in enumerate(DAY2) if any(f["ready"])}
+        self.assertEqual(ready, self.READY)
+
+    def test_get_ready_is_seen_before_each_little_game_that_was_recorded(self):
+        seen = [DAY2_FIRST + i for i, f in enumerate(DAY2) if f["get_ready"]]
+        self.assertEqual(seen, [38, 121])            # (38: twelve seconds after the tap - theirs went first)
+        for p in seen:
+            self.assertEqual(self.at(p)["hp"], [None, None], p)
+            self.assertEqual(bf.state(self.at(p)), "fight", p)
+
+    def test_every_question_is_seen_with_its_kind(self):
+        seen = {DAY2_FIRST + i: f["count"] for i, f in enumerate(DAY2) if f["ring"]}
+        self.assertEqual(seen, self.QUESTIONS)
+        self.assertTrue(self.at(33)["hex"])                                     # the one shield question on a picture
+
+    def test_who_can_still_fight_is_read_from_the_poke_balls(self):
+        self.assertEqual(self.at(30)["balls"], {"me": [3, 0], "foe": [3, 0]})
+        self.assertEqual(self.at(79)["balls"], {"me": [2, 1], "foe": [2, 1]})   # Noctowl and Slowbro fainted
+        self.assertEqual(self.at(101)["balls"], {"me": [1, 2], "foe": [2, 1]})  # our last one against two
+        self.assertEqual(self.at(128)["balls"], {"me": [1, 2], "foe": [1, 2]})  # the last ones of both sides
+        self.assertIsNone(self.at(130)["balls"])                                # (a question: no name boxes)
+
+    def test_the_last_attack_ends_the_fight_and_the_bot_can_know_it(self):
+        """Picture 130: 'No Protect Shields remaining!' - Lanturn is our last Pokémon, a third of its HP is
+        left and Dragalge's hardest attack takes more than that.  That is when the fight is given up."""
+        fight = self.run_fight(until=129)
+        self.assertEqual(fight.me.species, "lanturn")
+        self.assertEqual(fight.my_shields, 0)
+        self.assertEqual(len(fight.alive()), 1)
+        self.assertAlmostEqual(fight.my_hp, 0.32, delta=0.03)
+        lost, why = fight.doomed()
+        self.assertTrue(lost)
+        self.assertIn("Lanturn is our last Pokémon", why)
+        self.assertIn("Dragalge", why)
+
+    def test_no_attack_is_the_end_while_others_can_still_fight(self):
+        for until in (32, 80, 91):                   # the questions on Noctowl and on Lapras
+            fight = self.run_fight(until=until)
+            self.assertEqual(fight.doomed(), (False, ""), until)
+
+    def test_one_against_two_is_not_given_up_while_the_duel_can_be_won(self):
+        """Pictures 97 to 115: Lanturn, our last one, against Hitmonchan with Dragalge still waiting.  Lanturn
+        wins that duel (it did), so the fight goes on."""
+        for until in (99, 101, 108):
+            fight = self.run_fight(until=until)
+            self.assertEqual(len(fight.alive()), 1, until)
+            self.assertEqual(fight.hopeless(2), (False, ""), until)
+
+
+class Aim(unittest.TestCase):
+    """The charged attack that is thrown the moment it is ready: the fast attacks are tapped on its button."""
+
+    def lanturn(self, foe):
+        team = be.load_team()
+        fight = bf.Fight([team[2], team[0], team[1]], log=lambda _m: None)      # Lanturn: Surf 45, Thunderbolt 55
+        if foe:
+            fight.set_foe(foe, 1500)
+        fight.set_buttons("SURF", "THUNDERBOLT")
+        return fight
+
+    def test_no_aim_while_the_buttons_are_not_known(self):
+        fight = bf.Fight(be.load_team(), log=lambda _m: None)
+        fight.set_foe("Cramorant", 1493)
+        self.assertIsNone(fight.aim())
+        fight.set_buttons("SHADOW BALL", "SKY ATTACK")
+        self.assertIsNotNone(fight.aim())
+
+    def test_the_aim_is_what_throw_would_throw(self):
+        """Whatever the engine throws the moment a button lights up is what the aim is on."""
+        for foe in ("Cramorant", "Slowbro", "Dragalge", "Hitmonchan", "Azumarill", "Registeel", ""):
+            for shields in (0, 1, 2):
+                for hp in (1.0, 0.5, 0.15):
+                    fight = self.lanturn(foe)
+                    fight.foe_shields = shields
+                    fight.foe_hp = hp
+                    if fight.foe:
+                        fight.foe.hp = int(hp * fight.foe.max_hp)
+                    aim = fight.aim()
+                    costs = sorted({m.energy for m in fight.me.charged})
+                    thrown = None
+                    for cost in costs:                       # the buttons light up one after the other
+                        fight.lit = tuple(fight.move_of(i).energy <= cost for i in (0, 1))
+                        thrown = fight.throw()
+                        if thrown:
+                            break
+                    case = (foe, shields, hp)
+                    if aim is None:                          # (nothing is thrown early: the cheap one only when
+                        if thrown:                           # the dear one is ready too)
+                            self.assertLess(thrown[1].energy, cost, case)
+                    else:
+                        self.assertIsNotNone(thrown, case)
+                        self.assertEqual((thrown[0], thrown[1].id), (aim[0], aim[1].id), case)
+                        self.assertEqual(aim[1].energy, cost, case)
+
+    def test_saving_up_for_the_dear_attack_aims_at_its_button(self):
+        fight = self.lanturn("Slowbro")
+        picks = {45: (None, "building up to Thunderbolt"), 55: (fight.me.charged[1], "the best attack")}
+        real = be.pick_charged
+        be.pick_charged = lambda me, foe, energy, *a: picks[energy]
+        try:
+            self.assertEqual(fight.aim()[0], 1)              # (taps on it are fast attacks until it is ready)
+            fight.my_hp = 0.9                                # (another state: worked out again)
+            picks[55] = (fight.me.charged[0], "Surf as bait")
+            self.assertIsNone(fight.aim())                   # the cheap one, but only when the dear one is ready
+            fight.my_hp = 0.8
+            picks[45] = (fight.me.charged[0], "Surf finishes it")
+            self.assertEqual(fight.aim()[0], 0)
+        finally:
+            be.pick_charged = real
+
+    def test_the_other_way_round_on_the_screen(self):
+        """The aim is on the button the attack is on - whatever the order in the party."""
+        fight = self.lanturn("")
+        want = fight.aim()
+        self.assertEqual((want[0], want[1].id), (0, "SURF"))
+        team = be.load_team()
+        other = bf.Fight([team[2], team[0], team[1]], log=lambda _m: None)
+        other.set_buttons("THUNDERBOLT", "SURF")
+        self.assertEqual((other.aim()[0], other.aim()[1].id), (1, "SURF"))
+
+    def test_about_to_faint_anything_goes(self):
+        fight = self.lanturn("Slowbro")
+        real = be.pick_charged
+        be.pick_charged = lambda *a: (None, "farming down with the fast move is quickest")
+        try:
+            self.assertIsNone(fight.aim())
+            see_twice(fight, hp=(0.05, 0.9))
+            aim = fight.aim()
+            self.assertEqual(aim[1].id, "SURF")              # (what lights up first)
+        finally:
+            be.pick_charged = real
+
+    def test_a_new_pokemon_has_no_aim_until_its_buttons_are_read(self):
+        fight = new_fight("Slowbro")
+        self.assertIsNotNone(fight.aim())
+        fight.switch([])
+        self.assertIsNone(fight.aim())
+
+
+class WhoIsOnTheField(unittest.TestCase):
+    """The Poké Balls of our name box and the CP in it, after the switch question ran out."""
+
+    def balls(self, red, hp=(None, None)):
+        f = feat(hp=hp, shields={"me": 0, "foe": 0})
+        f["balls"] = {"me": [red, 3 - red], "foe": [3, 0]}
+        return f
+
+    def test_the_game_chose_the_other_one(self):
+        """The bot tapped Lanturn when the countdown was over; the game had put Lapras in.  The HP that is read
+        meanwhile is Lapras's: Lanturn keeps its own."""
+        fight = new_fight("Dragalge")
+        noctowl, lapras, lanturn = fight.team
+        for _ in range(3):
+            fight.see(self.balls(2))
+        fight.faint()
+        fight._enter(lanturn)                                 # (what the bot thinks)
+        for _ in range(3):
+            fight.see(self.balls(2, hp=(0.50, 0.9)))          # Lapras took a hit meanwhile
+        fight.set_active(lapras.cp)                           # the name box: it is Lapras
+        self.assertIs(fight.me, lapras)
+        self.assertAlmostEqual(fight.my_hp, 0.50, delta=0.02)
+        self.assertEqual(lanturn.hp, lanturn.max_hp)          # (not the 50 % that was read)
+        self.assertEqual(fight.dead, {0})
+
+    def test_a_grey_ball_brings_the_last_one_in(self):
+        fight = new_fight("Dragalge")
+        noctowl, lapras, lanturn = fight.team
+        fight.faint()
+        fight._enter(lapras)
+        for _ in range(3):
+            fight.see(self.balls(2, hp=(0.26, 0.9)))
+        logs = []
+        fight.log = logs.append
+        fight.see(self.balls(1))                              # Lapras faints from a charged attack: no HP bar
+        self.assertIs(fight.me, lapras)                       # (one picture is not enough)
+        fight.see(self.balls(1))
+        self.assertIs(fight.me, lanturn)
+        self.assertEqual(fight.dead, {0, 1})
+        self.assertIn("another Poké Ball of ours is grey - Shadow Lapras fainted, Lanturn is on the field", logs[0])
+        self.assertEqual(fight.my_hp, 1.0)
+
+    def test_two_grey_balls_at_once(self):
+        """The bot comes to a fight that is half over (or missed a faint): two Poké Balls are grey, nobody was
+        counted as fainted and the name box shows our last one.  The one in the box is the one on the field."""
+        fight = new_fight("Dragalge")
+        noctowl, lapras, lanturn = fight.team
+        fight.see(self.balls(1, hp=(0.32, 0.28)))
+        fight.set_active(lanturn.cp)                          # the name box: Lanturn
+        self.assertIs(fight.me, lanturn)
+        fight.see(self.balls(1, hp=(0.32, 0.28)))
+        fight.see(self.balls(1, hp=(0.32, 0.28)))
+        self.assertIs(fight.me, lanturn)
+        self.assertEqual(fight.dead, {0, 1})
+        self.assertEqual(len(fight.alive()), 1)
+
+    def test_the_old_name_in_the_box_does_not_bring_the_fainted_one_back(self):
+        """The ball turns grey a second or two before the name in the box changes: a reading of that box in
+        between still gives the CP of the one that fainted."""
+        fight = new_fight("Dragalge")
+        noctowl, lapras, lanturn = fight.team
+        fight.foe_every = 50                                  # (the live video: five seconds)
+        fight.faint()
+        fight._enter(lapras)
+        for _ in range(3):
+            fight.see(self.balls(2, hp=(0.26, 0.9)))
+        fight.see(self.balls(1))
+        fight.see(self.balls(1))
+        self.assertIs(fight.me, lanturn)
+        fight.set_active(lapras.cp)                           # the box still says 'Lapras CP 1489'
+        self.assertIs(fight.me, lanturn)
+        self.assertEqual(fight.dead, {0, 1})
+        fight.set_active(lanturn.cp)
+        self.assertIs(fight.me, lanturn)
+
+    def test_a_mix_up_is_put_right_when_the_name_box_keeps_saying_so(self):
+        fight = new_fight("Dragalge")
+        noctowl, lapras, lanturn = fight.team
+        fight.foe_every = 3
+        fight.dead = {0, 2}                                   # (the bot took Lanturn for fainted: it was Lapras)
+        fight._enter(lapras)
+        for _ in range(6):
+            fight.see(self.balls(1, hp=(0.9, 0.9)))
+        fight.set_active(lanturn.cp)
+        self.assertIs(fight.me, lanturn)
+        self.assertEqual(fight.dead, {0, 1})
+
+
+class GivingUp(unittest.TestCase):
+    def last_one(self, foe="Dragalge", hp=0.06, foe_hp=0.85):
+        fight = new_fight(foe)
+        fight.dead = {1, 2}                                   # (Lapras and Lanturn fainted: Noctowl is the last)
+        fight.my_shields = fight.foe_shields = 0
+        for _ in range(3):                                    # (a big change is believed at the second picture)
+            fight.see(feat(hp=(hp, foe_hp), shields={"me": 0, "foe": 0}))
+        return fight
+
+    def test_the_hp_has_to_be_read_from_its_own_bar(self):
+        """A Pokémon that has just come in has the HP that was kept for it - which may be wrong after a mix-up
+        (in a replay a full Lanturn was taken for one with 12 HP).  Nothing is given up on that."""
+        fight = self.last_one(hp=0.30)
+        self.assertTrue(fight.doomed()[0])
+        fight._enter(fight.me)                                # (it came in: nothing read yet)
+        self.assertEqual(fight.doomed(), (False, ""))
+        self.assertEqual(fight.hopeless(2), (False, ""))
+        fight.see(feat(hp=(0.30, 0.85), shields={"me": 0, "foe": 0}))
+        self.assertEqual(fight.doomed(), (False, ""))         # (one reading is not enough)
+        fight.see(feat(hp=(0.30, 0.85), shields={"me": 0, "foe": 0}))
+        self.assertTrue(fight.doomed()[0])
+
+    def test_an_attack_that_knocks_out_our_last_pokemon(self):
+        fight = self.last_one(hp=0.30)
+        lost, why = fight.doomed()
+        self.assertTrue(lost)
+        self.assertIn("Noctowl is our last Pokémon", why)
+        self.assertIn("no shield", why)
+
+    def test_not_while_there_is_a_shield_another_pokemon_or_enough_hp(self):
+        fight = self.last_one(hp=0.30)
+        fight.my_shields = 1
+        self.assertEqual(fight.doomed(), (False, ""))
+        fight = self.last_one(hp=0.30)
+        fight.dead = {1}
+        self.assertEqual(fight.doomed(), (False, ""))
+        fight = self.last_one(hp=1.0)                         # (Outrage does not take all of a full Noctowl)
+        self.assertEqual(fight.doomed(), (False, ""))
+        fight = self.last_one(foe="", hp=0.05)                # (the foe is not known: nothing is known)
+        self.assertEqual(fight.doomed(), (False, ""))
+
+    def test_an_hp_that_was_not_read_in_the_plain_fight_gives_nothing_up(self):
+        """Our bar under the banner of the question read as 6 % in a replay (it was 77 %): what is believed then
+        is not what was read in the plain fight, and nothing is given up on it."""
+        fight = self.last_one(hp=0.77)
+        self.assertEqual(fight.doomed(), (False, ""))
+        for _ in range(3):                                    # the question: no name boxes, a sliver of the bar
+            fight.see(feat(hp=(0.06, None), hud=False, ring=True))
+        self.assertAlmostEqual(fight.my_hp, 0.06, delta=0.01)
+        self.assertEqual(fight.doomed(), (False, ""))
+        self.assertEqual(fight.hopeless(2), (False, ""))
+
+    def test_one_against_two_and_the_duel_is_lost(self):
+        fight = self.last_one(hp=0.06, foe_hp=0.85)
+        lost, why = fight.hopeless(2)
+        self.assertTrue(lost)
+        self.assertIn("loses to Dragalge", why)
+        self.assertIn("1 more is waiting", why)
+        self.assertIn("2 more are waiting", fight.hopeless(3)[1])
+
+    def test_one_against_one_is_fought_out(self):
+        fight = self.last_one(hp=0.06, foe_hp=0.85)
+        self.assertEqual(fight.hopeless(1), (False, ""))
+
+    def test_not_hopeless_while_it_is_not_our_last_or_the_duel_can_be_won(self):
+        fight = self.last_one(hp=0.06, foe_hp=0.85)
+        fight.dead = {1}
+        self.assertEqual(fight.hopeless(2), (False, ""))
+        fight = self.last_one(hp=1.0, foe_hp=0.10)
+        self.assertEqual(fight.hopeless(2), (False, ""))
+        fight = self.last_one(foe="", hp=0.05)
+        self.assertEqual(fight.hopeless(3), (False, ""))
+
+    def test_what_is_not_known_counts_for_us(self):
+        """Our energy is taken just short of the next charged attack - with a button lit, just short of the
+        other one - and the foe's as zero: a duel that is lost even so is lost."""
+        fight = self.last_one(hp=0.19, foe_hp=0.45, foe="Slowbro")
+        fight.foe_shields = 0
+        seen = []
+        real = be.simulate
+        be.simulate = lambda me, foe, a, b: seen.append((me.energy, foe.energy)) or (0.0, 0.5)
+        try:
+            fight.lit = (False, False)
+            fight.hopeless(2)
+            fight.lit = (True, True)
+            fight.hopeless(2)
+        finally:
+            be.simulate = real
+        self.assertEqual(seen, [(49, 0), (100, 0)])
 
 
 if __name__ == "__main__":

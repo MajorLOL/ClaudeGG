@@ -13,8 +13,11 @@ What the fight loop in gamebot.py does with it:
     fight.set_active(cp)                 the CP in my own name box: who is really on the field
     fight.set_buttons(left, right)       the move names under the charged attack buttons (when fight.need_labels)
     fight.throw()                        -> (button 0 / 1, Move, why) or None: a charged attack to throw now
+    fight.aim()                          -> (button, Move) or None: the charged attack to throw the moment it is
+                                            ready (the fast attacks are then tapped on its button)
     fight.shield()                       -> (True / False, why): the question "Use a Protect Shield?"
     fight.switch(tiles)                  -> (index of the tile, Mon, why): "Switch in a new Pokémon?"
+    fight.doomed() / fight.hopeless(n)   -> (True / False, why): is the fight lost (see "giving up")?
 
 What it cannot see is estimated: the energy from which buttons are lit (a lit button means the energy is at
 least its cost), the foe's moves from PvPoke's recommended moveset for its species, an incoming attack is taken
@@ -63,6 +66,14 @@ class Fight:
         self._shield_more = 0                  # pictures in a row that show more shields of ours than counted
         self._shield_more_n = None
         self.tile = (0, 1)                     # where the Pokémon chosen by switch() stands: (place, tiles)
+        self._balls = [3, 0]                   # the red Poké Balls of our name box: [how many, pictures in a row]
+        self._seen = 0                         # pictures seen; at which of them ...
+        self._balls_at = 0                     # ... the number of red Poké Balls last changed
+        self._named_at = -1                    # ... the name box last showed that another one of ours had come in
+        self._my_reads = 0                     # readings of our HP bar in the plain fight since `me` came in ...
+        self._my_read = 1.0                    # ... and the last of them
+        self._came = (self.me, self.me.hp)     # who came in last, and the HP it had before that
+        self._aim = (None, None)               # (what aim() was worked out for, its answer)
 
     # ------------------------------------------------------------ what is seen ---
     def _believe(self, side, old, new):
@@ -83,6 +94,7 @@ class Fight:
     def see(self, feat):
         """A picture of the fight (features from battle_vision.features).  The HP bars are read from every
         picture; the shield icons and the lit buttons only when the HUD is on it (they are wrong without)."""
+        self._seen += 1
         mine, foe = feat["hp"]
         old = self.my_hp
         self.my_hp = self._believe("me", self.my_hp, mine)
@@ -90,6 +102,9 @@ class Fight:
             self.my_hp = old
         elif old < FAINTED_BELOW and self.my_hp > 0.6:
             self._came_in()                    # (a full bar after a nearly empty one: the next one of ours)
+        if mine is not None and feat["hud"] and abs(mine - self.my_hp) <= 0.06:
+            self._my_reads += 1                # (its HP is known from its own bar, read in the plain fight - not
+            self._my_read = self.my_hp         # from what was kept, not from a picture with a banner over the bar)
         self.me.hp = int(round(self.my_hp * self.me.max_hp))
         old = self.foe_hp
         new = self._believe("foe", self.foe_hp, foe)
@@ -106,6 +121,39 @@ class Fight:
             self._see_shields(feat["shields"])
             self.lit = tuple(feat["ready"])
             self._calibrate()
+            balls = (feat.get("balls") or {}).get("me")
+            if balls and sum(balls) == 3:          # (all three are seen: none under a banner)
+                self._see_balls(balls[0])
+
+    def _see_balls(self, red):
+        """The Poké Balls of our name box: `red` of our three can still fight.  A Pokémon that faints from a
+        charged attack is gone without its HP bar ever being seen empty; its ball turning grey is the sign (it
+        does so a second or two before the name in the box changes).  Only the one on the field can faint, and
+        when that leaves one other Pokémon, that one comes in by itself (the game only asks when there are two).
+        Unless the name box has shown a new name since the ball turned grey: then the one on the field is the
+        one that came in, and it is the other that has fainted."""
+        if red != self._balls[0]:
+            self._balls, self._balls_at = [red, 1], self._seen
+        else:
+            self._balls[1] += 1
+        if self._balls[1] != 2 or 3 - red != len(self.dead) + 1:
+            return
+        others = [m for m in self.team if m.pos not in self.dead and m is not self.me]
+        if len(others) != 1:
+            return
+        if self._named_at >= self._balls_at:
+            self.log(f"fight: another Poké Ball of ours is grey - {others[0].label} has fainted too")
+            self.dead.add(others[0].pos)
+            others[0].hp = 0
+        else:
+            self.log(f"fight: another Poké Ball of ours is grey - {self.me.label} fainted, {others[0].label} is "
+                     f"on the field")
+            self.faint()
+            self._enter(others[0])
+
+    def _fainted_more(self):
+        """Do the Poké Balls show more fainted Pokémon of ours than were counted?"""
+        return 3 - self._balls[0] > len(self.dead)
 
     def _see_shields(self, sh):
         """Shield icons: a lower number is believed after two pictures that agree.  The foe's never goes up.
@@ -179,12 +227,31 @@ class Fight:
             return
         for m in self.team:
             if m.pos not in self.dead and abs(m.cp - cp) <= 1 and m is not self.me:
-                fainted = self.my_hp < FAINTED_BELOW
+                fainted = self.my_hp < FAINTED_BELOW or self._fainted_more()
                 self.log(f"fight: {m.label} is on the field (not {self.me.label}"
                          + (", which fainted)" if fainted else ")"))
                 if fainted:
                     self.faint()
+                elif self._came[0] is self.me:     # (it never was on the field: the HP that was read meanwhile
+                    self.me.hp = self._came[1]     # was not its own - it still has what it had before)
+                reads = self._my_reads
                 self._enter(m, keep_hp=not fainted)
+                self._named_at = self._seen        # (the name box says so, now)
+                if not fainted:
+                    self._my_reads = reads         # (the bar that was read is the bar of this one)
+                return
+        for m in self.team:
+            if (m.pos in self.dead and abs(m.cp - cp) <= 1 and self._balls[1] >= 2
+                    and 3 - self._balls[0] == len(self.dead) and self._seen - self._balls_at >= self.foe_every):
+                # the name box shows one that was taken for fainted, the Poké Balls agree with the count and have
+                # done so for a while (right after a faint the box still shows the old name): two were mixed up -
+                # the game had chosen the other one when the switch question ran out
+                self.log(f"fight: {m.label} is on the field - it was {self.me.label} that fainted")
+                self.dead.discard(m.pos)
+                m.hp = m.max_hp
+                self.faint()
+                self._enter(m)
+                self._named_at = self._seen
                 return
 
     def _came_in(self):
@@ -289,6 +356,81 @@ class Fight:
         i, m = max(lit, key=lambda t: t[1].energy)
         return self._thrown(i, m, f"{m.name} (lit) instead of {move.name}")
 
+    def aim(self):
+        """(button, Move): the charged attack that is thrown the moment its button lights up, None when there is
+        no such attack right now (the plan is to save up, or to throw the cheap one only when the dear one is
+        ready too).  The fight loop then taps the fast attacks ON that button: a tap on a button that is not
+        ready is a fast attack like any other, and the first tap after it is ready throws the attack - no
+        picture has to be waited for, no turn is lost.  Only when it is known which attack is on which button."""
+        me = self.me
+        if len(me.charged) != 2 or not (self.labels_ok or all(self.slots)):
+            return None
+        key = (me.pos, self.foe.species if self.foe else "", int(self.my_hp * 50), int(self.foe_hp * 50),
+               self.foe_shields, tuple(self.slots))
+        if key == self._aim[0]:
+            return self._aim[1]
+        moves = [(self.move_of(i), i) for i in (0, 1)]
+        res = None
+        if all(m for m, _i in moves):
+            first = min(m.energy for m, _i in moves)       # (what lights up first)
+            early = [(m, i) for m, i in moves if m.energy == first]
+            if self.foe is None:                           # (foe unknown: throw() takes what is lit, see there)
+                m, i = max(early, key=lambda t: t[0].power / float(max(t[0].energy, 1)))
+                res = (i, m)
+            else:
+                energy = me.energy
+                for cost in sorted(set(m.energy for m, _i in moves)):
+                    me.energy = cost
+                    pick, _why = BE.pick_charged(me, self.foe, cost, self.foe_shields, self.foe.hp)
+                    if pick is None:
+                        continue                           # (it saves up - for the dearer one, perhaps)
+                    if pick.energy == cost:                # (thrown the moment it is ready)
+                        res = next(((i, m) for m, i in moves if m.id == pick.id), None)
+                    break                                  # (a cheaper one, thrown only now: not to be thrown early)
+                me.energy = energy
+                if res is None and self._going_down():     # (anything that lights up, see throw())
+                    m, i = max(early, key=lambda t: BE.damage(t[0], me, self.foe))
+                    res = (i, m)
+        self._aim = (key, res)
+        return res
+
+    # ------------------------------------------------------------ giving up ---
+    def doomed(self):
+        """An attack is coming and we have no shield.  (True, why) when that ends the fight: this is our last
+        Pokémon, its HP was read from its own bar and the foe's hardest charged attack - as far as its attacks
+        are known - knocks it out."""
+        if self.foe is None or self.my_shields > 0 or len(self.alive()) != 1 or not self._hp_sure():
+            return False, ""
+        dmg, move = BE.foe_hit(self.foe, self.me)
+        if dmg < self.me.hp:
+            return False, ""
+        return True, (f"{self.me.label} is our last Pokémon, it has {self.me.hp} HP and no shield, and "
+                      f"{self.foe.label}'s {move.name} does {dmg}")
+
+    def _hp_sure(self):
+        """Is our HP known well enough to give a fight up on it?  It has to be read from the bar of the Pokémon
+        that is on the field, in the plain fight (twice at least since it came in), and what is believed now
+        must be what was read there: the banner of a question lies over our HP bar, a Pokémon that has just
+        come in has the HP that was kept for it."""
+        return self._my_reads >= 2 and abs(self._my_read - self.my_hp) <= 0.10
+
+    def hopeless(self, foes):
+        """The plain fight, our last Pokémon against `foes` of theirs that can still fight.  (True, why) when
+        there are two or more of them and ours loses the duel it is in, played out with the rules of the engine
+        and with everything that is not known taken in our favour: our energy just short of the next charged
+        attack, the foe's at zero."""
+        if foes < 2 or self.foe is None or len(self.alive()) != 1 or not self._hp_sure():
+            return False, ""
+        me, foe = self.me.copy(), self.foe.copy()
+        me.energy = min([m.energy - 1 for m in me.charged if m.energy > self.energy] or [100])
+        foe.energy = 0
+        mine, theirs = BE.simulate(me, foe, self.my_shields, self.foe_shields)
+        if mine > 0:
+            return False, ""
+        return True, (f"{self.me.label} ({self.my_hp:.0%} HP) is our last Pokémon and loses to {self.foe.label} "
+                      f"({self.foe_hp:.0%} HP, it would keep {theirs:.0%}), and {foes - 1} more "
+                      f"{'is' if foes == 2 else 'are'} waiting")
+
     def _going_down(self):
         """Are we about to faint while the foe is not?  (Our HP is low, and the foe needs more than two more
         of our fast attacks.)"""
@@ -354,7 +496,10 @@ class Fight:
         return idx, best, why
 
     def _enter(self, mon, keep_hp=False):
+        self._came = (mon, mon.hp)
         self.me = mon
+        self._my_reads = 0
+        self._aim = (None, None)
         if not keep_hp:
             self.my_hp = mon.hp_frac
         self.slots, self.labels_ok = [None, None], False

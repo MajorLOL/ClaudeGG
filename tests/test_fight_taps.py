@@ -250,6 +250,39 @@ class MinigameParts(unittest.TestCase):
         self.assertTrue(mini.on)
         self.assertTrue(mini.strokes())
 
+    def test_right_after_the_tap_a_picture_without_hp_bars_starts_nothing(self):
+        """For a second and a half after the tap the plain fight is still on the screen, and its HP bars are
+        not read on every picture (an attack's flash, a wing over them): that is not the camera on the attacker."""
+        mini = self.game("SHADOW_BALL")
+        t0 = mini.game.t0
+        for i in range(8):                                       # the first 0.8 s: no HP bar is read
+            mini.view(True, False, need=3, now=t0 + 0.1 * (i + 1))
+            self.assertEqual(mini.strokes(), [], i)
+        for i in range(3):                                       # two seconds after the tap such pictures count
+            mini.view(True, False, need=3, now=t0 + G.ZOOM_AFTER + 0.1 * i)
+        self.assertTrue(mini.strokes())
+
+    def test_get_ready_starts_the_swipes(self):
+        """The banner 'Get Ready!' is the sure sign that our attack starts: the known lines are swiped from the
+        first picture of it - also for an attack that had to wait for the other side's, or that was given up -
+        and only the plain fight itself stops them again."""
+        for before in ("", "held", "given up"):
+            mini = self.game("SHADOW_BALL")
+            if before == "held":
+                mini.hold(time.monotonic())
+            elif before == "given up":
+                mini.give_up()
+            mini.view(True, False, need=3)                       # (one picture of the camera on the attacker)
+            self.assertEqual(mini.strokes(), [], before)
+            self.assertTrue(mini.started(time.monotonic()), before)
+            self.assertFalse(mini.started(time.monotonic()), before)        # (said once)
+            mini.view(True, False, need=3)
+            self.assertTrue(mini.strokes(), before)
+            mini.view(False, False, need=3)                      # a flash without the name boxes: goes on
+            self.assertTrue(mini.strokes(), before)
+            mini.view(True, True, need=3)                        # the plain fight with its HP bars: stop
+            self.assertEqual(mini.strokes(), [], before)
+
     def test_what_was_learned_is_kept_in_a_file(self):
         old = G.MINIGAME_FILE
         G.MINIGAME_FILE = os.path.join(tempfile.mkdtemp(), "minigame.json")

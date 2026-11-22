@@ -1,11 +1,13 @@
 """Unit tests for battle_vision (reading the picture of a GO Battle League fight).
 
 The pictures in tests/fixtures/fight/ are frames of real fights that were recorded with the recorder of the web
-interface (35 % of the 1768 x 2208 canvas): one fight in an arena by night and one in an arena by day (day_*).
-By day the sky is full of white clouds - exactly where the name boxes and the countdown are - and that fight
-went wrong in many ways: the bot saw name boxes in the clouds, lit buttons in every flash and no countdown at
-all on the switch question.  The tests bring the pictures back to the full canvas, as the bot does with every
-screenshot.   Run:  python3 -m unittest discover -s tests"""
+interface (35 % of the 1768 x 2208 canvas): one fight in an arena by night and two in an arena by day (day_*,
+day2_*).  By day the sky is full of white clouds - exactly where the name boxes and the countdown are - and the
+first of those fights went wrong in many ways: the bot saw name boxes in the clouds, lit buttons in every flash
+and no countdown at all on the switch question.  In the second one the charged attacks came late: the bot waited
+for the white ring of a button, which comes up to a second after the button is ready.  The tests bring the
+pictures back to the full canvas, as the bot does with every screenshot.
+Run:  python3 -m unittest discover -s tests"""
 import os
 import sys
 import unittest
@@ -46,7 +48,9 @@ class FightPictures(unittest.TestCase):
     def test_second_pokemon(self):
         f = bv.features(frame("fight_lanturn"))
         self.assertEqual(bf.state(f), "fight")
-        self.assertEqual(tuple(f["ready"]), (True, True))
+        # Surf is ready.  Thunderbolt was tapped a moment ago: its button is bigger, its name has moved down and
+        # the attack waits for its turn - that is no button to tap again
+        self.assertEqual(tuple(f["ready"]), (True, False))
         self.assertAlmostEqual(f["hp"][0], 0.77, delta=0.04)
         self.assertAlmostEqual(f["hp"][1], 0.57, delta=0.04)
         self.assertEqual(f["shields"], {"me": 0, "foe": 1})
@@ -96,7 +100,7 @@ class FightPictures(unittest.TestCase):
         cv2.ellipse(img, (cx, cy), (r, r), 0, 225, 270, (255, 255, 255), 12)   # the last eighth, left of the top
         self.assertTrue(bv.countdown_ring(img))
 
-    def test_a_lit_button_has_a_white_label_and_a_white_ring(self):
+    def test_a_button_is_ready_when_its_name_is_white_text(self):
         """By day: Lanturn with Surf (a blue button) and Thunderbolt both ready, and the same fight a little
         earlier with nothing ready."""
         lit = bv.features(frame("day_lit"))
@@ -106,18 +110,122 @@ class FightPictures(unittest.TestCase):
         self.assertEqual(bf.state(dim), "fight")
         self.assertEqual(tuple(dim["ready"]), (False, False))
 
-    def test_one_sign_alone_does_not_light_a_button(self):
+    def test_a_button_is_ready_before_its_white_ring_is_there(self):
+        """The name under a button turns white the moment the attack can be thrown; the thick white ring around
+        it comes up to a second later.  The bot used to wait for the ring - a turn or two too late:
+        day2_ready_new   Shadow Ball and Sky Attack have just become ready, no ring yet (the other side threw
+                         its own charged attack in that very second, and it went first)
+        day2_surf_new    Surf is ready (no ring yet), Thunderbolt is not."""
+        for name, want in (("day2_ready_new", (True, True)), ("day2_surf_new", (True, False))):
+            for img in (frame(name), small(name)):
+                f = bv.features(img)
+                self.assertEqual(bf.state(f), "fight", name)
+                self.assertEqual(tuple(f["ready"]), want, name)
+
+    def test_white_that_is_no_text_does_not_make_a_button_ready(self):
         """What made the bot throw charged attacks that were not there (at least seven times in one fight):
         day_intro   'Go, Noctowl!': the white Poké Ball of the intro lies in the label zone
         day_lines   'Go, Garchomp!': the white lines of the field run through both label zones
         day_flash   the flash of an Ice Beam: white where the rings are
         day_faint   the glitter of a Pokémon that faints, right where the left button was
-        and the pictures of a charged attack of our own (no buttons on them at all)."""
+        and the pictures of a charged attack (ours and theirs: no buttons on them at all)."""
         for name in ("day_intro", "day_lines", "day_flash", "day_faint", "day_start", "day_get_ready",
-                     "day_minigame", "day_banner", "day_switch", "day_shield", "day_result", "minigame_zoom"):
+                     "day_minigame", "day_banner", "day_switch", "day_shield", "day_result", "minigame_zoom",
+                     "day2_get_ready", "day2_blocked", "day2_their_attack", "day2_last", "day2_no_shields"):
             f = bv.features(frame(name))
             self.assertEqual(tuple(f["ready"]), (False, False), name)
             self.assertEqual(bv.charge_ready(frame(name)), (False, False), name)    # (also without the name boxes)
+            self.assertEqual(bv.charge_ready(small(name)), (False, False), name)
+
+    def test_the_name_has_to_be_text(self):
+        """Drawn into a fight with nothing ready: a white line, a white blob and a white ring around the button
+        are no name; white letters under the button are."""
+        h, w = 2208, 1768
+        x, y = int(bv.BTN_X[0] * w), int((bv.LABEL_Y[0] + bv.LABEL_Y[1]) / 2 * h)
+        line = frame("day_dim")
+        cv2.line(line, (0, y), (w, y - 20), (255, 255, 255), 14)
+        blob = frame("day_dim")
+        cv2.circle(blob, (x, y), 60, (255, 255, 255), -1)
+        ring = frame("day_dim")
+        cv2.circle(ring, (x, int(bv.BTN_Y * h)), int(0.095 * w), (255, 255, 255), 16)
+        for name, img in (("line", line), ("blob", blob), ("ring", ring)):
+            self.assertEqual(bv.charge_ready(img), (False, False), name)
+        rng = np.random.RandomState(5)
+        for n in (15, 30, 60, 120):                                           # glitter: white dots all over
+            for _ in range(5):
+                dots = frame("day_dim")
+                for _dot in range(n):
+                    cv2.circle(dots, (x + int(rng.randint(-190, 190)), y + int(rng.randint(-44, 44))),
+                               int(rng.randint(3, 7)), (255, 255, 255), -1)
+                self.assertEqual(bv.charge_ready(dots), (False, False), n)
+        text = frame("day_dim")
+        cv2.putText(text, "SHADOW BALL", (x - 170, y + 16), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 4)
+        self.assertEqual(bv.charge_ready(text), (True, False))
+        grey = frame("day_dim")                                               # (the name of a button that charges)
+        cv2.putText(grey, "SHADOW BALL", (x - 170, y + 16), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (150, 150, 150), 4)
+        self.assertEqual(bv.charge_ready(grey), (False, False))
+
+    def test_get_ready_is_the_sign_that_our_attack_starts(self):
+        """The banner 'Get Ready!' between the name boxes, by day (grey over the clouds) and by night (dark)."""
+        for name in ("day_get_ready", "day2_get_ready", "minigame_zoom", "day_get_ready_fading"):
+            for img in (frame(name), small(name)):                # (the last one: the banner fading in, pale on pale)
+                self.assertTrue(bv.get_ready(img), name)
+                self.assertTrue(bv.features(img)["get_ready"], name)
+        # no other banner is taken for it ('Noctowl used Shadow Ball!', 'Slowbro used Water Pulse!'), no
+        # countdown, no cloud - and nothing at all without the name boxes
+        for name in ("day_banner", "banner_over_hud", "day2_their_attack", "day2_blocked", "day_intro", "day_start",
+                     "day_dim", "day_lit", "day_lines", "day_flash", "day_faint", "day_minigame", "day_switch",
+                     "day_switch_late", "day_shield", "day_no_shields", "day2_no_shields", "day_result",
+                     "fight_ready", "fight_lanturn", "shield_question", "switch_popup", "no_shields", "result_loss",
+                     "versus", "day2_ready_new", "day2_surf_new", "day2_last"):
+            self.assertFalse(bv.get_ready(frame(name)), name)
+            self.assertFalse(bv.get_ready(small(name)), name)
+            self.assertFalse(bv.features(frame(name))["get_ready"], name)
+        for flat in (0, 128, 255):
+            self.assertFalse(bv.get_ready(np.full((2208, 1768, 3), flat, np.uint8)))
+
+    def test_get_ready_survives_a_darker_and_a_paler_video(self):
+        for name in ("day_get_ready", "day2_get_ready", "minigame_zoom"):
+            img = small(name).astype(np.float32)
+            for k, add in ((0.85, 0), (219 / 255.0, 16), (1.0, -25)):
+                self.assertTrue(bv.get_ready(np.clip(img * k + add, 0, 255).astype(np.uint8)), (name, k, add))
+
+    def test_an_hp_bar_under_a_banner_is_not_read(self):
+        """'No Protect Shields remaining!' lies right over our HP bar and leaves a sliver of it: that read as
+        6 % HP (it was 77 %) - enough to take a fight for lost.  A bar only counts with its frame around it."""
+        for img in (frame("day_bar_under_banner"), small("day_bar_under_banner")):
+            mine, foe = bv.features(img)["hp"]
+            self.assertIsNone(mine)
+        for name, want in (("fight_ready", (0.18, 0.31)), ("day_lit", (0.36, 0.43)), ("day2_last", (0.32, 0.28)),
+                           ("day2_one_two", (0.90, 0.45)), ("day_dim", (0.22, 0.93))):
+            for img in (frame(name), small(name)):                # (bars in clear view, low ones too, are read)
+                mine, foe = bv.features(img)["hp"]
+                self.assertAlmostEqual(mine, want[0], delta=0.04, msg=name)
+                self.assertAlmostEqual(foe, want[1], delta=0.04, msg=name)
+
+    def test_who_can_still_fight(self):
+        """The Poké Balls of the name boxes, as part of the features: the last Pokémon of both sides."""
+        f = bv.features(frame("day2_last"))
+        self.assertEqual(f["balls"], {"me": (1, 2), "foe": (1, 2)})
+        self.assertEqual(bv.features(frame("fight_ready"))["balls"]["me"][0], 3)
+        self.assertIsNone(bv.features(frame("day2_no_shields"))["balls"])     # (no name boxes on a question)
+
+    def test_the_yes_button_of_the_question_to_leave(self):
+        """'Exit the Trainer Battle?' is known by its green YES button in the middle of the screen (there is no
+        recording of it during a fight: the question is drawn here as the game shows it before a fight)."""
+        img = frame("day_dim")
+        h, w = img.shape[:2]
+        cv2.rectangle(img, (int(0.08 * w), int(0.30 * h)), (int(0.92 * w), int(0.72 * h)), (255, 255, 255), -1)
+        cv2.rectangle(img, (int(0.27 * w), int(0.49 * h)), (int(0.73 * w), int(0.55 * h)), (110, 205, 120), -1)
+        spot = bv.exit_yes(img)
+        self.assertIsNotNone(spot)
+        self.assertAlmostEqual(spot[0], 0.5, delta=0.03)
+        self.assertAlmostEqual(spot[1], 0.52, delta=0.02)
+        self.assertIsNotNone(bv.exit_yes(cv2.resize(img, (704, 880), interpolation=cv2.INTER_AREA)))
+        # a fight has no such button: not the grass of the arena, not an HP bar, not NEXT BATTLE (lower down)
+        for name in sorted(n[:-4] for n in os.listdir(FIX) if n.endswith(".jpg")):
+            self.assertIsNone(bv.exit_yes(frame(name)), name)
+            self.assertIsNone(bv.exit_yes(small(name)), name)
 
     def test_a_recording_of_the_pc_screen_is_not_what_the_bot_sees(self):
         # (run2_*: a window on the PC that was filmed, with a border: the buttons are not at their places, so
@@ -369,29 +477,17 @@ class Buttons(unittest.TestCase):
         self.assertEqual([b["color"] for b in bv.wide_buttons(img)], ["orange", "green"])
 
 
-class Rings(unittest.TestCase):
-    def test_the_fast_ring_test_gives_what_the_plain_one_gives(self):
-        import numpy as np
-        rng = np.random.RandomState(3)
-        for size in ((880, 704), (2208, 1768)):
-            img = (rng.rand(size[0], size[1], 3) * 255).astype(np.uint8)
-            img[rng.rand(size[0], size[1]) > 0.6] = 255
-            h, w = img.shape[:2]
-            for cx, cy in ((bv.BTN_X[0] * w, bv.BTN_Y * h), (bv.COUNT_CENTER[0] * w, bv.COUNT_CENTER[1] * h), (5.0, 7.0)):
-                radii = np.arange(0.080, 0.112, 0.004) * w
-                plain = max(bv._ring_fraction(img, cx, cy, r - 0.004 * w, r + 0.004 * w) for r in radii)
-                self.assertAlmostEqual(bv._ring_best(img, cx, cy, radii, 0.004 * w), plain, places=9)
-                self.assertAlmostEqual(bv._ring_best(img, cx, cy, radii, 0.004 * w), plain, places=9)   # (from the cache)
-
+class TheSmallPicture(unittest.TestCase):
     def test_features_are_the_same_on_the_small_picture(self):
         # the fight loop reads the small picture (six times as fast): it must tell the same story as the canvas
         for name in ("fight_ready", "fight_lanturn", "shield_question", "run2_shield_question", "switch_popup",
                      "no_shields", "result_loss", "versus", "run2_both_lit", "run2_right_lit", "run2_dim",
                      "day_intro", "day_start", "day_dim", "day_lit", "day_lines", "day_flash", "day_faint",
                      "day_shield", "day_no_shields", "day_switch", "day_switch_late", "day_minigame", "day_banner",
-                     "day_result", "day_get_ready"):
+                     "day_result", "day_get_ready", "day2_ready_new", "day2_surf_new", "day2_get_ready",
+                     "day2_blocked", "day2_their_attack", "day2_last", "day2_no_shields"):
             a, b = bv.features(frame(name)), bv.features(small(name))
-            for key in ("white", "versus", "hud", "ring", "result", "hex", "shields"):
+            for key in ("white", "versus", "hud", "ring", "result", "hex", "shields", "get_ready", "balls"):
                 self.assertEqual(a[key], b[key], (name, key))
             self.assertEqual(tuple(a["ready"]), tuple(b["ready"]), name)
             self.assertEqual(bf.state(a), bf.state(b), name)
