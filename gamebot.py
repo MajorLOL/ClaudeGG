@@ -4507,7 +4507,12 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                             mini = Minigame(move, thr["t"], learned, button)   # its little game: swipe the icons
                             with flock:
                                 mini.mon = fight.me
-                            tapper.sweep(mini.strokes)
+                                other = fight.move_of(1 - button)
+                            if (arm["b"] is not None and arm["b"] != button and now - arm["t"] <= AIM_RECENT
+                                    and other is not None and other.type != move.type):
+                                mini.alt = other             # (the fast taps were on the other button a moment
+                            tapper.sweep(mini.strokes)       # ago: one of them may have thrown that one - the icons
+                                                             # will tell)
                     # Where the fast attacks are tapped: on the button of the charged attack that is to be thrown
                     # the moment it is ready - only while our HP bar is on the picture (the plain fight: when our
                     # Pokémon faints, the tiles of the switch question come up right where the buttons are)

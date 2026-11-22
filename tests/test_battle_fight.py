@@ -211,6 +211,28 @@ class Throwing(unittest.TestCase):
         self.assertEqual(fight.lit, (False, False))        # (spent)
         self.assertTrue(why)
 
+    def test_a_name_that_is_not_known_is_read_again_soon(self):
+        """'Go, Whiscash!' lay over the name box and 'Awe' was read: the next try came 50 pictures (seconds)
+        later, and all that time the bot took the Abomasnow that had left for the foe."""
+        fight = new_fight("Abomasnow")
+        fight.foe_every = 50
+        fight.set_foe("Awe", 1485)
+        for _ in range(bf.FOE_RETRY):
+            fight.see(feat(hp=(0.9, 0.9)))
+        self.assertTrue(fight.foe_due)
+
+    def test_an_attack_that_costs_no_more_than_a_lit_one_is_ready_too(self):
+        """Only Sky Attack was seen lit, the engine wanted Shadow Ball - both cost 50, so Shadow Ball was ready
+        as well.  The bot tapped Sky Attack while its fast attacks were tapped on Shadow Ball's button: Shadow
+        Ball went off and its little game was swiped as a Sky Attack (only NICE!).  Now Shadow Ball is thrown."""
+        fight = new_fight("Whiscash")
+        fight.set_buttons("SHADOW BALL", "SKY ATTACK")
+        see_twice(fight, hp=(0.5, 0.9), lit=(False, True), shields={"me": 0, "foe": 0})
+        self.assertEqual(be.pick_charged(fight.me, fight.foe, fight.energy, 0, fight.foe.hp)[0].name, "Shadow Ball")
+        button, move, why = fight.throw()
+        self.assertEqual((button, move.name), (0, "Shadow Ball"), why)
+        self.assertIn("ready: it costs no more than Sky Attack", why)
+
     def test_waits_with_the_fast_attack_when_the_engine_says_so(self):
         fight = new_fight()
         see_twice(fight, hp=(0.9, 0.31), lit=(True, True))       # the foe nearly down, two shields: farm it down

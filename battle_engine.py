@@ -153,7 +153,16 @@ def find_species(text, cutoff=0.8):
                 return sid
         return forms[0][1]
     close = difflib.get_close_matches(want, list(names), n=1, cutoff=cutoff)
-    return names[close[0]] if close else None
+    if close:
+        return names[close[0]]
+    # a stray word in front of or behind the name ("Cep Tropius": the small CP in the name box misread):
+    # the longest word that is a name on its own
+    if len(want.split()) > 1:
+        for w in sorted((w for w in want.split() if len(w) >= 4), key=len, reverse=True):
+            close = difflib.get_close_matches(w, list(names), n=1, cutoff=max(cutoff, 0.85))
+            if close:
+                return names[close[0]]
+    return None
 
 
 FORM_DEFAULTS = ("average", "normal", "standard", "incarnate", "ordinary", "male")   # the form to take when
@@ -445,10 +454,12 @@ def pick_charged(me, foe, energy, foe_shields=0, foe_hp=None):
     move when the foe still has shields.
     """
     foe_hp = foe.hp if foe_hp is None else foe_hp
-    active = sorted(me.charged, key=lambda m: (m.energy, -m.power))
+    dmg = {m.id: damage(m, me, foe) for m in me.charged}
+    # cheapest first; of two that cost the same, the one that hurts THIS foe most (not the highest power on
+    # paper: Sky Attack beats Shadow Ball against an Abomasnow, at 50 energy each)
+    active = sorted(me.charged, key=lambda m: (m.energy, -dmg[m.id], -m.power))
     if not active or energy < active[0].energy:
         return None, "not enough energy"
-    dmg = {m.id: damage(m, me, foe) for m in active}
     fast_dmg = damage(me.fast, me, foe)
 
     def pays(m):

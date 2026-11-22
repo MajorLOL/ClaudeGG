@@ -263,8 +263,9 @@ class Fight:
         self.since_foe = 0
         foe = BE.foe_from_text(name) if name else None
         if foe is None:
-            if not name:                       # (nothing was read: a banner over the box?  try again soon)
-                self.since_foe = max(self.foe_every - FOE_RETRY, 0)
+            # nothing was read, or a name that is not known ('Awe' for Whiscash under the banner 'Go, Whiscash!'):
+            # a banner over the box?  Try again soon - until then the one before is taken to be on the field
+            self.since_foe = max(self.foe_every - FOE_RETRY, 0)
             if name and name != self._foe_miss:
                 self._foe_miss = name
                 self.log(f"fight: foe '{name}' not recognised" + (" - playing without knowing it"
@@ -509,6 +510,15 @@ class Fight:
         for i, m in lit:
             if m.id == move.id:
                 return self._thrown(i, move, why)
+        # the picked move is not on a lit button.  When it costs no more than one that is lit, it is ready too
+        # (the energy is the same for both): its button was not seen lit on this picture.  Throw it there - the
+        # fast attacks are tapped on that button anyway, a tap on the other one would race them.
+        if self.labels_ok:
+            for i in (0, 1):
+                m = self.move_of(i)
+                if m is not None and m.id == move.id and move.energy <= max(x.energy for _j, x in lit):
+                    return self._thrown(i, move, why + f" (ready: it costs no more than {lit[0][1].name})"
+                                        if len(lit) == 1 else why)
         # the picked move is not on a lit button (labels not read, the buttons may be the other way round)
         i, m = max(lit, key=lambda t: t[1].energy)
         return self._thrown(i, m, f"{m.name} (lit) instead of {move.name}")

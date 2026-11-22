@@ -112,6 +112,16 @@ class Lookup(unittest.TestCase):
         self.assertEqual(be.find_species("Alolan Marowak"), "marowak_alolan")
         self.assertEqual(be.find_species("Cursola"), "cursola")
 
+    def test_a_stray_word_next_to_the_name(self):
+        """'Cep Tropius': the small CP in the name box was read as a word of its own (the fight of 22 November,
+        17:05 - the bot fought Tropius without knowing it)."""
+        self.assertEqual(be.find_species("Cep Tropius"), "tropius")
+        self.assertEqual(be.find_species("Tropius Cep"), "tropius")
+        self.assertEqual(be.find_species("Cep Abomasnowl"), "abomasnow")
+        self.assertIsNone(be.find_species("Cep"))
+        self.assertIsNone(be.find_species("Ius"))
+        self.assertEqual(be.find_species("Mr Mime"), "mr_mime")
+
     def test_move(self):
         self.assertEqual(be.find_move("Thunder bolt"), "THUNDERBOLT")
         self.assertEqual(be.find_move("SHADOW BALL"), "SHADOW_BALL")
@@ -127,6 +137,16 @@ class ChargedChoice(unittest.TestCase):
         foe = be.foe_from_text("medicham")
         mv, _ = be.pick_charged(self.lanturn, foe, 30, 0)
         self.assertIsNone(mv)
+
+    def test_of_two_that_cost_the_same_the_one_that_hurts_this_foe_more(self):
+        """Noctowl against Abomasnow: Shadow Ball and Sky Attack both cost 50, Shadow Ball has more power on
+        paper, Sky Attack is super effective (91 dmg against 57).  The engine took Shadow Ball, also as 'bait'."""
+        foe = be.foe_from_text("abomasnow")
+        for shields in (0, 1, 2):
+            mv, why = be.pick_charged(self.noctowl, foe, 60, shields)
+            self.assertEqual(mv.name, "Sky Attack", (shields, why))
+        mv, _ = be.pick_charged(self.noctowl, be.foe_from_text("whiscash"), 60, 0)
+        self.assertEqual(mv.name, "Shadow Ball")                   # (neutral both: the power decides)
 
     def test_picks_super_effective_move(self):
         foe = be.foe_from_text("skarmory")        # steel/flying: weak to electric
