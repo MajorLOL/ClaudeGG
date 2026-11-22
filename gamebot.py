@@ -3431,6 +3431,8 @@ THROW_LATEST = 3.0             # s after the tap: the camera is on the attacker 
 PLAIN_PICTURES = (5, 2)        # the attack did not start: this many in a row (live video, screenshots)
 ZOOM_PICTURES = (3, 1)         # ... and this many pictures of the camera on the attacker before anything is swiped
                                # that was not seen
+BARS_ONLY = (20, 2)            # the fight has not been recognised by its name boxes, but both HP bars are on this
+                               # many pictures in a row (live video, screenshots): fight on the HP bars
 HELD_LIT = 5                   # a charged attack that waits for the other side's: its button lit again on this many
                                # pictures in a row = it was not thrown after all
 FIGHT_VIDEO = os.environ.get("GAMEBOT_FIGHT_VIDEO", "1") != "0"   # the live video in a fight (0: screenshots only)
@@ -3963,6 +3965,7 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
     thr = {"b": None, "xy": None, "t": 0.0, "tries": 0, "until": 0.0, "dark": 0}   # the charged attack that was tapped
     mini = None               # the little game of the charged attack that was thrown (Minigame)
     lit_prev = (False, False) # the buttons that were lit on the picture before
+    bars = {"n": 0, "on": False}   # the fight is known by its HP bars only (see BARS_ONLY)
     learned = load_minigames()
     keys = {}                 # fingerprints of the two name boxes: side -> [the text now, a new one, times seen]
     versus_seen = 0.0         # when the VS screen was last seen
@@ -4027,6 +4030,21 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                     tim.update(n=0, t=time.monotonic(), feat=0.0, logged=tim["logged"] + 1)
                     eyes.live = eyes.shots = 0
                 st = BF.state(feat)
+                if started is None or bars["on"]:
+                    # A net under the name boxes.  They are known by their Poké Balls; should those ever not be
+                    # recognised (another arena, other colours on the video), no picture would count as the
+                    # fight and the bot would stand still.  Two HP bars for two seconds are the fight as well.
+                    both = (st == "other" and feat["hp"][0] is not None and feat["hp"][1] is not None
+                            and not feat["versus"] and not feat["white"] and not feat["result"])
+                    bars["n"] = bars["n"] + 1 if both else 0
+                    if not bars["on"] and started is None and bars["n"] >= BARS_ONLY[0 if eyes.video else 1]:
+                        bars["on"] = True
+                        log("battle: both HP bars are on the screen but the name boxes are not recognised - "
+                            "fighting on the HP bars (a recording of this fight would show why)")
+                        save_async("g_battle_bars.png", shot)
+                    if bars["on"] and st == "other" and (feat["hp"][0] is not None or feat["hp"][1] is not None):
+                        feat = dict(feat, hud=True, ready=BV.charge_ready(small))
+                        st = "fight"
                 if mini is not None:                         # the little game of our charged attack
                     with flock:
                         other = mini.mon is not None and fight.me is not mini.mon

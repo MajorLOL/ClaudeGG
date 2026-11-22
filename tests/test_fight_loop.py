@@ -430,6 +430,33 @@ class FightLoop(unittest.TestCase):
         self.assertFalse([sc for sc, _s in phone.swipes if sc in quiet], log)
         self.assertEqual([t[0] for t in self.throws(phone)], ["day_lit#first", "day_lit"], log)
 
+    def test_the_fight_is_fought_on_its_hp_bars_when_the_name_boxes_are_not_seen(self):
+        """The name boxes are known by their Poké Balls.  Should those ever not be recognised (an arena the bot
+        has not seen, other colours on the video), the two HP bars are sign enough: the bot must not stand
+        still through a whole fight."""
+        script = [("versus", 0.5), ("day_intro", 1.5), ("day_start", 1.0), ("day_dim#first", 3.0), ("day_lit", "throw"),
+                  ("day_get_ready", 2.0), ("icons", 4.0), ("day_banner", 2.0), ("day_dim", 2.0),
+                  ("day_shield", "shield"), ("day_result", "next")]
+        seen = BV.hud_visible
+        BV.hud_visible = lambda img: False
+        try:
+            phone, res = self.play(video=True, script=script)
+        finally:
+            BV.hud_visible = seen
+        log = "\n".join(phone.logs)
+        self.assertEqual(res["result"], "loss", log)
+        self.assertIn("fighting on the HP bars", log)
+        self.assertEqual(log.count("fighting on the HP bars"), 1, log)
+        self.assertIn("the fight has started", log)
+        self.assertEqual([t[0] for t in self.throws(phone)], ["day_lit"], log)
+        self.assertEqual(len([t for t in phone.taps if t[0] == "day_shield" and t[2] > 0.6]), 1, log)
+        self.assertGreater(len([t for t in self.fast_taps(phone) if t[0] in ("day_dim#first", "day_lit", "day_dim")]), 10)
+
+    def test_the_net_under_the_name_boxes_is_not_used_in_a_normal_fight(self):
+        for story in (self.DAY, None):
+            phone, _res = self.play(video=True, script=story)
+            self.assertNotIn("fighting on the HP bars", "\n".join(phone.logs))
+
     def test_an_attack_that_starts_late(self):
         """The game takes the tap, but the attack only starts seconds later (after it was given up): its
         little game is played all the same, and no second attack is thrown meanwhile."""
