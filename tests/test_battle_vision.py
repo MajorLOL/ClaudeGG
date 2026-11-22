@@ -196,6 +196,23 @@ class Buttons(unittest.TestCase):
         self.assertEqual([b["color"] for b in found], ["green"])
         self.assertTrue(found[0]["y0"] < bv.TAP_NEXT[1] < found[0]["y1"], found)
 
+    def test_lets_go_of_the_welcome_popup(self):
+        found = bv.wide_buttons(battle_screen("welcome"))
+        self.assertEqual([b["color"] for b in found], ["green"])
+        x, y = bv.button_spot(found[0])
+        self.assertAlmostEqual(x, 0.5, delta=0.03)
+        self.assertTrue(0.88 < y < 0.95, y)
+
+    def test_a_button_whose_label_rows_fall_out_is_still_one_button(self):
+        img = np.full((2208, 1768, 3), 255, np.uint8)
+        img[1700:1850, 400:1400] = (120, 205, 110)
+        for x in range(520, 1280, 26):                            # thick white letters right across the middle rows
+            img[1755:1795, x:x + 14] = 255
+        found = bv.wide_buttons(img)
+        self.assertEqual(len(found), 1, found)
+        self.assertAlmostEqual(found[0]["y0"], 1700 / 2208, delta=0.01)
+        self.assertAlmostEqual(found[0]["y1"], 1850 / 2208, delta=0.01)
+
     def test_a_fight_has_no_such_buttons(self):
         for name in ("fight_ready", "fight_lanturn", "shield_question", "switch_popup", "versus", "minigame_zoom",
                      "banner_over_hud", "no_shields"):

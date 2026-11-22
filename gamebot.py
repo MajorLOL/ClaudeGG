@@ -1615,19 +1615,25 @@ def ocr_lines(img, y0=0, y1=None, scale=1.0):
 
 
 def button_label(img, button):
-    """The white text on a button of battle_vision.wide_buttons() ('CLAIM RANK REWARDS!', 'OK'), '' when it
-    is not read.  ocr_lines() does not read white letters on a green or orange button; here the white of the
-    button's own box is turned into black text on white and read as one line."""
+    """The white text on a button of battle_vision.wide_buttons() ('CLAIM RANK REWARDS!', 'LET'S GO!', 'OK'),
+    '' when it is not read.  ocr_lines() does not read white letters on a green or orange button.  Here the
+    letters are taken out of the button's own box: what is lighter than the button around it (the button is a
+    colour gradient, so no fixed threshold), in the middle of the box, as black text on white, read as one line."""
     h, w = img.shape[:2]
     crop = img[int(max(button["y0"] - 0.012, 0.0) * h):int(min(button["y1"] + 0.012, 1.0) * h),
                int(button["x0"] * w):int(button["x1"] * w)]
-    if crop.size == 0:
+    if crop.size == 0 or crop.shape[0] < 8:
         return ""
     f = 110.0 / crop.shape[0]                      # (letters of 40 to 60 px: what tesseract reads best)
     crop = cv2.resize(crop, None, fx=f, fy=f, interpolation=cv2.INTER_CUBIC if f > 1 else cv2.INTER_AREA)
-    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-    white = (crop.min(axis=2) > 200) | ((hsv[..., 1] < 60) & (hsv[..., 2] > 215))
-    text = cv2.copyMakeBorder(np.where(white, 0, 255).astype(np.uint8), 12, 12, 12, 12, cv2.BORDER_CONSTANT, value=255)
+    ch, cw = crop.shape[:2]
+    top = cv2.morphologyEx(crop.min(axis=2), cv2.MORPH_TOPHAT, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31)))
+    zone = np.zeros((ch, cw), bool)                # where the label is: the middle of the button (lower down in
+    cut = button["y1"] >= 0.985                    # one that is cut off by the lower edge of the screen)
+    zone[int((0.30 if cut else 0.24) * ch):int((0.98 if cut else 0.80) * ch), int(0.08 * cw):int(0.92 * cw)] = True
+    thr = max(float(cv2.threshold(top[zone].reshape(-1, 1), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[0]), 18.0)
+    text = cv2.copyMakeBorder(np.where((top > thr) & zone, 0, 255).astype(np.uint8), 16, 16, 16, 16,
+                              cv2.BORDER_CONSTANT, value=255)
     ok, buf = cv2.imencode(".png", text)
     try:
         out = subprocess.run(["tesseract", "stdin", "stdout", "--psm", "7"], env=OCR["env"], input=buf.tobytes(),
@@ -3074,6 +3080,8 @@ CLAIM_TAP_ON = (0.5, 0.30)   # where a screen with nothing to tap on it is tappe
 HOME_SCROLL = ((0.70, 0.56), (0.64, 0.48), (0.78, 0.62))
 HOME_SCROLL_MS = 900
 HOME_TAPS = 4                # the BATTLE button is tapped this often at most
+POPUP_TAPS = 4               # pop-ups on the way (Welcome to the GO Battle League: LET'S GO!) tapped away at most
+WELCOME_BUTTON = (0.5, 0.916)   # where LET'S GO! is when the button itself is not seen
 
 
 def _battle_kind(shot, lines):
@@ -3141,9 +3149,10 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
     t0 = time.monotonic()
     taps = {"map": 0, "home": 0, "league": 0}
     menu_spots = None
-    others, tapped, in_setup, pill_taps = 0, False, False, 0     # in_setup: the league list or party screen was seen
+    others, tapped, in_setup = 0, False, False   # in_setup: the league list or party screen was seen
     claim = {"taps": 0, "since": 0.0, "steps": 0, "idle": 0, "catch": 0}    # the claim button and what follows it
     scroll = {"down": 0, "up": 0}                # how often the Battle screen was scrolled
+    popups = 0                                   # pop-ups that were tapped away
     max_steps, max_seconds = BATTLE_NAV_STEPS, BATTLE_NAV_SECONDS
     step = -1
 
@@ -3169,7 +3178,7 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
         spot = what = None
         for b in buttons:                            # a green or orange button: CLAIM, OK, NEXT ... (lowest first)
             text = button_label(shot, b)
-            if any(bad in text for bad in CLAIM_NOT):
+            if BN.keep_off_label(text) or any(bad in text for bad in CLAIM_NOT):
                 log(f"battle: claiming: not tapping the button '{text}'")
                 continue
             spot = _frac_xy(BV.button_spot(b))
@@ -3188,6 +3197,27 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
         log(f"battle: claiming: tapping {what} at ({spot[0]}, {spot[1]})")
         S.tap(*spot)
         return False
+
+    def popup_button(shot, lines):
+        """A screen the bot does not know, with a green button: (x, y, label) when that button may be tapped.
+        It may when its label says that it only takes the screen further (LET'S GO!, OK, CONTINUE, NEXT
+        BATTLE ...), or when the label is not read and the button is where NEXT BATTLE is on a result screen.
+        Never when the label says something else that is read (USE THIS PARTY, YES, JOIN ...) or when the
+        screen is about buying, leaving or giving something away.  None: do not tap."""
+        if BN.danger_words(lines):
+            return None
+        green = [b for b in BV.wide_buttons(shot) if b["color"] == "green"]
+        if not green:                                # (not found as a button, but the place of NEXT BATTLE is green)
+            return _frac_xy(BV.TAP_NEXT) + ("label not read",) if BV.result_button(shot) else None
+        text = button_label(shot, green[0])
+        if BN.keep_off_label(text) or any(bad in text for bad in CLAIM_NOT):
+            return None
+        x, y = _frac_xy(BV.button_spot(green[0]))
+        if BN.go_on_label(text):
+            return x, y, text
+        if BV.result_button(shot) and green[0]["y0"] < BV.TAP_NEXT[1] < green[0]["y1"]:
+            return x, y, f"{text or 'label not read'}, where NEXT BATTLE is"
+        return None
 
     try:
         while True:
@@ -3235,6 +3265,18 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
                     break
                 x, y = menu_spots.pop(0)
                 log(f"battle: tapping BATTLE in the main menu at ({x}, {y})")
+                S.tap(x, y)
+                tapped = True
+            elif kind == "welcome":                  # 'Welcome to the GO Battle League' (a new season): LET'S GO!
+                popups += 1
+                if popups > POPUP_TAPS:
+                    info["why"] = "the pop-up 'Welcome to the GO Battle League' does not go away"
+                    break
+                green = [b for b in BV.wide_buttons(shot) if b["color"] == "green"]
+                x, y = _frac_xy(BV.button_spot(green[0]) if green else WELCOME_BUTTON)
+                log(f"battle: 'Welcome to the GO Battle League' - tapping LET'S GO! at ({x}, {y})"
+                    + ("" if green else " (the button was not seen: its usual place)"))
+                save_async("g_battle_welcome.png", shot)
                 S.tap(x, y)
                 tapped = True
             elif kind == "home":
@@ -3342,10 +3384,12 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
                 if after_claim(shot, lines, k):
                     break
                 tapped = True
-            elif BV.result_button(shot) and pill_taps < 3:       # (after a fight: a result or reward screen)
-                pill_taps += 1
-                log("battle: a green button at the bottom (a result screen?) - tapping it")
-                S.tap(*_frac_xy(BV.TAP_NEXT))
+            elif kind == "other" and popups < POPUP_TAPS and (found := popup_button(shot, lines)):
+                popups += 1                  # a pop-up or a result screen with a button that takes it further
+                x, y, text = found
+                log(f"battle: a screen with a green button ({BN.reads(lines, 60)}) - tapping '{text}' at ({x}, {y})")
+                save_async(f"g_battle_popup_{popups}.png", shot)
+                S.tap(x, y)
                 tapped = True
             else:                                    # something in the way, or still loading
                 others += 1

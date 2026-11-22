@@ -320,7 +320,19 @@ def wide_buttons(img, top=0.45):
                 last["a"], last["b"] = run
             else:
                 blocks.append({"r0": r, "r1": r, "a": run[0], "b": run[1], "all": [run]})
+        merged = []                                # the rows of the label can fall out: two blocks, one button
         for blk in blocks:
+            last = merged[-1] if merged else None
+            if last is not None:
+                a, b = min(last["a"], blk["a"]), max(last["b"], blk["b"])
+                gap = tint[last["r1"] + 1:blk["r0"], a:b]
+                if (0 < gap.shape[0] <= 0.04 * full_h and gap.mean() >= 0.5
+                        and min(last["b"], blk["b"]) - max(last["a"], blk["a"]) >= 0.6 * (b - a)):
+                    last["r1"] = blk["r1"]
+                    last["all"] += blk["all"]
+                    continue
+            merged.append(blk)
+        for blk in merged:
             x0 = int(np.median([a for a, _b in blk["all"]]))
             x1 = int(np.median([b for _a, b in blk["all"]]))
             bh, bw = blk["r1"] - blk["r0"] + 1, x1 - x0

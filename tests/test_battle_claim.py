@@ -67,6 +67,12 @@ LINES = {
                      line("PREMIUM REWARDS", 650, 1500)],
     "home_empty": [line("GO BATTLE LEAGUE", 600, 900)],
     "premium": [line("USE A PREMIUM BATTLE PASS", 500, 900)],
+    # (what OCR read on the real pop-up of the first battle of a season; its title is cut off after 'Battle')
+    "welcome": [line("WELCOME TO THE GO BATTLE", 567, 1531), line("RISE THROUGH THE RANKS AND COMPETE WORLDWIDE FOR", 364, 1731),
+                line("REWARDS AND GLORY", 766, 1798)],
+    "tutorial": [line("BATTLES ARE FOUGHT IN SETS OF FIVE", 400, 900)],
+    "odd_party": [line("NEW PARTY", 700, 900)],
+    "coins": [line("BATTLE NOW FOR 100 POKECOINS?", 400, 900)],
     "rankup": [line("YOU REACHED RANK 7", 500, 700)],
     "rewards": [line("RANK 7 REWARDS", 600, 600)],
     "shop": [line("SPECIAL OFFER", 600, 600)],
@@ -79,23 +85,24 @@ LINES = {
 class Phone:
     """What is on the screen and what was done to it."""
 
-    def __init__(self, scene="home_claim", after="rankup"):
+    def __init__(self, scene="home_claim", after="rankup", then="party"):
         self.scene = scene
         self.after = after                 # the screen that comes after a tap on the claim button
+        self.then = then                   # ... and after a tap on the BATTLE button
         self.claim_works = True
         self.taps, self.swipes, self.seen, self.logs = [], [], [scene], []
         self.backs = self.walks_back = 0
         self.pictures = {}
 
     def picture(self):
-        name = {"rankup": "versus", "catch": "versus", "stuck": "versus", "rewards": "result_loss",
-                "shop": "result_loss"}.get(self.scene, self.scene)
+        name = {"rankup": "versus", "catch": "versus", "stuck": "versus", "rewards": "result_loss", "shop": "result_loss",
+                "tutorial": "result_loss", "odd_party": "result_loss", "coins": "result_loss"}.get(self.scene, self.scene)
         if name not in self.pictures:
             if name == "home_scrolled":
                 self.pictures[name] = scrolled_screen()
             elif name == "home_too_far":
                 self.pictures[name] = scrolled_screen(upper=False)       # (only the lower button is in view)
-            elif name.startswith("home_") and name != "home_empty":
+            elif (name.startswith("home_") and name != "home_empty") or name == "welcome":
                 self.pictures[name] = battle_screen(name)
             elif name in ("party", "premium", "home_empty"):
                 self.pictures[name] = np.full((H, W, 3), 255, np.uint8)
@@ -118,7 +125,11 @@ class Phone:
         elif self.scene == "rewards" and 0.33 < fx < 0.67 and 0.83 < fy < 0.89:
             self.to("home_battle")                              # (its green button)
         elif self.scene == "home_battle" and 0.32 < fx < 0.71 and fy > 0.972:
-            self.to("party")
+            self.to(self.then)
+        elif self.scene == "welcome" and 0.32 < fx < 0.68 and 0.88 < fy < 0.95:
+            self.to("party")                                    # LET'S GO!
+        elif self.scene in ("tutorial", "odd_party", "coins") and 0.33 < fx < 0.67 and 0.83 < fy < 0.89:
+            self.to("party" if self.scene == "tutorial" else "wrong")
         elif self.scene in ("home_scrolled", "home_too_far") and 0.32 < fx < 0.71:
             if 0.80 < fy < 0.85 and self.scene == "home_scrolled":
                 self.to("party")                                # BATTLE of the basic rewards
@@ -140,7 +151,8 @@ class Phone:
 
     def label(self, img, button):
         return {"home_claim": "CLAIM RANK REWARDS!", "rewards": "OK", "shop": "BUY 100 COINS", "home_battle": "BATTLE",
-                "home_scrolled": "BATTLE", "home_too_far": "BATTLE"}.get(self.scene, "")
+                "home_scrolled": "BATTLE", "home_too_far": "BATTLE", "welcome": "LETV'S GO!", "tutorial": "NEXT",
+                "odd_party": "USE THIS PARTY", "coins": "OK"}.get(self.scene, "")
 
     def klass(self, img):
         return ("encounterScreen", 0.9) if self.scene == "catch" else ("menusScreen", 0.8)
@@ -265,6 +277,44 @@ class ClaimFirst(unittest.TestCase):
         self.assertEqual(len(phone.swipes), len(G.HOME_SCROLL), log)             # it was looked for further down
         self.assertEqual(phone.taps, [], log)
         self.assertEqual(phone.walks_back, 1, log)                               # (the usual way back to the map)
+
+    def test_the_welcome_of_a_new_season(self):
+        # after BATTLE: 'Welcome to the GO Battle League ... LET'S GO!' (the bot stood still on it)
+        phone = Phone("home_battle", then="welcome")
+        info = self.walk(phone)
+        log = "\n".join(phone.logs)
+        self.assertTrue(info["ok"], log)
+        self.assertEqual(phone.seen, ["home_battle", "welcome", "party"], log)
+        tap = [t for t in phone.taps if t[0] == "welcome"]
+        self.assertEqual(len(tap), 1, log)
+        self.assertTrue(0.4 < tap[0][1] < 0.6 and 0.88 < tap[0][2] < 0.95, tap)     # on the button
+        self.assertIn("'Welcome to the GO Battle League' - tapping LET'S GO!", log)
+        self.assertEqual(phone.backs, 0, log)
+
+    def test_the_welcome_when_its_button_is_not_seen(self):
+        phone = Phone("welcome")
+        phone.pictures["welcome"] = np.full((H, W, 3), 255, np.uint8)             # (no green on the picture)
+        info = self.walk(phone)
+        log = "\n".join(phone.logs)
+        self.assertTrue(info["ok"], log)
+        self.assertIn("its usual place", log)
+
+    def test_another_popup_with_a_button_that_only_goes_on(self):
+        phone = Phone("home_battle", then="tutorial")
+        info = self.walk(phone)
+        log = "\n".join(phone.logs)
+        self.assertTrue(info["ok"], log)
+        self.assertEqual(phone.seen, ["home_battle", "tutorial", "party"], log)
+        self.assertIn("tapping 'NEXT'", log)
+
+    def test_a_green_button_that_says_something_else_is_left_alone(self):
+        for scene in ("odd_party", "coins"):           # USE THIS PARTY on a screen that was not recognised; OK to pay
+            phone = Phone("home_battle", then=scene)
+            info = self.walk(phone)
+            log = "\n".join(phone.logs)
+            self.assertFalse(info["ok"], log)
+            self.assertNotIn("wrong", phone.seen, log)
+            self.assertEqual([t for t in phone.taps if t[0] == scene], [], log)
 
     def test_a_pokemon_that_comes_as_a_reward_is_left_alone(self):
         phone = Phone(after="catch")

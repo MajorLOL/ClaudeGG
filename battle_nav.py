@@ -102,6 +102,7 @@ def screen_kind(lines, on_map=False, league="", k=1.0):
 
     map        the game map (no text needed, `on_map` comes from the picture)
     party      'CHOOSE YOUR PARTY' / 'USE THIS PARTY'
+    welcome    'Welcome to the GO Battle League' (the first battle of a season): a pop-up with LET'S GO!
     home       the Battle screen with the GO BATTLE LEAGUE card
     menu       the main menu (Poké Ball): ITEMS and POKÉMON side by side
     exit       'Do you want to exit Pokémon GO?'
@@ -113,6 +114,8 @@ def screen_kind(lines, on_map=False, league="", k=1.0):
         return "map"
     if _phrase(lines, "USE THIS PARTY") or _phrase(lines, "CHOOSE YOUR PARTY"):
         return "party"
+    if (_has(lines, "WELCOME") and _has(lines, "BATTLE")) or _phrase(lines, "RISE THROUGH THE RANKS", 0.75):
+        return "welcome"                      # (before 'home': its title has GO BATTLE LEAGUE in it too)
     if _phrase(lines, "GO BATTLE LEAGUE") or (
             _has(lines, "LONGEST") and _has(lines, "STREAK")) or (
             _has(lines, "STARDUST") and _has(lines, "EARNED")) or (
@@ -187,6 +190,42 @@ def next_words(lines, k=1.0):
     out = [(w, x, y) for w, x, y in words_of(lines)
            if y > SCREEN_H * k / 3.0 and any(_plain(w) == n or (len(n) > 3 and like(_plain(w), n, 0.85)) for n in NEXT_WORDS)]
     return sorted(out, key=lambda t: -t[2])
+
+
+# Labels of buttons that only take a pop-up further (nothing is chosen with them) ...
+GO_ON_LABELS = ("LETSGO", "OK", "OKAY", "CONTINUE", "NEXT", "CLAIM", "COLLECT", "DONE", "CLOSE", "GOTIT")
+# ... and words on a screen that mean: do not tap a button here that was not read
+DANGER_WORDS = ("SHOP", "BUY", "COIN", "POKECOIN", "PURCHASE", "PREMIUM", "PASS", "EXCHANGE", "TRANSFER", "DELETE",
+                "EXIT", "QUIT", "LEAVE", "REMOVE", "SHARE", "DISCARD")
+
+
+# ... and labels that are never tapped on a screen the bot does not know (they choose or start something)
+KEEP_OFF_LABELS = ("PARTY", "USE", "YES", "JOIN", "BUY", "SHOP", "COIN", "SHARE", "EXCHANGE", "PREMIUM", "PASS",
+                   "PURCHASE", "TRANSFER", "EXIT", "QUIT", "LEAVE")
+
+
+def keep_off_label(text):
+    """True when the label of a button is read and says something the bot must not tap on a screen it does
+    not know: USE THIS PARTY (that starts a battle), YES, JOIN GROUP, BUY ..."""
+    words = [_plain(w) for w in text.split()]
+    return any(w.startswith(k) for w in words if w for k in KEEP_OFF_LABELS)
+
+
+def go_on_label(text):
+    """True when the label of a button says that it only takes the screen further: LET'S GO!, OK, CONTINUE,
+    NEXT, CLAIM REWARD! ... (the text may be misread a little)."""
+    plain = _plain(text)
+    return bool(plain) and any(plain == g or (len(g) >= 4 and (g in plain or like(plain, g, 0.8))) for g in GO_ON_LABELS)
+
+
+def danger_words(lines):
+    """The words read on a screen that have to do with buying, giving away or leaving ([] = none)."""
+    out = []
+    for w, _x, _y in words_of(lines):
+        plain = _plain(w)
+        if any(plain.startswith(d) for d in DANGER_WORDS) and plain not in out:
+            out.append(plain)
+    return out
 
 
 def premium_above(lines, y):

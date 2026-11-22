@@ -282,6 +282,32 @@ class Claims(unittest.TestCase):
         self.assertTrue(bn.premium_above(lines, 1900))                    # the one below PREMIUM REWARDS
         self.assertFalse(bn.premium_above([], 1900))
 
+    def test_the_welcome_of_a_new_season(self):
+        lines = [line("WELCOME TO THE GO BATTLE", 567, 1531), line("RISE THROUGH THE RANKS AND COMPETE WORLDWIDE FOR", 364, 1731),
+                 line("REWARDS AND GLORY", 766, 1798)]                      # (read from the real pop-up)
+        self.assertEqual(bn.screen_kind(lines, league="Great League"), "welcome")
+        self.assertEqual(bn.screen_kind([line("WELCOME TO THE GO BATTLE LEAGUE", 500, 1531)]), "welcome")    # (not 'home')
+        self.assertEqual(bn.screen_kind([line("RlSE THROUGH THE RANKS AND COMPETE", 364, 1731)]), "welcome")
+        self.assertEqual(bn.screen_kind(SCREENS["home"]), "home")
+        self.assertEqual(bn.danger_words(lines), [])
+
+    def test_labels_of_buttons_that_only_go_on(self):
+        for text in ("LET'S GO!", "LETV'S GO!", "LET S GOI", "OK", "CONTlNUE", "NEXT BATTLE", "CLAIM REWARD!", "GOT IT!"):
+            self.assertTrue(bn.go_on_label(text), text)
+        for text in ("BATTLE", "USE THIS PARTY", "YES", "JOIN GROUP", "BUY", "GO", "", "0K", "NAWRTPTISA"):
+            self.assertFalse(bn.go_on_label(text), text)
+
+    def test_labels_that_are_never_tapped_blindly(self):
+        for text in ("USE THIS PARTY", "YES", "JOIN GROUP", "BUY 100 COINS", "SHOP", "EXIT", "USE PREMIUM PASS"):
+            self.assertTrue(bn.keep_off_label(text), text)
+        for text in ("LET'S GO!", "OK", "NEXT BATTLE", "CLAIM REWARD!", "", "NAWRTPTISA", "BATTLE"):
+            self.assertFalse(bn.keep_off_label(text), text)
+
+    def test_words_that_keep_the_bot_from_tapping(self):
+        self.assertEqual(bn.danger_words([line("BATTLE NOW FOR 100 POKECOINS? SHOP", 300, 900)]), ["POKECOINS", "SHOP"])
+        self.assertEqual(bn.danger_words([line("USE A PREMIUM BATTLE PASS", 300, 900)]), ["PREMIUM", "PASS"])
+        self.assertEqual(bn.danger_words(SCREENS["party"]), [])
+
     def test_words_of_the_battle_screens(self):
         self.assertTrue(bn.battle_words(SCREENS["home"]))
         self.assertTrue(bn.battle_words([line("RANK UP!", 700, 500)]))
