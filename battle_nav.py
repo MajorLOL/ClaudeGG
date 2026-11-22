@@ -174,6 +174,15 @@ CLAIM_WORDS = ("CLAIM", "COLLECT")
 NEXT_WORDS = CLAIM_WORDS + ("CONTINUE", "OK", "OKAY", "NEXT", "DONE", "CLOSE")
 
 
+def max_battles_today(lines):
+    """True when the screen says "You've reached the maximum number of battles for today." (the pink banner
+    of the Battle screen after a tap on BATTLE when all the sets of the day are played)."""
+    words = {_plain(w) for w, _x, _y in words_of(lines)}
+    return (any(like(w, "MAXIMUM", 0.8) for w in words)
+            and any(like(w, "BATTLES", 0.8) for w in words)
+            and any(like(w, "TODAY", 0.75) for w in words))
+
+
 def collect_spots(lines, height):
     """[(x, y)] left to right: where to tap the reward tiles of the Battle screen that say COLLECT under them
     (gold tiles: the rewards of the wins of a set).  The tile is tapped a little above its label."""

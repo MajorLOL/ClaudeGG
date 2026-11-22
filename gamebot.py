@@ -3357,6 +3357,12 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
                 save_async("g_battle_welcome.png", shot)
                 S.tap(x, y)
                 tapped = True
+            elif kind == "home" and BN.max_battles_today(lines):
+                # 'You've reached the maximum number of battles for today.' (22 November, after the third set)
+                save_async("g_battle_home.png", shot)
+                info["why"] = "the game says: the maximum number of battles for today is reached"
+                info["done_today"] = True
+                break
             elif kind == "home":
                 button = BV.home_button(shot)        # orange: claim first; green: BATTLE; None: not in view
                 if button is None and BV.home_button_off(shot):

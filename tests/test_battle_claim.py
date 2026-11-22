@@ -84,6 +84,9 @@ LINES = {
                    line("COLLECT COLLECT", 230, 1985)],
     "home_done1": [line("GO BATTLE LEAGUE", 600, 900), line("BASIC REWARDS", 650, 1700), line("COLLECT", 560, 1985)],
     "home_done": [line("GO BATTLE LEAGUE", 600, 900), line("BASIC REWARDS", 650, 1700)],
+    # after a tap on BATTLE when all the sets of the day are played (22 November, 19:58)
+    "home_max": [line("GO BATTLE LEAGUE", 600, 900), line("YOU'VE REACHED THE MAXIMUM NUMBER OF BATTLES FOR", 300, 1180),
+                 line("TODAY.", 800, 1250), line("BASIC REWARDS", 650, 1700)],
 }
 
 
@@ -102,7 +105,7 @@ class Phone:
         self.pictures = {}
 
     def picture(self):
-        name = {"rankup": "versus", "catch": "versus", "stuck": "versus", "rewards": "result_loss", "shop": "result_loss",
+        name = {"home_max": "home_battle", "rankup": "versus", "catch": "versus", "stuck": "versus", "rewards": "result_loss", "shop": "result_loss",
                 "tutorial": "result_loss", "odd_party": "result_loss", "coins": "result_loss"}.get(self.scene, self.scene)
         if name not in self.pictures:
             if name == "home_scrolled":
@@ -252,6 +255,17 @@ class ClaimFirst(unittest.TestCase):
         self.assertEqual(info["why"], "a Pokémon to catch came up as a reward of the set")
         self.assertEqual(phone.backs, 0, log)
         self.assertFalse([t for t in phone.taps if t[0] == "catch"], log)        # (nothing tapped on it)
+
+    def test_the_maximum_number_of_battles_for_today(self):
+        """The BATTLE button is green, but a tap on it brings the pink banner 'You've reached the maximum number
+        of battles for today.' - the battles of the day are done."""
+        phone = Phone("home_battle", then="home_max")
+        info = self.walk(phone)
+        log = "\n".join(phone.logs)
+        self.assertFalse(info["ok"], log)
+        self.assertTrue(info.get("done_today"), log)
+        self.assertEqual(info["why"], "the game says: the maximum number of battles for today is reached")
+        self.assertEqual(len([t for t in phone.taps if t[0] == "home_max"]), 0, log)   # (no more taps on BATTLE)
 
     def test_after_the_rewards_and_the_rank_a_new_set_starts(self):
         """What really came after the claim on 22 November: 'Choose a reward tier ...' with the BATTLE button
