@@ -4477,8 +4477,52 @@ def startup_screen(img):
 S.startup_hook = startup_screen
 
 
+LOCK_FILE = os.path.expanduser("~/.gamebot.lock")
+LOCK_POLL = 5                  # s between two tries of a gamebot that waits for the lock
+_one = {"f": None}             # the lock of the gamebot that may tap the phone (kept open while it runs)
+
+
+def only_one(mode, wait=False):
+    """Only one gamebot at a time may tap the phone.  The bot service and a 'gamebot.py fight' started by hand
+    tap through each other: each presses Back and its own buttons on the screens of the other (a battle that
+    ends on the Battle screen, a league that is tapped and does not open).  The first one takes a lock on
+    ~/.gamebot.lock, which the system gives back when it ends, however it ends.
+    wait: wait until the other one is done (the service) instead of giving up.  Returns True when this
+    process may go on."""
+    import fcntl
+    f = open(LOCK_FILE, "a+")
+    told = False
+    while True:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except OSError:
+            f.seek(0)
+            who = f.read().strip() or "another gamebot"
+            if not wait:
+                f.close()
+                log(f"NOT STARTED: another gamebot is tapping the phone ({who}). Two at the same time spoil each "
+                    "other's taps. Stop the bot first: sudo systemctl stop spin-stop (or Stop in the web interface); "
+                    "see what is running with: pgrep -af gamebot.py")
+                return False
+            if not told:
+                told = True
+                log(f"waiting: another gamebot is tapping the phone ({who}) - this one starts when it is done")
+            time.sleep(LOCK_POLL)
+    f.seek(0)
+    f.truncate()
+    f.write(f"gamebot.py {mode}, process {os.getpid()}, started {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    f.flush()
+    _one["f"] = f
+    return True
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "loop"
+    if mode in ("battle", "fight", "step", "stap") and not only_one(mode):
+        sys.exit(1)
+    if mode == "loop":
+        only_one(mode, wait=True)          # (the service: wait until a test that was started by hand is over)
     if mode == "battle":                   # try the way to the party screen now (stop the bot first; the game on the map)
         S.detect_screen()
         info = battle_open_menu()

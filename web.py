@@ -12,6 +12,7 @@ Open from a device on the same network:  http://gamebot.local:8080
 - options (on/off): catch wild Pokémon, spin PokéStops, open gifts, send gifts
 """
 import base64
+import io
 import json
 import os
 import re
@@ -292,6 +293,56 @@ def read_log(n=80):
         return []
 
 
+DEBUG_DIR = os.path.expanduser("~/debug")
+DEBUG_LOG_BYTES = 600000       # the end of the log that goes into the debug download ...
+DEBUG_PICTURES = 30            # ... with this many of the newest pictures the bot saved ...
+DEBUG_HOURS = 6                # ... when they are not older than this
+DEBUG_FILES = ("battle_minigame.json", "battle_team.json")     # ... and these files of the home folder
+
+
+def debug_zip(now=None):
+    """A zip for whoever helps with a problem: the end of the log and the newest pictures the bot saved in
+    ~/debug (as JPEG: the PNGs are 2 MB each, thirty of them would not fit in a message).  Nothing with a
+    password in it.  Returns the bytes of the zip."""
+    now = now or time.time()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        try:
+            with open(LOGFILE, "rb") as f:
+                f.seek(0, 2)
+                f.seek(max(f.tell() - DEBUG_LOG_BYTES, 0))
+                z.writestr("spin_tail.log", f.read().decode(errors="ignore"))
+        except OSError as e:
+            z.writestr("spin_tail.log", f"(the log could not be read: {e})")
+        index = []
+        try:
+            names = [n for n in os.listdir(DEBUG_DIR) if n.lower().endswith((".png", ".jpg"))]
+        except OSError:
+            names = []
+        files = sorted(((os.path.getmtime(os.path.join(DEBUG_DIR, n)), n) for n in names), reverse=True)
+        for mtime, n in files[:DEBUG_PICTURES]:
+            if now - mtime > DEBUG_HOURS * 3600:
+                break
+            path = os.path.join(DEBUG_DIR, n)
+            try:
+                if n.lower().endswith(".png"):
+                    ok, jpg = cv2.imencode(".jpg", cv2.imread(path), [cv2.IMWRITE_JPEG_QUALITY, 82])
+                    data, n = jpg.tobytes(), n[:-4] + ".jpg"
+                else:
+                    with open(path, "rb") as f:
+                        data = f.read()
+                z.writestr(zipfile.ZipInfo("debug/" + n, time.localtime(mtime)[:6]), data, zipfile.ZIP_STORED)
+                index.append(f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(mtime))}  {n}")
+            except Exception as e:  # noqa: BLE001
+                index.append(f"(not added: {n}: {e})")
+        z.writestr("pictures.txt", "\n".join(index) or "(no pictures of the last hours)")
+        for n in DEBUG_FILES:
+            path = os.path.expanduser("~/" + n)
+            if os.path.exists(path):
+                z.write(path, n)
+    return buf.getvalue()
+
+
 DEFAULT_OFF = {"curveball", "buddy", "fast_catch", "battle"}                 # options that start unticked
 THROW_TARGETS = ("realistic", "off", "nice", "great", "excellent")
 
@@ -457,7 +508,8 @@ PAGE = r"""<!DOCTYPE html>
  .logsec { display:flex; flex-direction:column; }
  .loghead { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; }
  .loghead h2 { margin:0; font-size:13px; font-weight:650; color:var(--mist); }
- .loghead span { color:var(--mist); font-size:12px; }
+ .loghead span { color:var(--mist); font-size:12px; margin-right:auto; margin-left:10px; }
+ .btn.small { height:28px; padding:0 10px; font-size:12px; font-weight:600; }
  pre { margin:0; font:12px/1.55 ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace; max-height:46vh; overflow:auto; }
  .ln { display:block; white-space:pre-wrap; overflow-wrap:anywhere; color:#c6d6d4; }
  .ts { color:var(--mist); margin-right:10px; }
@@ -588,7 +640,8 @@ PAGE = r"""<!DOCTYPE html>
   </section>
 
   <section class="sec logsec" aria-label="Log">
-   <div class="loghead"><h2>Log</h2><span>Newest first</span></div>
+   <div class="loghead"><h2>Log</h2><span>Newest first</span>
+    <a class="btn small" href="debug/download" title="A zip with the end of the log and the newest pictures the bot saved: send it along when you ask for help.">Download log and pictures</a></div>
    <pre id="log">Loading…</pre>
   </section>
  </div>
@@ -989,6 +1042,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send("\n".join(reversed(read_log(40))))   # newest line at the top
         elif path == "/status":
             self._send(json.dumps(status()), "application/json")
+        elif path == "/debug/download":
+            data = debug_zip()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Disposition", 'attachment; filename="gamebot-debug-'
+                             + time.strftime("%Y%m%d-%H%M%S") + '.zip"')
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
         elif path == "/record/download":
             if not rec["zip"] or rec["on"] or not os.path.exists(rec["zip"]):
                 return self._send("no recording yet", code=404)
