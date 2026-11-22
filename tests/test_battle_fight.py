@@ -211,6 +211,51 @@ class Throwing(unittest.TestCase):
         self.assertEqual(fight.lit, (False, False))        # (spent)
         self.assertTrue(why)
 
+    def test_after_a_switch_the_other_one_on_the_field_is_a_missed_tap(self):
+        """22 November, 18:16: the bot chose Lanturn, its taps on the tile did not count and the game sent in
+        Lapras when the time ran out.  The bot then took Lanturn for fainted."""
+        fight = new_fight("Crustle")
+        idx, chosen, why = fight.switch([])                     # (Noctowl fainted: the question comes)
+        other = next(m for m in fight.alive() if m is not chosen)
+        for _ in range(20):
+            fight.see(feat(hp=(1.0, 0.8)))
+        logs = []
+        fight.log = logs.append
+        fight.set_active(other.cp)
+        self.assertIs(fight.me, other)
+        self.assertNotIn(chosen.pos, fight.dead, logs)
+        self.assertIn("did not count, the game chose", logs[-1])
+
+    def test_a_switch_that_counted_and_a_faint_later(self):
+        """The chosen one was seen in the name box: when the other one comes in later, the chosen one fainted."""
+        fight = new_fight("Crustle")
+        _idx, chosen, _why = fight.switch([])
+        other = next(m for m in fight.alive() if m is not chosen)
+        fight.set_active(chosen.cp)                            # (it came in: its name is in the box)
+        see_twice(fight, hp=(0.1, 0.8))
+        fight.set_active(other.cp)
+        self.assertIs(fight.me, other)
+        self.assertIn(chosen.pos, fight.dead)
+
+    def test_a_low_reading_that_stuck_gives_way_to_the_bar(self):
+        """22 November, 18:14: 'the HP of Lanturn is not sure (read from its bar 47 time(s), last 31%, taken to be
+        6%)' - a low misread had been believed, and a Pokémon never heals, so the bar was not believed again."""
+        fight = new_fight()
+        see_twice(fight, hp=(0.06, 0.8))                       # (the misread, seen twice)
+        self.assertAlmostEqual(fight.my_hp, 0.06)
+        fight.see(feat(hp=(0.31, 0.8)))
+        self.assertAlmostEqual(fight.my_hp, 0.06)              # one picture: still a misread
+        for _ in range(bf.HP_BACK_UP):
+            fight.see(feat(hp=(0.31, 0.8)))
+        self.assertAlmostEqual(fight.my_hp, 0.31)
+
+    def test_a_flicker_upwards_is_still_no_healing(self):
+        fight = new_fight()
+        see_twice(fight, hp=(0.40, 0.8))
+        for i in range(30):
+            fight.see(feat(hp=(0.55 if i % 2 else 0.40, 0.8)))
+        self.assertAlmostEqual(fight.my_hp, 0.40)
+
     def test_a_name_that_is_not_known_is_read_again_soon(self):
         """'Go, Whiscash!' lay over the name box and 'Awe' was read: the next try came 50 pictures (seconds)
         later, and all that time the bot took the Abomasnow that had left for the foe."""

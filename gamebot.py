@@ -3545,6 +3545,11 @@ READY_RECENT = 3.0             # s: a charged attack button of ours that was rea
 USED_FROM, USED_UNTIL = 4.0, 11.0      # s after the shield question: the banner 'X used Y!' is looked for (it
 USED_EVERY = 0.35                      # comes after about six seconds and stays for two), a picture every ... s
 MAP_PICTURES, MAP_SECONDS = 3, 2.0   # the fight loop ends on the map: this many pictures in a row, this long
+SWITCH_TAP_MS = 220            # the tile of 'Switch in a new Pokémon?' is pressed this long ...
+SWITCH_TAP_Y = (0.74, 0.78, 0.71, 0.81)   # the heights of the tile that are tried in turn
+SWITCH_RETAPS = 13             # ... and tapped again (every RETAP_AFTER s) for as long as the question stays: in the
+                               # first seconds, while our Pokémon faints, the game does not seem to take the tap -
+                               # three taps in 3.5 s were ignored again and again, the game then chose by itself
 RESULT_SETTLE = 0.7            # s the button of a result screen has to be there before it is tapped (it fades in)
 THEIR_ATTACK = 12.0            # s after a question: name boxes without an HP bar are the banner of their attack,
 OUR_ATTACK = 4.0               # ... and this long after our little game the banner of ours - not the plain fight
@@ -3956,7 +3961,7 @@ def _fight_answer(shot, feat, fight, lock, tapper, state, eyes=None, know=None):
                 x = int((0.5 if n < 2 else BV.POPUP_TILES[min(place, 1)]) * w)
             log(f"battle: switching to {mon.label} - {why}")
             xy = (int(x * S.REF_W / w), int(BV.POPUP_TILE_Y * S.REF_H))
-            tapper.tap(*xy)
+            tapper.tap(*xy, SWITCH_TAP_MS)
     return {"xy": xy, "kind": kind}
 
 
@@ -4629,6 +4634,8 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                     thr["b"] = None
                     if not ask["done"]:
                         tapper.pause()
+                        if seen == "switch":             # ours fainted: no swipes of a little game over the tiles
+                            tapper.sweep(None)           # (they went on until the answer and spoilt its tap)
                         # (the answer to the switch question tells the bot that our Pokémon fainted: on the video
                         # that waits for a second picture of it, a tenth of a second - not longer, the countdown
                         # of this question can be nearly over when it comes up)
@@ -4669,10 +4676,14 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                             if res["xy"] is None and not out["gave_up"]:
                                 tapper.go()                  # (nothing to tap: the attack plays out)
                     elif ask["xy"] is not None and now - ask["tapped"] >= RETAP_AFTER:
-                        if ask["tries"] < RETAP_MAX:         # (a tap that did not count: the question is still there)
-                            ask["tries"] += 1
+                        if ask["tries"] < (SWITCH_RETAPS if ask["kind"] == "switch" else RETAP_MAX):
+                            ask["tries"] += 1                # (a tap that did not count: the question is still there)
                             log("battle: the question is still on the screen - tapping again")
-                            tapper.tap(*ask["xy"])
+                            tapper.sweep(None)
+                            x, y = ask["xy"]
+                            if ask["kind"] == "switch":      # (another height of the tile each time: its picture,
+                                y = int(SWITCH_TAP_Y[ask["tries"] % len(SWITCH_TAP_Y)] * S.REF_H)   # middle, name)
+                            tapper.tap(x, y, SWITCH_TAP_MS if ask["kind"] == "switch" else 120)
                             ask["tapped"] = time.monotonic()
                         else:
                             tapper.go()

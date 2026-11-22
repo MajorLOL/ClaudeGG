@@ -44,6 +44,8 @@ SHIELDS_BACK = 6          # pictures in a row that show more shields of ours tha
 FOE_RETRY = 8             # a name box that gave nothing is read again after this many pictures at most
 GOING_DOWN_HP = 0.20      # our HP below this part of the full bar: we are about to faint ...
 GOING_DOWN_FAST = 4       # ... or it is no more than this many fast attacks of the foe
+SWITCH_MISSED = 250       # pictures after the switch question: another one of ours on the field = our tap missed
+HP_BACK_UP = 12          # pictures in a row (with the HUD) on which our bar reads higher: believe the bar again
 FOE_BACK_SOON = 6.0       # s of fight: a foe that is back within this time was not away (its name was misread)
 
 
@@ -91,6 +93,8 @@ class Fight:
         self._named_at = -1                    # ... the name box last showed that another one of ours had come in
         self._my_reads = 0                     # readings of our HP bar in the plain fight since `me` came in ...
         self._my_read = 1.0                    # ... and the last of them
+        self._rise = [None, 0]                 # our bar reads higher than believed: [the reading, pictures in a row]
+        self._switch_seen = None               # the picture count when the switch question was answered
         self._came = (self.me, self.me.hp)     # who came in last, and the HP it had before that
         self._aim = (None, None)               # (what aim() was worked out for, its answer)
         self.foe_seen = {}                     # species -> the charged attacks it was seen to use in this battle
@@ -118,10 +122,20 @@ class Fight:
         mine, foe = feat["hp"]
         old = self.my_hp
         self.my_hp = self._believe("me", self.my_hp, mine)
-        if old < self.my_hp <= old + HP_JUMP:  # (a Pokémon never heals: a small rise is a misread)
+        if old < self.my_hp <= old + HP_JUMP:  # (a Pokémon never heals: a small rise is a misread ...
             self.my_hp = old
+            r = self._rise
+            if feat["hud"] and r[0] is not None and abs(mine - r[0]) <= 0.06:
+                r[1] += 1
+            else:
+                r[0], r[1] = (mine if feat["hud"] else None), 1
+            if r[1] >= HP_BACK_UP:             # ... unless the bar says so on picture after picture: then what
+                self.my_hp = mine              # was believed before was the misread (31% on the bar, 6% kept)
+                r[0], r[1] = None, 0
         elif old < FAINTED_BELOW and self.my_hp > 0.6:
             self._came_in()                    # (a full bar after a nearly empty one: the next one of ours)
+        if mine is None or not (old < mine <= old + HP_JUMP):
+            self._rise = [None, 0]             # (the bar does not read higher on this picture)
         if mine is not None and feat["hud"] and abs(mine - self.my_hp) <= 0.06:
             self._my_reads += 1                # (its HP is known from its own bar, read in the plain fight - not
             self._my_read = self.my_hp         # from what was kept, not from a picture with a banner over the bar)
@@ -381,10 +395,22 @@ class Fight:
         """The CP in my name box: correct who is on the field when it is somebody else than expected.  A
         Pokémon that was nearly down has fainted and the next one came in by itself (the game does not ask
         when only one is left); otherwise we only had the wrong one in mind."""
-        if not cp or abs(cp - self.me.cp) <= 1:
+        if not cp:
+            return
+        if abs(cp - self.me.cp) <= 1:
+            self._switch_seen = None           # (the one that was chosen is on the field: the tap counted)
             return
         for m in self.team:
             if m.pos not in self.dead and abs(m.cp - cp) <= 1 and m is not self.me:
+                if self._switch_seen is not None and self._seen - self._switch_seen <= SWITCH_MISSED:
+                    # right after the switch question: our choice did not come in, the game chose the other one
+                    # (the tap on its tile did not count) - nobody fainted
+                    self.log(f"fight: {m.label} is on the field, not {self.me.label} - the tap on the tile of "
+                             f"{self.me.label} did not count, the game chose")
+                    self._switch_seen = None
+                    self._enter(m)
+                    self._named_at = self._seen
+                    return
                 fainted = self.my_hp < FAINTED_BELOW or self._fainted_more()
                 self.log(f"fight: {m.label} is on the field (not {self.me.label}"
                          + (", which fainted)" if fainted else ")"))
@@ -679,6 +705,7 @@ class Fight:
         by_cp = idx is not None and abs(tiles[idx][0] - best.cp) <= 1
         why += ("" if why.endswith("(") else ", ") + ("by CP)" if by_cp else "by party order)")
         self.tile = (left.index(best), len(left))
+        self._switch_seen = self._seen
         self._enter(best)
         return idx, best, why
 
