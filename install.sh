@@ -36,4 +36,6 @@ echo
 echo "Done. Test with:  ~/gbvenv/bin/python gamebot.py test"
 echo "Updating an existing installation? The running services still use the old files. Restart them:"
 echo "    sudo systemctl restart gamebot-web spin-stop     (then reload the web page with Ctrl+F5)"
+echo "Testing by hand (gamebot.py fight / battle)? Then the bot itself must stay stopped:"
+echo "    sudo systemctl stop spin-stop && sudo systemctl restart gamebot-web"
 echo "Next: install the services, the sudoers rule and the web password (wiki page 'Installation')."
