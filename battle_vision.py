@@ -263,6 +263,95 @@ def result_button(img):
     return float(green.mean()) > 0.45
 
 
+# ---- the buttons of the screens around a fight --------------------------------------------------------
+# The game's buttons are wide pills in one colour with a white label: green (BATTLE, USE THIS PARTY, NEXT
+# BATTLE, OK, CLAIM REWARD!) or orange (CLAIM RANK REWARDS!).  White text on such a button is often not read
+# by OCR, so the button itself is looked for: rows that have the button's colour from one end to the other.
+BUTTON_COLOURS = (("green", 55, 95, 70, 150), ("orange", 8, 24, 110, 200))   # name, hue from-to, min. saturation, value
+BUTTON_TINT = 25                  # the label makes the colour paler: this saturation still belongs to the button
+BUTTON_WIDE = 0.25                # a button is at least this wide (of the screen) ...
+BUTTON_HIGH = (0.018, 0.11)       # ... and this high (of the screen height; the lowest ones are cut by the edge)
+HOME_BUTTON_FROM = 0.93           # the big button of the Battle screen ends below this (it is cut by the edge)
+
+
+def _runs(row):
+    """[(x0, x1), ...] of the stretches of True in a row (x1 is one past the end)."""
+    d = np.diff(np.concatenate(([0], row.view(np.int8), [0])))
+    return list(zip(np.where(d == 1)[0].tolist(), np.where(d == -1)[0].tolist()))
+
+
+def wide_buttons(img, top=0.45):
+    """The wide green and orange buttons in the lower part of a screen (from `top` down), lowest first:
+    [{"color": "green" / "orange", "x0", "x1", "y0", "y1"}] in fractions of the screen.  A button is a block
+    of rows that are in its colour from its left end to its right end (the white label in between is paler,
+    in the same hue), that is clearly wider than high and does not touch the sides of the screen (a
+    background in that colour does)."""
+    h, w = img.shape[:2]
+    y_top = int(top * h)
+    sw = 221
+    k = sw / float(w)
+    sh = max(int(round((h - y_top) * k)), 1)
+    hsv = cv2.cvtColor(cv2.resize(img[y_top:], (sw, sh), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2HSV)
+    hue, sat, val = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+    full_h = h * k
+    need = int(BUTTON_WIDE * sw)
+    out = []
+    for colour, h0, h1, s_min, v_min in BUTTON_COLOURS:
+        in_hue = (hue >= h0) & (hue <= h1) & (val >= v_min)
+        strict = in_hue & (sat >= s_min)
+        tint = in_hue & (sat >= BUTTON_TINT)
+        rows = []                                  # per row: its widest stretch that looks like a button
+        for r in range(sh):
+            best = None
+            for a, b in _runs(tint[r]):
+                if (b - a >= need and a > 2 and b < sw - 2 and strict[r, a:b].mean() >= 0.35
+                        and strict[r, a:a + 4].any() and strict[r, b - 4:b].any()):
+                    if best is None or b - a > best[1] - best[0]:
+                        best = (a, b)
+            rows.append(best)
+        blocks = []                                # rows on top of each other that cover the same stretch
+        for r, run in enumerate(rows):
+            if run is None:
+                continue
+            last = blocks[-1] if blocks else None
+            if last and r - last["r1"] <= 2 and min(run[1], last["b"]) - max(run[0], last["a"]) >= 0.6 * min(
+                    run[1] - run[0], last["b"] - last["a"]):
+                last["r1"] = r
+                last["all"].append(run)
+                last["a"], last["b"] = run
+            else:
+                blocks.append({"r0": r, "r1": r, "a": run[0], "b": run[1], "all": [run]})
+        for blk in blocks:
+            x0 = int(np.median([a for a, _b in blk["all"]]))
+            x1 = int(np.median([b for _a, b in blk["all"]]))
+            bh, bw = blk["r1"] - blk["r0"] + 1, x1 - x0
+            if not (BUTTON_HIGH[0] * full_h <= bh <= BUTTON_HIGH[1] * full_h) or bw < 2.2 * bh:
+                continue
+            out.append({"color": colour, "x0": round(x0 / float(sw), 3), "x1": round(x1 / float(sw), 3),
+                        "y0": round((y_top * k + blk["r0"]) / full_h, 3),
+                        "y1": round(min((y_top * k + blk["r1"] + 1) / full_h, 1.0), 3)})
+    out.sort(key=lambda b: -b["y1"])
+    return out
+
+
+def button_spot(button, side=0.5):
+    """Where to tap a button of wide_buttons(): (x, y) in fractions.  side: how far from its left end
+    (0.5 = the middle; the Battle screen's button has the round close button over the middle of its top
+    edge, so that one is tapped at a quarter)."""
+    return (round(button["x0"] + side * (button["x1"] - button["x0"]), 3),
+            round(button["y0"] + 0.6 * (button["y1"] - button["y0"]), 3))
+
+
+def home_button(img):
+    """The big button at the bottom of the Battle screen (it is cut off by the lower edge of the screen):
+    a button of wide_buttons() - green is BATTLE, orange means that something has to be claimed before the
+    next battle (CLAIM RANK REWARDS!) - or None when it is not seen."""
+    for b in wide_buttons(img, 0.80):
+        if b["y1"] >= HOME_BUTTON_FROM:
+            return b
+    return None
+
+
 def features(img):
     """Everything above in one dict (for the log and the tests)."""
     mine, foe = hp_of_sides(img)

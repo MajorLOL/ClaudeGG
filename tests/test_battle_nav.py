@@ -250,6 +250,30 @@ class FightBoxes(unittest.TestCase):
         self.assertEqual(bn.result_kind(SCREENS["home"]), "")               # (the Battle screen says 'WINS: 100')
 
 
+class Claims(unittest.TestCase):
+    """A new rank has to be claimed before the next battle: the button of the Battle screen says so."""
+
+    def test_the_claim_button_by_its_text(self):
+        lines = SCREENS["home"] + [line("CLAIM RANK REWARDS!", 500, 2100)]
+        self.assertEqual(bn.claim_label(lines), "CLAIM RANK REWARDS!")
+        self.assertEqual(bn.claim_label(SCREENS["home"]), "")
+        self.assertEqual(bn.claim_label([line("CLAIM REWARDS", 600, 900)]), "")     # (not the button at the bottom)
+        self.assertEqual(bn.claim_label([line("CLAlM RANK REWARDS!", 500, 1050)], 0.5), "CLAlM RANK REWARDS!")
+
+    def test_words_that_take_a_reward_screen_further(self):
+        lines = [line("RANK UP!", 700, 500), line("REWARDS", 700, 1100), line("OK", 860, 1900), line("CLAIM!", 800, 1500)]
+        self.assertEqual([w for w, _x, _y in bn.next_words(lines)], ["OK", "CLAIM!"])        # lowest first
+        self.assertEqual(bn.next_words([line("OK", 860, 300)]), [])                           # (not at the top)
+        self.assertEqual(bn.next_words([line("LOOK BOOKS TOKEN", 300, 1500)]), [])            # (no part of a word)
+        self.assertEqual([w for w, _x, _y in bn.next_words([line("CONTlNUE", 700, 1800)])], ["CONTlNUE"])
+
+    def test_words_of_the_battle_screens(self):
+        self.assertTrue(bn.battle_words(SCREENS["home"]))
+        self.assertTrue(bn.battle_words([line("RANK UP!", 700, 500)]))
+        self.assertFalse(bn.battle_words([line("VENIPEDE CP 378", 600, 400)]))
+        self.assertFalse(bn.battle_words([]))
+
+
 class PartyButton(unittest.TestCase):
     def test_use_this_party_spots(self):
         spots = bn.party_use_spots([line("USE THIS PARTY", 700, 1930)])

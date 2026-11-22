@@ -165,6 +165,34 @@ def home_battle_spots(lines, k=1.0):
     return spots
 
 
+CLAIM_WORDS = ("CLAIM", "COLLECT")
+# Labels of buttons that take a reward screen one step further (tapped on the screens after CLAIM RANK REWARDS!)
+NEXT_WORDS = CLAIM_WORDS + ("CONTINUE", "OK", "OKAY", "NEXT", "DONE", "CLOSE")
+
+
+def claim_label(lines, k=1.0):
+    """The text of the button at the bottom of the Battle screen when it asks to claim something before the
+    next battle ('CLAIM RANK REWARDS!'), '' when no such text is read (white text on a coloured button is
+    often not read: the colour of the button is the other sign, see battle_vision.home_button)."""
+    for t, _x, y, ws in lines:
+        if y > HOME_BUTTON_Y * k and any(like(_plain(w), c, 0.8) for w, _x2, _y2 in ws for c in CLAIM_WORDS):
+            return t
+    return ""
+
+
+def next_words(lines, k=1.0):
+    """[(word, x, y)] lowest first: words that are the label of a button to go on with (CLAIM, OK, CONTINUE
+    ...) in the lower two thirds of the screen."""
+    out = [(w, x, y) for w, x, y in words_of(lines)
+           if y > SCREEN_H * k / 3.0 and any(_plain(w) == n or (len(n) > 3 and like(_plain(w), n, 0.85)) for n in NEXT_WORDS)]
+    return sorted(out, key=lambda t: -t[2])
+
+
+def battle_words(lines):
+    """True when words of the battle screens are read (LEAGUE, RANK, REWARDS ...): this is no catch screen."""
+    return any(_plain(w) in ("LEAGUE", "PARTY", "REWARDS", "REWARD", "RANK", "BATTLE") for w, _x, _y in words_of(lines))
+
+
 def exit_battle_spots(lines, k=1.0):
     """'Exit the Trainer Battle?' -> {"yes": (x, y), "no": (x, y) or None}.  The question comes up when
     BACK is pressed on the league list or on the party screen.  YES is placed from the word NO (or from the

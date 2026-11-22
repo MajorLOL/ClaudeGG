@@ -131,8 +131,36 @@ def _nms(boxes, iou_th=0.5):
     return keep
 
 
+_clf = {"brain": None, "it": None, "failed": False}     # the screen classifier for screen_class()
+
+
+def screen_class(img):
+    """(name, certainty) of the screen classifier alone, for the parts of the bot that run without the whole
+    Brain (gamebot.py fight).  The classifier of a Brain that exists is used, otherwise only this one model
+    is loaded.  ("onbekend", 0.0) when the model cannot be used."""
+    if _clf["brain"] is not None:
+        return _clf["brain"].screen(img)
+    if _clf["failed"]:
+        return "onbekend", 0.0
+    try:
+        if _clf["it"] is None:
+            it = Interpreter(model_path=os.path.join(MODEL_DIR, "model_classifier_screen_v5.tflite"), num_threads=2)
+            it.allocate_tensors()
+            _clf["it"] = it
+        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        x = cv2.resize(cv2.resize(rgb, (256, 256)), (224, 224)).astype(np.float32) / 255.0
+        p = list(Brain._run(_clf["it"], x).values())[0]
+        i = int(np.argmax(p))
+        return SCREENS[i], float(p[i])
+    except Exception as e:  # noqa: BLE001
+        _clf["failed"] = True
+        log(f"the screen classifier cannot be used here ({e})")
+        return "onbekend", 0.0
+
+
 class Brain:
     def __init__(self):
+        _clf["brain"] = self
         p = lambda f: os.path.join(MODEL_DIR, f)
 
         def load(f):
@@ -1586,6 +1614,29 @@ def ocr_lines(img, y0=0, y1=None, scale=1.0):
     return res
 
 
+def button_label(img, button):
+    """The white text on a button of battle_vision.wide_buttons() ('CLAIM RANK REWARDS!', 'OK'), '' when it
+    is not read.  ocr_lines() does not read white letters on a green or orange button; here the white of the
+    button's own box is turned into black text on white and read as one line."""
+    h, w = img.shape[:2]
+    crop = img[int(max(button["y0"] - 0.012, 0.0) * h):int(min(button["y1"] + 0.012, 1.0) * h),
+               int(button["x0"] * w):int(button["x1"] * w)]
+    if crop.size == 0:
+        return ""
+    f = 110.0 / crop.shape[0]                      # (letters of 40 to 60 px: what tesseract reads best)
+    crop = cv2.resize(crop, None, fx=f, fy=f, interpolation=cv2.INTER_CUBIC if f > 1 else cv2.INTER_AREA)
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    white = (crop.min(axis=2) > 200) | ((hsv[..., 1] < 60) & (hsv[..., 2] > 215))
+    text = cv2.copyMakeBorder(np.where(white, 0, 255).astype(np.uint8), 12, 12, 12, 12, cv2.BORDER_CONSTANT, value=255)
+    ok, buf = cv2.imencode(".png", text)
+    try:
+        out = subprocess.run(["tesseract", "stdin", "stdout", "--psm", "7"], env=OCR["env"], input=buf.tobytes(),
+                             capture_output=True, timeout=30).stdout.decode(errors="ignore")
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return ""
+    return " ".join(out.upper().split())
+
+
 def parse_friends(lines, img=None):
     """Friend rows: a name line (with 'Today' / 'Yesterday' / '2+ days ago' ...).
     Gift = 'sent you a Gift!' somewhere in the row (text may wrap over two lines),
@@ -3010,6 +3061,13 @@ def battle_count():
 
 BATTLE_NAV_STEPS = 20        # screens looked at on the way to the party screen
 BATTLE_NAV_SECONDS = 240     # ... and the most time that may take
+# A new rank has to be claimed before the next battle: the Battle screen then has an orange CLAIM RANK REWARDS!
+# button where the green BATTLE button is.  It is tapped and the screens that follow are worked through.
+CLAIM_TAPS = 4               # the claim button of the Battle screen is tapped this often at most
+CLAIM_STEPS = 14             # screens looked at after it (the rank-up and its rewards) ...
+CLAIM_SECONDS = 150          # ... and the most time that may take
+CLAIM_NOT = ("SHOP", "BUY", "COIN", "SHARE", "EXCHANGE", "PREMIUM", "PASS", "PURCHASE")   # buttons never tapped there
+CLAIM_TAP_ON = (0.5, 0.30)   # where a screen with nothing to tap on it is tapped to go on (tap to continue)
 
 
 def _battle_kind(shot, lines):
@@ -3057,9 +3115,13 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
     map -> main menu -> BATTLE tile -> Battle screen -> BATTLE button -> [league list] -> party screen.
     Every step looks at what is really on the screen first (see battle_nav.py); an unknown screen is
     logged with a saved picture (debug/g_battle_s<step>.png). It NEVER presses USE THIS PARTY itself.
+    When the Battle screen has an orange claim button where the BATTLE button is (CLAIM RANK REWARDS!: a new
+    rank has to be claimed before the next battle) that is tapped first and the screens after it are worked
+    through (pictures: debug/g_battle_claim*.png).
     stay: wait on the party screen (the fight starts from there); otherwise go back to the map. restart:
     when the way back to the map fails, restart the game (the daily run needs the map).
-    Returns {"ok": bool, "why": str, "title": str, "members": [...], "use_spots": [(x, y), ...]}."""
+    Returns {"ok": bool, "why": str, "title": str, "members": [...], "use_spots": [(x, y), ...]}; with
+    "leave": True the screen was left as it is (BACK could throw away a reward: a Pokémon to catch)."""
     import battle_vision as BV
     league = battle_league()
     info = {"ok": False, "why": "", "title": "", "members": [], "use_spots": []}
@@ -3072,9 +3134,59 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
     taps = {"map": 0, "home": 0, "league": 0}
     menu_spots = home_spots = None
     others, tapped, in_setup, pill_taps = 0, False, False, 0     # in_setup: the league list or party screen was seen
+    claim = {"taps": 0, "since": 0.0, "steps": 0, "idle": 0, "catch": 0}    # the claim button and what follows it
+    max_steps, max_seconds = BATTLE_NAV_STEPS, BATTLE_NAV_SECONDS
+    step = -1
+
+    def after_claim(shot, lines, k):
+        """A screen that came after the claim button (the rank-up, its rewards): tap what takes it further.
+        Returns True when the walk has to stop here (info says why)."""
+        claim["steps"] += 1
+        if claim["steps"] <= 8:
+            save_async(f"g_battle_claim_{claim['steps']}.png", shot)
+        buttons = BV.wide_buttons(shot)
+        name, score = screen_class(shot)
+        if name == "encounterScreen" and score >= TH_CLASS and not buttons and not BN.battle_words(lines):
+            claim["catch"] += 1                      # a Pokémon to catch as a reward (seen twice: no flicker)
+            if claim["catch"] >= 2:
+                info.update(why="a Pokémon to catch came up after the claim (a reward)", leave=True)
+                return True
+            return False
+        claim["catch"] = 0
+        if claim["steps"] > CLAIM_STEPS or time.monotonic() - claim["since"] > CLAIM_SECONDS:
+            info.update(why="the screens after the claim did not come to an end (see debug/g_battle_claim_*.png)",
+                        leave=True)
+            return True
+        spot = what = None
+        for b in buttons:                            # a green or orange button: CLAIM, OK, NEXT ... (lowest first)
+            text = button_label(shot, b)
+            if any(bad in text for bad in CLAIM_NOT):
+                log(f"battle: claiming: not tapping the button '{text}'")
+                continue
+            spot = _frac_xy(BV.button_spot(b))
+            what = f"the {b['color']} button '{text or 'label not read'}'"
+            break
+        if spot is None:
+            words = BN.next_words(lines, k)
+            if words:
+                spot, what = (words[0][1], words[0][2]), f"'{words[0][0]}'"
+        if spot is None:
+            claim["idle"] += 1                       # an animation, or a screen that goes on with a tap anywhere
+            if claim["idle"] < 2:
+                return False
+            spot, what = _frac_xy(CLAIM_TAP_ON), "the screen (nothing to tap is seen on it)"
+        claim["idle"] = 0
+        log(f"battle: claiming: tapping {what} at ({spot[0]}, {spot[1]})")
+        S.tap(*spot)
+        return False
+
     try:
-        for step in range(BATTLE_NAV_STEPS):
-            if (stop and stop()) or time.monotonic() - t0 > BATTLE_NAV_SECONDS:
+        while True:
+            step += 1
+            if step >= max_steps:
+                info["why"] = "too many steps"
+                break
+            if (stop and stop()) or time.monotonic() - t0 > max_seconds:
                 info["why"] = "stopped or out of time"
                 break
             shot = _settled(1.0 if step == 0 else 1.8)
@@ -3117,6 +3229,38 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
                 S.tap(x, y)
                 tapped = True
             elif kind == "home":
+                button = BV.home_button(shot)        # the big button at the bottom: green BATTLE, or orange
+                label = BN.claim_label(lines, k)
+                if (button is not None and button["color"] == "orange") or label:
+                    claim["taps"] += 1               # something has to be claimed before the next battle
+                    if claim["taps"] > CLAIM_TAPS:
+                        info["why"] = f"the claim button of the Battle screen was tapped {CLAIM_TAPS} times and is still there"
+                        break
+                    if button is not None:
+                        label = label or button_label(shot, button)
+                        x, y = _frac_xy(BV.button_spot(button, 0.25))    # (not its middle: the round X is there)
+                    else:
+                        x, y = int(BN.HOME_BUTTON_FALLBACK[0][0] * k), int(BN.HOME_BUTTON_FALLBACK[0][1] * k)
+                    log(f"battle: something has to be claimed before the next battle (button '{label or 'not read'}') "
+                        f"- tapping it at ({x}, {y})")
+                    save_async("g_battle_claim.png", shot)
+                    S.tap(x, y)
+                    tapped = True
+                    if not claim["since"]:           # (the screens that follow take their time: allow for them)
+                        max_steps += CLAIM_STEPS + CLAIM_TAPS
+                        max_seconds += CLAIM_SECONDS
+                    claim.update(since=time.monotonic(), steps=0, idle=0, catch=0)
+                    home_spots = None
+                    continue
+                if claim["since"]:
+                    if button is None or button["color"] != "green":     # (the Battle screen behind a pop-up?)
+                        if after_claim(shot, lines, k):
+                            break
+                        tapped = True
+                        continue
+                    log("battle: claimed - the BATTLE button is back")
+                    claim["since"] = 0.0
+                    home_spots = None
                 if home_spots is None:
                     lines_full = ocr_lines(shot, 1500, None, 0.8)
                     home_spots = BN.home_battle_spots(lines_full, k)
@@ -3125,7 +3269,8 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
                     info["why"] = "tapped every spot of the BATTLE button and nothing happened"
                     break
                 x, y = home_spots.pop(0)
-                log(f"battle: tapping the BATTLE button at ({x}, {y})")
+                log(f"battle: tapping the BATTLE button at ({x}, {y}) "
+                    f"(the button at the bottom looks {button['color'] if button else 'like nothing known'})")
                 S.tap(x, y)
                 tapped = True
             elif kind == "league":
@@ -3147,6 +3292,10 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
             elif kind == "exit_battle":
                 info["why"] = "a battle is going on (Exit the Trainer Battle?) - not touching it"
                 break
+            elif claim["since"] and kind == "other":             # the screens after the claim button
+                if after_claim(shot, lines, k):
+                    break
+                tapped = True
             elif BV.result_button(shot) and pill_taps < 3:       # (after a fight: a result or reward screen)
                 pill_taps += 1
                 log("battle: a green button at the bottom (a result screen?) - tapping it")
@@ -3159,11 +3308,11 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
                     break
                 if not tapped:
                     S.back()
-        else:
-            info["why"] = "too many steps"
     finally:
         if info["ok"] and stay:
             pass                                     # (the caller starts the fight from the party screen)
+        elif info.get("leave"):
+            log("battle: the screen is left as it is (no BACK: that could throw a reward away)")
         elif not _battle_to_map(beat, in_setup):
             if restart:
                 log("battle: could not get back to the map - restarting the game")
@@ -3971,6 +4120,7 @@ def battle_run(beat, stop, count, team=None):
             info = battle_open_menu(beat, stop, restart=True, stay=True)
             if not info["ok"]:
                 log(f"battle: the party screen was not reached: {info['why']}")
+                res["leave"] = bool(info.get("leave"))
                 return res
             title_ok = all(w in info["title"].upper() for w in BN.league_words(league))
             log(f"battle: party screen '{info['title'] or '?'}' (team seen: {', '.join(info['members']) or 'not read'})"
@@ -3996,7 +4146,7 @@ def battle_run(beat, stop, count, team=None):
         interrupted = True                           # (Ctrl+C: stop here, do not walk back through the menus -
         raise                                        # BACK in a running battle would give it up)
     finally:
-        if not interrupted:
+        if not interrupted and not res.get("leave"):
             beat()
             if not S.on_map(S.screenshot()):
                 if not _battle_to_map(beat, leaving_setup=True):
@@ -4025,7 +4175,8 @@ def auto_battle(pkg, beat, stop):
     log(f"battle: {battle_count()} battle(s) in '{battle_league()}' with " + ", ".join(m.label for m in team))
     beat()
     res = battle_run(beat, stop, battle_count(), team)
-    log(f"battle: done - {res['fought']} fought, {res['wins']} won")
+    log(f"battle: done - {res['fought']} fought, {res['wins']} won"
+        + (" - the normal bot goes on from the screen that is there" if res.get("leave") else ""))
     beat()
     return res["fought"]
 
@@ -4258,7 +4409,8 @@ def main():
         except KeyboardInterrupt:
             log("stopped with Ctrl+C - the game is left as it is")
             os._exit(0)                    # (at once: no thread or adb command is waited for)
-        log(f"battle: {res['fought']} fought, {res['wins']} won")
+        log(f"battle: {res['fought']} fought, {res['wins']} won"
+            + (" - the game is left on the screen that came up: look at the phone" if res.get("leave") else ""))
         return
     if mode == "loop":                     # the first screenshot also picks raw or PNG capture (a few
         def first_shot():                  # seconds): do that while the models are loading

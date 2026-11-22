@@ -8,6 +8,7 @@ import sys
 import unittest
 
 import cv2
+import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
@@ -137,6 +138,72 @@ class NameBoxes(unittest.TestCase):
         b = bv.name_key(small("fight_ready"), "foe")
         self.assertEqual(a.shape, b.shape)
         self.assertFalse(bv.key_differs(a, b))
+
+
+def battle_screen(name):
+    """The Battle screen with its lowest fifth from tests/fixtures/nav/ (the reward tiles and the big button; the
+    rest of the screen, with the player's name and numbers, is left white), on the canvas."""
+    strip = cv2.imread(os.path.join(HERE, "fixtures", "nav", name + ".jpg"))
+    assert strip is not None, name
+    full = np.full((strip.shape[0] * 5, strip.shape[1], 3), 255, np.uint8)
+    full[-strip.shape[0]:] = strip
+    return cv2.resize(full, (1768, 2208), interpolation=cv2.INTER_CUBIC)
+
+
+class Buttons(unittest.TestCase):
+    """The wide green and orange buttons of the screens around a fight."""
+
+    def test_the_battle_button_is_green(self):
+        b = bv.home_button(battle_screen("home_battle"))
+        self.assertEqual(b["color"], "green")
+        self.assertGreater(b["y1"], 0.97)                         # (it is cut off by the lower edge of the screen)
+        self.assertTrue(0.25 < b["x0"] < 0.40 and 0.60 < b["x1"] < 0.78, b)
+
+    def test_a_rank_to_claim_makes_the_button_orange(self):
+        b = bv.home_button(battle_screen("home_claim"))
+        self.assertEqual(b["color"], "orange")
+        self.assertGreater(b["x1"] - b["x0"], 0.7)                # (CLAIM RANK REWARDS! is much wider than BATTLE)
+        x, y = bv.button_spot(b, 0.25)
+        self.assertTrue(0.2 < x < 0.4 and b["y0"] < y < b["y1"], (x, y))    # on the button, left of the round X
+
+    def test_the_tap_spot_is_on_the_button(self):
+        b = {"color": "green", "x0": 0.3, "x1": 0.7, "y0": 0.8, "y1": 0.9}
+        self.assertEqual(bv.button_spot(b), (0.5, 0.86))
+        self.assertEqual(bv.button_spot(b, 0.25), (0.4, 0.86))
+
+    def test_next_battle_is_a_green_button(self):
+        found = bv.wide_buttons(frame("result_loss"))
+        self.assertEqual([b["color"] for b in found], ["green"])
+        self.assertTrue(found[0]["y0"] < bv.TAP_NEXT[1] < found[0]["y1"], found)
+        self.assertIsNone(bv.home_button(frame("result_loss")))   # (it is not at the very bottom)
+
+    def test_a_fight_has_no_such_buttons(self):
+        for name in ("fight_ready", "fight_lanturn", "shield_question", "switch_popup", "versus", "minigame_zoom",
+                     "banner_over_hud", "no_shields"):
+            self.assertEqual(bv.wide_buttons(frame(name)), [], name)
+            self.assertIsNone(bv.home_button(frame(name)), name)
+
+    def test_a_background_in_the_colour_of_a_button_is_no_button(self):
+        img = np.full((2208, 1768, 3), 255, np.uint8)
+        img[1700:1900] = (120, 205, 110)                          # green from edge to edge (BGR)
+        self.assertEqual(bv.wide_buttons(img), [])
+        img[:] = 255
+        img[1700:1850, 400:1400] = (120, 205, 110)                # the same green as a block in the middle
+        found = bv.wide_buttons(img)
+        self.assertEqual(len(found), 1)
+        self.assertAlmostEqual(found[0]["x0"], 400 / 1768, delta=0.02)
+        self.assertAlmostEqual(found[0]["y1"], 1850 / 2208, delta=0.01)
+
+    def test_a_thin_green_line_is_no_button(self):
+        img = np.full((2208, 1768, 3), 255, np.uint8)
+        img[1500:1526, 300:800] = (120, 205, 110)                 # an HP bar is this thin
+        self.assertEqual(bv.wide_buttons(img), [])
+
+    def test_buttons_come_lowest_first(self):
+        img = np.full((2208, 1768, 3), 255, np.uint8)
+        img[1300:1420, 400:1400] = (120, 205, 110)
+        img[1800:1920, 400:1400] = (85, 180, 255)                 # orange (BGR)
+        self.assertEqual([b["color"] for b in bv.wide_buttons(img)], ["orange", "green"])
 
 
 class Rings(unittest.TestCase):
