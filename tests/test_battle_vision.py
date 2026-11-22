@@ -170,12 +170,31 @@ class Buttons(unittest.TestCase):
         b = {"color": "green", "x0": 0.3, "x1": 0.7, "y0": 0.8, "y1": 0.9}
         self.assertEqual(bv.button_spot(b), (0.5, 0.86))
         self.assertEqual(bv.button_spot(b, 0.25), (0.4, 0.86))
+        cut = {"color": "green", "x0": 0.3, "x1": 0.7, "y0": 0.97, "y1": 1.0}      # cut off by the edge of the screen
+        self.assertLessEqual(bv.button_spot(cut)[1], 0.981)                       # (not on the very edge)
+        self.assertGreater(bv.button_spot(cut)[1], 0.97)
+
+    def test_no_button_in_view_when_a_new_set_starts(self):
+        # 'Choose a reward tier ...': the card is longer, only a sliver of the BATTLE button is above the edge
+        img = battle_screen("home_newset")
+        self.assertEqual(bv.wide_buttons(img), [])
+        self.assertIsNone(bv.home_button(img))
+
+    def test_of_two_battle_buttons_the_upper_one(self):
+        # scrolled down: BATTLE of the basic rewards, and below it BATTLE of the premium rewards (costs a pass)
+        img = np.full((2208, 1768, 3), 255, np.uint8)
+        img[1300:1410, 560:1260] = (120, 205, 110)
+        img[1950:2060, 560:1260] = (120, 205, 110)
+        b = bv.home_button(img)
+        self.assertEqual(b["color"], "green")
+        self.assertAlmostEqual(b["y0"], 1300 / 2208, delta=0.01)
+        img[1950:2060, 300:1500] = (85, 180, 255)                 # (an orange one anywhere goes first: claim)
+        self.assertEqual(bv.home_button(img)["color"], "orange")
 
     def test_next_battle_is_a_green_button(self):
         found = bv.wide_buttons(frame("result_loss"))
         self.assertEqual([b["color"] for b in found], ["green"])
         self.assertTrue(found[0]["y0"] < bv.TAP_NEXT[1] < found[0]["y1"], found)
-        self.assertIsNone(bv.home_button(frame("result_loss")))   # (it is not at the very bottom)
 
     def test_a_fight_has_no_such_buttons(self):
         for name in ("fight_ready", "fight_lanturn", "shield_question", "switch_popup", "versus", "minigame_zoom",

@@ -267,6 +267,21 @@ class Claims(unittest.TestCase):
         self.assertEqual(bn.next_words([line("LOOK BOOKS TOKEN", 300, 1500)]), [])            # (no part of a word)
         self.assertEqual([w for w, _x, _y in bn.next_words([line("CONTlNUE", 700, 1800)])], ["CONTlNUE"])
 
+    def test_the_battle_screen_scrolled_down(self):
+        # a new set starts: the page is scrolled down to its BATTLE button and the lines at the top are gone
+        lines = [line("2026 GO LAIC CUP: GREAT LEAGUE EDITION", 500, 300),
+                 line("CHOOSE A REWARD TIER TO ENTER THE GO BATTLE LEAGUE.", 300, 420), line("PREMIUM REWARDS", 650, 1700)]
+        self.assertEqual(bn.screen_kind(lines, league="Great League"), "home")       # (not the league list)
+        self.assertEqual(bn.screen_kind([line("BASIC REWARDS", 650, 900)], league="Great League"), "home")
+        self.assertEqual(bn.screen_kind([line("2026 GO LAIC CUP: GREAT LEAGUE EDITION", 500, 300)],
+                                        league="Great League"), "league")
+
+    def test_a_battle_button_under_premium_rewards(self):
+        lines = [line("BASIC REWARDS", 650, 400), line("PREMlUM REWARDS", 650, 1500)]
+        self.assertFalse(bn.premium_above(lines, 1300))                   # the button of the basic rewards
+        self.assertTrue(bn.premium_above(lines, 1900))                    # the one below PREMIUM REWARDS
+        self.assertFalse(bn.premium_above([], 1900))
+
     def test_words_of_the_battle_screens(self):
         self.assertTrue(bn.battle_words(SCREENS["home"]))
         self.assertTrue(bn.battle_words([line("RANK UP!", 700, 500)]))

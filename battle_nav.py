@@ -115,8 +115,9 @@ def screen_kind(lines, on_map=False, league="", k=1.0):
         return "party"
     if _phrase(lines, "GO BATTLE LEAGUE") or (
             _has(lines, "LONGEST") and _has(lines, "STREAK")) or (
-            _has(lines, "STARDUST") and _has(lines, "EARNED")):
-        return "home"
+            _has(lines, "STARDUST") and _has(lines, "EARNED")) or (
+            _phrase(lines, "REWARD TIER") or _phrase(lines, "BASIC REWARDS") or _phrase(lines, "PREMIUM REWARDS")):
+        return "home"                         # (the last ones: the same screen scrolled down, a new set starts)
     ws = words_of(lines)
     for w, x, y in ws:
         if like(w, "ITEMS", 0.8) and 1250 * k < y < 1700 * k and x > 884 * k:
@@ -186,6 +187,12 @@ def next_words(lines, k=1.0):
     out = [(w, x, y) for w, x, y in words_of(lines)
            if y > SCREEN_H * k / 3.0 and any(_plain(w) == n or (len(n) > 3 and like(_plain(w), n, 0.85)) for n in NEXT_WORDS)]
     return sorted(out, key=lambda t: -t[2])
+
+
+def premium_above(lines, y):
+    """True when the word PREMIUM is read above height y (pixels): a BATTLE button below it belongs to the
+    premium rewards, which cost a Premium Battle Pass - it is not to be tapped."""
+    return any(like(_plain(w), "PREMIUM", 0.8) and wy < y for w, _x, wy in words_of(lines))
 
 
 def battle_words(lines):

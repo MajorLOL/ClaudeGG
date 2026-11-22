@@ -1,10 +1,11 @@
-"""The walk to the party screen when a new rank has to be claimed first (gamebot.battle_open_menu), with a fake
-phone: no adb, no OCR program, no detector models.
+"""The walk to the party screen when a new rank has to be claimed first or a new set starts
+(gamebot.battle_open_menu), with a fake phone: no adb, no OCR program, no detector models.
 
-The Battle screen then has an orange CLAIM RANK REWARDS! button where the green BATTLE button is.  The two
-pictures of that screen are the lowest fifth of real screenshots (tests/fixtures/nav/).  The screens that the game
-shows after the claim were not seen when this was written: the fake phone shows a screen without anything to tap
-(it goes on with a tap anywhere) and a screen with a green button, which is what the bot is built to handle.
+A new rank: the Battle screen has an orange CLAIM RANK REWARDS! button where the green BATTLE button is.  A new
+set of five battles: the card is longer ('Choose a reward tier ...') and the BATTLE button is below the lower edge
+of the screen; further down there is a second one, for the premium rewards.  The pictures of the Battle screen are
+the lowest fifth of real screenshots (tests/fixtures/nav/); the scrolled screen and the screens that could follow
+a claim (one without anything to tap, one with a green button) are made up.
 gamebot.py needs OpenCV and the TFLite runtime; without them these tests are skipped.
 Run: python3 -m unittest discover -s tests"""
 import os
@@ -45,9 +46,27 @@ def fight_picture(name):
     return cv2.resize(cv2.imread(os.path.join(FIX, "fight", name + ".jpg")), (W, H), interpolation=cv2.INTER_CUBIC)
 
 
+def scrolled_screen(upper=True, lower=True):
+    """The Battle screen scrolled down: BATTLE of the basic rewards and, lower, BATTLE of the premium rewards."""
+    img = np.full((H, W, 3), 255, np.uint8)
+    if upper:
+        img[int(0.80 * H):int(0.85 * H), int(0.32 * W):int(0.71 * W)] = (120, 205, 110)
+    if lower:
+        img[int(0.93 * H):int(0.98 * H), int(0.32 * W):int(0.71 * W)] = (120, 205, 110)
+    return img
+
+
 LINES = {
     "home_claim": [line("GO BATTLE LEAGUE", 600, 900), line("BASIC REWARDS", 650, 1700)],
     "home_battle": [line("GO BATTLE LEAGUE", 600, 900), line("BASIC REWARDS", 650, 1700)],
+    "home_newset": [line("GO BATTLE LEAGUE", 600, 1260), line("2026 GO LAIC CUP: GREAT LEAGUE EDITION", 500, 1600),
+                    line("CHOOSE A REWARD TIER TO ENTER THE GO BATTLE LEAGUE.", 300, 1690)],
+    "home_scrolled": [line("GO BATTLE LEAGUE", 600, 860), line("CHOOSE A REWARD TIER TO ENTER THE GO BATTLE LEAGUE.", 300, 1290),
+                      line("PREMIUM REWARDS", 650, 1960)],
+    "home_too_far": [line("CHOOSE A REWARD TIER TO ENTER THE GO BATTLE LEAGUE.", 300, 400),
+                     line("PREMIUM REWARDS", 650, 1500)],
+    "home_empty": [line("GO BATTLE LEAGUE", 600, 900)],
+    "premium": [line("USE A PREMIUM BATTLE PASS", 500, 900)],
     "rankup": [line("YOU REACHED RANK 7", 500, 700)],
     "rewards": [line("RANK 7 REWARDS", 600, 600)],
     "shop": [line("SPECIAL OFFER", 600, 600)],
@@ -64,7 +83,7 @@ class Phone:
         self.scene = scene
         self.after = after                 # the screen that comes after a tap on the claim button
         self.claim_works = True
-        self.taps, self.seen, self.logs = [], [scene], []
+        self.taps, self.swipes, self.seen, self.logs = [], [], [scene], []
         self.backs = self.walks_back = 0
         self.pictures = {}
 
@@ -72,9 +91,13 @@ class Phone:
         name = {"rankup": "versus", "catch": "versus", "stuck": "versus", "rewards": "result_loss",
                 "shop": "result_loss"}.get(self.scene, self.scene)
         if name not in self.pictures:
-            if name.startswith("home_"):
+            if name == "home_scrolled":
+                self.pictures[name] = scrolled_screen()
+            elif name == "home_too_far":
+                self.pictures[name] = scrolled_screen(upper=False)       # (only the lower button is in view)
+            elif name.startswith("home_") and name != "home_empty":
                 self.pictures[name] = battle_screen(name)
-            elif name == "party":
+            elif name in ("party", "premium", "home_empty"):
                 self.pictures[name] = np.full((H, W, 3), 255, np.uint8)
             else:
                 self.pictures[name] = fight_picture(name)
@@ -96,6 +119,18 @@ class Phone:
             self.to("home_battle")                              # (its green button)
         elif self.scene == "home_battle" and 0.32 < fx < 0.71 and fy > 0.972:
             self.to("party")
+        elif self.scene in ("home_scrolled", "home_too_far") and 0.32 < fx < 0.71:
+            if 0.80 < fy < 0.85 and self.scene == "home_scrolled":
+                self.to("party")                                # BATTLE of the basic rewards
+            elif 0.93 < fy < 0.98:
+                self.to("premium")                              # BATTLE of the premium rewards: never
+
+    def swipe(self, x1, y1, x2, y2, ms=300):
+        self.swipes.append((self.scene, round((y2 - y1) / float(H), 3), ms))
+        if self.scene == "home_newset" and y2 < y1 - 0.08 * H:
+            self.to("home_scrolled")                            # (scrolled down)
+        elif self.scene == "home_too_far" and y2 > y1 + 0.08 * H:
+            self.to("home_scrolled")                            # (scrolled back up)
 
     def back(self):
         self.backs += 1
@@ -104,7 +139,8 @@ class Phone:
         return [ln for ln in LINES[self.scene] if ln[2] >= y0]
 
     def label(self, img, button):
-        return {"home_claim": "CLAIM RANK REWARDS!", "rewards": "OK", "shop": "BUY 100 COINS"}.get(self.scene, "")
+        return {"home_claim": "CLAIM RANK REWARDS!", "rewards": "OK", "shop": "BUY 100 COINS", "home_battle": "BATTLE",
+                "home_scrolled": "BATTLE", "home_too_far": "BATTLE"}.get(self.scene, "")
 
     def klass(self, img):
         return ("encounterScreen", 0.9) if self.scene == "catch" else ("menusScreen", 0.8)
@@ -119,7 +155,7 @@ class ClaimFirst(unittest.TestCase):
     def setUp(self):
         self.saved = {n: getattr(G, n) for n in ("_settled", "ocr_lines", "button_label", "screen_class", "save_async",
                                                  "log", "battle_league", "_battle_to_map")}
-        self.saved_s = {n: getattr(S, n) for n in ("tap", "back", "on_map", "screenshot")}
+        self.saved_s = {n: getattr(S, n) for n in ("tap", "back", "on_map", "screenshot", "swipe")}
 
     def tearDown(self):
         for n, v in self.saved.items():
@@ -136,7 +172,7 @@ class ClaimFirst(unittest.TestCase):
         G.log = phone.logs.append
         G.battle_league = lambda: "Great League"
         G._battle_to_map = phone.to_map
-        S.tap, S.back = phone.tap, phone.back
+        S.tap, S.back, S.swipe = phone.tap, phone.back, phone.swipe
         S.on_map = lambda img: False
         S.screenshot = lambda *a, **k: phone.picture()
         return G.battle_open_menu(stay=stay)
@@ -155,8 +191,9 @@ class ClaimFirst(unittest.TestCase):
         self.assertIn("something has to be claimed before the next battle (button 'CLAIM RANK REWARDS!')", log)
         self.assertIn("tapping the screen (nothing to tap is seen on it)", log)
         self.assertIn("tapping the green button 'OK'", log)
-        self.assertIn("claimed - the BATTLE button is back", log)
+        self.assertIn("claimed - the BATTLE button is there", log)
         self.assertNotIn("leave", info)
+        self.assertEqual(phone.swipes, [], log)
 
     def test_nothing_changes_without_a_claim(self):
         phone = Phone("home_battle")
@@ -166,6 +203,68 @@ class ClaimFirst(unittest.TestCase):
         self.assertEqual(phone.seen, ["home_battle", "party"])
         self.assertEqual(len(phone.taps), 1, log)
         self.assertNotIn("claim", log)
+
+    def test_after_the_claim_a_new_set_starts_and_the_button_is_below_the_edge(self):
+        # what happened on the phone: the claim went back to the Battle screen at once, and that one now said
+        # 'Choose a reward tier to enter the GO Battle League.' with the BATTLE button out of view
+        phone = Phone(after="home_newset")
+        info = self.walk(phone)
+        log = "\n".join(phone.logs)
+        self.assertTrue(info["ok"], log)
+        self.assertEqual(phone.seen, ["home_claim", "home_newset", "home_scrolled", "party"], log)
+        self.assertEqual(len(phone.swipes), 1, log)
+        scene, moved, ms = phone.swipes[0]
+        self.assertTrue(-0.2 < moved < -0.1 and ms >= 600, phone.swipes)       # a short, slow scroll down
+        self.assertEqual([t for t in phone.taps if t[0] == "home_newset"], [], log)    # nothing is tapped there
+        tap = [t for t in phone.taps if t[0] == "home_scrolled"]
+        self.assertEqual(len(tap), 1, log)
+        self.assertTrue(0.80 < tap[0][2] < 0.85, tap)                           # the upper BATTLE button
+        self.assertNotIn("premium", phone.seen)
+        self.assertIn("scrolling down (1 of 3)", log)
+        self.assertIn("claimed - the BATTLE button is there", log)
+        self.assertIn("after scrolling down 1x", log)
+        self.assertEqual(phone.backs, 0, log)
+
+    def test_a_new_set_without_a_claim(self):
+        phone = Phone("home_newset")
+        info = self.walk(phone)
+        log = "\n".join(phone.logs)
+        self.assertTrue(info["ok"], log)
+        self.assertEqual(phone.seen, ["home_newset", "home_scrolled", "party"], log)
+        self.assertNotIn("premium", phone.seen)
+        self.assertNotIn("claim", log)
+
+    def test_the_premium_battle_button_is_never_tapped(self):
+        # scrolled too far: only the BATTLE button under PREMIUM REWARDS is in view
+        phone = Phone("home_too_far")
+        info = self.walk(phone)
+        log = "\n".join(phone.logs)
+        self.assertTrue(info["ok"], log)
+        self.assertEqual(phone.seen, ["home_too_far", "home_scrolled", "party"], log)   # scrolled back up first
+        self.assertEqual([t for t in phone.taps if t[0] == "home_too_far"], [], log)
+        self.assertIn("the one of the premium rewards", log)
+        self.assertGreater(phone.swipes[0][1], 0.1)                              # (a scroll back up)
+
+    def test_only_the_premium_button_can_be_found(self):
+        phone = Phone("home_too_far")
+        phone.swipe = lambda *a, **k: phone.swipes.append("ignored")             # (the page does not scroll)
+        info = self.walk(phone)
+        log = "\n".join(phone.logs)
+        self.assertFalse(info["ok"], log)
+        self.assertIn("premium", info["why"])
+        self.assertEqual(phone.taps, [], log)
+        self.assertNotIn("premium", phone.seen)
+        self.assertEqual(phone.swipes, ["ignored", "ignored"], log)              # (it tried to scroll back up twice)
+
+    def test_no_battle_button_at_all(self):
+        phone = Phone("home_empty")
+        info = self.walk(phone)
+        log = "\n".join(phone.logs)
+        self.assertFalse(info["ok"], log)
+        self.assertIn("the BATTLE button was not found", info["why"])
+        self.assertEqual(len(phone.swipes), len(G.HOME_SCROLL), log)             # it was looked for further down
+        self.assertEqual(phone.taps, [], log)
+        self.assertEqual(phone.walks_back, 1, log)                               # (the usual way back to the map)
 
     def test_a_pokemon_that_comes_as_a_reward_is_left_alone(self):
         phone = Phone(after="catch")

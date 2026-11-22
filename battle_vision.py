@@ -271,7 +271,6 @@ BUTTON_COLOURS = (("green", 55, 95, 70, 150), ("orange", 8, 24, 110, 200))   # n
 BUTTON_TINT = 25                  # the label makes the colour paler: this saturation still belongs to the button
 BUTTON_WIDE = 0.25                # a button is at least this wide (of the screen) ...
 BUTTON_HIGH = (0.018, 0.11)       # ... and this high (of the screen height; the lowest ones are cut by the edge)
-HOME_BUTTON_FROM = 0.93           # the big button of the Battle screen ends below this (it is cut by the edge)
 
 
 def _runs(row):
@@ -339,17 +338,22 @@ def button_spot(button, side=0.5):
     (0.5 = the middle; the Battle screen's button has the round close button over the middle of its top
     edge, so that one is tapped at a quarter)."""
     return (round(button["x0"] + side * (button["x1"] - button["x0"]), 3),
-            round(button["y0"] + 0.6 * (button["y1"] - button["y0"]), 3))
+            round(min(button["y0"] + 0.6 * (button["y1"] - button["y0"]), 0.981), 3))   # (not on the very edge)
 
 
 def home_button(img):
-    """The big button at the bottom of the Battle screen (it is cut off by the lower edge of the screen):
-    a button of wide_buttons() - green is BATTLE, orange means that something has to be claimed before the
-    next battle (CLAIM RANK REWARDS!) - or None when it is not seen."""
-    for b in wide_buttons(img, 0.80):
-        if b["y1"] >= HOME_BUTTON_FROM:
+    """The big button of the Battle screen, a button of wide_buttons() or None when none is in view.
+
+    orange  something has to be claimed before the next battle (CLAIM RANK REWARDS!)
+    green   BATTLE.  In the middle of a set it sits at the bottom, cut off by the lower edge of the screen.
+            When a new set starts ('Choose a reward tier ...') the card is longer and the button is below
+            the edge: None, scroll down.  Further down there is a second BATTLE button, the one of the
+            premium rewards (it costs a pass): so the TOPMOST green button is given, never a lower one."""
+    found = wide_buttons(img, 0.45)
+    for b in found:
+        if b["color"] == "orange":
             return b
-    return None
+    return min(found, key=lambda b: b["y0"]) if found else None
 
 
 def features(img):

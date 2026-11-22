@@ -3068,6 +3068,12 @@ CLAIM_STEPS = 14             # screens looked at after it (the rank-up and its r
 CLAIM_SECONDS = 150          # ... and the most time that may take
 CLAIM_NOT = ("SHOP", "BUY", "COIN", "SHARE", "EXCHANGE", "PREMIUM", "PASS", "PURCHASE")   # buttons never tapped there
 CLAIM_TAP_ON = (0.5, 0.30)   # where a screen with nothing to tap on it is tapped to go on (tap to continue)
+# When a new set of five battles starts, the card of the Battle screen is longer ('Choose a reward tier ...') and
+# its BATTLE button is below the lower edge of the screen: it is scrolled down in small, slow steps (y from -> to
+# as fractions of the screen; slow, so that the page does not fly on), until the first BATTLE button is in view.
+HOME_SCROLL = ((0.70, 0.56), (0.64, 0.48), (0.78, 0.62))
+HOME_SCROLL_MS = 900
+HOME_TAPS = 4                # the BATTLE button is tapped this often at most
 
 
 def _battle_kind(shot, lines):
@@ -3117,7 +3123,9 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
     logged with a saved picture (debug/g_battle_s<step>.png). It NEVER presses USE THIS PARTY itself.
     When the Battle screen has an orange claim button where the BATTLE button is (CLAIM RANK REWARDS!: a new
     rank has to be claimed before the next battle) that is tapped first and the screens after it are worked
-    through (pictures: debug/g_battle_claim*.png).
+    through (pictures: debug/g_battle_claim*.png).  When no BATTLE button is in view (a new set starts: the
+    card is longer) the screen is scrolled down a little; of two BATTLE buttons the upper one is the one of
+    the basic rewards, the lower one (premium rewards, costs a pass) is never tapped.
     stay: wait on the party screen (the fight starts from there); otherwise go back to the map. restart:
     when the way back to the map fails, restart the game (the daily run needs the map).
     Returns {"ok": bool, "why": str, "title": str, "members": [...], "use_spots": [(x, y), ...]}; with
@@ -3132,9 +3140,10 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
         names = []
     t0 = time.monotonic()
     taps = {"map": 0, "home": 0, "league": 0}
-    menu_spots = home_spots = None
+    menu_spots = None
     others, tapped, in_setup, pill_taps = 0, False, False, 0     # in_setup: the league list or party screen was seen
     claim = {"taps": 0, "since": 0.0, "steps": 0, "idle": 0, "catch": 0}    # the claim button and what follows it
+    scroll = {"down": 0, "up": 0}                # how often the Battle screen was scrolled
     max_steps, max_seconds = BATTLE_NAV_STEPS, BATTLE_NAV_SECONDS
     step = -1
 
@@ -3229,14 +3238,14 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
                 S.tap(x, y)
                 tapped = True
             elif kind == "home":
-                button = BV.home_button(shot)        # the big button at the bottom: green BATTLE, or orange
+                button = BV.home_button(shot)        # orange: claim first; green: BATTLE; None: not in view
                 label = BN.claim_label(lines, k)
                 if (button is not None and button["color"] == "orange") or label:
                     claim["taps"] += 1               # something has to be claimed before the next battle
                     if claim["taps"] > CLAIM_TAPS:
                         info["why"] = f"the claim button of the Battle screen was tapped {CLAIM_TAPS} times and is still there"
                         break
-                    if button is not None:
+                    if button is not None and button["color"] == "orange":
                         label = label or button_label(shot, button)
                         x, y = _frac_xy(BV.button_spot(button, 0.25))    # (not its middle: the round X is there)
                     else:
@@ -3250,27 +3259,64 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
                         max_steps += CLAIM_STEPS + CLAIM_TAPS
                         max_seconds += CLAIM_SECONDS
                     claim.update(since=time.monotonic(), steps=0, idle=0, catch=0)
-                    home_spots = None
+                    scroll["down"] = 0
                     continue
-                if claim["since"]:
-                    if button is None or button["color"] != "green":     # (the Battle screen behind a pop-up?)
+                text = button_label(shot, button) if button is not None else ""
+                if button is not None and (BN.premium_above(lines, button["y0"] * shot.shape[0])
+                                           or any(bad in text for bad in CLAIM_NOT)):
+                    # scrolled too far: this is the BATTLE button of the premium rewards (it costs a pass)
+                    scroll["up"] += 1
+                    if scroll["up"] > 2:
+                        info["why"] = "only the BATTLE button of the premium rewards is in view - not tapping that one"
+                        break
+                    log(f"battle: the BATTLE button in view is the one of the premium rewards ('{text or 'label not read'}') "
+                        "- not tapping it, scrolling back up")
+                    S.swipe(*_frac_xy((0.5, HOME_SCROLL[0][1])), *_frac_xy((0.5, HOME_SCROLL[0][0])), HOME_SCROLL_MS)
+                    tapped = True
+                    continue
+                if button is None:
+                    # No button in view.  When a new set starts ('Choose a reward tier ...') the card is longer
+                    # and the BATTLE button is below the lower edge of the screen: scroll down a little, so that
+                    # the first BATTLE button comes into view (the basic rewards) and not the second one.
+                    spots = [p for p in BN.home_battle_spots(ocr_lines(shot, 1500, None, 0.8), k)[:-len(BN.HOME_BUTTON_FALLBACK)]
+                             if p[1] > 0.93 * shot.shape[0]]                   # (BATTLE at the very bottom, not in a sentence)
+                    if spots and not scroll["down"] and taps["home"] < 2:      # (its label was read: tap that)
+                        taps["home"] += 1
+                        x, y = spots[0]
+                        log(f"battle: tapping the BATTLE button at its label ({x}, {y})")
+                        S.tap(x, y)
+                        tapped = True
+                        continue
+                    if scroll["down"] < len(HOME_SCROLL):
+                        y_from, y_to = HOME_SCROLL[scroll["down"]]
+                        scroll["down"] += 1
+                        if scroll["down"] == 1:
+                            save_async("g_battle_home_top.png", shot)
+                        log("battle: no BATTLE button in view on the Battle screen (a new set starts?) - scrolling down "
+                            f"({scroll['down']} of {len(HOME_SCROLL)})")
+                        S.swipe(*_frac_xy((0.5, y_from)), *_frac_xy((0.5, y_to)), HOME_SCROLL_MS)
+                        tapped = True
+                        continue
+                    if claim["since"]:               # (after a claim: something that goes on with a tap?)
                         if after_claim(shot, lines, k):
                             break
                         tapped = True
                         continue
-                    log("battle: claimed - the BATTLE button is back")
-                    claim["since"] = 0.0
-                    home_spots = None
-                if home_spots is None:
-                    lines_full = ocr_lines(shot, 1500, None, 0.8)
-                    home_spots = BN.home_battle_spots(lines_full, k)
                     save_async("g_battle_home.png", shot)
-                if not home_spots:
-                    info["why"] = "tapped every spot of the BATTLE button and nothing happened"
+                    info["why"] = "the BATTLE button was not found on the Battle screen (see debug/g_battle_home.png)"
                     break
-                x, y = home_spots.pop(0)
-                log(f"battle: tapping the BATTLE button at ({x}, {y}) "
-                    f"(the button at the bottom looks {button['color'] if button else 'like nothing known'})")
+                if claim["since"]:
+                    log("battle: claimed - the BATTLE button is there")
+                    claim["since"] = 0.0
+                taps["home"] += 1
+                if taps["home"] > HOME_TAPS:
+                    info["why"] = f"the BATTLE button was tapped {HOME_TAPS} times and nothing happened"
+                    break
+                if taps["home"] == 1:
+                    save_async("g_battle_home.png", shot)
+                x, y = _frac_xy(BV.button_spot(button, 0.25 if taps["home"] % 2 else 0.75))   # (the X is over its middle)
+                log(f"battle: tapping the BATTLE button at ({x}, {y})" + (f" ('{text}')" if text else "")
+                    + (f" after scrolling down {scroll['down']}x" if scroll["down"] else ""))
                 S.tap(x, y)
                 tapped = True
             elif kind == "league":
