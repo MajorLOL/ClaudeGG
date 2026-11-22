@@ -874,6 +874,228 @@ class TheirAttackIsNamed(unittest.TestCase):
         self.assertIsNone(fight.foe_used("Lanturn used Surf!"))                     # (theirs or ours?)
 
 
+class TheFoesEnergy(unittest.TestCase):
+    """How much energy the foe has at most: nothing when it comes in, what its fastest fast attack gives in the
+    time that is fought, less what its charged attacks cost.  An attack that costs more is not the one that is
+    coming - which is how a cheap attack that is thrown to draw a shield is told from the hard one."""
+
+    KNOWN = {"whiscash": {"MUD_BOMB": 3, "BLIZZARD": 2, "SCALD": 1}}
+
+    def fight(self, foe="Whiscash", known=None):
+        logs = []
+        known = {k: dict(v) for k, v in (self.KNOWN if known is None else known).items()}    # (a fight adds to it)
+        fight = bf.Fight(be.load_team(), log=logs.append, known=known)
+        if foe:
+            fight.set_foe(foe, 1496)
+        fight.set_buttons("SHADOW BALL", "SKY ATTACK")
+        return fight, logs
+
+    def test_it_comes_in_with_nothing_and_gains_with_the_seconds(self):
+        fight, _logs = self.fight()
+        self.assertEqual(fight.foe_energy(), 9)                  # (the one fast attack that may be under way)
+        fight.fought(5.0)
+        self.assertEqual(fight.foe_energy(), 54)                 # Mud Shot: 9 a second
+        fight.fought(20.0)
+        self.assertEqual(fight.foe_energy(), 100)                # (never more than 100)
+
+    def test_the_first_foe_has_been_there_from_the_start(self):
+        """Its name is read a second or two into the fight: its energy counts from the first second."""
+        fight, _logs = self.fight(foe=None)
+        self.assertIsNone(fight.foe_energy())
+        fight.fought(6.0)
+        fight.set_foe("Whiscash", 1496)
+        self.assertEqual(fight.foe_energy(), 63)
+
+    def test_the_shield_is_kept_for_the_bait_and_used_on_the_blizzard(self):
+        """The fifth recorded battle, with what earlier battles had shown of a Whiscash (Mud Bomb, Blizzard)."""
+        fight, logs = self.fight()
+        self.assertEqual([m.id for m in fight.foe.charged], ["MUD_BOMB", "BLIZZARD"])
+        self.assertIn("(as seen before)", logs[0])
+        fight.see(feat(hp=(0.97, 0.83)))
+        fight.fought(6.5)                                        # the attack came about seven seconds in
+        use, why = fight.shield(3)
+        fight.foe_threw()
+        self.assertFalse(use, why)
+        self.assertIn("it can only be Mud Bomb (Blizzard costs 75 energy, Whiscash has 67 at most)", why)
+        self.assertEqual(fight.my_shields, 2)
+        self.assertEqual(fight.foe_used("Whiscash used Mud Bomb!").id, "MUD_BOMB")
+        self.assertAlmostEqual(fight.foe_energy(), 58.5 - 45 + 9, delta=0.1)   # 13 left at most (+ one fast attack)
+        fight.fought(9.7)                                        # ten seconds of fight later: the next one
+        self.assertEqual(fight.foe_energy(), 100)
+        use, why = fight.shield(3)
+        self.assertTrue(use, why)
+        self.assertIn("Blizzard would take", why)
+
+    def test_without_knowing_its_attacks_the_guess_decides(self):
+        """The recommended moveset of a Whiscash has Scald (50 energy) where this one had Blizzard: after seven
+        seconds Scald is possible, and Scald hurts - the shield goes.  That is what happened; what the banners
+        of that battle showed is kept for the next Whiscash."""
+        fight, _logs = self.fight(known={})
+        self.assertEqual([m.id for m in fight.foe.charged], ["MUD_BOMB", "SCALD"])
+        fight.fought(6.5)
+        use, why = fight.shield(3)
+        fight.foe_threw()
+        self.assertTrue(use, why)
+        self.assertIn("Scald would take", why)
+        self.assertFalse(fight.learned)
+        fight.foe_used("Whiscash used Mud Bomb!")
+        fight.fought(9.7)
+        fight.foe_threw()
+        fight.foe_used("Whiscash used Blizzard!")
+        self.assertTrue(fight.learned)
+        self.assertEqual(fight.known, {"whiscash": {"MUD_BOMB": 1, "BLIZZARD": 1}})
+        again = bf.Fight(be.load_team(), log=lambda _m: None, known=fight.known)     # the next battle
+        again.set_foe("Whiscash", 1490)
+        self.assertEqual(sorted(m.id for m in again.foe.charged), ["BLIZZARD", "MUD_BOMB"])
+
+    def test_an_attack_is_counted_once_a_battle(self):
+        fight, _logs = self.fight(known={})
+        for _ in range(3):
+            fight.foe_threw()
+            fight.foe_used("Whiscash used Mud Bomb!")
+        self.assertEqual(fight.known, {"whiscash": {"MUD_BOMB": 1}})
+
+    def test_what_this_battle_shows_goes_before_what_earlier_ones_did(self):
+        fight, _logs = self.fight()                              # (earlier: Mud Bomb 3x, Blizzard 2x, Scald 1x)
+        fight.foe_threw()
+        fight.foe_used("Whiscash used Scald!")
+        self.assertEqual([m.id for m in fight.foe.charged], ["SCALD", "MUD_BOMB"])
+        self.assertEqual(fight.known["whiscash"]["SCALD"], 2)
+
+    def test_an_attack_that_is_not_one_of_the_species_is_not_taken_from_the_file(self):
+        fight, _logs = self.fight(known={"whiscash": {"HYDRO_CANNON": 9, "BLIZZARD": 1}})
+        self.assertEqual([m.id for m in fight.foe.charged], ["BLIZZARD", "MUD_BOMB"])
+
+    def test_the_real_cost_of_the_attack_comes_off(self):
+        fight, _logs = self.fight()
+        fight.fought(10.0)                                       # 90 (+9: 99)
+        fight.foe_threw()                                        # (taken for the cheapest: 45)
+        self.assertAlmostEqual(fight.foe_energy(), 90 - 45 + 9, delta=0.1)
+        fight.foe_used("Whiscash used Blizzard!")                # it was the one of 75
+        self.assertAlmostEqual(fight.foe_energy(), 90 - 75 + 9, delta=0.1)
+        fight.foe_used("Whiscash used Blizzard!")                # (the banner is read more than once: counted once)
+        self.assertAlmostEqual(fight.foe_energy(), 90 - 75 + 9, delta=0.1)
+
+    def test_the_margin_is_added_once_however_many_attacks_were_thrown(self):
+        fight, _logs = self.fight()
+        for _ in range(3):
+            fight.fought(6.0)                                    # 54 more
+            fight.foe_threw()
+            fight.foe_used("Whiscash used Mud Bomb!")            # 45 less
+        self.assertAlmostEqual(fight.foe_energy(), 3 * (54 - 45) + 9, delta=0.1)
+
+    def test_a_question_that_was_not_read_takes_nothing_off(self):
+        """The ring of a question was seen and its words were not read: the bot answers it as a shield question,
+        but an attack may not have been thrown at all.  What is kept is the MOST the foe can have, so nothing
+        comes off - until the banner says which attack it was."""
+        fight, _logs = self.fight()
+        fight.fought(6.0)
+        fight.foe_threw(sure=False)
+        self.assertEqual(fight.foe_energy(), 63)
+        fight.fought(1.0)
+        self.assertEqual(fight.foe_energy(), 72)
+        fight.foe_used("Whiscash used Mud Bomb!")                # it was one after all
+        self.assertAlmostEqual(fight.foe_energy(), 7 * 9 - 45 + 9, delta=0.1)
+
+    def test_a_count_that_is_proven_wrong_is_not_used_any_more(self):
+        """It threw Blizzard when it could not have had 75 energy by our count: the clock missed something."""
+        fight, logs = self.fight()
+        fight.fought(3.0)                                        # 27 (+9)
+        fight.foe_threw()
+        fight.foe_used("Whiscash used Blizzard!")
+        self.assertIsNone(fight.foe_energy())
+        self.assertIn("its energy is not counted any more", "\n".join(logs))
+        fight.see(feat(hp=(0.9, 0.8)))
+        use, why = fight.shield(3)                               # (as before: the hardest one it has)
+        self.assertTrue(use, why)
+        self.assertIn("Blizzard would take", why)
+
+    def test_a_name_box_that_changed_is_an_unknown_foe(self):
+        fight, _logs = self.fight()
+        fight.fought(5.0)
+        fight.read_names("me")                                   # (our own box: the foe is still the foe)
+        self.assertEqual(fight.foe_energy(), 54)
+        fight.read_names("foe")
+        self.assertIsNone(fight.foe_energy())                    # who is it now?
+        fight.set_foe("Whiscash", 1496)                          # still the Whiscash
+        self.assertEqual(fight.foe_energy(), 54)
+
+    def test_a_new_foe_starts_at_nothing_and_the_old_one_keeps_what_it_had(self):
+        fight, _logs = self.fight()
+        fight.fought(4.0)                                        # Whiscash: 36
+        fight.read_names("foe")                                  # the box changes here ...
+        fight.fought(1.5)
+        fight.set_foe("Samurott", 1500)                          # ... and is read a second and a half later
+        self.assertAlmostEqual(fight.foe_energy(), 1.5 * 8.0 + 10, delta=0.1)      # Samurott: from when it came
+        fight.fought(30.0)
+        fight.read_names("foe")
+        fight.set_foe("Whiscash", 1496)                          # the Whiscash is back: with what it had
+        self.assertAlmostEqual(fight.foe_energy(), 36 + 9, delta=0.1)
+
+    def test_a_new_foe_that_came_in_unnoticed_has_been_there_since_the_last_look(self):
+        """Its name box was not seen to change (the names are read again every few seconds): it may have come in
+        right after the last time the old one was read there - its energy counts from then."""
+        fight, _logs = self.fight()
+        fight.fought(4.0)
+        fight.set_foe("Whiscash", 1496)                          # read again: still the Whiscash
+        fight.fought(5.0)
+        fight.set_foe("Samurott", 1500)                          # and now a Samurott, without a sign
+        self.assertAlmostEqual(fight.foe_energy(), 5.0 * 8.0 + 10, delta=0.1)
+
+    def test_a_name_that_was_misread_for_a_moment_does_not_empty_the_count(self):
+        """'Whiscash' is read as another Pokémon on one picture and as Whiscash again two seconds later: it never
+        left, and it gained energy all the time."""
+        fight, _logs = self.fight()
+        fight.fought(4.0)                                        # 36
+        fight.read_names("foe")
+        fight.set_foe("Samurott", 1500)                          # (misread)
+        fight.fought(2.0)
+        fight.read_names("foe")
+        fight.set_foe("Whiscash", 1496)
+        self.assertAlmostEqual(fight.foe_energy(), 6.0 * 9 + 9, delta=0.1)
+
+    def test_giving_up_counts_only_what_the_foe_could_throw(self):
+        """'No Protect Shields remaining!' on our last Pokémon: the Blizzard would end it, the Mud Bomb would
+        not - and five seconds after it came in a Whiscash can only have the Mud Bomb."""
+        fight, _logs = self.fight()
+        fight.dead.update({1, 2})
+        fight.my_shields = 0
+        for _ in range(3):
+            fight.see(feat(hp=(0.6, 0.8), shields={"me": 0, "foe": 2}))
+        fight.fought(5.0)
+        fight.foe_threw()                                        # (the question is up)
+        self.assertEqual(fight.doomed(), (False, ""))
+        late, _logs = self.fight()
+        late.dead.update({1, 2})
+        late.my_shields = 0
+        for _ in range(3):
+            late.see(feat(hp=(0.6, 0.8), shields={"me": 0, "foe": 2}))
+        late.fought(12.0)
+        late.foe_threw()
+        lost, why = late.doomed()
+        self.assertTrue(lost, why)
+        self.assertIn("Blizzard", why)
+        self.assertEqual(late.fights_on(), "")
+        self.assertRegex(fight.fights_on(), r"^Whiscash's Mud Bomb does \d+, Noctowl has \d+ HP "
+                                            r"\(its other attack costs more energy than it can have\)$")
+
+    def test_why_a_fight_is_not_given_up(self):
+        """For the log: a lost end that was played out has to be understood afterwards."""
+        fight, _logs = self.fight(foe=None)
+        self.assertEqual(fight.fights_on(), "the foe is not known")
+        fight.set_foe("Whiscash", 1496)
+        self.assertEqual(fight.fights_on(), "we have 2 shield(s) left by our count")
+        fight.my_shields = 0
+        self.assertEqual(fight.fights_on(), "3 of ours can still fight by our count")
+        fight.dead.update({1, 2})
+        self.assertRegex(fight.fights_on(), r"^the HP of Noctowl is not sure \(read from its bar 0 time\(s\), ")
+        for _ in range(3):
+            fight.see(feat(hp=(0.6, 0.8), shields={"me": 0, "foe": 2}))
+        fight.fought(12.0)
+        self.assertEqual(fight.fights_on(), "")                  # (now it is: the Blizzard ends it)
+        self.assertTrue(fight.doomed()[0])
+
+
 class Aim(unittest.TestCase):
     """The charged attack that is thrown the moment it is ready: the fast attacks are tapped on its button."""
 

@@ -16,8 +16,8 @@ and a button that is ready by the white TEXT under it (a flash, a field line or 
             "Switch in a new Pokémon?" question (told apart by OCR, see battle_nav.py)
     ready   the banner "Get Ready!" between the name boxes: our own charged attack starts, its icons follow
     result  "GOOD EFFORT!" / "YOU WIN!": a green button NEXT BATTLE at the bottom and, under it, a small round
-            button with a check mark.  After a battle that was won only the check mark is there (the reward of
-            that win is collected on the Battle screen first)
+            button with a check mark.  Sometimes only the check mark is there (seen once, after the first win;
+            probably that was the last battle of its set of five, which has no next battle)
 """
 import cv2
 import numpy as np
@@ -37,7 +37,7 @@ TAP_FAST = (0.50, 0.45)           # a tap here is a fast attack (nothing is unde
 TAP_SHIELD = (0.50, 0.70)         # the shield on "Attack incoming! Use a Protect Shield?"
 TAP_NOT_NOW = (0.50, 0.91)        # NOT NOW on the same question
 TAP_NEXT = (0.50, 0.866)          # the green NEXT BATTLE button
-TAP_DONE = (0.50, 0.926)          # the round button with the check mark under it (the only one after a win)
+TAP_DONE = (0.50, 0.926)          # the round button with the check mark under it (sometimes the only button)
 DONE_R = 0.040                    # ... its radius (in screen widths)
 POPUP_TILES = (0.32, 0.68)        # "Switch in a new Pokémon?": the two choices (x); y below
 POPUP_TILE_Y = 0.74
@@ -431,7 +431,7 @@ def result_button(img):
 
 def done_button(img):
     """True when the round button with the check mark is at the bottom of the screen: the result of a battle
-    ('YOU WIN!' has nothing else to tap; 'GOOD EFFORT!' has it under NEXT BATTLE).  It is a blue-green disc
+    (it is under NEXT BATTLE, or it is all there is to tap: seen after a win, see above).  It is a blue-green disc
     with a lighter check mark in it and nothing blue-green around it.  The Battle screen has the same disc at
     the same place with an X in it (close): an X has strokes in all four quarters of the disc, the check mark
     only goes from the lower left to the upper right."""

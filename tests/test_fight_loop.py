@@ -60,7 +60,8 @@ FIGHT_SCENES = ("fight_ready", "day_start", "day_dim", "day_lit", "day_lines", "
 NO_SHIELDS = ("no_shields", "day_no_shields", "day2_no_shields")                   # 'No Protect Shields remaining!'
 # white words read on their own (gamebot.white_words), as the text reader gave them on these pictures: the banner
 # of a charged attack and the big words of a result screen
-BANNERS = {"day3_their_attack": "Pe Mismagius used Dark Pulse! Lm «"}
+BANNERS = {"day3_their_attack": "Pe Mismagius used Dark Pulse! Lm «",
+           "day3_their_attack#mud": "Whiscash used Mud Bomb!", "day3_their_attack#blizzard": "Whiscash used Blizzard!"}
 RESULT_WORDS = {"day3_win": "YOU WIN!"}
 
 
@@ -265,7 +266,7 @@ class Phone:
         """White words read on their own: a banner at the top (one line) or the words of a result (two)."""
         scene = self.scene.split("#")[0]
         if lines == 1:
-            return BANNERS.get(scene, "")
+            return BANNERS.get(self.scene, BANNERS.get(scene, ""))
         if not self.words:
             return ""
         return RESULT_WORDS.get(scene, "GOOD EFFORT!" if scene in ("result_loss", "day_result") else "")
@@ -288,6 +289,9 @@ class Phone:
     def wait_new(self, seq, timeout=1.0, not_before=0.0):
         Clock.t += 0.1
         self.tick()
+        if self.scene == "stall":                                    # ("stall", seconds) in a script: the video
+            Clock.t += self.ends_with()                              # stands still, the next picture comes later
+            self.advance()
         self.frames += 1
         real_time.sleep(0.003)                                       # (the other threads get their turn)
         return seq + 1, Clock.t, self.picture(self.scene)
@@ -297,12 +301,13 @@ class Phone:
 class FightLoop(unittest.TestCase):
     def setUp(self):
         self.saved = {n: getattr(G, n) for n in ("time", "log", "ocr_lines", "ocr_line", "save_async", "MINIGAME_FILE",
-                                                 "FIGHT_AIM", "battle_give_up")}
+                                                 "SEEN_FILE", "FIGHT_AIM", "battle_give_up")}
         self.saved_s = {n: getattr(S, n) for n in ("tap", "swipes", "screenshot", "on_map", "debug_save")}
         self.dir = tempfile.mkdtemp()
         G.time = Clock
         G.FIGHT_AIM = False                # (the fast attacks stay in the middle: the tests of the aim switch it on)
         G.MINIGAME_FILE = os.path.join(self.dir, "minigame.json")
+        G.SEEN_FILE = os.path.join(self.dir, "seen.json")
         G.save_async = lambda name, img: None
         S.on_map = lambda img: False
         S.debug_save = lambda *a, **k: None
@@ -793,6 +798,85 @@ class FightLoop(unittest.TestCase):
         self.assertRegex(log, r"shield question - SHIELD: Dark Pulse would take 36% of our HP")
         self.assertEqual(self.answers(phone, "day3_shield_last#again"), ["SHIELD"], log)
 
+    # ---- the fifth recording: a shield for a Mud Bomb ----------------------------------------------------------
+    WHISCASH = ("Whiscash", 1496, "Noctowl", 1497)
+    BAIT = [("versus", 0.5), ("day_start", 5.5), ("day3_shield_last", "shield"), ("day_flash#theirs", 4.5),
+            ("day3_their_attack#mud", 2.5), ("day_start#on", 9.5), ("day3_shield_last#again", "shield"),
+            ("day_flash#again", 4.5), ("day3_their_attack#blizzard", 2.5), ("day_result", "next")]
+
+    def test_a_weak_attack_thrown_to_draw_a_shield_does_not_get_one(self):
+        """Five seconds into the fight a Whiscash throws a charged attack.  Earlier battles have shown what a
+        Whiscash has here: Mud Bomb (45 energy, a Noctowl hardly feels it) and Blizzard (75, it takes most of
+        its HP).  After five seconds of Mud Shot it cannot have 75: it is the Mud Bomb, and the shield stays.
+        Ten seconds of fight later the Blizzard is possible: that one gets the shield."""
+        with open(G.SEEN_FILE, "w") as f:
+            json.dump({"whiscash": {"MUD_BOMB": 2, "BLIZZARD": 2, "SCALD": 1}}, f)
+        phone, res = self.play(video=True, script=self.BAIT, names=self.WHISCASH)
+        log = "\n".join(phone.logs)
+        self.assertEqual(res["result"], "loss", log)
+        self.assertIn("foe is Whiscash (CP 1496) - moves Mud Shot / Mud Bomb, Blizzard (as seen before)", log)
+        self.assertEqual(self.answers(phone, "day3_shield_last"), ["NOT NOW"], log)
+        self.assertRegex(log, r"shield question - no shield \(NOT NOW\): it can only be Mud Bomb \(Blizzard costs 75 "
+                              r"energy, Whiscash has 5\d at most\) - Mud Bomb is a small hit")
+        self.assertEqual(self.answers(phone, "day3_shield_last#again"), ["SHIELD"], log)
+        self.assertRegex(log, r"shield question - SHIELD: Blizzard would take 83% of our HP")
+        with open(G.SEEN_FILE) as f:                                           # (one more battle with each)
+            self.assertEqual(json.load(f), {"whiscash": {"MUD_BOMB": 3, "BLIZZARD": 3, "SCALD": 1}})
+
+    def test_the_first_whiscash_teaches_what_a_whiscash_has(self):
+        """Nothing is known of it yet: its attacks are the recommended ones (Mud Bomb, Scald), Scald is possible
+        after five seconds and Scald hurts - the shield goes, as it did in the recorded battle.  But what the
+        banners of this battle say is written down for the next one."""
+        phone, res = self.play(video=True, script=self.BAIT, names=self.WHISCASH)
+        log = "\n".join(phone.logs)
+        self.assertEqual(res["result"], "loss", log)
+        self.assertIn("foe is Whiscash (CP 1496) - moves Mud Shot / Mud Bomb, Scald", log)
+        self.assertEqual(self.answers(phone, "day3_shield_last"), ["SHIELD"], log)
+        self.assertIn("fight: Whiscash used Blizzard - its charged attacks are taken to be Mud Bomb, Blizzard now "
+                      "(the guess was Mud Bomb, Scald)", log)
+        with open(G.SEEN_FILE) as f:
+            self.assertEqual(json.load(f), {"whiscash": {"MUD_BOMB": 1, "BLIZZARD": 1}})
+
+    def test_seconds_without_a_picture_of_the_fight_count_as_fight(self):
+        """The video stands still for three and a half seconds in the plain fight (screenrecord starts again
+        every three minutes, a phone can stutter).  The Whiscash went on with its Mud Shots in that time: eight
+        seconds have passed, not four and a half, and the Blizzard is possible - the shield goes up.  What is
+        counted is the MOST energy the foe can have: in doubt, time counts."""
+        with open(G.SEEN_FILE, "w") as f:
+            json.dump({"whiscash": {"MUD_BOMB": 2, "BLIZZARD": 2}}, f)
+        script = [("versus", 0.5), ("day_start", 4.0), ("stall", 3.5), ("day_start#on", 0.5),
+                  ("day3_shield_last", "shield"), ("day_flash#theirs", 4.5), ("day3_their_attack#blizzard", 2.5),
+                  ("day_result", "next")]
+        phone, res = self.play(video=True, script=script, names=self.WHISCASH)
+        log = "\n".join(phone.logs)
+        self.assertEqual(res["result"], "loss", log)
+        self.assertEqual(self.answers(phone, "day3_shield_last"), ["SHIELD"], log)
+        self.assertRegex(log, r"shield question - SHIELD: Blizzard would take 83% of our HP")
+
+    def test_the_time_of_our_own_charged_attack_is_no_time_to_gain_energy(self):
+        """We throw first: 'Get Ready!', the little game, the attack - nine seconds in which the game stands
+        still for the Whiscash too.  Three seconds of fight before it and two after it: the Blizzard is still
+        out of its reach when its attack comes, so that is the Mud Bomb."""
+        with open(G.SEEN_FILE, "w") as f:
+            json.dump({"whiscash": {"MUD_BOMB": 2, "BLIZZARD": 2}}, f)
+        G.FIGHT_AIM = True                                           # (thrown by the fast taps on its button)
+        phone, res = self.play(video=True, script=self.SKY, names=self.WHISCASH)
+        log = "\n".join(phone.logs)
+        self.assertEqual(res["result"], "loss", log)
+        self.assertIn("little game of ", log)
+        # (how many seconds of fight came before the throw depends on when the tapper thread got its turn: 6 or 7)
+        self.assertRegex(log, r"it can only be Mud Bomb \(Blizzard costs 75 energy, Whiscash has \d\d at most\)")
+        answers = [t for t in phone.taps if t[0] == "day_shield" and abs(t[1] - 0.5) < 0.05 and t[2] > 0.6]
+        self.assertEqual([round(t[2], 2) for t in answers], [round(BV.TAP_NOT_NOW[1], 2)], log)   # (NOT NOW, once)
+
+    def test_a_file_that_cannot_be_read_is_no_trouble(self):
+        with open(G.SEEN_FILE, "w") as f:
+            f.write("{ not json")
+        self.assertEqual(G.load_seen(), {})
+        phone, res = self.play(video=True, script=self.BAIT, names=self.WHISCASH)
+        self.assertEqual(res["result"], "loss", "\n".join(phone.logs))
+        self.assertEqual(G.load_seen(), {"whiscash": {"MUD_BOMB": 1, "BLIZZARD": 1}})
+
     SKY = [("versus", 0.5), ("day_start", 1.0), ("day_dim#charging", 2.0), ("day_dim#first", "throw"),
            ("day3_get_ready_sky", 1.3), ("icons", 4.0), ("day_banner", 1.0), ("day_flash", 1.0), ("day_dim", 2.0),
            ("day_shield", "shield"), ("day_result", "next")]
@@ -902,19 +986,33 @@ class FightLoop(unittest.TestCase):
         log = "\n".join(phone.logs)
         self.assertEqual((res["result"], res["gave_up"]), ("loss", False), log)
         self.assertEqual(self.run_taps(phone), [], log)
-        self.assertNotIn("giving up", log)
+        self.assertNotIn("battle: giving up", log)
         self.assertIn("an attack is coming and we have no shields left", log)
+        self.assertIn("battle: not giving up - the option 'Give up a lost battle' is off", log)   # (the log says why)
+
+    def test_an_attack_the_foe_cannot_pay_for_is_no_reason_to_give_up(self):
+        """The same end, but the Dragalge has only been fighting for four seconds: it cannot have the energy
+        for its Outrage (60), and its Aqua Tail does not knock a Lanturn out.  The fight goes on - and the log
+        says why, so that a lost end that was played out can be understood afterwards."""
+        script = [("versus", 0.5), ("day2_last", 4.0), ("day2_no_shields", 3.0), ("day_result", "next")]
+        phone, res = self.play(video=True, script=script, names=self.LAST)
+        log = "\n".join(phone.logs)
+        self.assertEqual((res["result"], res["gave_up"]), ("loss", False), log)
+        self.assertEqual(self.run_taps(phone), [], log)
+        self.assertRegex(log, r"battle: not giving up - Dragalge's Aqua Tail does \d+, Lanturn has \d+ HP "
+                              r"\(its other attack costs more energy than it can have\)")
 
     def test_a_question_that_does_not_come_up_changes_nothing(self):
         """The button to leave is tapped and the game does not ask: the fight goes on to its end, and the
         button is not tapped a second time."""
-        script = [("versus", 0.5), ("day2_last", 2.5), ("day2_no_shields", 6.0), ("day2_last#on", 2.0),
+        script = [("versus", 0.5), ("day2_last", 2.5), ("day2_no_shields", 6.0), ("day2_last#on", 4.0),
                   ("day2_no_shields#again", 2.0), ("day_result", "next")]
         phone, res = self.play(video=True, script=script, names=self.LAST)
         log = "\n".join(phone.logs)
         self.assertEqual((res["result"], res["gave_up"]), ("loss", False), log)
         self.assertEqual(len(self.run_taps(phone)), 1, log)
         self.assertIn("the question to leave the battle did not come up - fighting on", log)
+        self.assertIn("battle: not giving up - it was tried before in this battle", log)
         self.assertTrue([t for t in self.fast_taps(phone) if t[0] == "day2_last#on"], log)   # (the fight went on)
 
     def test_no_attack_is_the_end_while_another_pokemon_can_fight(self):

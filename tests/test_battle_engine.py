@@ -413,6 +413,75 @@ class ShieldsInARealBattle(unittest.TestCase):
         self.assertEqual(be.use_shield(f, self.lanturn, 0), (False, "no shields left"))
 
 
+class WhatTheFoeCanPayFor(unittest.TestCase):
+    """The fifth recorded battle: seven seconds into the fight a Whiscash threw Mud Bomb at a Noctowl - 19
+    damage, a flying Pokémon hardly feels it - and the bot spent a shield on it, because it takes an attack for
+    the foe's hardest one (Blizzard: 134).  But Blizzard costs 75 energy and Mud Shot gives 9 a second: after
+    seven seconds a Whiscash cannot throw it.  The shield that went on the Mud Bomb was missed two minutes
+    later, when a Blizzard knocked the Noctowl out."""
+
+    def setUp(self):
+        self.noctowl, self.lapras, self.lanturn = be.build_team(be.DEFAULT_TEAM)
+        self.whiscash = be.Mon("whiscash", fast="MUD_SHOT", charged=["MUD_BOMB", "BLIZZARD"])
+
+    def test_the_numbers(self):
+        self.assertEqual(be.Move("MUD_BOMB").energy, 45)
+        self.assertEqual(be.Move("BLIZZARD").energy, 75)
+        self.assertEqual(be.damage(be.Move("MUD_BOMB"), self.whiscash, self.noctowl), 19)
+        self.assertEqual(be.damage(be.Move("BLIZZARD"), self.whiscash, self.noctowl), 134)
+        self.assertEqual(be.fast_rate("whiscash"), (9.0, 9))             # Mud Shot: 9 energy in a second
+        self.assertEqual(be.cheapest_charged("whiscash"), 45)
+
+    def test_the_fastest_fast_attack_of_the_species_counts(self):
+        """Which fast attack the foe has is a guess too: the limit is that of the one that charges fastest."""
+        rate, gain = be.fast_rate("mismagius")                           # Hex: 13 energy in a second and a half
+        self.assertAlmostEqual(rate, 13 / 1.5, places=3)
+        self.assertEqual(gain, 13)
+        self.assertEqual(be.fast_rate("samurott"), (8.0, 10))            # Fury Cutter 4 in half a second; Waterfall 10
+        self.assertEqual(be.cheapest_charged("samurott"), 35)            # (Razor Shell, whichever two it has)
+        for sid in be.load()["mons"]:
+            rate, gain = be.fast_rate(sid)
+            self.assertTrue(3.0 <= rate <= 10.0 and 1 <= gain <= 20, (sid, rate, gain))
+            self.assertTrue(35 <= be.cheapest_charged(sid) <= 100, sid)
+
+    def test_an_attack_it_cannot_pay_for_is_not_the_one_that_comes(self):
+        w = self.whiscash
+        self.assertEqual([m.id for m in be.can_throw(w)], ["MUD_BOMB", "BLIZZARD"])
+        self.assertEqual([m.id for m in be.can_throw(w, 63)], ["MUD_BOMB"])
+        self.assertEqual([m.id for m in be.can_throw(w, 75)], ["MUD_BOMB", "BLIZZARD"])
+        self.assertEqual(be.foe_hit(w, self.noctowl)[1].id, "BLIZZARD")
+        self.assertEqual(be.foe_hit(w, self.noctowl, None, 63)[1].id, "MUD_BOMB")
+        self.assertEqual(be.foe_hit(w, self.noctowl, be.Move("BLIZZARD"), 63)[1].id, "BLIZZARD")    # (a named attack)
+
+    def test_none_it_can_pay_for_means_the_count_is_wrong(self):
+        self.assertEqual(len(be.can_throw(self.whiscash, 30)), 2)        # (it throws something, after all)
+        ok, why = be.use_shield(self.whiscash, self.noctowl, 2, foe_energy=30)
+        self.assertTrue(ok, why)
+        self.assertIn("Blizzard", why)
+
+    def test_the_shield_is_kept_for_the_mud_bomb(self):
+        ok, why = be.use_shield(self.whiscash, self.noctowl, 2)          # (as it was: no idea of the energy)
+        self.assertTrue(ok, why)
+        for energy in (54, 63, 74):
+            ok, why = be.use_shield(self.whiscash, self.noctowl, 2, foe_energy=energy)
+            self.assertFalse(ok, why)
+            self.assertIn("it can only be Mud Bomb (Blizzard costs 75 energy, Whiscash has %d at most)" % energy, why)
+            self.assertIn("small hit (19 dmg, 12% of our HP)", why)
+
+    def test_and_used_when_the_blizzard_is_possible(self):
+        for energy in (75, 90, 100):
+            ok, why = be.use_shield(self.whiscash, self.noctowl, 1, foe_energy=energy)
+            self.assertTrue(ok, why)
+            self.assertIn("Blizzard would take 83% of our HP", why)
+
+    def test_the_cheap_attack_gets_a_shield_when_it_hurts(self):
+        """Not every cheap attack is a weak one: Mud Bomb takes nearly half the HP of a Lanturn."""
+        ok, why = be.use_shield(self.whiscash, self.lanturn, 2, foe_energy=60)
+        self.assertTrue(ok, why)
+        self.assertIn("it can only be Mud Bomb", why)
+        self.assertIn("Mud Bomb would take 47% of our HP", why)
+
+
 class Matchups(unittest.TestCase):
     def setUp(self):
         self.team = be.build_team(be.DEFAULT_TEAM)

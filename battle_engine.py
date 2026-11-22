@@ -520,15 +520,49 @@ def pick_charged(me, foe, energy, foe_shields=0, foe_hp=None):
     return first, how
 
 
-def foe_hit(foe, me, foe_move=None):
+def foe_hit(foe, me, foe_move=None, energy=None):
     """(damage, move) of the incoming charged attack.
 
-    With no known move the foe's hardest-hitting charged move is assumed.
+    With no known move the foe's hardest-hitting charged move is assumed -
+    of those it can pay for, when `energy` says how much energy it has at
+    most (see fast_rate): a foe that has been on the field for five seconds
+    cannot throw an attack of 75 energy.  (When it could pay for none of them
+    the count is wrong: all of them are possible again.)
     """
     if foe_move is not None:
         return damage(foe_move, foe, me), foe_move
-    best = max(foe.charged, key=lambda m: damage(m, foe, me))
+    moves = can_throw(foe, energy)
+    best = max(moves, key=lambda m: damage(m, foe, me))
     return damage(best, foe, me), best
+
+
+def can_throw(foe, energy=None):
+    """The charged attacks `foe` can throw with `energy` at most (None: not
+    known), all of them when that would be none."""
+    if energy is None:
+        return list(foe.charged)
+    return [m for m in foe.charged if m.energy <= energy] or list(foe.charged)
+
+
+def fast_rate(species_id):
+    """(energy a second, energy per fast attack) this species gains at most,
+    whichever of its fast attacks it has: the fastest charging one counts, so
+    that what is worked out from it is an upper limit of the energy."""
+    row = load()["mons"][species_id]
+    moves = load()["moves"]
+    fast = [moves[m] for m in row[5] if m in moves and moves[m][5] > 0]
+    if not fast:
+        return 10.0, 15
+    return max(m[4] / (m[5] * 0.5) for m in fast), max(m[4] for m in fast)
+
+
+def cheapest_charged(species_id):
+    """The least energy a charged attack of this species costs, whichever
+    two it has."""
+    row = load()["mons"][species_id]
+    moves = load()["moves"]
+    costs = [moves[m][3] for m in row[6] if m in moves and moves[m][3] > 0]
+    return min(costs) if costs else 35
 
 
 def cycle_damage(foe, me, move, shields, foe_energy=None):
@@ -600,13 +634,16 @@ UNKNOWN_HIT = 0.45        # the charged attack of a foe that is not known is tak
 
 
 def use_shield(foe, me, shields, my_hp=None, mine_left=3, foes_left=None,
-               ready=False, foe_move=None):
+               ready=False, foe_move=None, foe_energy=None):
     """Use a shield on the charged attack that is coming, in a real battle?
 
     Returns (bool, reason).  `foe` (None: not known) throws at `me`, who has
     `my_hp` HP and `shields` left.  mine_left / foes_left: how many Pokémon
     each side can still fight with, the ones on the field included (None: not
     known).  ready: a charged attack of ours was ready when theirs came.
+    foe_energy: the energy the foe has at most (None: not known) - an attack
+    it cannot pay for is not the one that is coming, which is how a cheap,
+    weak attack thrown to draw a shield is told from the hard one.
 
       * our last Pokémon: a hit that knocks it out is always shielded;
       * a hit that knocks us out while our own charged attack is ready is
@@ -620,7 +657,7 @@ def use_shield(foe, me, shields, my_hp=None, mine_left=3, foes_left=None,
 
     What counts is the HP the shield saves: the damage of the hit, or what is
     left of our HP when that is less.  Which move is coming is not known, so
-    it is taken to be the foe's hardest one (foe_hit).
+    it is taken to be the hardest one the foe can pay for (foe_hit).
     """
     my_hp = me.hp if my_hp is None else my_hp
     if shields <= 0:
@@ -628,8 +665,15 @@ def use_shield(foe, me, shields, my_hp=None, mine_left=3, foes_left=None,
     if foe is None:
         dmg, name = int(round(UNKNOWN_HIT * me.max_hp)), "the attack of a foe that is not known"
     else:
-        dmg, mv = foe_hit(foe, me, foe_move)
+        dmg, mv = foe_hit(foe, me, foe_move, foe_energy)
         name = mv.name
+        if foe_move is None and foe_energy is not None:
+            out = [m for m in foe.charged if m not in can_throw(foe, foe_energy)]
+            if out:                    # (said first: why the hard one is not counted)
+                use, why = use_shield(foe, me, shields, my_hp, mine_left, foes_left, ready, mv)
+                return use, ("it can only be %s (%s costs %d energy, %s has %d at most) - %s"
+                             % (name, " / ".join(m.name for m in out), min(m.energy for m in out),
+                                foe.label, int(foe_energy), why))
     saved = max(min(dmg, my_hp), 0)
     part = saved / float(me.max_hp)
     pct = "%d%%" % int(round(100 * part))

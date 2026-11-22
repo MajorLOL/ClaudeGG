@@ -3249,7 +3249,7 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
             if BV.result_button(shot):
                 return _frac_xy(BV.TAP_NEXT) + ("label not read",)
             if BV.done_button(shot) and (BN.result_word(_result_words(shot)) or BN.result_kind(lines)):
-                return _frac_xy(BV.TAP_DONE) + ("the check mark of the result screen",)   # ('YOU WIN!')
+                return _frac_xy(BV.TAP_DONE) + ("the check mark of the result screen",)   # (no NEXT BATTLE there)
             return None
         text = button_label(shot, green[0])
         if BN.keep_off_label(text) or any(bad in text for bad in CLAIM_NOT):
@@ -3503,6 +3503,9 @@ READY_RECENT = 3.0             # s: a charged attack button of ours that was rea
 USED_FROM, USED_UNTIL = 4.0, 11.0      # s after the shield question: the banner 'X used Y!' is looked for (it
 USED_EVERY = 0.35                      # comes after about six seconds and stays for two), a picture every ... s
 RESULT_SETTLE = 0.7            # s the button of a result screen has to be there before it is tapped (it fades in)
+THEIR_ATTACK = 12.0            # s after a question: name boxes without an HP bar are the banner of their attack,
+OUR_ATTACK = 4.0               # ... and this long after our little game the banner of ours - not the plain fight
+ATTACK_EDGES = 1.5             # s of plain fight that are counted for the time a charged attack took (its edges)
 PRE_FIGHT_TAPS = 25.0          # fast attacks start at the VS screen already (taps before the fight are ignored)
 FIGHT_WAIT_LOOK = 8.0          # unknown screen this long (before the fight / after it): read it
 
@@ -3865,6 +3868,7 @@ def _fight_answer(shot, feat, fight, lock, tapper, state, eyes=None, know=None):
 
     video = eyes is not None and eyes.video
     kind = _question_seen(feat) or read(shot)
+    sure = bool(kind)                                   # (seen or read, not only taken for a question)
     if not kind:                                        # not read: look again at the next picture
         state["unknown"] = state.get("unknown", 0) + 1
         if state["unknown"] < 2:
@@ -3877,11 +3881,17 @@ def _fight_answer(shot, feat, fight, lock, tapper, state, eyes=None, know=None):
     xy = None
     if kind == "noshield":
         log("battle: an attack is coming and we have no shields left")
+        with lock:
+            fight.foe_threw(sure)
     elif kind == "shield":
         with lock:
             if feat.get("hex") and fight.my_shields <= 0:
                 fight.my_shields = 1                     # (the game offers a shield: the count we kept was too low)
+            had = fight.foe_energy()
             use, why = fight.shield((know or {}).get("foes"), bool((know or {}).get("ready")))
+            fight.foe_threw(sure)                        # (its energy goes down by what the attack costs)
+            if had is not None and "at most" not in why:   # (for whoever reads the log: what the count said)
+                why += f" ({fight.foe.label} has {int(had)} energy at most)"
         log(f"battle: shield question - {'SHIELD' if use else 'no shield (NOT NOW)'}: {why}")
         xy = _frac_xy(BV.TAP_SHIELD if use else BV.TAP_NOT_NOW)
         tapper.tap(*xy)
@@ -3909,8 +3919,8 @@ def _fight_answer(shot, feat, fight, lock, tapper, state, eyes=None, know=None):
 
 def _result_spot(pic):
     """Where to tap on the result screen of a battle, and what that is: NEXT BATTLE when that button is there,
-    otherwise the round button with the check mark under it - after a battle that was won it is the only one
-    (the reward of the win is collected on the Battle screen first)."""
+    otherwise the round button with the check mark under it.  That one was the only button after the first
+    battle that was won - probably because it was the last of its set of five; it leads to the Battle screen."""
     import battle_vision as BV
     if not BV.result_button(pic) and BV.done_button(pic):
         return _frac_xy(BV.TAP_DONE), "the check mark"
@@ -3973,6 +3983,30 @@ def save_minigames(d):
     try:
         with open(MINIGAME_FILE, "w") as f:
             json.dump(d, f, indent=1)
+    except OSError:
+        pass
+
+
+SEEN_FILE = os.path.expanduser("~/battle_seen.json")   # the charged attacks opponents were seen to use
+
+
+def load_seen():
+    """{species: {charged attack: in how many battles it was seen}}: what the opponents of earlier battles
+    really used (read from the banner 'Whiscash used Blizzard!').  It goes before the moveset that is guessed
+    for a species - the players of a league do not all use the recommended one."""
+    try:
+        with open(SEEN_FILE) as f:
+            d = json.load(f)
+        return {str(k): {str(m): int(n) for m, n in v.items()} for k, v in d.items() if isinstance(v, dict)}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {}
+
+
+def save_seen(d):
+    try:
+        with open(SEEN_FILE + ".tmp", "w") as f:
+            json.dump(d, f, indent=1, sort_keys=True)
+        os.replace(SEEN_FILE + ".tmp", SEEN_FILE)
     except OSError:
         pass
 
@@ -4125,7 +4159,7 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
     fight (fast attacks in the background - on the button of the charged attack that is wanted next, so that
     it is thrown the moment it is ready -, a charged attack when the engine wants one and then its little game:
     swiping the icons), the questions "Use a Protect Shield?" and "Switch in a new Pokémon?" (answered by the
-    engine), the result (NEXT BATTLE is tapped, or the round check mark that is the only button after a win).
+    engine), the result (NEXT BATTLE is tapped, or the round check mark when that is the only button).
     The banner of the other side's charged attack is read on the side.  The BACK button is never pressed during
     a fight; a fight that is lost is given up with the game's own button when the option is on (see
     _fight_give_up()).  use_spots: where USE THIS PARTY is, tapped again when the party screen is still there
@@ -4136,7 +4170,7 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
     import battle_fight as BF
     import battle_minigame as BMG
     import battle_vision as BV
-    fight = BF.Fight(team or BE.load_team(), log=lambda m: log("battle: " + m))
+    fight = BF.Fight(team or BE.load_team(), log=lambda m: log("battle: " + m), known=load_seen())
     flock = threading.RLock()  # (the fight is changed by the loop and by the looker that reads the names)
     S.busy(FIGHT_START_SECONDS + FIGHT_SECONDS)        # (no screen check, no screenshot test during the fight)
     eyes = Eyes(stream if stream is not None else _fight_stream())
@@ -4161,6 +4195,8 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
     balls = {"me": 3, "foe": 3, "t": 0.0}  # the red Poké Balls of the name boxes: who can still fight
     give = {"on": battle_give_up(), "tried": False, "n": 0, "t": 0.0, "yes": 0.0}   # giving up a lost fight (once)
     used = {"since": 0.0, "until": 0.0, "t": 0.0}    # the banner 'X used Y!' of the foe's charged attack is read
+    clock = {"t": None, "bars": False, "mini": -100.0}   # the clock of the plain fight (the foe's energy): the last
+    # picture that counted, an HP bar was seen in this fight, when a little game of ours last ended
     bars = {"n": 0, "on": False}   # the fight is known by its HP bars only (see BARS_ONLY)
     learned = load_minigames()
     keys = {}                 # fingerprints of the two name boxes: side -> [the text now, a new one, times seen]
@@ -4176,6 +4212,7 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
         if mini is None:
             return
         tapper.sweep(None)
+        clock["mini"] = time.monotonic()
         log(mini.report() + (f" ({why})" if why else ""))
         found = mini.game.learned()
         if found:                                    # (a type that is not known from recordings: remember it)
@@ -4364,6 +4401,27 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                                     fight.throws = max(fight.throws - 1, 0)
                                 log(f"battle: {mini.move.name} did not start - the fight is still on the screen "
                                     f"{t_seen - thr['t']:.1f} s after the tap, going on")
+                # The clock of the plain fight: both sides tap fast attacks, and the foe gains energy.  It runs
+                # while the name boxes and an HP bar are on the picture and no little game of ours is on (a
+                # charged attack of either side stops the game for both).  The name boxes without an HP bar
+                # count too (a flash hides the bars for a moment) - but not within the seconds after a question
+                # or after our little game: that is the banner of the attack.  What the clock is used for is
+                # the MOST energy the foe can have, so in doubt time counts: the time between two pictures of
+                # the plain fight counts in full (also when the video stood still for seconds), unless a
+                # question or a little game lay in it - then the game stood still, and only its edges count.
+                has_bar = feat["hp"][0] is not None or feat["hp"][1] is not None
+                if st == "fight" and has_bar:
+                    clock["bars"] = True
+                if (st == "fight" and (mini is None or not (mini.on or mini.ready))
+                        and (has_bar or (clock["bars"] and now - ask["seen"] > THEIR_ATTACK
+                                         and now - clock["mini"] > OUR_ATTACK))):
+                    if clock["t"] is not None:
+                        gap = now - clock["t"]
+                        if max(ask["seen"], clock["mini"]) >= clock["t"]:
+                            gap = min(gap, ATTACK_EDGES)
+                        with flock:
+                            fight.fought(gap)
+                    clock["t"] = now
                 ready = feat["ready"]                        # what this picture says about the two buttons
                 if eyes.video:                               # on the video a button is lit when two pictures in a
                     feat = dict(feat, ready=tuple(a and b for a, b in zip(ready, lit_prev)))   # row say so (one can
@@ -4399,7 +4457,7 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                             k[0], k[1], k[2] = key, None, 0
                             if not first:
                                 with flock:
-                                    fight.read_names()
+                                    fight.read_names(side)
                     looker.ask(shot)                         # (names and labels are read next to this loop)
                     ready_n = ready_n + 1 if mini is None and feat.get("get_ready") else 0
                     if ready_n >= (2 if eyes.video else 1):  # our charged attack starts, and it was not thrown from
@@ -4528,16 +4586,28 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
                                 end_minigame("another Pokémon comes in")
                             else:                            # (their attack: its banner will say which one it is)
                                 used.update(since=ask["tapped"], until=ask["tapped"] + USED_UNTIL, t=0.0)
-                            if (res["kind"] == "noshield" and give["on"] and not give["tried"]
-                                    and balls["me"] == 1 and now - balls["t"] < 30.0):
+                            last = balls["me"] == 1 and now - balls["t"] < 30.0   # (our last Pokémon, by its box)
+                            if res["kind"] == "noshield" and give["on"] and not give["tried"] and last:
                                 with flock:                  # an attack on our last Pokémon, and no shield: is that
                                     lost, why = fight.doomed()           # the end of the fight?  Then give it up
+                                    on = "" if lost else fight.fights_on()
                                 if lost:
                                     give["tried"] = True
                                     out["gave_up"] = _fight_give_up(tapper, eyes, why, beat)
                                     give["yes"] = ask["seen"] = time.monotonic()   # (the same question, still)
                                     if out["gave_up"]:
                                         end_minigame("the battle was given up")
+                                else:                        # (said, so that a log tells why a lost end was played)
+                                    log(f"battle: not giving up - {on}")
+                            elif res["kind"] == "noshield":
+                                with flock:
+                                    alone = len(fight.alive()) == 1
+                                if last or alone:            # (our last one by its box or by our own count)
+                                    log("battle: not giving up - " + (
+                                        "the option 'Give up a lost battle' is off" if not give["on"] else
+                                        "it was tried before in this battle" if give["tried"] else
+                                        f"the Poké Balls of our name box showed {balls['me']} of ours that can still "
+                                        f"fight, {now - balls['t']:.0f} s ago"))
                             if res["xy"] is None and not out["gave_up"]:
                                 tapper.go()                  # (nothing to tap: the attack plays out)
                     elif ask["xy"] is not None and now - ask["tapped"] >= RETAP_AFTER:
@@ -4649,6 +4719,8 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
         S.busy(0)
         if mini is not None:
             log(mini.report())
+        if fight.learned:                      # (the attacks the opponents really used: for the battles to come)
+            save_seen(fight.known)
         if out["gave_up"] and not out["result"] and out["why"].startswith("back on"):
             out["result"], out["why"] = "loss", ""     # (given up, and the game did not show a result screen)
         out["seconds"] = int(time.monotonic() - t0)
@@ -4661,8 +4733,8 @@ def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
 
 def battle_run(beat, stop, count, team=None):
     """Fights `count` battles one after the other: map -> party screen -> USE THIS PARTY -> fight -> NEXT
-    BATTLE (after a win: the check mark, which leads to the Battle screen) -> party screen again ... and goes
-    back to the map at the end.  Returns {"fought": n, "wins": n}."""
+    BATTLE (or the check mark when that is all there is: it leads to the Battle screen) -> party screen again
+    ... and goes back to the map at the end.  Returns {"fought": n, "wins": n}."""
     res = {"fought": 0, "wins": 0}
     failures = 0
     league = battle_league()

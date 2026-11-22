@@ -21,10 +21,14 @@ What the fight loop in gamebot.py does with it:
 
     fight.foe_used(text)                 the banner 'Mismagius used Dark Pulse!' was read: that attack is one of
                                          the foe's two for sure
+    fight.fought(seconds)                so much more of the plain fight has passed (for the foe's energy)
+    fight.foe_threw()                    the foe has thrown a charged attack (the question is up)
 
-What it cannot see is estimated: the energy from which buttons are lit (a lit button means the energy is at
+What it cannot see is estimated: our energy from which buttons are lit (a lit button means the energy is at
 least its cost), the foe's moves from PvPoke's recommended moveset for its species - until the banner of a
-charged attack names one of them (foe_used) - and an incoming attack is taken to be the foe's hardest one.
+charged attack names one of them (foe_used; what was seen is kept for later battles in Fight.known) - and the
+foe's energy from the time it has been fighting: it cannot have more than its fastest fast attack gives in
+that time (foe_energy).  An incoming attack is taken to be the hardest one the foe can pay for.
 """
 import difflib
 import re
@@ -40,12 +44,24 @@ SHIELDS_BACK = 6          # pictures in a row that show more shields of ours tha
 FOE_RETRY = 8             # a name box that gave nothing is read again after this many pictures at most
 GOING_DOWN_HP = 0.20      # our HP below this part of the full bar: we are about to faint ...
 GOING_DOWN_FAST = 4       # ... or it is no more than this many fast attacks of the foe
+FOE_BACK_SOON = 6.0       # s of fight: a foe that is back within this time was not away (its name was misread)
 
 
 class Fight:
-    def __init__(self, team, log=None):
+    def __init__(self, team, log=None, known=None):
         self.team = list(team)
         self.log = log or (lambda _m: None)
+        # species -> {charged attack: in how many battles it was seen}: what opponents really used in earlier
+        # battles (the fight loop keeps it in a file); it goes before the guess of the recommended moveset
+        self.known = known if known is not None else {}
+        self.learned = False                   # something was added to it in this battle
+        self.clock = 0.0                       # seconds of plain fight so far (see fought())
+        self._foe_e = [0.0, 0.0]               # the foe's energy: [what it had at most, at this time of the clock]
+        self._foe_e_ok = True                  # False: that count was proven wrong for this foe - not used
+        self._foe_left = {}                    # species -> (energy at most, ok, the clock) when it left the field
+        self._change = None                    # the clock when the foe's name box changed (its name not read since)
+        self._read_at = 0.0                    # the clock when the foe's name was last read
+        self._threw = None                     # the foe's last charged attack: (energy it had at most, cost taken off)
         self.me = self.team[0]                 # the Pokémon on the field (the game starts with the first one)
         self.foe = None                        # a Mon guessed from the name box, None while it is not known
         self.my_shields = 2
@@ -194,9 +210,53 @@ class Fight:
         """Time to read the name boxes again."""
         return self.since_foe >= self.foe_every
 
-    def read_names(self):
-        """Something changed in a name box: read the names at the next picture."""
+    def read_names(self, side=None):
+        """Something changed in a name box (side: "me" / "foe"): read the names at the next picture.  Until the
+        foe's name has been read again nobody knows who is on the field: its energy is not known either."""
         self.since_foe = 10 ** 6
+        if side != "me" and self._change is None:
+            self._change = self.clock
+
+    # ------------------------------------------------------------ the foe's energy ---
+    def fought(self, seconds):
+        """`seconds` more of the plain fight have passed: both sides were tapping fast attacks.  (The fight loop
+        counts them; a charged attack of either side stops that clock, as it stops the game.)"""
+        self.clock += max(float(seconds), 0.0)
+
+    def _energy(self, at=None):
+        """What the foe on the field has at most at time `at` of the clock (now), without any margin."""
+        rate, _gain = BE.fast_rate(self.foe.species)
+        base, mark = self._foe_e
+        return min(100.0, base + rate * max((self.clock if at is None else at) - mark, 0.0))
+
+    def foe_energy(self):
+        """The energy the foe has at most right now, None when that is not known.  It came in with nothing (or
+        with what it had when it left), every charged attack took its cost off, and in between it cannot have
+        gained more than its fastest fast attack gives in the time that was fought - plus one fast attack, for
+        the one that is under way.  An upper limit: an attack that costs more is not the one that is coming.
+        Not known: the foe itself is not, its name box changed and was not read since, or the count was proven
+        wrong for it (it threw what it could not have paid for)."""
+        if self.foe is None or not self._foe_e_ok or self._change is not None:
+            return None
+        return min(100.0, self._energy() + BE.fast_rate(self.foe.species)[1])
+
+    def foe_threw(self, sure=True):
+        """The foe has thrown a charged attack (the question about it is up).  Its energy went down by the cost
+        of that attack: by the least any attack of its species costs, until the banner names it (foe_used).
+        sure=False: the question was not read, the picture was only taken for one - nothing comes off the
+        energy until the banner says that an attack was thrown (what is kept is the MOST the foe can have)."""
+        if self.foe is None:
+            self._threw = None
+            return
+        had = self.foe_energy()
+        cost = BE.cheapest_charged(self.foe.species) if sure else 0
+        self._threw = (had, cost)
+        if had is not None:                    # (counted on from here; the margin is only added when it is asked)
+            self._foe_e = [max(self._energy() - cost, 0.0), self.clock]
+
+    def threw_with(self):
+        """The energy the foe had at most when it threw the attack that is on its way (None: not known)."""
+        return self._threw[0] if self._threw else self.foe_energy()
 
     def set_foe(self, name, cp=None):
         """The foe's name box was read.  Returns True when the foe is known now."""
@@ -213,12 +273,24 @@ class Fight:
         if self.foe is not None and self.foe.species == foe.species and (
                 not cp or not self.foe_cp or abs(cp - self.foe_cp) <= 1):
             self.foe_cp = cp or self.foe_cp
+            self._change, self._read_at = None, self.clock     # (it is still the one whose energy is counted)
             return True                        # the same foe
+        # When the new one came in, at the earliest: when its name box was seen to change - or, when that was
+        # not noticed, when the one before it was last read there (its energy must not be counted too low).
+        came = self._change if self._change is not None else self._read_at
         if self.foe is not None:               # a new one: it comes in with a full HP bar
             self.foe_hp = 1.0
             self._pending.pop("foe", None)
+            self._foe_left[self.foe.species] = (self._energy(came), self._foe_e_ok, came)   # (it keeps its energy)
+        elif not self._foe_left:
+            came = 0.0                         # (the first one of the battle: there from the start)
+        energy, ok, left = self._foe_left.get(foe.species, (0.0, True, None))
+        if left is not None and came - left < FOE_BACK_SOON:
+            came = left                        # (back that soon: a name that was misread - it never left)
+        self._foe_e, self._foe_e_ok, self._change, self._threw = [energy, came], ok, None, None
+        self._read_at = self.clock
         foe.hp = int(round(self.foe_hp * foe.max_hp))
-        known = self._apply_seen(foe)          # (it was on the field before: what it used then is known)
+        known = self._apply_seen(foe)          # (what it used before - in this battle or in earlier ones)
         self.foe, self.foe_cp = foe, cp
         self.log(f"fight: foe is {foe.label}" + (f" (CP {cp})" if cp else "")
                  + f" - moves {foe.fast.name} / " + ", ".join(m.name for m in foe.charged)
@@ -226,12 +298,16 @@ class Fight:
         return True
 
     def _apply_seen(self, foe):
-        """Put the charged attacks this species was seen to use at the front of the attacks of `foe` (a Pokémon
-        has two at most: a guessed one makes room).  True when that changed something."""
-        seen = [i for i in self.foe_seen.get(foe.species, [])]
+        """Put the charged attacks this species was seen to use at the front of the attacks of `foe`: those of
+        this battle first, then those of earlier battles (the ones seen most often first).  A Pokémon has two
+        at most: a guessed one makes room.  True when that changed something."""
+        seen = list(self.foe_seen.get(foe.species, []))
+        pool = BE.load()["mons"][foe.species][6]
+        before = self.known.get(foe.species) or {}
+        seen += [m for m, _n in sorted(before.items(), key=lambda t: -t[1]) if m in pool and m not in seen]
         if not seen:
             return False
-        ids = (seen + [m.id for m in foe.charged if m.id not in seen])[:max(len(foe.charged), len(seen), 1)][:2]
+        ids = (seen + [m.id for m in foe.charged if m.id not in seen])[:min(2, max(len(foe.charged), len(seen)))]
         if ids == [m.id for m in foe.charged]:
             return False
         foe.charged = [BE.Move(i) for i in ids]
@@ -274,17 +350,31 @@ class Fight:
                     best, found = r, mid
         if found is None or best < 0.82:
             return None
+        move = BE.Move(found)
+        if self._threw is not None:            # the attack that was thrown: its real cost comes off the energy
+            had, cost = self._threw
+            self._threw = None
+            if had is not None and move.energy > had + 5:
+                if self._foe_e_ok:             # (it threw what it could not have had the energy for)
+                    self.log(f"fight: {foe.label} threw {move.name} ({move.energy} energy) when it should have had "
+                             f"{int(had)} at most - its energy is not counted any more")
+                self._foe_e_ok = False
+            elif had is not None and move.energy > cost:
+                self._foe_e[0] = max(self._foe_e[0] - (move.energy - cost), 0.0)
         seen = self.foe_seen.setdefault(foe.species, [])
         if found in seen:
-            return BE.Move(found)
+            return move
         seen.append(found)
         del seen[:-2]                          # (two at most: the newest count)
+        count = self.known.setdefault(foe.species, {})
+        count[found] = count.get(found, 0) + 1                 # (once a battle: for the battles to come)
+        self.learned = True
         guess = [m.name for m in foe.charged]
         self._apply_seen(foe)
         if sorted(guess) != sorted(m.name for m in foe.charged):       # (not when only their order changed)
-            self.log(f"fight: {foe.label} used {BE.Move(found).name} - its charged attacks are taken to be "
+            self.log(f"fight: {foe.label} used {move.name} - its charged attacks are taken to be "
                      + ", ".join(m.name for m in foe.charged) + f" now (the guess was {', '.join(guess)})")
-        return BE.Move(found)
+        return move
 
     def set_active(self, cp):
         """The CP in my name box: correct who is on the field when it is somebody else than expected.  A
@@ -465,12 +555,30 @@ class Fight:
     def doomed(self):
         """An attack is coming and we have no shield.  (True, why) when that ends the fight: this is our last
         Pokémon, its HP was read from its own bar and the foe's hardest charged attack - as far as its attacks
-        are known - knocks it out."""
-        if self.foe is None or self.my_shields > 0 or len(self.alive()) != 1 or not self._hp_sure():
-            return False, ""
-        dmg, move = BE.foe_hit(self.foe, self.me)
+        are known, and of those it had the energy for - knocks it out."""
+        lost, why = self._doomed()
+        return (True, why) if lost else (False, "")
+
+    def fights_on(self):
+        """Why doomed() says that the fight is not over (for the log; '' when it is over)."""
+        lost, why = self._doomed()
+        return "" if lost else why
+
+    def _doomed(self):
+        if self.foe is None:
+            return False, "the foe is not known"
+        if self.my_shields > 0:
+            return False, f"we have {self.my_shields} shield(s) left by our count"
+        if len(self.alive()) != 1:
+            return False, f"{len(self.alive())} of ours can still fight by our count"
+        if not self._hp_sure():
+            return False, (f"the HP of {self.me.label} is not sure (read from its bar {self._my_reads} time(s), "
+                           f"last {self._my_read:.0%}, taken to be {self.my_hp:.0%})")
+        dmg, move = BE.foe_hit(self.foe, self.me, None, self.threw_with())
         if dmg < self.me.hp:
-            return False, ""
+            return False, (f"{self.foe.label}'s {move.name} does {dmg}, {self.me.label} has {self.me.hp} HP"
+                           + (" (its other attack costs more energy than it can have)"
+                              if len(BE.can_throw(self.foe, self.threw_with())) < len(self.foe.charged) else ""))
         return True, (f"{self.me.label} is our last Pokémon, it has {self.me.hp} HP and no shield, and "
                       f"{self.foe.label}'s {move.name} does {dmg}")
 
@@ -514,11 +622,13 @@ class Fight:
     def shield(self, foes=None, ready=False):
         """The question 'Attack incoming! Use a Protect Shield?': (use it, why).  foes: how many Pokémon the foe
         can still fight with (the red Poké Balls of its name box; None: not known).  ready: a charged attack of
-        ours was ready when the question came up.  See battle_engine.use_shield for the rule."""
+        ours was ready when the question came up.  See battle_engine.use_shield for the rule; the attack is
+        taken to be the hardest one the foe can pay for (foe_energy).  Call foe_threw() after it."""
         if self.my_shields <= 0:
             return False, "no shields left"
         mine = max(len([m for m in self.team if m.pos not in self.dead]), 1)
-        use, why = BE.use_shield(self.foe, self.me, self.my_shields, self.me.hp, mine, foes, ready)
+        use, why = BE.use_shield(self.foe, self.me, self.my_shields, self.me.hp, mine, foes, ready, None,
+                                 self.foe_energy())
         if use:
             self.my_shields -= 1
         return use, why

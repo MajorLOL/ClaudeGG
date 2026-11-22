@@ -298,7 +298,7 @@ DEBUG_DIR = os.path.expanduser("~/debug")
 DEBUG_LOG_BYTES = 600000       # the end of the log that goes into the debug download ...
 DEBUG_PICTURES = 30            # ... with this many of the newest pictures the bot saved ...
 DEBUG_HOURS = 6                # ... when they are not older than this
-DEBUG_FILES = ("battle_minigame.json", "battle_team.json")     # ... and these files of the home folder
+DEBUG_FILES = ("battle_minigame.json", "battle_team.json", "battle_seen.json")   # ... and these files of the home folder
 
 
 def debug_zip(now=None):
@@ -580,7 +580,7 @@ PAGE = r"""<!DOCTYPE html>
     <input id="txt" class="inp" placeholder="Type text" aria-label="Text to type on the phone">
     <button class="btn" onclick="sendText()">Send</button>
     <span class="recbtns">
-     <button class="btn" id="recgo" onclick="recStart()" title="Play one battle yourself on the phone; the pictures and touches are saved so the bot can learn the battle screens.">Record battle</button>
+     <button class="btn" id="recgo" onclick="recStart()" title="Records the screen during one battle - one you play yourself, or one the bot fights (gamebot.py fight). The zip holds the pictures, the touches and what the bot logged meanwhile.">Record battle</button>
      <button class="btn danger" id="recstop" onclick="recStop()" hidden>Stop</button>
      <a class="btn" id="recdl" href="record/download" hidden>Download</a>
     </span>
@@ -806,7 +806,7 @@ function showRec(r, running) {
   go.hidden = !!r.on; st.hidden = !r.on; dl.hidden = !r.ready;
   let t = '';
   if (r.on) t = 'Recording: ' + r.frames + ' pictures, ' + r.seconds + ' s. Play your battle on the phone, then press Stop.';
-  else if (r.ready) t = 'Recording ready: ' + r.frames + ' pictures, ' + r.seconds + ' s, ' + r.mb + ' MB.' + (r.note ? ' ' + r.note : '');
+  else if (r.ready) t = 'Recording ready: ' + r.frames + ' pictures, ' + r.seconds + ' s, ' + r.mb + ' MB, with the log of the bot.' + (r.note ? ' ' + r.note : '');
   else if (r.note) t = r.note;
   h.textContent = t; h.hidden = !t;
 }
@@ -855,6 +855,9 @@ PAGE = PAGE.replace("@@NAME@@", APP_NAME)
 # on the phone yourself, press Stop and download the zip. It holds small pictures of the screen (one
 # whenever the picture changes, at most REC_FPS per second, with the time in the file name), and the
 # raw touch events of the phone (getevent), so that every tap can be matched with its picture.
+# It is also the way to show what the bot did in a battle it fought itself (gamebot.py fight, started by
+# hand while the service is stopped): then the zip also holds what the bot wrote in its log during the
+# recording (bot_log.txt) and the pictures it saved meanwhile (debug/), so that one file tells the story.
 REC_DIR = os.path.expanduser("~/battle_recording")
 REC_FPS = 2.0                 # pictures per second at most (a slow phone link gives fewer)
 REC_SCALE = 0.35              # size of the saved pictures compared with the screen
@@ -863,6 +866,9 @@ REC_MAX_FRAMES = 420          # then the recording stops by itself
 REC_MAX_MB = 30               # ... or when the pictures together are this big (the zip stays easy to send)
 REC_MAX_SECONDS = 600
 REC_KEEP_SAME = 4.0           # s: a picture that did not change is still kept now and then
+REC_LOG_BEFORE = 30           # s before the recording from which the lines of the bot's log are taken along
+REC_PICTURES = 12             # the newest pictures the bot saved during the recording go into the zip too ...
+REC_PICTURE_WIDTH = 900       # ... not wider than this (px; the text on them stays readable), as JPEG
 rec = {"on": False, "frames": 0, "t0": 0.0, "secs": 0, "note": "", "zip": None, "mb": 0.0, "bytes": 0,
        "stop": threading.Event(), "thread": None, "touch": None}
 rec_lock = threading.Lock()
@@ -872,6 +878,55 @@ def rec_status():
     secs = int(time.time() - rec["t0"]) if rec["on"] else rec["secs"]
     return {"on": rec["on"], "frames": rec["frames"], "seconds": secs, "max": REC_MAX_FRAMES,
             "note": rec["note"], "ready": bool(rec["zip"]) and not rec["on"], "mb": rec["mb"]}
+
+
+def log_since(t0, limit=None):
+    """The lines the bot (and this web interface) wrote in the log from time t0 on, '' when there are none.
+    Only the end of the log is looked at (`limit` bytes).  Every line starts with its date and time."""
+    try:
+        with open(LOGFILE, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(f.tell() - (limit or DEBUG_LOG_BYTES), 0))
+            lines = f.read().decode(errors="ignore").splitlines()
+    except OSError as e:
+        return f"(the log could not be read: {e})"
+    start = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(t0))
+    for i, line in enumerate(lines):
+        if re.match(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d", line) and line[:19] >= start:
+            return "\n".join(lines[i:])
+    return ""
+
+
+def rec_pictures(t0):
+    """[(name, time, JPEG bytes)]: the newest pictures the bot saved in ~/debug from time t0 on (in a battle:
+    the result screen, a screen it did not know ...), not wider than REC_PICTURE_WIDTH, the newest first."""
+    try:
+        names = [n for n in os.listdir(DEBUG_DIR) if n.lower().endswith((".png", ".jpg"))]
+    except OSError:
+        return []
+    files = []
+    for n in names:
+        try:
+            files.append((os.path.getmtime(os.path.join(DEBUG_DIR, n)), n))
+        except OSError:                                    # (the bot replaced it just now)
+            pass
+    out = []
+    for mtime, n in sorted(files, reverse=True):
+        if mtime < t0 or len(out) >= REC_PICTURES:
+            break
+        if os.path.splitext(n)[0] in [os.path.splitext(name)[0] for name, _t, _d in out]:
+            continue                                       # (g_x.png and g_x.jpg: the newer one is in already)
+        try:
+            img = cv2.imread(os.path.join(DEBUG_DIR, n))
+            h, w = img.shape[:2]
+            if w > REC_PICTURE_WIDTH:
+                img = cv2.resize(img, (REC_PICTURE_WIDTH, int(round(h * REC_PICTURE_WIDTH / float(w)))),
+                                 interpolation=cv2.INTER_AREA)
+            ok, jpg = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 75])
+            out.append((os.path.splitext(n)[0] + ".jpg", mtime, jpg.tobytes()))
+        except Exception:  # noqa: BLE001
+            continue
+    return out
 
 
 def rec_finish(rows):
@@ -901,6 +956,14 @@ def rec_finish(rows):
             for fn in ("frames.csv", "meta.json", "touch_devices.txt", "touch_raw.txt"):
                 if os.path.exists(os.path.join(REC_DIR, fn)):
                     z.write(os.path.join(REC_DIR, fn), fn, compress_type=zipfile.ZIP_DEFLATED)
+            # what the bot did meanwhile, when it was the bot that fought: its log and its pictures
+            z.writestr("bot_log.txt", log_since(rec["t0"] - REC_LOG_BEFORE)
+                       or "(nothing was written in the log during this recording)", zipfile.ZIP_DEFLATED)
+            for name, mtime, data in rec_pictures(rec["t0"] - REC_LOG_BEFORE):
+                z.writestr(zipfile.ZipInfo("debug/" + name, time.localtime(mtime)[:6]), data, zipfile.ZIP_STORED)
+            for fn in DEBUG_FILES:                         # (the team, and what the bot has learned so far)
+                if os.path.exists(os.path.expanduser("~/" + fn)):
+                    z.write(os.path.expanduser("~/" + fn), fn, compress_type=zipfile.ZIP_DEFLATED)
         rec["zip"] = path
         rec["mb"] = round(os.path.getsize(path) / 1048576.0, 1)
     except Exception as e:  # noqa: BLE001
