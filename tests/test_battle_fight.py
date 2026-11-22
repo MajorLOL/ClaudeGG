@@ -758,17 +758,16 @@ class ReplayOfTheLateAttacks(unittest.TestCase):
         self.assertIsNone(self.at(130)["balls"])                                # (a question: no name boxes)
 
     def test_the_last_attack_ends_the_fight_and_the_bot_can_know_it(self):
-        """Picture 130: 'No Protect Shields remaining!' - Lanturn is our last Pokémon, a third of its HP is
-        left and Dragalge's hardest attack takes more than that.  That is when the fight is given up."""
+        """Picture 130: 'No Protect Shields remaining!' - Lanturn is our last Pokémon and a third of its HP is
+        left: Dragalge's hardest attack takes more than that, its Aqua Tail does not.  Which one comes is not
+        known, so the fight goes on (until 22 November it was given up here)."""
         fight = self.run_fight(until=129)
         self.assertEqual(fight.me.species, "lanturn")
         self.assertEqual(fight.my_shields, 0)
         self.assertEqual(len(fight.alive()), 1)
         self.assertAlmostEqual(fight.my_hp, 0.32, delta=0.03)
-        lost, why = fight.doomed()
-        self.assertTrue(lost)
-        self.assertIn("Lanturn is our last Pokémon", why)
-        self.assertIn("Dragalge", why)
+        self.assertEqual(fight.doomed(), (False, ""))
+        self.assertIn("Dragalge's Aqua Tail does", fight.fights_on())
 
     def test_no_attack_is_the_end_while_others_can_still_fight(self):
         for until in (32, 80, 91):                   # the questions on Noctowl and on Lapras
@@ -1136,7 +1135,7 @@ class TheFoesEnergy(unittest.TestCase):
         late.dead.update({1, 2})
         late.my_shields = 0
         for _ in range(3):
-            late.see(feat(hp=(0.6, 0.8), shields={"me": 0, "foe": 2}))
+            late.see(feat(hp=(0.1, 0.8), shields={"me": 0, "foe": 2}))      # (16 HP: Mud Bomb ends it as well)
         late.fought(12.0)
         late.foe_threw()
         lost, why = late.doomed()
@@ -1159,7 +1158,10 @@ class TheFoesEnergy(unittest.TestCase):
         for _ in range(3):
             fight.see(feat(hp=(0.6, 0.8), shields={"me": 0, "foe": 2}))
         fight.fought(12.0)
-        self.assertEqual(fight.fights_on(), "")                  # (now it is: the Blizzard ends it)
+        self.assertRegex(fight.fights_on(), r"^Whiscash's Mud Bomb does 19, Noctowl has 97 HP$")   # (Blizzard would
+        for _ in range(3):                                                                      # end it, Mud Bomb not)
+            fight.see(feat(hp=(0.1, 0.8), shields={"me": 0, "foe": 2}))
+        self.assertEqual(fight.fights_on(), "")                  # (now it is: either attack ends it)
         self.assertTrue(fight.doomed()[0])
 
 
@@ -1353,22 +1355,31 @@ class GivingUp(unittest.TestCase):
     def test_the_hp_has_to_be_read_from_its_own_bar(self):
         """A Pokémon that has just come in has the HP that was kept for it - which may be wrong after a mix-up
         (in a replay a full Lanturn was taken for one with 12 HP).  Nothing is given up on that."""
-        fight = self.last_one(hp=0.30)
+        fight = self.last_one(hp=0.20)
         self.assertTrue(fight.doomed()[0])
         fight._enter(fight.me)                                # (it came in: nothing read yet)
         self.assertEqual(fight.doomed(), (False, ""))
         self.assertEqual(fight.hopeless(2), (False, ""))
-        fight.see(feat(hp=(0.30, 0.85), shields={"me": 0, "foe": 0}))
+        fight.see(feat(hp=(0.20, 0.85), shields={"me": 0, "foe": 0}))
         self.assertEqual(fight.doomed(), (False, ""))         # (one reading is not enough)
-        fight.see(feat(hp=(0.30, 0.85), shields={"me": 0, "foe": 0}))
+        fight.see(feat(hp=(0.20, 0.85), shields={"me": 0, "foe": 0}))
         self.assertTrue(fight.doomed()[0])
 
     def test_an_attack_that_knocks_out_our_last_pokemon(self):
-        fight = self.last_one(hp=0.30)
+        fight = self.last_one(hp=0.20)                        # (32 HP: Aqua Tail 37 and Outrage 87 - either ends it)
         lost, why = fight.doomed()
         self.assertTrue(lost)
         self.assertIn("Noctowl is our last Pokémon", why)
         self.assertIn("no shield", why)
+
+    def test_not_when_its_weaker_attack_would_be_survived(self):
+        """22 November, 18:17: given up on a Frenzy Plant (138) with 73 HP, while the Serperior had just shown
+        Leaf Tornado, which costs the same.  Which one comes is not known: only when both end it is it over."""
+        fight = self.last_one(hp=0.30)                        # (49 HP: Outrage 87 would end it, Aqua Tail 37 not)
+        lost, why = fight.fights_on() == "", fight.fights_on()
+        self.assertFalse(lost)
+        self.assertEqual(fight.doomed(), (False, ""))
+        self.assertIn("Aqua Tail does 37", why)
 
     def test_not_while_there_is_a_shield_another_pokemon_or_enough_hp(self):
         fight = self.last_one(hp=0.30)

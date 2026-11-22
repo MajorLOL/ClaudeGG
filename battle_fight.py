@@ -610,13 +610,21 @@ class Fight:
         if not self._hp_sure():
             return False, (f"the HP of {self.me.label} is not sure (read from its bar {self._my_reads} time(s), "
                            f"last {self._my_read:.0%}, taken to be {self.my_hp:.0%})")
-        dmg, move = BE.foe_hit(self.foe, self.me, None, self.threw_with())
+        # Which attack comes is not known: only when EVERY attack the foe can pay for knocks ours out is the
+        # fight over (22 November: given up on a Frenzy Plant, while the Serperior had just shown Leaf Tornado,
+        # which costs the same and would have been survived).  In doubt the fight goes on: giving up saves ten
+        # seconds, a fight that goes on can still be won.
+        moves = BE.can_throw(self.foe, self.threw_with())
+        hits = sorted((BE.damage(m, self.foe, self.me), m.name) for m in moves)
+        dmg, name = hits[0]
         if dmg < self.me.hp:
-            return False, (f"{self.foe.label}'s {move.name} does {dmg}, {self.me.label} has {self.me.hp} HP"
+            return False, (f"{self.foe.label}'s {name} does {dmg}, {self.me.label} has {self.me.hp} HP"
                            + (" (its other attack costs more energy than it can have)"
-                              if len(BE.can_throw(self.foe, self.threw_with())) < len(self.foe.charged) else ""))
+                              if len(moves) < len(self.foe.charged) else ""))
+        dmg, name = hits[-1]
         return True, (f"{self.me.label} is our last Pokémon, it has {self.me.hp} HP and no shield, and "
-                      f"{self.foe.label}'s {move.name} does {dmg}")
+                      f"{self.foe.label}'s {name} does {dmg}"
+                      + (f" (and {hits[0][1]} {hits[0][0]})" if len(hits) > 1 else ""))
 
     def _hp_sure(self):
         """Is our HP known well enough to give a fight up on it?  It has to be read from the bar of the Pokémon

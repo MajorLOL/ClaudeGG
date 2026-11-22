@@ -1017,12 +1017,19 @@ class FightLoop(unittest.TestCase):
     LAST = ("Dragalge", 1482, "Lanturn", 1494)             # the names in the boxes of day2_last / day2_no_shields
     LOST = [("versus", 0.5), ("day2_last", 2.5), ("day2_no_shields", "run"), ("exit", "yes"), ("day_result", "next")]
 
+    def dragalge_known(self):
+        """Earlier battles showed what this Dragalge has: Outrage and Gunk Shot - either takes all of Lanturn's
+        59 HP (the guess, Aqua Tail and Outrage, has an attack that does not: then nothing is given up)."""
+        with open(G.SEEN_FILE, "w") as f:
+            json.dump({"dragalge": {"OUTRAGE": 2, "GUNK_SHOT": 2}}, f)
+
     def run_taps(self, phone):
         return [t for t in phone.taps if abs(t[1] - BV.RUN_BUTTON[0]) < 0.02 and abs(t[2] - BV.RUN_BUTTON[1]) < 0.02]
 
     def test_a_lost_fight_is_given_up(self):
         """Our last Pokémon, a third of its HP left, no shield - and 'No Protect Shields remaining!': the
         attack that comes ends the fight.  The button with the running trainer, then YES."""
+        self.dragalge_known()
         phone, res = self.play(video=True, script=self.LOST, names=self.LAST)
         log = "\n".join(phone.logs)
         self.assertNotIn("error in the fight loop", log)
@@ -1039,6 +1046,7 @@ class FightLoop(unittest.TestCase):
         self.assertIn("another Poké Ball of ours is grey", log)                # (how it knew this was the last one)
 
     def test_a_lost_fight_is_given_up_with_screenshots_only(self):
+        self.dragalge_known()
         # (a screenshot every 1.3 s: it takes a few of them to know who is on the field and how much HP it has)
         script = [("day2_last", 9.0) if scene == "day2_last" else (scene, end) for scene, end in self.LOST]
         phone, res = self.play(video=False, script=script, names=self.LAST)
@@ -1072,6 +1080,7 @@ class FightLoop(unittest.TestCase):
     def test_a_question_that_does_not_come_up_changes_nothing(self):
         """The button to leave is tapped and the game does not ask: the fight goes on to its end, and the
         button is not tapped a second time."""
+        self.dragalge_known()
         script = [("versus", 0.5), ("day2_last", 2.5), ("day2_no_shields", 6.0), ("day2_last#on", 4.0),
                   ("day2_no_shields#again", 2.0), ("day_result", "next")]
         phone, res = self.play(video=True, script=script, names=self.LAST)
