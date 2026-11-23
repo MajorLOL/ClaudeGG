@@ -449,6 +449,25 @@ def battle_screen(name):
     return cv2.resize(full, (1768, 2208), interpolation=cv2.INTER_CUBIC)
 
 
+class SwitchTiles(unittest.TestCase):
+    def test_two_tiles_on_the_switch_question(self):
+        for name in ("day_switch", "day_switch_late", "switch_popup"):
+            img = cv2.imread(os.path.join(FIX, name + ".jpg"))
+            self.assertEqual(bv.popup_tiles_shown(img), 2, name)
+
+    def test_one_tile_in_the_middle(self):
+        """(Drawn: the left tile of a real question moved to the middle, the right one gone.)"""
+        img = cv2.imread(os.path.join(FIX, "day_switch.jpg"))
+        h, w = img.shape[:2]
+        y0, y1 = int(0.64 * h), int(0.82 * h)
+        tile = img[y0:y1, int(0.20 * w):int(0.44 * w)].copy()
+        plain = img[y0:y1, int(0.46 * w):int(0.54 * w)].mean(axis=(0, 1))
+        img[y0:y1, int(0.16 * w):int(0.84 * w)] = plain
+        x = int(0.38 * w)
+        img[y0:y1, x:x + tile.shape[1]] = tile
+        self.assertEqual(bv.popup_tiles_shown(img), 1)
+
+
 class NoBattlesLeftToday(unittest.TestCase):
     """22 November, 17:55: the BATTLE button of the Battle screen was grey - the sets of the day were played.
     (The picture is the phone screen out of the live view of the web interface.)"""

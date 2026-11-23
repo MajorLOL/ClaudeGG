@@ -61,12 +61,26 @@ class NextOneComesIn(unittest.TestCase):
         first, second, third = fight.team
         fight.faint()                                   # (the first one fainted earlier, the second came in)
         fight._enter(second)
+        for _ in range(bf.JUST_CAME_IN):                # (it fought for a while)
+            fight.see(feat(hp=(0.5, 0.7), lit=(False, False)))
         see_twice(fight, hp=(0.05, 0.7), lit=(False, False))
         self.assertEqual(fight.me, second)              # (still the second: its bar is nearly empty)
         see_twice(fight, hp=(1.0, 0.7), lit=(False, False))
         self.assertEqual(fight.me, third)
         self.assertIn(second.pos, fight.dead)
         self.assertTrue(fight.need_labels)
+
+    def test_the_entrance_of_a_pokemon_is_not_a_faint(self):
+        """23 November, 09:29: right after a switch the bar was read empty for a moment (the Pokémon coming in)
+        and then full - and the bot took the one that had just come in for fainted."""
+        fight = new_fight()
+        first, second, third = fight.team
+        fight.faint()
+        fight._enter(second)
+        see_twice(fight, hp=(0.05, 0.7), lit=(False, False))
+        see_twice(fight, hp=(1.0, 0.7), lit=(False, False))
+        self.assertEqual(fight.me, second)
+        self.assertNotIn(second.pos, fight.dead)
 
     def test_with_two_left_the_game_asks_instead(self):
         fight = new_fight()
@@ -210,6 +224,23 @@ class Throwing(unittest.TestCase):
         self.assertEqual(fight.move_of(button).id, move.id)
         self.assertEqual(fight.lit, (False, False))        # (spent)
         self.assertTrue(why)
+
+    def test_the_tiles_on_the_question_correct_a_wrong_count(self):
+        """23 November, 09:29 and 09:32: the bot took Lapras for fainted, thought Lanturn was the only one left
+        and tapped the middle of the screen - between the two tiles that were shown - eleven times."""
+        fight = new_fight("Raichu")
+        lapras = fight.team[1]
+        fight.dead.add(lapras.pos)                             # (the wrong count)
+        logs = []
+        fight.log = logs.append
+        _idx, mon, why = fight.switch([], 2)                   # (Noctowl fainted; two tiles on the screen)
+        self.assertNotIn(lapras.pos, fight.dead, logs)
+        self.assertEqual(fight.tile[1], 2)
+        self.assertEqual(fight.tile[0], [fight.team[1], fight.team[2]].index(mon))
+        self.assertIn("did not faint after all", logs[0])
+        fight2 = new_fight("Raichu")
+        fight2.switch([], 2)                                   # (a right count: nothing to correct)
+        self.assertEqual(fight2.tile[1], 2)
 
     def test_after_a_switch_the_other_one_on_the_field_is_a_missed_tap(self):
         """22 November, 18:16: the bot chose Lanturn, its taps on the tile did not count and the game sent in

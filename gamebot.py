@@ -3982,9 +3982,11 @@ def _fight_answer(shot, feat, fight, lock, tapper, state, eyes=None, know=None):
         # Pokémon fainted a few seconds before ours, 3 seconds were left; the game then chose by itself).
         # Only a real screenshot is read for its CP numbers (they are too small on the video picture).
         tiles = [] if video else BN.popup_tiles(ocr_lines(shot, int(0.60 * h), int(0.70 * h), 1.0))
+        shown_n = BV.popup_tiles_shown(shot)             # (the tiles on the screen, not our count of who is left)
         with lock:
-            idx, mon, why = fight.switch(tiles)
+            idx, mon, why = fight.switch(tiles, shown_n)
             place, n = fight.tile
+            n = max(n, shown_n)
         if mon is None:
             log("battle: our Pokémon fainted and nobody is left")
         else:

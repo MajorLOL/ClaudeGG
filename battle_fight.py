@@ -44,6 +44,8 @@ SHIELDS_BACK = 6          # pictures in a row that show more shields of ours tha
 FOE_RETRY = 8             # a name box that gave nothing is read again after this many pictures at most
 GOING_DOWN_HP = 0.20      # our HP below this part of the full bar: we are about to faint ...
 GOING_DOWN_FAST = 4       # ... or it is no more than this many fast attacks of the foe
+JUST_CAME_IN_S = 8.0      # ... and this many seconds of fight (on screenshots 60 pictures are a long time)
+JUST_CAME_IN = 60         # pictures: a Pokémon that came in this recently did not faint (its bar was coming in)
 SWITCH_MISSED = 250       # pictures after the switch question: another one of ours on the field = our tap missed
 HP_BACK_UP = 12          # pictures in a row (with the HUD) on which our bar reads higher: believe the bar again
 FOE_BACK_SOON = 6.0       # s of fight: a foe that is back within this time was not away (its name was misread)
@@ -445,6 +447,9 @@ class Fight:
         others = [m for m in self.team if m.pos not in self.dead and m is not self.me]
         if len(others) != 1:
             return
+        if (self._seen - getattr(self, "_entered_at", -10 ** 6) < JUST_CAME_IN
+                and self.clock - getattr(self, "_entered_clock", 0.0) < JUST_CAME_IN_S):
+            return                             # (it came in a moment ago: the empty bar was its entrance, 23 Nov.)
         self.log(f"fight: our HP bar is full again - {others[0].label} is on the field (not {self.me.label}, "
                  f"which fainted)")
         self.faint()
@@ -700,7 +705,7 @@ class Fight:
     def alive(self):
         return [m for m in self.team if m.pos not in self.dead and m.hp > 0]
 
-    def switch(self, tiles):
+    def switch(self, tiles, shown_n=None):
         """'Switch in a new Pokémon?'  tiles: [(cp, x)] left to right as read on the pop-up.  The CP numbers are
         small: often only one of them is read, or none.  Every Pokémon that is left is a choice all the same
         (the tiles stand in party order), so the best one is taken, read or not.
@@ -708,6 +713,16 @@ class Fight:
         the tiles, the number of tiles) - where to tap when its CP was not read."""
         self.faint()
         left = self.alive()
+        if shown_n and shown_n > len(left):
+            # The question shows more Pokémon than our count says are left: one was taken for fainted that is
+            # not (a missed switch, a name box read during the change).  The tiles are the truth.
+            back = [m for m in self.team if m.pos in self.dead and m is not self.me][:shown_n - len(left)]
+            for m in back:
+                self.dead.discard(m.pos)
+            if back:
+                self.log(f"fight: the question shows {shown_n} Pokémon - "
+                         f"{', '.join(m.label for m in back)} did not faint after all")
+            left = self.alive()
         if not left:
             return None, None, "nobody left"
         shown = []                             # (tile index, Mon) for tiles whose CP is a Pokémon of ours
@@ -734,6 +749,8 @@ class Fight:
     def _enter(self, mon, keep_hp=False):
         self._came = (mon, mon.hp)
         self.me = mon
+        self._entered_at = self._seen
+        self._entered_clock = getattr(self, "clock", 0.0)
         self._my_reads = 0
         self._aim = (None, None)
         if not keep_hp:

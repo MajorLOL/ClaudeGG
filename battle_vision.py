@@ -598,6 +598,22 @@ def gold_tiles(img):
     return sorted(out)
 
 
+def popup_tiles_shown(img):
+    """How many tiles the question 'Switch in a new Pokémon?' shows: 2 when there is a Pokémon picture at
+    both places (x 0.32 and 0.68) and the middle between them is empty, else 1.  (With one Pokémon left the
+    game sends it in without asking, so 2 is what is seen - 23 November: the bot thought one was left and
+    tapped the empty middle, eleven times.)"""
+    h, w = img.shape[:2]
+    band = cv2.cvtColor(img[int(0.66 * h):int(0.80 * h)], cv2.COLOR_BGR2GRAY).astype(np.float32)
+    cols = band.std(axis=0)
+
+    def at(fx):
+        x, d = int(fx * w), max(1, int(0.02 * w))
+        return float(cols[max(0, x - d):x + d].mean())
+    left, mid, right = at(POPUP_TILES[0]), at(0.50), at(POPUP_TILES[1])
+    return 2 if min(left, right) >= 25.0 and mid <= 0.35 * min(left, right) else 1
+
+
 def exit_yes(img):
     """Where to tap YES on the question 'Exit the Trainer Battle?' (it comes up after a tap on the button
     with the running trainer): the middle of a wide green button in the middle of the screen, (x, y) in
