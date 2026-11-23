@@ -53,6 +53,7 @@ OPTIONS = {                                 # key -> label (default: on)
     "fast_catch": "Fast catch: after a clear hit press BACK to skip the catch animation (the result is checked on the map)",
     "spin_only_when_full": "Spin PokéStops when Pokémon storage is full (catching pauses until there is room again)",
     "close_when_full": "Close the game when Pokémon storage and bag are both full",
+    "rocket_fight": "Team GO Rocket at a PokéStop: battle it with the recommended party (a missing third one is chosen)",
     "bag_clean": "Bag full: discard Potion, Super and Hyper Potion; keep 30 Max Potion, 30 Max Revive, 400 Poké Ball, 100 Great Ball, 30 of each berry",
     "buddy": "My buddy walks along on the map (a Pokémon next to the trainer may be the buddy)",
     "fast_look": "Realistic look around",
@@ -619,7 +620,7 @@ PAGE = r"""<!DOCTYPE html>
      </div>
     </div>
     <div class="col">
-     <div class="group" data-keys="spin spin_only_when_full close_when_full bag_clean">
+     <div class="group" data-keys="spin spin_only_when_full close_when_full bag_clean rocket_fight">
       <h2>PokéStops and storage</h2>
       <div class="switches"></div>
      </div>
@@ -664,6 +665,7 @@ const WORDS = {
   fast_look: ['Look around like a person'],
   buddy: ['My buddy walks along on the map', 'A Pokémon next to the trainer may be the buddy.'],
   spin: ['Spin PokéStops'],
+  rocket_fight: ['Battle Team GO Rocket', 'A grunt or leader at a PokéStop is battled with the recommended party; a missing third Pokémon is chosen. The Shadow Pokémon is caught afterwards.'],
   bag_clean: ['Clean up a full bag', 'Discards Potion, Super and Hyper Potion; keeps 30 Max Potion, 30 Max Revive, 400 Poké Ball, 100 Great Ball and 30 of each berry. Nothing else is touched.'],
   spin_only_when_full: ['Spin PokéStops when Pokémon storage is full', 'Catching pauses until there is room again.'],
   close_when_full: ['Close the game when storage and bag are full'],

@@ -357,15 +357,46 @@ FAST_RADIUS = 200             # px: the Pokémon counts as still there when one 
 FAST_SCORE = 0.3              # ... with at least this certainty (and not a PokéStop or gym)
 FAST_MAX_FAILS = 2            # in a row: then the option rests (it does not seem to work on this game version)
 FAST_REST = 30 * 60           # s
-stats = {"day": None, "caught": 0, "fled": 0, "stops": 0}
+stats = {"day": None, "caught": 0, "fled": 0, "stops": 0, "won": 0, "lost": 0}
+
+
+def _stats_of_today():
+    """The counters of today from the log (the last '(today: ...)' line of today): a restart does not set
+    them back to nothing."""
+    today = time.strftime("%Y-%m-%d")
+    try:
+        with open(S.LOGFILE, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(f.tell() - 400000, 0))
+            lines = f.read().decode(errors="ignore").splitlines()
+    except OSError:
+        return
+    for line in reversed(lines):
+        if not line.startswith(today):
+            if line[:4].isdigit():
+                return                         # (an older day: nothing of today yet)
+            continue
+        m = re.search(r"\(today: ([^)]*)\)", line)
+        if m:
+            stats["day"] = today
+            for n, what in re.findall(r"(\d+) (\w+)", m.group(1)):
+                if what in stats:
+                    stats[what] = int(n)
+            return
 
 
 def count(key):
     today = time.strftime("%Y-%m-%d")
+    if stats["day"] is None:
+        _stats_of_today()
     if stats["day"] != today:
-        stats.update(day=today, caught=0, fled=0, stops=0)
+        stats.update(day=today, caught=0, fled=0, stops=0, won=0, lost=0)
     stats[key] += 1
-    return f"(today: {stats['caught']} caught, {stats['fled']} fled, {stats['stops']} stops)"
+    return (f"(today: {stats['caught']} caught, {stats['fled']} fled, {stats['stops']} stops"
+            + (f", {stats['won']} won, {stats['lost']} lost" if stats["won"] or stats["lost"] else "") + ")")
+
+
+day_count = count             # (under another name, where 'count' means something else: battle_run)
 
 
 def mark_caught():
@@ -3138,6 +3169,21 @@ def step(brain):
             near_state["until"] = time.time() + NEAR_BLOCK
             log(f"that was next to the trainer - leaving Pokémon there alone for {NEAR_BLOCK // 60} min")
         save_async("g_pokemon_na_tik.png", img)
+    if ((name == "rocketScreen" or (name in ("menusScreen", "rewardScreen", "onbekend") and is_rocket_text(img)))
+            and setting("rocket_fight", True)):
+        log("Team GO Rocket at the stop - battling")
+        save_async("g_rocket.png", img)
+        try:
+            res = rocket_battle()
+        except Exception as e:  # noqa: BLE001
+            log(f"rocket: error {e}")
+            res = "failed"
+        if res != "failed":
+            return 1
+        if last_tap["kind"] == "stop":           # (it went wrong: leave that stop alone for a while)
+            x, y = last_tap["xy"]
+            cooldown.append((x, y, time.time() + ROCKET_COOLDOWN))
+        name = brain.screen(S.screenshot())[0]
     if name == "rocketScreen" or (name in ("menusScreen", "rewardScreen", "onbekend") and is_rocket_text(img)):
         if last_tap["kind"] == "stop":
             x, y = last_tap["xy"]
@@ -4416,6 +4462,201 @@ class Minigame:
         return text
 
 
+# ------------------------------- Team GO Rocket ----------------------------------
+# A grunt or a leader at a PokéStop (23 November, a recording of a fight with Leader Cliff by hand):
+# speech bubbles -> the screen with BATTLE -> 'Use your Rocket Radar?' (YES) -> 'Recommended Battle Party' with
+# USE THIS PARTY (a slot without a Pokémon: tapped, the first Pokémon of the list, DONE) -> VS -> the fight:
+# the same name boxes and HP bars as in the Battle League, but a Pokémon with one charged attack has ONE button,
+# in the middle, and the next one comes in by itself -> speech bubble, rewards, SUMMARY -> the Shadow Pokémon
+# to catch (Premier Balls: the normal catching does that).
+ROCKET_BTN_X = (0.307, 0.50, 0.690)    # the charged attack buttons: left, middle (one attack only), right
+ROCKET_PARTY_X = (0.33, 0.51, 0.69)    # the three slots of 'Recommended Battle Party'
+ROCKET_LIST_FIRST = (0.18, 0.70)       # the first Pokémon in the list that a slot opens
+ROCKET_BATTLE_X = 0.33                 # BATTLE on the screen before the fight: left of the round X over its middle
+ROCKET_FIGHT_SECONDS = 300
+ROCKET_STEPS = 70
+
+
+class _Kind:
+    """A charged attack known only by its type (the little game needs no more)."""
+
+    def __init__(self, kind):
+        self.type, self.name, self.id, self.energy = kind, f"a {kind} attack", kind.upper(), 50
+
+
+def _rocket_kinds(name):
+    """The types of the charged attacks a Pokémon of this name can have ('' when the name is not known)."""
+    import battle_engine as BE
+    sp = BE.find_species(name) if name else None
+    if not sp:
+        return set()
+    data = BE.load()
+    row = data["mons"].get(sp)
+    if not row:
+        return set()
+    return {str(BE.Move(m).type).lower() for m in row[6] if m in data["moves"]}
+
+
+def rocket_fight(stop=None):
+    """The fight against Team GO Rocket, until its HUD is gone for a while.  The fast attacks are tapped on
+    the charged attack buttons, by turns on the middle one (a Pokémon with one charged attack) and the left
+    one (with two): a button that is ready throws its attack at the next tap, a button that is not ready is a
+    fast attack.  The little game is known by its icons: of the types that the charged attacks of our Pokémon
+    can have (its name is read in its name box), the one whose icons come up.  Every 'Use a Protect Shield?'
+    gets a shield.  Returns the seconds it took."""
+    import battle_fight as BF
+    import battle_minigame as BMG
+    import battle_vision as BV
+    S.busy(ROCKET_FIGHT_SECONDS)
+    eyes = Eyes(_fight_stream())
+    tapper = FastTapper(_frac_xy(BV.TAP_FAST))
+    tapper.start()
+    t0 = time.monotonic()
+    last_hud = started = None
+    mini, game_at, shield_at, games, shields = None, -100.0, -100.0, 0, 0
+    me, kinds, named_at, turn = "", set(), -100.0, 0
+    aims = [_frac_xy((ROCKET_BTN_X[1], BV.BTN_Y)), _frac_xy((ROCKET_BTN_X[0], BV.BTN_Y))]
+    try:
+        while time.monotonic() - t0 < ROCKET_FIGHT_SECONDS and not (stop and stop()):
+            canvas, small, t = eyes.look()
+            now = time.monotonic()
+            st = BF.state(BV.features(small))
+            if mini is not None:                         # its little game: the icons, the swipes
+                mini.see(mini.look(small), t)
+                if mini.game.over(now) or now - game_at > 14:
+                    tapper.sweep(None)
+                    log("rocket: " + mini.report().replace("battle: ", ""))
+                    mini = None
+                    tapper.go()
+                continue
+            if st == "prompt":
+                tapper.pause()
+                if BV.shield_question(small) and now - shield_at > 6:
+                    shield_at = now
+                    shields += 1
+                    log("rocket: an attack is coming - SHIELD")
+                    tapper.tap(*_frac_xy(BV.TAP_SHIELD))
+                continue
+            if st == "fight":
+                last_hud = now
+                if started is None:
+                    started = now
+                    log("rocket: the fight has started")
+                if now - named_at > 6:                   # who is ours on the field (its attacks: their types)
+                    named_at = now
+                    name = (_fight_box(canvas, "me") or ("", 0))[0]
+                    if name and name != me:
+                        me, kinds = name, _rocket_kinds(name)
+                        log(f"rocket: ours is {me} - its charged attacks can be: "
+                            f"{', '.join(sorted(kinds)) or 'not known'}")
+                turn += 1
+                tapper.aim(aims[(turn // 4) % 2])        # (4 pictures on a button, then the other)
+                tapper.go()
+                continue
+            # no HUD: the little game of our charged attack?  (or theirs, a flash, the end)
+            if started is not None and now - game_at > 8:
+                for kind in (kinds or set(BMG.TYPE_RGB)):
+                    if len(BMG.find_icons(small, kind)) >= 3:
+                        games += 1
+                        game_at = now
+                        mini = Minigame(_Kind(kind), now - 1.0, load_minigames(), 0)
+                        mini.see(mini.look(small), t)
+                        tapper.aim(None)
+                        tapper.sweep(mini.strokes)
+                        log(f"rocket: the little game of a {kind} attack")
+                        break
+                if mini is not None:
+                    continue
+            if started is not None and now - last_hud > 10 and now - game_at > 10:
+                break                                    # the fight is over (speech bubble, rewards, ...)
+            if started is None and now - t0 > 40:
+                log("rocket: no fight came")
+                break
+    finally:
+        tapper.sweep(None)
+        tapper.close()
+        eyes.close()
+        S.busy(0)
+    secs = int(time.monotonic() - t0)
+    log(f"rocket: fight ended after {secs} s ({tapper.taps} fast taps, {games} little games, {shields} shields)")
+    return secs
+
+
+def _rocket_words(lines):
+    return [(w.upper(), x, y) for w, x, y in _words(lines)]
+
+
+def rocket_battle(stop=None):
+    """From the first screen of Team GO Rocket at a stop to the map again (or to the Shadow Pokémon to catch:
+    then 'catch' is returned and the normal bot catches it).  Returns 'map', 'catch' or 'failed'."""
+    import battle_fight as BF
+    import battle_vision as BV
+    picked, fought, unknown = False, False, 0
+    for step in range(ROCKET_STEPS):
+        if stop and stop():
+            return "failed"
+        shot = S.screenshot()
+        h, w = shot.shape[:2]
+        if S.on_map(shot):
+            log("rocket: back on the map")
+            return "map"
+        small = cv2.resize(shot, (704, int(round(h * 704.0 / w))), interpolation=cv2.INTER_AREA)
+        if BF.state(BV.features(small)) in ("fight", "prompt"):
+            rocket_fight(stop)
+            fought = True
+            continue
+        lines = ocr_lines(shot, 100, 2150, 0.6)
+        text = " ".join(t for t, _, _, _ in lines).upper()
+        ws = _rocket_words(lines)
+        name, score = screen_class(shot)
+        if name == "encounterScreen" and score >= TH_CLASS and fought:
+            log("rocket: the Shadow Pokémon to catch - the normal bot catches it")
+            return "catch"
+        save_async(f"g_rocket_s{step % 20}.png", shot)
+        if "ROCKET RADAR" in text:
+            yes = next(((x, y) for wd, x, y in ws if wd == "YES"), None)
+            log("rocket: 'Use your Rocket Radar?' - YES")
+            S.tap(*(_canvas(shot, *yes) if yes else _frac_xy((0.50, 0.42))))
+        elif "USE THIS PARTY" in text or "RECOMMENDED" in text:
+            use = next(((x, y) for wd, x, y in ws if wd == "USE"), None)
+            cps = [(x, y) for wd, x, y in ws if re.fullmatch(r"(CP)?\d{3,4}", wd) and (not use or y < use[1])]
+            filled = [i for i, sx in enumerate(ROCKET_PARTY_X) if any(abs(x / w - sx) < 0.08 for x, _y in cps)]
+            empty = [i for i in range(3) if i not in filled]
+            if cps and empty and len(filled) < 3 and not picked:
+                y = max(y for _x, y in cps) + int(0.05 * h)
+                log(f"rocket: the party has {len(filled)} Pokémon - choosing a third one for slot {empty[0] + 1}")
+                S.tap(*_canvas(shot, ROCKET_PARTY_X[empty[0]] * w, y))
+            elif use:
+                log(f"rocket: USE THIS PARTY ({len(filled) or '?'} Pokémon)")
+                S.tap(*_canvas(shot, *use))
+            else:
+                S.tap(*_frac_xy((0.50, 0.70)))
+        elif "CANCEL" in text and "DONE" in text:
+            done = next(((x, y) for wd, x, y in ws if wd == "DONE"), None)
+            if not picked:
+                log("rocket: the list of Pokémon - the first one")
+                S.tap(*_frac_xy(ROCKET_LIST_FIRST))
+                picked = True
+            elif done:
+                log("rocket: DONE")
+                S.tap(*_canvas(shot, *done))
+        elif "SUMMARY" in text:
+            log("rocket: the summary - tapping on")
+            S.tap(*_frac_xy((0.50, 0.85)))
+        elif any(wd == "BATTLE" and y > 0.75 * h for wd, x, y in ws) and not fought:
+            y = next(y for wd, x, y in ws if wd == "BATTLE" and y > 0.75 * h)
+            log("rocket: BATTLE")
+            S.tap(*_canvas(shot, ROCKET_BATTLE_X * w, y))
+        else:                                            # speech bubbles, the rewards, the VS screen
+            unknown += 1
+            if unknown > 25:
+                log("rocket: too many screens that are not known - stopping")
+                return "failed"
+            S.tap(*_frac_xy((0.50, 0.55)))
+        time.sleep(1.5)
+    return "failed"
+
+
 def fight_battle(beat=None, stop=None, team=None, use_spots=None, stream=None):
     """Plays the battle that is about to start (or is going on) until its result screen.
 
@@ -5068,7 +5309,9 @@ def battle_run(beat, stop, count, team=None):
                     res["fought"] += 1
                     res["wins"] += fought["result"] == "win"
                     failures = 0
-                    log(f"battle: battle {n} done: {fought['result']} ({res['wins']} won of {res['fought']})")
+                    log(f"battle: battle {n} done: {fought['result']} ({res['wins']} won of {res['fought']})"
+                        + (f" {day_count('won' if fought['result'] == 'win' else 'lost')}"
+                           if fought["result"] in ("win", "loss") else ""))
                     beat()
                     continue
                 if stop and stop():
@@ -5106,7 +5349,9 @@ def battle_run(beat, stop, count, team=None):
                 res["wins"] += fought["result"] == "win"
                 failures = 0
                 log(f"battle: battle {n} done: {fought['result']}" + (" (given up)" if fought.get("gave_up") else "")
-                    + f" ({res['wins']} won of {res['fought']})")
+                    + f" ({res['wins']} won of {res['fought']})"
+                    + (f" {day_count('won' if fought['result'] == 'win' else 'lost')}"
+                       if fought["result"] in ("win", "loss") else ""))
             else:
                 failures += 1
                 unfinished = True
