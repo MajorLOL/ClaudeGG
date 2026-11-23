@@ -242,6 +242,16 @@ class Throwing(unittest.TestCase):
         fight2.switch([], 2)                                   # (a right count: nothing to correct)
         self.assertEqual(fight2.tile[1], 2)
 
+    def test_never_the_middle_when_the_question_comes(self):
+        """23 November, 11:55: the tiles were not counted on the picture (it came too early) and the count said
+        one was left: the middle was tapped again.  A question means two tiles."""
+        fight = new_fight("Raichu")
+        lapras, lanturn = fight.team[1], fight.team[2]
+        fight.dead.add(lapras.pos)                             # (the wrong count)
+        _idx, mon, _why = fight.switch([], 1)                  # (the picture did not show the tiles yet)
+        self.assertIs(mon, lanturn)
+        self.assertEqual(fight.tile, (1, 2))                   # (the right tile: Lapras is on the left)
+
     def test_after_a_switch_the_other_one_on_the_field_is_a_missed_tap(self):
         """22 November, 18:16: the bot chose Lanturn, its taps on the tile did not count and the game sent in
         Lapras when the time ran out.  The bot then took Lanturn for fainted."""
@@ -584,12 +594,14 @@ class Switching(unittest.TestCase):
             self.assertEqual((idx, mon.pos), (0, best.pos), foe)
             self.assertIn("by CP", why, foe)
 
-    def test_the_last_one_has_a_tile_of_its_own(self):
+    def test_the_last_one_is_on_its_own_tile_of_two(self):
+        """With one left the game sends it in without asking - so when the question comes, our count was wrong
+        and two tiles are shown: the last one is on its own place among them (never the middle)."""
         fight = new_fight("Beedrill")
         fight.dead = {1}
         idx, mon, _why = fight.switch([])
         self.assertEqual(mon, fight.team[2])
-        self.assertEqual(fight.tile, (0, 1))             # (one tile, in the middle)
+        self.assertEqual(fight.tile, (1, 2))
 
     def test_foe_not_known(self):
         fight = new_fight(foe=None)

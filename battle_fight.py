@@ -711,6 +711,7 @@ class Fight:
         (the tiles stand in party order), so the best one is taken, read or not.
         Returns (index into tiles or None, Mon or None, why).  self.tile: (the place of the chosen one among
         the tiles, the number of tiles) - where to tap when its CP was not read."""
+        fainted = self.me
         self.faint()
         left = self.alive()
         if shown_n and shown_n > len(left):
@@ -742,6 +743,12 @@ class Fight:
         by_cp = idx is not None and abs(tiles[idx][0] - best.cp) <= 1
         why += ("" if why.endswith("(") else ", ") + ("by CP)" if by_cp else "by party order)")
         self.tile = (left.index(best), len(left))
+        if len(left) < 2 and len(self.team) == 3:
+            # The game asks only when two are left, so two tiles are on the screen whatever our count says:
+            # the two that did not just faint, in party order (23 November: the middle of the screen was
+            # tapped, between the tiles, again and again)
+            on_tiles = [m for m in self.team if m is not fainted]
+            self.tile = (on_tiles.index(best), 2)
         self._switch_seen = self._seen
         self._enter(best)
         return idx, best, why
