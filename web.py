@@ -395,16 +395,87 @@ def game_apps():
     return _apps["list"]
 
 
+TODAY_LOG_BYTES = 8000000      # at most this much of the end of the log is read for the counters of today
+_today = {"key": None, "stats": "", "battles": []}
+
+
+def today_lines(day=None):
+    """The lines of the log of today (day: 'YYYY-MM-DD'), oldest first."""
+    day = day or time.strftime("%Y-%m-%d")
+    try:
+        with open(LOGFILE, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(f.tell() - TODAY_LOG_BYTES, 0))
+            lines = f.read().decode(errors="ignore").splitlines()
+    except OSError:
+        return []
+    for i in range(len(lines) - 1, -1, -1):          # back to the first line of an older day
+        if lines[i][:4].isdigit() and not lines[i].startswith(day):
+            return lines[i + 1:]
+    return lines
+
+
+BATTLE_DONE = re.compile(r"battle: battle \d+ done: (win|loss)( \(given up\))?")
+
+
+def battles_of(lines):
+    """The GO Battle League matches in these log lines: [{time, league, result, gave_up, foes}], oldest first.
+    A match ends with 'battle: battle N done: win/loss'; the foes are the 'fight: foe is ...' lines before it."""
+    out, foes, league = [], [], ""
+    for line in lines:
+        m = re.search(r"battle: \d+ battle\(s\) in '([^']*)'", line)
+        if m:
+            league = m.group(1)
+        if "USE THIS PARTY" in line or "a fight is on the screen" in line:
+            foes = []
+        m = re.search(r"fight: foe is (.+?)(?: \(CP \d+\))?(?: - moves |$)", line)
+        if m:
+            name = m.group(1).strip()
+            if name and name not in foes:
+                foes.append(name)
+        m = BATTLE_DONE.search(line)
+        if m:
+            t = re.search(r"\b(\d\d:\d\d)(:\d\d)?\b", line)
+            out.append({"time": t.group(1) if t else "", "league": league, "result": m.group(1),
+                        "gave_up": bool(m.group(2)), "foes": foes[:3]})
+            foes = []
+    return out
+
+
+def stats_of(lines):
+    """The day counters: the last '(today: ... caught ...)' line of the bot, with the battles won and lost
+    counted from the matches themselves (so the ones of before the counter came are in it too)."""
+    stats = ""
+    for line in reversed(lines):
+        m = re.search(r"\(today: ([^)]*caught[^)]*)\)", line)
+        if m:
+            stats = re.sub(r",\s*\d+ won, \d+ lost", "", m.group(1))
+            break
+    games = battles_of(lines)
+    if games:
+        won = sum(g["result"] == "win" for g in games)
+        stats = (stats + ", " if stats else "") + f"{won} won, {len(games) - won} lost"
+    return stats, games
+
+
+def today_stats():
+    """(stats, battles) of today, read again only when the log changed."""
+    try:
+        st = os.stat(LOGFILE)
+        key = (time.strftime("%Y-%m-%d"), st.st_size, st.st_mtime)
+    except OSError:
+        return "", []
+    if _today["key"] != key:
+        _today["stats"], _today["battles"] = stats_of(today_lines(key[0]))
+        _today["key"] = key
+    return _today["stats"], _today["battles"]
+
+
 def status():
     active = subprocess.run(["systemctl", "is-active", SERVICE], capture_output=True).stdout.decode().strip()
-    stats = ""
-    for line in reversed(read_log(400)):
-        m = re.search(r"\(today: ([^)]*)\)", line)
-        if m:
-            stats = m.group(1)
-            break
+    stats, battles = today_stats()
     _, pw, ph = phone()
-    return {"service": active, "stats": stats, "control": read_control(), "labels": OPTIONS, "apps": game_apps(), "rec": rec_status(),
+    return {"service": active, "stats": stats, "battles": battles, "control": read_control(), "labels": OPTIONS, "apps": game_apps(), "rec": rec_status(),
             "w": pw, "h": ph, "phone": S.screen["model"], "screen_note": S.screen["note"], "screen_ok": S.screen["ok"],
             "video": latest["mode"], "error": latest["error"],
             "age": round(time.time() - latest["time"], 1) if latest["time"] else None}
@@ -509,6 +580,15 @@ PAGE = r"""<!DOCTYPE html>
  .field label { cursor:default; }
 
  /* ---------- log ---------- */
+ .games h2 { margin:0 0 6px; font-size:13px; font-weight:650; color:var(--mist); }
+ .games h2 b { color:var(--chalk); font-weight:650; }
+ .games ol { list-style:none; margin:0; padding:0; max-height:220px; overflow:auto; }
+ .games li { display:grid; grid-template-columns:44px 70px minmax(0,1fr); gap:10px; padding:4px 0; border-top:1px solid color-mix(in srgb, var(--ridge) 55%, transparent); font-size:13px; }
+ .games li:first-child { border-top:0; }
+ .games .t { color:var(--mist); font-variant-numeric:tabular-nums; }
+ .games .r { font-weight:650; }
+ .games .win .r { color:var(--run); } .games .loss .r { color:var(--stop); }
+ .games .f { color:var(--mist); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
  .logsec { display:flex; flex-direction:column; }
  .loghead { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; }
  .loghead h2 { margin:0; font-size:13px; font-weight:650; color:var(--mist); }
@@ -643,6 +723,11 @@ PAGE = r"""<!DOCTYPE html>
    </div>
   </section>
 
+  <section class="sec games" id="games" aria-label="Battles today" hidden>
+   <h2 id="gamesum">Battles today</h2>
+   <ol id="gamelist"></ol>
+  </section>
+
   <section class="sec logsec" aria-label="Log">
    <div class="loghead"><h2>Log</h2><span>Newest first</span>
     <a class="btn small" href="debug/download" title="A zip with the end of the log and the newest pictures the bot saved: send it along when you ask for help.">Download log and pictures</a></div>
@@ -746,12 +831,32 @@ function showStats(text) {
   }
 }
 
+function showGames(list) {                            // the GO Battle League matches of today, newest first
+  const sec = $('games'), ol = $('gamelist');
+  list = list || [];
+  sec.hidden = !list.length;
+  if (!list.length) return;
+  const won = list.filter(g => g.result === 'win').length;
+  $('gamesum').innerHTML = 'Battles today: <b>' + won + '</b> won, <b>' + (list.length - won) + '</b> lost';
+  ol.textContent = '';
+  for (const g of [...list].reverse()) {
+    const li = document.createElement('li'); li.className = g.result;
+    const t = document.createElement('span'); t.className = 't'; t.textContent = g.time;
+    const r = document.createElement('span'); r.className = 'r'; r.textContent = g.result === 'win' ? 'Won' : (g.gave_up ? 'Gave up' : 'Lost');
+    const f = document.createElement('span'); f.className = 'f';
+    f.textContent = (g.foes.length ? 'vs ' + g.foes.join(', ') : 'foes not read') + (g.league ? ' (' + g.league + ')' : '');
+    f.title = f.textContent;
+    li.append(t, r, f); ol.append(li);
+  }
+}
+
 async function refresh() {
   try {
     const s = await (await fetch('status')).json();
     const [name, tone] = STATES[s.service] || [s.service || 'Unknown', 'hold'];
     $('svc').textContent = name; $('state').dataset.s = tone;
     showStats(s.stats);
+    showGames(s.battles);
     if (s.w && s.h) { PW = s.w; PH = s.h; document.documentElement.style.setProperty('--ar', (s.w / s.h).toFixed(4)); }
     $('model').textContent = s.phone || '';
     const vid = $('vid');
