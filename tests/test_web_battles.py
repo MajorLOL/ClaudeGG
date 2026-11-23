@@ -68,9 +68,9 @@ class BattlesToday(unittest.TestCase):
         self.assertEqual(stats, "4 caught, 0 fled, 2 stops, 1 won, 2 lost")
         self.assertEqual(len(games), 3)
 
-    def test_no_battles_no_won_and_lost(self):
+    def test_no_battles_is_0_won_and_0_lost(self):
         stats, games = W.stats_of([f"{DAY} 09:00:00  spin: stop spun (today: 1 caught, 0 fled, 1 stops)"])
-        self.assertEqual((stats, games), ("1 caught, 0 fled, 1 stops", []))
+        self.assertEqual((stats, games), ("1 caught, 0 fled, 1 stops, 0 won, 0 lost", []))
 
     def test_battles_alone_still_show(self):
         stats, _ = W.stats_of([f"{DAY} 09:13:40  battle: battle 1 done: win (1 won of 1)"])
@@ -98,7 +98,7 @@ class BattlesToday(unittest.TestCase):
         self.assertEqual(W.today_stats()[0], "1 won, 0 lost")
         self.assertEqual(W.battles_reset_at(), "")
         W.reset_battles()
-        self.assertEqual(W.today_stats(), ("", []))
+        self.assertEqual(W.today_stats(), ("0 won, 0 lost", []))
         later = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() + 2))
         with open(W.LOGFILE, "a") as f:
             f.write(f"{later}  battle: battle 2 done: loss (0 won of 1)\n")
@@ -120,7 +120,7 @@ class BattlesToday(unittest.TestCase):
                 lines = f.read().splitlines()
             self.assertEqual(len(lines), 1)
             self.assertIn("(today: 5 caught, 1 fled, 7 stops)", lines[0])
-            self.assertEqual(W.today_stats(), ("5 caught, 1 fled, 7 stops", []))
+            self.assertEqual(W.today_stats(), ("5 caught, 1 fled, 7 stops, 0 won, 0 lost", []))
         finally:
             W.DEBUG_DIR = saved
 

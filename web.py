@@ -494,7 +494,8 @@ def battles_of(lines):
 
 def stats_of(lines, since=""):
     """The day counters: the last '(today: ... caught ...)' line of the bot, with the battles won and lost
-    counted from the matches themselves (so the ones of before the counter came are in it too)."""
+    counted from the matches themselves (so the ones of before the counter came are in it too) - those two
+    always, 0 and 0 when there was no battle (yet, or since 'Reset')."""
     stats = ""
     for line in reversed(lines):
         m = re.search(r"\(today: ([^)]*caught[^)]*)\)", line)
@@ -502,9 +503,8 @@ def stats_of(lines, since=""):
             stats = re.sub(r",\s*\d+ won, \d+ lost", "", m.group(1))
             break
     games = [g for g in battles_of(lines) if not since or g["at"] > since]
-    if games:
-        won = sum(g["result"] == "win" for g in games)
-        stats = (stats + ", " if stats else "") + f"{won} won, {len(games) - won} lost"
+    won = sum(g["result"] == "win" for g in games)      # (always there, also 0 and 0 after a reset)
+    stats = (stats + ", " if stats else "") + f"{won} won, {len(games) - won} lost"
     return stats, games
 
 
