@@ -703,7 +703,25 @@ PAGE = r"""<!DOCTYPE html>
  .chathead .btn { white-space:nowrap; }
  .chathead h2 { margin:0; font-size:16px; font-weight:650; }
  .chatwho { color:var(--mist); font-size:12px; margin-right:auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
- .chatset { padding:12px 14px; border-bottom:1px solid var(--ridge); display:grid; gap:8px; font-size:13px; }
+ .chatwhere { display:block; width:100%; text-align:left; padding:7px 14px; border:0; border-bottom:1px solid var(--ridge); background:transparent; color:var(--mist); font-size:12.5px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+ .chatwhere b { color:var(--chalk); font-weight:600; }
+ .chatwhere:hover { background:var(--night); }
+ .chatlist { padding:10px 14px; border-bottom:1px solid var(--ridge); max-height:55vh; overflow-y:auto; font-size:13px; }
+ .chatlist .bar { align-items:center; }
+ .chatlist select { flex:1; min-width:0; height:30px; padding:0 8px; border-radius:8px; border:1px solid var(--ridge); background:var(--night); }
+ .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+ .projedit { display:grid; gap:8px; margin:10px 0; padding:10px; border:1px solid var(--ridge); border-radius:10px; }
+ .projedit label { display:grid; gap:3px; color:var(--mist); font-size:12.5px; }
+ .projedit input, .projedit textarea { padding:7px 10px; border-radius:8px; border:1px solid var(--ridge); background:var(--night); font:inherit; color:inherit; resize:vertical; }
+ #chatitems { list-style:none; margin:10px 0 0; padding:0; }
+ #chatitems li { display:flex; align-items:center; gap:6px; border-top:1px solid color-mix(in srgb, var(--ridge) 55%, transparent); }
+ #chatitems li:first-child { border-top:0; }
+ #chatitems button.open { flex:1; min-width:0; text-align:left; padding:7px 4px; border:0; background:transparent; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+ #chatitems button.open small { color:var(--mist); margin-left:6px; }
+ #chatitems li.on button.open { color:var(--blue); font-weight:600; }
+ #chatitems button.del { border:0; background:transparent; color:var(--mist); cursor:pointer; padding:4px 6px; border-radius:6px; }
+ #chatitems button.del:hover { color:var(--stop); background:var(--night); }
+ .chatset { max-height:65vh; overflow-y:auto; padding:12px 14px; border-bottom:1px solid var(--ridge); display:grid; gap:8px; font-size:13px; }
  .chatset label { display:grid; gap:3px; color:var(--mist); }
  .chatset input, .chatset select { height:34px; padding:0 10px; border-radius:8px; border:1px solid var(--ridge); background:var(--night); }
  .chatset p { margin:0; color:var(--mist); font-size:12px; }
@@ -865,14 +883,32 @@ PAGE = r"""<!DOCTYPE html>
 <aside class="chat" id="chat" aria-label="Chat with Claude">
  <div class="chathead">
   <h2>Claude</h2><span class="chatwho" id="chatwho"></span>
-  <button class="btn small" onclick="chatNew()" title="Start a new conversation">New chat</button>
+  <button class="btn small" id="chatsbtn" onclick="chatList()" title="The chats and projects" aria-expanded="false">Chats</button>
+  <button class="btn small" onclick="chatNew()" title="Start a new chat in this project">New chat</button>
   <button class="btn small" id="chatgear" onclick="chatSettings()" title="API key, GitHub and model" aria-expanded="false">Settings</button>
   <button class="btn small chatclose" onclick="chatToggle(false)" aria-label="Close the chat">Close</button>
+ </div>
+ <button class="chatwhere" id="chatwhere" onclick="chatList()" title="Show the chats of this project"></button>
+ <div class="chatlist" id="chatlist" hidden>
+  <div class="bar"><label class="sr" for="projsel">Project</label><select id="projsel" onchange="projOpen(this.value)"></select>
+   <button class="btn small" onclick="projEdit(true)">Edit project</button>
+   <button class="btn small" onclick="projEdit(false)">New project</button></div>
+  <form class="projedit" id="projedit" hidden onsubmit="projSave(event)">
+   <label>Name <input id="proj_name" maxlength="60" required></label>
+   <label>Instructions for Claude in this project <textarea id="proj_ins" rows="3" placeholder="For example: always answer in Dutch; focus on the battles."></textarea></label>
+   <label>Project knowledge <textarea id="proj_notes" rows="4" placeholder="Notes every chat of this project gets. Claude adds what it finds worth keeping."></textarea></label>
+   <div class="bar"><button class="btn primary small" type="submit">Save project</button>
+    <button class="btn small" type="button" onclick="$('projedit').hidden = true">Cancel</button>
+    <button class="btn small danger" type="button" id="projdel" onclick="projDelete()">Delete project</button></div>
+  </form>
+  <ul id="chatitems"></ul>
  </div>
  <form class="chatset" id="chatset" hidden onsubmit="chatSave(event)">
   <label>Claude API key <input type="password" id="set_key" autocomplete="off" placeholder="not set"></label>
   <label>GitHub token, for pull requests <input type="password" id="set_gh" autocomplete="off" placeholder="not set"></label>
   <label>Model <select id="set_model"></select></label>
+  <label>Effort <select id="set_effort"></select></label>
+  <p>Effort is how much Claude thinks and checks before it answers: low is fast and cheap, high and above are more thorough and cost more. Model default: medium on Opus and Haiku, high on Sonnet.</p>
   <p>The keys stay on the Pi and are never shown again. Type <b>-</b> in a field to remove that key. Claude sees the log, the phone screen and the code when it needs them; that goes to Anthropic. Changes to the code are only ever proposed as a pull request at <span id="set_maker"></span>, made with your GitHub account.</p>
   <div class="bar"><button class="btn primary" type="submit">Save</button><span id="set_msg"></span></div>
  </form>
@@ -1051,7 +1087,62 @@ function showTest(t) {
 // ---------- Claude ----------
 let chatSeen = '';
 function chatToggle(on) { $('chat').classList.toggle('open', on); if (on) $('chattext').focus(); }
-function chatSettings() { const f = $('chatset'); f.hidden = !f.hidden; $('chatgear').setAttribute('aria-expanded', String(!f.hidden)); }
+function chatSettings() {
+  const f = $('chatset'); f.hidden = !f.hidden; $('chatgear').setAttribute('aria-expanded', String(!f.hidden));
+  if (!f.hidden) { $('chatlist').hidden = true; $('chatsbtn').setAttribute('aria-expanded', 'false'); }
+}
+let chatNow = null;
+function chatList() {
+  const l = $('chatlist'); l.hidden = !l.hidden; $('chatsbtn').setAttribute('aria-expanded', String(!l.hidden));
+  if (!l.hidden) { $('chatset').hidden = true; $('chatgear').setAttribute('aria-expanded', 'false'); }
+}
+async function post(url, body) {
+  const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
+  if (!r.ok) alert(await r.text());
+  chatSeen = ''; chatRefresh(); return r.ok;
+}
+function showChats(c) {
+  $('chatwhere').innerHTML = '<b>' + esc(c.project.name) + '</b> / ' + esc(c.chat.title);
+  const sel = $('projsel');
+  const names = c.projects.map(p => p.id + p.name).join();
+  if (sel.dataset.names !== names) {
+    sel.innerHTML = c.projects.map(p => '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>').join('');
+    sel.dataset.names = names;
+  }
+  if (document.activeElement !== sel) sel.value = c.project.id;
+  $('projdel').hidden = c.projects.length < 2;
+  const ul = $('chatitems'), key = JSON.stringify([c.chats, c.chat.id]);
+  if (ul.dataset.key === key) return;
+  ul.dataset.key = key; ul.textContent = '';
+  for (const it of c.chats) {
+    const li = document.createElement('li'); if (it.id === c.chat.id) li.className = 'on';
+    const o = document.createElement('button'); o.className = 'open'; o.textContent = it.title;
+    const sm = document.createElement('small'); sm.textContent = it.updated.slice(5); o.append(sm);
+    o.onclick = () => post('chat/open', {id: it.id});
+    const d = document.createElement('button'); d.className = 'del'; d.textContent = '\u00d7'; d.title = 'Delete this chat';
+    d.setAttribute('aria-label', 'Delete the chat ' + it.title);
+    d.onclick = () => { if (confirm('Delete the chat "' + it.title + '"?')) post('chat/delete', {id: it.id}); };
+    li.append(o, d); ul.append(li);
+  }
+}
+function projOpen(id) { post('chat/project/open', {id}); }
+function projEdit(existing) {
+  const f = $('projedit'), p = chatNow && chatNow.project;
+  f.dataset.id = existing && p ? p.id : '';
+  $('proj_name').value = existing && p ? p.name : '';
+  $('proj_ins').value = existing && p ? p.instructions : '';
+  $('proj_notes').value = existing && p ? p.notes : '';
+  f.hidden = false; $('proj_name').focus();
+}
+async function projSave(ev) {
+  ev.preventDefault();
+  const f = $('projedit');
+  if (await post('chat/project', {id: f.dataset.id, name: $('proj_name').value, instructions: $('proj_ins').value, notes: $('proj_notes').value})) f.hidden = true;
+}
+function projDelete() {
+  const p = chatNow && chatNow.project;
+  if (p && confirm('Delete the project "' + p.name + '" and all its chats?')) { post('chat/project/delete', {id: p.id}); $('projedit').hidden = true; }
+}
 function esc(t) { return t.replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c])); }
 function md(text) {                                   // a little markdown: code, bold, links, lists, line breaks
   return text.split(/```/).map((part, i) => {
@@ -1064,7 +1155,11 @@ function md(text) {                                   // a little markdown: code
   }).join('');
 }
 function showChat(c) {
-  $('chatwho').textContent = c.has_key ? c.model + (c.github_user ? ', GitHub ' + c.github_user : '') : 'no API key yet';
+  chatNow = c; showChats(c);
+  $('chatwho').textContent = c.has_key ? c.model + ', effort ' + (c.effort || 'default') : 'no API key yet';
+  const ef = $('set_effort');
+  if (!ef.options.length) ef.innerHTML = '<option value="">Model default</option>' + c.efforts.map(e => '<option>' + esc(e) + '</option>').join('');
+  if (document.activeElement !== ef) ef.value = c.effort;
   $('set_key').placeholder = c.has_key ? 'set (type a new one to change it)' : 'not set';
   $('set_gh').placeholder = c.has_github ? 'set for ' + (c.github_user || '?') : 'not set';
   $('set_maker').textContent = c.maker;
@@ -1073,7 +1168,7 @@ function showChat(c) {
   if (document.activeElement !== sel) sel.value = c.model;
   $('chatbusy').hidden = !c.busy; $('chatprog').textContent = c.progress || 'Thinking';
   $('chatgo').disabled = c.busy;
-  const key = c.messages.length + '|' + (c.messages.length ? c.messages[c.messages.length - 1].text.length : 0) + '|' + c.has_key + c.password;
+  const key = c.chat.id + '|' + c.messages.length + '|' + (c.messages.length ? c.messages[c.messages.length - 1].text.length : 0) + '|' + c.has_key + c.password;
   if (key === chatSeen) return;
   chatSeen = key;
   const log = $('chatlog'), atEnd = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
@@ -1106,11 +1201,11 @@ async function chatSend(ev) {
   t.value = ''; chatRefresh();
 }
 $('chattext').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatSend(e); } });
-async function chatNew() { if (confirm('Start a new chat? The conversation so far is cleared.')) { await fetch('chat/new', {method: 'POST'}); chatSeen = ''; chatRefresh(); } }
+async function chatNew() { await post('chat/new', {}); $('chattext').focus(); }
 async function chatStop() { await fetch('chat/stop', {method: 'POST'}); }
 async function chatSave(ev) {
   ev.preventDefault();
-  const body = {api_key: $('set_key').value, github_token: $('set_gh').value, model: $('set_model').value};
+  const body = {api_key: $('set_key').value, github_token: $('set_gh').value, model: $('set_model').value, effort: $('set_effort').value};
   const r = await fetch('chat/settings', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
   $('set_msg').textContent = await r.text();
   if (r.ok) { $('set_key').value = ''; $('set_gh').value = ''; }
@@ -1691,7 +1786,18 @@ class Handler(BaseHTTPRequestHandler):
             ok, msg = chat.send(str(self._json_body().get("text", ""))[:20000])
             return self._send(msg, code=200 if ok else 409)
         if path == "/chat/new":
-            return self._send("ok" if chat.new() else "Claude is still answering", code=200)
+            ok = chat.new(self._json_body().get("project"))
+            return self._send("ok" if ok else "Claude is still answering", code=200 if ok else 409)
+        if path in ("/chat/open", "/chat/delete", "/chat/project/open", "/chat/project/delete"):
+            cid = str(self._json_body().get("id", ""))
+            ok = {"/chat/open": chat.open_chat, "/chat/delete": chat.delete_chat, "/chat/project/open": chat.open_project,
+                  "/chat/project/delete": chat.delete_project}[path](cid)
+            return self._send("ok" if ok else "not possible now (Claude is answering, or it is not there)",
+                              code=200 if ok else 409)
+        if path == "/chat/project":
+            p = chat.save_project(self._json_body())
+            return self._send(json.dumps(p) if p else "a project needs a name", "application/json" if p else
+                              "text/plain; charset=utf-8", code=200 if p else 400)
         if path == "/chat/stop":
             chat.stop()
             return self._send("ok")

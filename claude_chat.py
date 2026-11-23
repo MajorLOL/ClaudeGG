@@ -23,8 +23,9 @@ API_VERSION = "2023-06-01"
 GITHUB = "https://api.github.com"
 MODELS = ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"]
 DEFAULT_MODEL = "claude-sonnet-5-5"
+EFFORTS = ["low", "medium", "high", "xhigh", "max"]   # output_config.effort; '' = the model's own default
+MAX_TOKENS_FOR = {"": 16000, "low": 12000, "medium": 16000, "high": 32000, "xhigh": 64000, "max": 64000}
 MAKER_FALLBACK = "MajorLOL/pokemon-go-automation"     # the repository of the maker, when git does not say it
-MAX_TOKENS = 8000
 MAX_ROUNDS = 25                # tool rounds in one answer
 KEEP_MESSAGES = 60             # of the conversation for the API (older ones are dropped)
 SHOWN_KEEP = 200               # lines shown in the chat
@@ -37,7 +38,9 @@ CONF_DIR = os.path.expanduser("~/.config/gamebot")
 KEY_FILE = os.path.join(CONF_DIR, "anthropic_api_key")
 GH_FILE = os.path.join(CONF_DIR, "github_token")
 SETTINGS_FILE = os.path.expanduser("~/claude_chat.json")
-HISTORY_FILE = os.path.expanduser("~/claude_chat_history.json")
+HISTORY_FILE = os.path.expanduser("~/claude_chat_history.json")   # (the one chat of before the projects)
+STORE_DIR = os.path.expanduser("~/claude_chat")                     # projects.json and chats/<id>.json
+NOTES_MAX = 12000             # characters of project knowledge
 
 
 # ---------- secrets and settings ----------
@@ -109,10 +112,15 @@ def gh(method, path, token, body=None):
                                          "Content-Type": "application/json"}, body, timeout=60)
 
 
-def call_claude(key, model, system, messages, tools):
+def call_claude(key, model, system, messages, tools, effort=""):
+    """One request to the Messages API. effort: low ... max (output_config.effort), '' for the model's default.
+    Thinking counts toward max_tokens, so a higher effort gets more room."""
+    body = {"model": model, "max_tokens": MAX_TOKENS_FOR.get(effort, 16000), "system": system, "messages": messages,
+            "tools": tools}
+    if effort in EFFORTS:
+        body["output_config"] = {"effort": effort}
     return _http("POST", API_URL, {"x-api-key": key, "anthropic-version": API_VERSION,
-                                   "content-type": "application/json"},
-                 {"model": model, "max_tokens": MAX_TOKENS, "system": system, "messages": messages, "tools": tools})
+                                   "content-type": "application/json"}, body, timeout=900)
 
 
 # ---------- the repository ----------
@@ -268,6 +276,10 @@ TOOLS = [
      "file:line: text, at most 100 hits.", "input_schema": {"type": "object", "properties": {
          "pattern": {"type": "string"}, "path": {"type": "string", "description": "only this file"}},
          "required": ["pattern"]}},
+    {"name": "save_note", "description": "Keep a short note in the knowledge of this project, which every chat of the "
+     "project gets: a finding or a decision worth remembering later (not what is in the code or the log anyway).",
+     "input_schema": {"type": "object", "properties": {"text": {"type": "string", "description": "one or two sentences"}},
+                      "required": ["text"]}},
     {"name": "create_pull_request", "description": "Propose a change of the code: it is made on a branch of its own "
      "and handed in as a pull request at the maker's repository on GitHub, who decides whether it goes in. Nothing "
      "on this Pi changes. Each change replaces old_text (exactly as in the file, appearing once) by new_text; an "
@@ -303,11 +315,18 @@ API keys or tokens into a pull request.
 - Things on the phone you do not do yourself: tell the user what to press or which test to run.
 - Answer in the language the user writes in, short and to the point. Code, log lines and pull requests stay in English.
 
-The code on this Pi: version {version}. Now: {now}."""
+The code on this Pi: version {version}. Now: {now}.
+
+This chat belongs to the project "{project}". Keep what is worth remembering for later chats of this project with save_note (a finding, a decision of the user) - not things that are in the code or the log anyway.{instructions}{notes}"""
+
+
+def _new_id():
+    return time.strftime("%Y%m%d%H%M%S") + "-" + base64.b32encode(os.urandom(5)).decode().lower()
 
 
 class Chat:
-    """One conversation at a time, answered in a thread; the page asks for the state every few seconds."""
+    """The chats with Claude, in projects: a project has instructions and knowledge (notes) that every chat of it
+    gets; a chat is one conversation. One answer at a time, in a thread; the page asks for the state."""
 
     def __init__(self, repo_dir, status_fn=None, log_file=None, shot_fn=None, write_log=None, chapters=None):
         self.repo_dir = repo_dir
@@ -318,23 +337,147 @@ class Chat:
         self.chapters = chapters or []
         self.lock = threading.Lock()
         self.busy, self.progress, self.error, self.cancel = False, "", "", False
-        self.messages, self.shown, self.tokens = [], [], {"in": 0, "out": 0}
-        self._load()
+        self.projects = self._load_projects()
+        self.cur = None
+        st = load_settings()
+        (self._open(st.get("chat")) or self._open_newest(st.get("project") or self.projects[0]["id"])
+         or self._start(self.projects[0]["id"]))
 
-    # --- keeping the conversation ---
-    def _load(self):
+    # --- the current chat ---
+    @property
+    def messages(self):
+        return self.cur["messages"]
+
+    @messages.setter
+    def messages(self, v):
+        self.cur["messages"] = v
+
+    @property
+    def shown(self):
+        return self.cur["shown"]
+
+    @shown.setter
+    def shown(self, v):
+        self.cur["shown"] = v
+
+    @property
+    def tokens(self):
+        return self.cur["tokens"]
+
+    # --- storing ---
+    @staticmethod
+    def _chats_dir():
+        return os.path.join(STORE_DIR, "chats")
+
+    def _load_projects(self):
         try:
-            with open(HISTORY_FILE) as f:
-                d = json.load(f)
-            self.messages, self.shown = d.get("messages", []), d.get("shown", [])
-            self.tokens = d.get("tokens", self.tokens)
+            with open(os.path.join(STORE_DIR, "projects.json")) as f:
+                projects = [p for p in json.load(f) if isinstance(p, dict) and p.get("id")]
+        except (OSError, ValueError, TypeError):
+            projects = []
+        if not projects:
+            projects = [{"id": _new_id(), "name": "Pokémon GO bot", "instructions": "", "notes": ""}]
+            self.projects = projects
+            self._save_projects()
+            try:                                  # the chat of before the projects becomes its first chat
+                with open(HISTORY_FILE) as f:
+                    old = json.load(f)
+                if old.get("shown"):
+                    chat = self._blank(projects[0]["id"])
+                    chat.update(messages=old.get("messages", []), shown=old.get("shown", []),
+                                tokens=old.get("tokens", chat["tokens"]))
+                    chat["title"] = self._title_of(chat)
+                    self._write(chat)
+            except (OSError, ValueError, AttributeError):
+                pass
+        return projects
+
+    def _save_projects(self):
+        os.makedirs(STORE_DIR, exist_ok=True)
+        with open(os.path.join(STORE_DIR, "projects.json"), "w") as f:
+            json.dump(self.projects, f, indent=1, ensure_ascii=False)
+
+    def _project(self, pid=None):
+        pid = pid or (self.cur or {}).get("project")
+        return next((p for p in self.projects if p["id"] == pid), self.projects[0])
+
+    @staticmethod
+    def _blank(pid):
+        now = time.strftime("%Y-%m-%d %H:%M")
+        return {"id": _new_id(), "project": pid, "title": "", "messages": [], "shown": [], "tokens": {"in": 0, "out": 0},
+                "created": now, "updated": now, "ts": time.time()}
+
+    @staticmethod
+    def _title_of(chat):
+        first = next((m["text"] for m in chat["shown"] if m["role"] == "user"), "")
+        first = " ".join(first.split())
+        return (first[:60] + ("..." if len(first) > 60 else "")) or "New chat"
+
+    def _write(self, chat):
+        os.makedirs(self._chats_dir(), exist_ok=True)
+        with open(os.path.join(self._chats_dir(), chat["id"] + ".json"), "w") as f:
+            json.dump(chat, f, ensure_ascii=False)
+
+    def _read(self, cid):
+        if not cid or not re.fullmatch(r"[0-9a-z-]+", str(cid)):
+            return None
+        try:
+            with open(os.path.join(self._chats_dir(), cid + ".json")) as f:
+                chat = json.load(f)
+            return chat if isinstance(chat, dict) and chat.get("id") == cid else None
         except (OSError, ValueError):
-            pass
+            return None
+
+    def chats(self, pid=None):
+        """[{id, title, updated}] of a project, newest first."""
+        pid = pid or self._project()["id"]
+        out = []
+        try:
+            names = os.listdir(self._chats_dir())
+        except OSError:
+            names = []
+        for n in names:
+            chat = self._read(n[:-5]) if n.endswith(".json") else None
+            if chat and chat.get("project") == pid and (chat.get("shown") or chat["id"] == (self.cur or {}).get("id")):
+                out.append({"id": chat["id"], "title": chat.get("title") or "New chat", "updated": chat.get("updated", ""),
+                            "ts": chat.get("ts", 0)})
+        cur = self.cur or {}
+        if cur.get("project") == pid and not any(c["id"] == cur.get("id") for c in out):
+            out.append({"id": cur["id"], "title": cur.get("title") or "New chat", "updated": cur.get("updated", ""),
+                        "ts": cur.get("ts", time.time())})
+        return sorted(out, key=lambda c: (c["ts"], c["updated"]), reverse=True)
+
+    def _remember(self):
+        st = load_settings()
+        st.update(chat=self.cur["id"], project=self.cur["project"])
+        save_settings(st)
+
+    def _open(self, cid):
+        chat = self._read(cid)
+        if not chat or not any(p["id"] == chat.get("project") for p in self.projects):
+            return False
+        chat.setdefault("tokens", {"in": 0, "out": 0})
+        self.cur = chat
+        self._remember()
+        return True
+
+    def _open_newest(self, pid):
+        if not pid or not any(p["id"] == pid for p in self.projects):
+            return False
+        lst = self.chats(pid)
+        return self._open(lst[0]["id"]) if lst else False
+
+    def _start(self, pid):
+        self.cur = self._blank(pid)
+        self._remember()
+        return True
 
     def _save(self):
+        self.cur["updated"], self.cur["ts"] = time.strftime("%Y-%m-%d %H:%M"), time.time()
+        if not self.cur.get("title") or self.cur["title"] == "New chat":
+            self.cur["title"] = self._title_of(self.cur)
         try:
-            with open(HISTORY_FILE, "w") as f:
-                json.dump({"messages": self.messages, "shown": self.shown[-SHOWN_KEEP:], "tokens": self.tokens}, f)
+            self._write(self.cur)
         except OSError:
             pass
 
@@ -358,6 +501,75 @@ class Chat:
                                         for c in b["content"]]
         return out
 
+    # --- chats and projects from the page ---
+    def open_chat(self, cid):
+        with self.lock:
+            return not self.busy and self._open(cid)
+
+    def new(self, pid=None):
+        with self.lock:
+            if self.busy:
+                return False
+            if self.cur and not self.cur["shown"] and (not pid or pid == self.cur["project"]):
+                return True                       # (an empty new chat is there already)
+            self.error, self.progress = "", ""
+            return self._start(self._project(pid)["id"])
+
+    def delete_chat(self, cid):
+        with self.lock:
+            if self.busy or not self._read(cid):
+                return False
+            try:
+                os.remove(os.path.join(self._chats_dir(), cid + ".json"))
+            except OSError:
+                return False
+            if self.cur and self.cur["id"] == cid:
+                pid = self.cur["project"]
+                self._open_newest(pid) or self._start(pid)
+            return True
+
+    def open_project(self, pid):
+        with self.lock:
+            if self.busy or not any(p["id"] == pid for p in self.projects):
+                return False
+            return self._open_newest(pid) or self._start(pid)
+
+    def save_project(self, d):
+        """Make (no id) or change a project: name, instructions, notes. Returns the project or None."""
+        name = " ".join(str(d.get("name") or "").split())[:60]
+        with self.lock:
+            p = next((p for p in self.projects if p["id"] == d.get("id")), None) if d.get("id") else None
+            if p is None:
+                if not name:
+                    return None
+                p = {"id": _new_id(), "name": name, "instructions": "", "notes": ""}
+                self.projects.append(p)
+            if name:
+                p["name"] = name
+            for k in ("instructions", "notes"):
+                if k in d:
+                    p[k] = str(d[k] or "")[:NOTES_MAX]
+            self._save_projects()
+            if not d.get("id") and not self.busy:
+                self._start(p["id"])
+            return p
+
+    def delete_project(self, pid):
+        """A project and its chats go; the last project stays."""
+        with self.lock:
+            if self.busy or len(self.projects) < 2 or not any(p["id"] == pid for p in self.projects):
+                return False
+            for c in self.chats(pid):
+                try:
+                    os.remove(os.path.join(self._chats_dir(), c["id"] + ".json"))
+                except OSError:
+                    pass
+            self.projects = [p for p in self.projects if p["id"] != pid]
+            self._save_projects()
+            if self.cur["project"] == pid:
+                self._open_newest(self.projects[0]["id"]) or self._start(self.projects[0]["id"])
+            return True
+
     # --- settings ---
     def maker(self):
         """The maker's repository: where the code on this Pi comes from (the source of a fork), else the default."""
@@ -372,16 +584,22 @@ class Chat:
         return parse_github(url) or MAKER_FALLBACK
 
     def state(self):
-        st = load_settings()
+        st, p = load_settings(), self._project()
         return {"has_key": bool(_read(KEY_FILE)), "has_github": bool(_read(GH_FILE)), "github_user": st.get("github_user", ""),
-                "model": st.get("model", DEFAULT_MODEL), "models": MODELS, "maker": self.maker(), "busy": self.busy,
-                "progress": self.progress, "error": self.error, "messages": self.shown[-SHOWN_KEEP:], "tokens": self.tokens}
+                "model": st.get("model", DEFAULT_MODEL), "models": MODELS, "effort": st.get("effort", ""),
+                "efforts": EFFORTS, "maker": self.maker(), "busy": self.busy, "progress": self.progress,
+                "error": self.error, "messages": self.shown[-SHOWN_KEEP:], "tokens": self.tokens,
+                "chat": {"id": self.cur["id"], "title": self.cur.get("title") or "New chat"},
+                "project": p, "projects": [{"id": q["id"], "name": q["name"]} for q in self.projects],
+                "chats": self.chats(p["id"])}
 
     def set_settings(self, d):
         """api_key / github_token: '' leaves it as it is, '-' removes it. Returns (ok, message)."""
         st = load_settings()
         if d.get("model") in MODELS:
             st["model"] = d["model"]
+        if "effort" in d and (d["effort"] in EFFORTS or d["effort"] == ""):
+            st["effort"] = d["effort"]
         key = str(d.get("api_key") or "").strip()
         if key:
             _write_secret(KEY_FILE, "" if key == "-" else key)
@@ -401,14 +619,6 @@ class Chat:
         save_settings(st)
         return True, msg
 
-    def new(self):
-        with self.lock:
-            if self.busy:
-                return False
-            self.messages, self.shown, self.error, self.progress = [], [], "", ""
-            self._save()
-            return True
-
     def stop(self):
         self.cancel = True
 
@@ -421,7 +631,7 @@ class Chat:
             if self.busy:
                 return False, "Claude is still answering"
             if not _read(KEY_FILE):
-                return False, "no API key: add it under the gear of the chat"
+                return False, "no API key: add it under Settings of the chat"
             self.busy, self.cancel, self.error, self.progress = True, False, "", "Thinking"
             self._show("user", text)
             self.messages.append({"role": "user", "content": text})
@@ -429,19 +639,25 @@ class Chat:
         threading.Thread(target=self._answer, daemon=True, name="claude-chat").start()
         return True, "ok"
 
+    def system_prompt(self):
+        p = self._project()
+        instructions = ("\n\nInstructions of the project (from the user):\n" + p["instructions"].strip()) if p.get("instructions", "").strip() else ""
+        notes = ("\n\nKnowledge of the project (notes kept earlier):\n" + p["notes"].strip()) if p.get("notes", "").strip() else ""
+        return SYSTEM.format(chapters=", ".join(self.chapters) or "-", maker=self.maker(),
+                             version=git_version(self.repo_dir) or "unknown", now=time.strftime("%Y-%m-%d %H:%M"),
+                             project=p["name"], instructions=instructions, notes=notes)
+
     def _answer(self):
         try:
             key, st = _read(KEY_FILE), load_settings()
-            model = st.get("model", DEFAULT_MODEL)
-            system = SYSTEM.format(chapters=", ".join(self.chapters) or "-", maker=self.maker(),
-                                   version=git_version(self.repo_dir) or "unknown",
-                                   now=time.strftime("%Y-%m-%d %H:%M"))
+            model, effort = st.get("model", DEFAULT_MODEL), st.get("effort", "")
+            system = self.system_prompt()
             for _ in range(MAX_ROUNDS):
                 if self.cancel:
                     self._show("note", "Stopped.")
                     break
                 self.progress = "Thinking"
-                res = self._call(key, model, system)
+                res = self._call(key, model, system, effort)
                 self.tokens["in"] += (res.get("usage") or {}).get("input_tokens", 0)
                 self.tokens["out"] += (res.get("usage") or {}).get("output_tokens", 0)
                 content = res.get("content") or []
@@ -450,6 +666,8 @@ class Chat:
                     if b.get("type") == "text" and b.get("text", "").strip():
                         self._show("assistant", b["text"].strip())
                 self._save()
+                if res.get("stop_reason") == "max_tokens":
+                    self._show("note", "The answer was cut off (too long for this effort level). Ask to go on.")
                 uses = [b for b in content if b.get("type") == "tool_use"]
                 if res.get("stop_reason") != "tool_use" or not uses:
                     break
@@ -476,10 +694,10 @@ class Chat:
             self.busy, self.progress = False, ""
             self._save()
 
-    def _call(self, key, model, system):
+    def _call(self, key, model, system, effort=""):
         for attempt in range(3):
             try:
-                return call_claude(key, model, system, self._trim(self.messages, pictures=True), TOOLS)
+                return call_claude(key, model, system, self._trim(self.messages, pictures=True), TOOLS, effort)
             except ApiError as e:
                 if e.code in (429, 500, 502, 503, 529) and attempt < 2:
                     self.progress = "Busy at Anthropic - trying again"
@@ -549,6 +767,15 @@ class Chat:
                                 if len(hits) >= 100:
                                     return "\n".join(hits) + "\n(more hits: search narrower)", False
                 return "\n".join(hits) or "nothing found", False
+            if name == "save_note":
+                text = " ".join(str(inp.get("text") or "").split())[:500]
+                if not text:
+                    return "empty note", True
+                p = self._project()
+                p["notes"] = ((p.get("notes") or "").rstrip() + "\n- " + text).strip()[-NOTES_MAX:]
+                self._save_projects()
+                self._show("note", "Kept in the project knowledge: " + text)
+                return "kept", False
             if name == "create_pull_request":
                 tok = _read(GH_FILE)
                 if not tok:

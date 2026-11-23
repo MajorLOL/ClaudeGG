@@ -55,8 +55,9 @@ class Files(unittest.TestCase):
 
 class Settings(unittest.TestCase):
     def setUp(self):
-        self.saved = (C.CONF_DIR, C.KEY_FILE, C.GH_FILE, C.SETTINGS_FILE, C.HISTORY_FILE, C.gh)
+        self.saved = (C.CONF_DIR, C.KEY_FILE, C.GH_FILE, C.SETTINGS_FILE, C.HISTORY_FILE, C.gh, C.STORE_DIR)
         d = tempfile.mkdtemp()
+        C.STORE_DIR = os.path.join(d, "store")
         C.CONF_DIR = os.path.join(d, "conf")
         C.KEY_FILE, C.GH_FILE = os.path.join(C.CONF_DIR, "k"), os.path.join(C.CONF_DIR, "g")
         C.SETTINGS_FILE, C.HISTORY_FILE = os.path.join(d, "s.json"), os.path.join(d, "h.json")
@@ -64,7 +65,7 @@ class Settings(unittest.TestCase):
         self.chat = C.Chat(make_repo())
 
     def tearDown(self):
-        C.CONF_DIR, C.KEY_FILE, C.GH_FILE, C.SETTINGS_FILE, C.HISTORY_FILE, C.gh = self.saved
+        C.CONF_DIR, C.KEY_FILE, C.GH_FILE, C.SETTINGS_FILE, C.HISTORY_FILE, C.gh, C.STORE_DIR = self.saved
 
     def test_keys_are_kept_private_and_never_shown(self):
         self.assertEqual(self.chat.set_settings({"api_key": "sk-1", "github_token": "ghp_1", "model": "claude-opus-5-5"}),
@@ -92,8 +93,9 @@ class Settings(unittest.TestCase):
 
 class Conversation(unittest.TestCase):
     def setUp(self):
-        self.saved = (C.CONF_DIR, C.KEY_FILE, C.GH_FILE, C.SETTINGS_FILE, C.HISTORY_FILE, C.call_claude)
+        self.saved = (C.CONF_DIR, C.KEY_FILE, C.GH_FILE, C.SETTINGS_FILE, C.HISTORY_FILE, C.call_claude, C.STORE_DIR)
         d = tempfile.mkdtemp()
+        C.STORE_DIR = os.path.join(d, "store")
         C.CONF_DIR = os.path.join(d, "conf")
         C.KEY_FILE, C.GH_FILE = os.path.join(C.CONF_DIR, "k"), os.path.join(C.CONF_DIR, "g")
         C.SETTINGS_FILE, C.HISTORY_FILE = os.path.join(d, "s.json"), os.path.join(d, "h.json")
@@ -103,14 +105,16 @@ class Conversation(unittest.TestCase):
         self.chat = C.Chat(make_repo(), status_fn=lambda: {"service": "active", "labels": {"x": 1}},
                            log_file=self.log, shot_fn=lambda: b"\xff\xd8jpg")
         self.chat.set_settings({"api_key": "sk-test"})
-        self.calls = []
+        self.calls, self.systems, self.efforts = [], [], []
 
     def tearDown(self):
-        C.CONF_DIR, C.KEY_FILE, C.GH_FILE, C.SETTINGS_FILE, C.HISTORY_FILE, C.call_claude = self.saved
+        C.CONF_DIR, C.KEY_FILE, C.GH_FILE, C.SETTINGS_FILE, C.HISTORY_FILE, C.call_claude, C.STORE_DIR = self.saved
 
     def fake(self, answers):
-        def call(key, model, system, messages, tools):
+        def call(key, model, system, messages, tools, effort=""):
             self.calls.append(json.loads(json.dumps(messages)))
+            self.systems.append(system)
+            self.efforts.append(effort)
             self.assertEqual(key, "sk-test")
             self.assertIn("never change anything on the Pi", system)
             return answers.pop(0)
@@ -142,6 +146,70 @@ class Conversation(unittest.TestCase):
         self.assertNotIn('"image"', kept)
         again = C.Chat(self.chat.repo_dir)                                   # the conversation survives a restart
         self.assertEqual(len(again.shown), 4)
+
+    def test_projects_chats_notes_and_effort(self):
+        first = self.chat.state()
+        self.assertEqual(first["project"]["name"], "Pokémon GO bot")
+        self.chat.set_settings({"effort": "high"})
+        self.chat.save_project({"id": first["project"]["id"], "instructions": "Always answer in Dutch."})
+        self.fake([
+            {"stop_reason": "tool_use", "content": [
+                {"type": "tool_use", "id": "a", "name": "save_note", "input": {"text": "The LAIC Cup party screen glues words."}}]},
+            {"stop_reason": "end_turn", "content": [{"type": "text", "text": "Genoteerd."}]}])
+        self.chat.send("onthoud dit")
+        self.chat_wait()
+        self.assertEqual(self.efforts, ["high", "high"])
+        self.assertIn("Always answer in Dutch.", self.systems[0])
+        st = self.chat.state()
+        self.assertIn("- The LAIC Cup party screen glues words.", st["project"]["notes"])
+        self.assertEqual(st["chat"]["title"], "onthoud dit")
+        one = st["chat"]["id"]
+        # a new chat in the same project gets the knowledge; the old chat stays in the list
+        self.chat.new()
+        self.fake([{"stop_reason": "end_turn", "content": [{"type": "text", "text": "Ja."}]}])
+        self.chat.send("weet je het nog?")
+        self.chat_wait()
+        self.assertIn("glues words", self.systems[-1])
+        self.assertEqual([c["title"] for c in self.chat.state()["chats"]], ["weet je het nog?", "onthoud dit"])
+        # another project has its own chats and knowledge
+        other = self.chat.save_project({"name": "Rocket"})
+        st = self.chat.state()
+        self.assertEqual((st["project"]["id"], st["chats"][0]["title"]), (other["id"], "New chat"))
+        self.assertNotIn("glues words", self.chat.system_prompt())
+        self.assertTrue(self.chat.open_chat(one))
+        self.assertEqual(self.chat.state()["project"]["name"], "Pokémon GO bot")
+        self.assertTrue(self.chat.delete_chat(one))
+        self.assertNotIn(one, [c["id"] for c in self.chat.state()["chats"]])
+        self.assertTrue(self.chat.delete_project(other["id"]))
+        self.assertFalse(self.chat.delete_project(self.chat.state()["project"]["id"]))   # the last one stays
+        self.assertFalse(self.chat.open_chat("../../etc/passwd"))
+
+    def test_the_chat_of_before_the_projects_is_kept(self):
+        with open(C.HISTORY_FILE, "w") as f:
+            json.dump({"messages": [{"role": "user", "content": "oud"}], "shown": [{"role": "user", "text": "oud", "t": ""}],
+                       "tokens": {"in": 1, "out": 2}}, f)
+        import shutil
+        shutil.rmtree(C.STORE_DIR, ignore_errors=True)
+        os.remove(C.SETTINGS_FILE)
+        chat = C.Chat(self.chat.repo_dir)
+        self.assertEqual([c["title"] for c in chat.state()["chats"]], ["oud"])
+
+    def test_effort_goes_into_the_request(self):
+        sent = {}
+
+        def fake_http(method, url, headers, body=None, timeout=180):
+            sent.update(body)
+            return {}
+        saved = C._http
+        C._http = fake_http
+        try:
+            C.call_claude("k", "claude-opus-5-5", "s", [], [], "xhigh")
+            self.assertEqual((sent["output_config"], sent["max_tokens"]), ({"effort": "xhigh"}, 64000))
+            sent.clear()
+            C.call_claude("k", "claude-opus-5-5", "s", [], [], "")
+            self.assertNotIn("output_config", sent)
+        finally:
+            C._http = saved
 
     def test_an_api_key_that_is_refused(self):
         def refuse(*a):
