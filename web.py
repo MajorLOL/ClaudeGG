@@ -12,6 +12,7 @@ Open from a device on the same network:  http://gamebot.local:8080
 - options (on/off): catch wild Pokémon, spin PokéStops, open gifts, send gifts
 """
 import base64
+import sys
 import io
 import json
 import os
@@ -27,6 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import cv2
 import numpy as np
 
+import chapters as CH        # the test chapters (Test): what they are; gamebot.py runs them
 import spin_stop as S        # the phone's screen (which display, how big) is found there
 
 # ================================ SETTINGS ================================
@@ -525,7 +527,7 @@ def status():
     active = subprocess.run(["systemctl", "is-active", SERVICE], capture_output=True).stdout.decode().strip()
     stats, battles = today_stats()
     _, pw, ph = phone()
-    return {"service": active, "stats": stats, "battles": battles, "control": read_control(), "labels": OPTIONS, "apps": game_apps(), "rec": rec_status(),
+    return {"service": active, "stats": stats, "battles": battles, "test": test_status(), "control": read_control(), "labels": OPTIONS, "apps": game_apps(), "rec": rec_status(),
             "w": pw, "h": ph, "phone": S.screen["model"], "screen_note": S.screen["note"], "screen_ok": S.screen["ok"],
             "video": latest["mode"], "error": latest["error"],
             "age": round(time.time() - latest["time"], 1) if latest["time"] else None}
@@ -642,6 +644,24 @@ PAGE = r"""<!DOCTYPE html>
  .games .r { font-weight:650; }
  .games .win .r { color:var(--run); } .games .loss .r { color:var(--stop); }
  .games .f { color:var(--mist); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+ .tests summary { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; cursor:pointer; list-style:none; }
+ .tests summary::-webkit-details-marker { display:none; }
+ .tests summary h2 { margin:0; font-size:13px; font-weight:650; color:var(--chalk); }
+ .tests summary h2::before { content:"\25B8"; display:inline-block; width:14px; color:var(--mist); transition:transform .15s; }
+ .tests details[open] summary h2::before { transform:rotate(90deg); }
+ .tests summary span { color:var(--mist); font-size:12.5px; }
+ .testnow { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:10px 0 2px; padding:8px 12px; border-radius:9px; background:var(--dusk); font-size:13px; }
+ .testnow #testline { margin-right:auto; }
+ .testnow .ok { color:var(--run); font-weight:650; } .testnow .bad { color:var(--stop); font-weight:650; } .testnow .busy { color:var(--hold); font-weight:650; }
+ .testrec { display:flex; align-items:center; gap:8px; margin:10px 0 4px; color:var(--mist); font-size:12.5px; cursor:pointer; }
+ .chapters { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:4px 22px; }
+ .chapters h3 { grid-column:1 / -1; margin:10px 0 0; font-size:12px; font-weight:650; color:var(--mist); }
+ .chap { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:2px 10px; padding:6px 0; border-top:1px solid color-mix(in srgb, var(--ridge) 55%, transparent); }
+ .chap b { font-weight:600; font-size:13.5px; }
+ .chap small { grid-column:1; color:var(--mist); font-size:12px; }
+ .chap .btn { grid-row:1 / span 2; grid-column:2; }
+ .chap .btn[disabled] { opacity:.45; cursor:default; }
+ .tests .hint { margin:10px 0 0; color:var(--mist); font-size:12px; }
  .logsec { display:flex; flex-direction:column; }
  .loghead { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:baseline; gap:6px 8px; margin-bottom:6px; }
  .loghead h2 { margin:0; font-size:13px; font-weight:650; color:var(--mist); }
@@ -706,6 +726,19 @@ PAGE = r"""<!DOCTYPE html>
    </div>
    <details class="help"><summary>What do these buttons do?</summary>
     <p>Start and Restart begin a new daily run right away. Stop pauses the bot so you can take over, for example for quests; stop it too before you open Pokémon GO on another device. Close game stops the bot and closes Pokémon GO on the phone; Start plays again. A game that reaches its max time is closed.</p>
+   </details>
+  </section>
+
+  <section class="sec tests" aria-label="Test">
+   <details id="testbox"><summary><h2>Test one part</h2><span id="testsum">Run one part of the bot on its own, from the screen the game is on now.</span></summary>
+    <div class="testnow" id="testnow" hidden>
+     <span id="testline"></span>
+     <button class="btn small danger" id="teststop" onclick="testStop()">Stop test</button>
+     <a class="btn small" id="testdl" href="test/download" hidden>Download test</a>
+    </div>
+    <label class="testrec"><input type="checkbox" id="testrec"> Record the screen during the test (the recording goes into the test zip)</label>
+    <div class="chapters" id="chapters"></div>
+    <p class="hint">Starting a test stops the bot. Put the game on the start screen first. Afterwards press Start to play normally again.</p>
    </details>
   </section>
 
@@ -915,6 +948,44 @@ function showGames(list) {                            // the GO Battle League ma
   }
 }
 
+const CHAPTERS = @@CHAPTERS@@;
+let testOn = false;
+(function buildChapters() {                         // the test chapters, by group
+  const box = $('chapters'); let group = '';
+  for (const c of CHAPTERS) {
+    if (c.group !== group) { group = c.group; const h = document.createElement('h3'); h.textContent = group; box.append(h); }
+    const row = document.createElement('div'); row.className = 'chap'; row.title = c.what;
+    const b = document.createElement('b'); b.textContent = c.title;
+    const sm = document.createElement('small'); sm.textContent = 'Start: ' + c.start;
+    const go = document.createElement('button'); go.className = 'btn small'; go.textContent = 'Run';
+    go.dataset.key = c.key; go.onclick = () => testStart(c);
+    row.append(b, go, sm); box.append(row);
+  }
+})();
+async function testStart(c) {
+  if (!confirm(c.title + '\n\n' + c.what + '\n\nThe bot is stopped for this test. Is the game on: ' + c.start + '?')) return;
+  const r = await fetch('test/start/' + c.key + ($('testrec').checked ? '?rec=1' : ''), {method: 'POST'});
+  if (!r.ok) alert('The test did not start: ' + await r.text());
+  refresh();
+}
+async function testStop() { await fetch('test/stop', {method: 'POST'}); refresh(); }
+function showTest(t) {
+  testOn = !!(t && t.running);
+  for (const b of document.querySelectorAll('.chap .btn')) b.disabled = testOn;
+  const now = $('testnow');
+  if (!t || !t.key) { now.hidden = true; return; }
+  now.hidden = false;
+  const line = $('testline'); line.textContent = '';
+  const st = document.createElement('span');
+  if (t.running) { st.className = 'busy'; st.textContent = 'Running'; }
+  else if (t.ok) { st.className = 'ok'; st.textContent = 'Done'; }
+  else { st.className = 'bad'; st.textContent = 'Failed'; }
+  line.append(st, ' ' + t.title + ', ' + t.seconds + ' s' + (t.result ? ': ' + t.result : '') + (t.rec && t.running ? ' (recording)' : ''));
+  $('teststop').hidden = !t.running;
+  $('testdl').hidden = !t.ready;
+  if (t.running) $('testbox').open = true;
+}
+
 async function clearLog() {
   if (!confirm('Delete the whole log and the pictures the bot saved? This cannot be undone. The battles won and lost of today start again at nothing.')) return;
   await fetch('log/clear', {method: 'POST'}); refresh();
@@ -932,6 +1003,7 @@ async function refresh() {
     $('svc').textContent = name; $('state').dataset.s = tone;
     showStats(s.stats);
     showGames(s.battles);
+    showTest(s.test);
     if (s.w && s.h) { PW = s.w; PH = s.h; document.documentElement.style.setProperty('--ar', (s.w / s.h).toFixed(4)); }
     $('model').textContent = s.phone || '';
     const vid = $('vid');
@@ -1032,7 +1104,7 @@ function setManual(on) {
 }
 refresh(); setInterval(refresh, 3000);
 </script></body></html>"""
-PAGE = PAGE.replace("@@NAME@@", APP_NAME)
+PAGE = PAGE.replace("@@NAME@@", APP_NAME).replace("@@CHAPTERS@@", json.dumps(CH.as_list()).replace("</", "<\\/"))
 
 
 
@@ -1235,6 +1307,114 @@ def rec_stop():
         th.join(timeout=40)
 
 
+# ---------- Test: one part of the bot on its own (chapters.py, 'gamebot.py chapter <key>') ----------
+TEST_STOP_WAIT = 20            # s: the bot service has this long to stop before a test starts
+TEST_ERR = os.path.join(DEBUG_DIR, "test_stderr.txt")
+test = {"proc": None, "key": "", "title": "", "t0": 0.0, "end": 0.0, "result": "", "ok": None, "rec": False}
+test_lock = threading.Lock()
+
+
+def test_running():
+    return bool(test["proc"]) and test["proc"].poll() is None
+
+
+def test_result(key, t0):
+    """(ok, text) of the line 'TEST <key>: done / failed - ...' the test wrote, or (None, '')."""
+    for line in reversed(log_since(t0).splitlines()):
+        m = re.search(r"TEST " + re.escape(key) + r": (done|failed) - (.*)$", line)
+        if m:
+            return m.group(1) == "done", m.group(2)
+    return None, ""
+
+
+def _test_watch(proc, key, record):
+    proc.wait()
+    test["end"] = time.time()
+    if record:
+        rec_stop()
+    ok, text = test_result(key, test["t0"])
+    if ok is None:                                   # it never got to its last line: a crash at the start
+        err = ""
+        try:
+            with open(TEST_ERR, errors="ignore") as f:
+                err = " | ".join(f.read().strip().splitlines()[-3:])
+        except OSError:
+            pass
+        ok, text = False, f"ended without a result (exit code {proc.returncode})" + (f": {err}" if err else "")
+        write_log(f"TEST {key}: failed - {text}")
+    test.update(ok=ok, result=text)
+
+
+def test_start(key, record=False):
+    """(ok, message): stop the bot service and run the chapter `key`. The game is left on the screen it is on."""
+    ch = CH.chapter(key)
+    if not ch:
+        return False, "no such test"
+    with test_lock:
+        if test_running():
+            return False, "a test is running already"
+        if rec["on"]:
+            return False, "a recording is running: stop it first"
+        if bot_running():
+            subprocess.run(["sudo", "-n", "/usr/bin/systemctl", "stop", SERVICE], capture_output=True)
+            t_end = time.time() + TEST_STOP_WAIT
+            while bot_running() and time.time() < t_end:
+                time.sleep(0.5)
+            if bot_running():
+                return False, "the bot did not stop"
+        t0 = time.time()
+        test.update(key=key, title=ch["title"], t0=t0, end=0.0, result="", ok=None, rec=False)
+        if record:
+            ok, _ = rec_start()
+            test["rec"] = ok
+        os.makedirs(DEBUG_DIR, exist_ok=True)
+        here = os.path.dirname(os.path.abspath(__file__))
+        with open(TEST_ERR, "w") as err:             # (the child keeps its own copy of the file)
+            test["proc"] = subprocess.Popen([sys.executable, os.path.join(here, "gamebot.py"), "chapter", key],
+                                            cwd=os.path.expanduser("~"), stdout=subprocess.DEVNULL,
+                                            stderr=err, start_new_session=True)
+        threading.Thread(target=_test_watch, args=(test["proc"], key, test["rec"]), daemon=True,
+                         name="test-watch").start()
+        return True, "ok"
+
+
+def test_stop():
+    proc = test["proc"]
+    if not proc or proc.poll() is not None:
+        return
+    proc.terminate()                                  # (the test says 'stopped' and saves the screen)
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def test_status():
+    run = test_running()
+    return {"key": test["key"], "title": test["title"], "running": run, "ok": test["ok"], "result": test["result"],
+            "seconds": int((time.time() if run else (test["end"] or time.time())) - test["t0"]) if test["t0"] else 0,
+            "rec": test["rec"], "ready": bool(test["t0"]) and not run}
+
+
+def test_zip():
+    """The zip of the last test: what was logged from its start on, the pictures it saved, the bot's files -
+    and the screen recording, when it was recorded."""
+    t0 = test["t0"]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("test.txt", f"test: {test['key']} - {test['title']}\nresult: {'done' if test['ok'] else 'failed'}"
+                   f" - {test['result']}\nstarted: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(t0))}\n")
+        z.writestr("bot_log.txt", log_since(t0 - 2) or "(nothing was logged)")
+        for name, mtime, data in rec_pictures(t0 - 2):
+            z.writestr(zipfile.ZipInfo("debug/" + name, time.localtime(mtime)[:6]), data, zipfile.ZIP_STORED)
+        for fn in DEBUG_FILES:
+            if os.path.exists(os.path.expanduser("~/" + fn)):
+                z.write(os.path.expanduser("~/" + fn), fn)
+        if test["rec"] and rec["zip"] and os.path.exists(rec["zip"]):
+            z.write(rec["zip"], "screen_recording.zip", compress_type=zipfile.ZIP_STORED)
+    return buf.getvalue()
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -1303,6 +1483,18 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
+        elif path == "/test/download":
+            if not test["t0"] or test_running():
+                return self._send("no test yet", code=404)
+            data = test_zip()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Disposition", f'attachment; filename="test-{test["key"]}-'
+                             + time.strftime("%Y%m%d-%H%M%S", time.localtime(test["t0"])) + '.zip"')
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
         elif path == "/record/download":
             if not rec["zip"] or rec["on"] or not os.path.exists(rec["zip"]):
                 return self._send("no recording yet", code=404)
@@ -1326,6 +1518,13 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             bot_action(m.group(1))
             return self._send("ok")
+        m = re.fullmatch(r"/test/start/([a-z_]+)", path)
+        if m:
+            ok, msg = test_start(m.group(1), record="rec=1" in self.path)
+            return self._send(msg, code=200 if ok else 409)
+        if path == "/test/stop":
+            test_stop()
+            return self._send("ok")
         if path == "/log/clear":
             n_lines, pictures = clear_log()
             return self._send(f"{n_lines} lines, {pictures} pictures")
@@ -1337,8 +1536,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send("ok")
         if path.startswith("/input/"):
             # manual control: only while the bot is stopped, so you never fight the bot
-            if bot_running():
-                return self._send("stop the bot first", code=409)
+            if bot_running() or test_running():
+                return self._send("stop the bot first" if bot_running() else "a test is running", code=409)
             q = dict(kv.split("=", 1) for kv in self.path.partition("?")[2].split("&") if "=" in kv)
             _, PHONE_W, PHONE_H = phone()
             num = lambda k, hi: max(0, min(hi, int(float(q.get(k, 0)))))

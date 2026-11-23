@@ -5790,10 +5790,155 @@ def only_one(mode, wait=False):
     return True
 
 
+CHAPTER_PLAY_S = 180          # s: 'Normal play for 3 minutes'
+CHAPTER_CATCH_S = 180         # s: at most this long for 'Catch this Pokémon' (and the catch after a Rocket battle)
+
+
+def _chapter_steps(brain, seconds, until_map=False, stop=None):
+    """The normal bot, step after step, for `seconds` - or (until_map) until it is back on the map after at least
+    one step.  Returns the number of steps."""
+    t_end, n = time.time() + seconds, 0
+    while time.time() < t_end and not (stop and stop()):
+        if until_map and n:
+            name, _ = brain.screen(S.screenshot())
+            if name == "mapScreen":
+                break
+        try:
+            wait = step(brain)
+        except Exception as e:  # noqa: BLE001
+            log(f"error: {e}")
+            wait = 5
+        n += 1
+        time.sleep(min(wait, max(0.0, t_end - time.time())))
+    return n
+
+
+def run_chapter(key):
+    """gamebot.py chapter <key>: one part of the bot on its own (see chapters.py). It starts on the screen
+    that is on the phone now, logs 'TEST <key>: started' and at the end 'TEST <key>: done - ...' (or
+    'failed - ...'), and saves the screen at the start and at the end (debug/g_test_start.png, g_test_end.png).
+    Returns True when the part did what it is for."""
+    import chapters as CH
+    ch = CH.chapter(key)
+    if not ch:
+        log(f"TEST {key}: no such test - there are: {', '.join(CH.KEYS)}")
+        return False
+    stopped = {"now": False}
+
+    def on_term(*_):
+        stopped["now"] = True
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, on_term)
+    stop = lambda: stopped["now"]          # noqa: E731
+    log(f"TEST {key}: started - {ch['title']} (start screen: {ch['start']})")
+    ok, how = False, ""
+    try:
+        S.detect_screen()
+        layout_init()
+        load_cal()
+        try:
+            S.debug_save("g_test_start.png")
+        except Exception as e:  # noqa: BLE001
+            log(f"TEST {key}: no screenshot ({e})")
+        brain = Brain() if key in ("screen", "play", "catch", "rocket") else None
+        if key.startswith("battle") or key == "rocket_fight":
+            try:
+                log(S.probe_input())
+            except Exception as e:  # noqa: BLE001
+                log(f"input speed test failed: {e}")
+            log(ocr_probe())
+        if key == "screen":
+            img = S.screenshot()
+            name, score = brain.screen(img)
+            dbg = img.copy()
+            found = brain.map_objects(img) if name == "mapScreen" else brain.encounter_objects(img)
+            for n, sc, x, y, bw, bh in found:
+                log(f"  {n} [{sc:.2f}] at ({x}, {y}) {bw}x{bh}")
+                cv2.rectangle(dbg, (x - bw // 2, y - bh // 2), (x + bw // 2, y + bh // 2), (0, 0, 255), 5)
+                cv2.putText(dbg, f"{n} {sc:.2f}", (x - bw // 2, y - bh // 2 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (0, 0, 255), 3)
+            S.debug_save("g_test.png", dbg)
+            ok, how = True, f"screen {name} [{score:.2f}], {len(found)} things found (debug/g_test.png)"
+        elif key == "video":
+            ok = bool(stream_test())
+            how = "the live video works" if ok else "the live video did not work (see the lines above)"
+        elif key == "play":
+            n = _chapter_steps(brain, CHAPTER_PLAY_S, stop=stop)
+            ok, how = True, f"{n} steps in {CHAPTER_PLAY_S // 60} minutes"
+        elif key == "battle_menu":
+            info = battle_open_menu(stop=stop)
+            ok = bool(info["ok"])
+            how = f"on the party screen '{info['title']}'" if ok else f"the party screen was not reached: {info['why']}"
+        elif key in ("battle_one", "battle_set"):
+            import battle_engine as BE
+            team = BE.load_team()
+            n = 1 if key == "battle_one" else battle_count()
+            log(f"battle: {n} battle(s) in '{battle_league()}' with " + ", ".join(m.label for m in team))
+            res = battle_run(lambda: None, stop, n, team)
+            ok = res["fought"] >= 1
+            how = (f"{res['fought']} fought, {res['wins']} won"
+                   + (" - a Pokémon of the rewards is waiting to be caught" if res.get("catch") else "")
+                   + (" - the battles are done for today" if res.get("done_today") else ""))
+        elif key == "battle_fight":
+            import battle_engine as BE
+            team = BE.load_team()
+            log(f"battle: 1 battle(s) in '{battle_league()}' with " + ", ".join(m.label for m in team))
+            fought = fight_battle(None, stop, team)
+            ok = bool(fought["result"])
+            how = (f"result {fought['result']}" + (" (given up)" if fought.get("gave_up") else "")
+                   + f" after {fought.get('seconds', 0)} s" if ok else f"no result: {fought['why'] or '?'}")
+            if fought["result"] in ("win", "loss"):
+                log(f"battle: battle 1 done: {fought['result']}" + (" (given up)" if fought.get("gave_up") else "")
+                    + f" {day_count('won' if fought['result'] == 'win' else 'lost')}")
+        elif key == "rocket":
+            res = rocket_battle(stop)
+            if res == "catch":
+                n = _chapter_steps(brain, CHAPTER_CATCH_S, until_map=True, stop=stop)
+                how = f"fought, then {n} steps to catch the Shadow Pokémon"
+            else:
+                how = "back on the map" if res == "map" else "the battle did not go through (see the lines above)"
+            ok = res in ("map", "catch")
+        elif key == "rocket_fight":
+            secs = rocket_fight(stop)
+            ok, how = True, f"the fight took {secs} s"
+        elif key == "catch":
+            brain_name, _ = brain.screen(S.screenshot())
+            if brain_name != "encounterScreen":
+                how = f"no encounter on the screen ({brain_name})"
+            else:
+                n = _chapter_steps(brain, CHAPTER_CATCH_S, until_map=True, stop=stop)
+                ok, how = True, f"{n} steps until the map"
+        elif key == "bag":
+            n = clean_bag()
+            ok, how = n is not None, f"{n or 0} kinds of items discarded"
+        elif key == "quests":
+            res = claim_quests()
+            ok, how = res != "failed", res
+        elif key == "gifts":
+            gifts_round()
+            ok, how = True, "round over (see the gift lines above)"
+    except KeyboardInterrupt:
+        how = "stopped"
+    except Exception as e:  # noqa: BLE001
+        import traceback
+        log(f"TEST {key}: error {e!r}\n" + traceback.format_exc())
+        how = f"error {e}"
+    try:
+        S.debug_save("g_test_end.png")
+    except Exception:  # noqa: BLE001
+        pass
+    log(f"TEST {key}: {'done' if ok else 'failed'} - {how}")
+    return ok
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "loop"
     if mode in ("battle", "fight", "step", "stap") and not only_one(mode):
         sys.exit(1)
+    if mode == "chapter":                  # one part of the bot on its own (the web interface: Test)
+        if not only_one(mode):
+            sys.exit(1)
+        ok = run_chapter(sys.argv[2] if len(sys.argv) > 2 else "")
+        os._exit(0 if ok else 1)           # (at once: no thread or adb command of the part is waited for)
     if mode == "loop":
         only_one(mode, wait=True)          # (the service: wait until a test that was started by hand is over)
     if mode == "battle":                   # try the way to the party screen now (stop the bot first; the game on the map)
