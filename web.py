@@ -29,6 +29,7 @@ import cv2
 import numpy as np
 
 import chapters as CH        # the test chapters (Test): what they are; gamebot.py runs them
+import bag_rules             # what the bag clean-up keeps
 import claude_chat           # Claude in the chat on the right side of the page
 import spin_stop as S        # the phone's screen (which display, how big) is found there
 
@@ -58,7 +59,7 @@ OPTIONS = {                                 # key -> label (default: on)
     "close_when_full": "Close the game when Pokémon storage and bag are both full",
     "rocket_fight": "Team GO Rocket at a PokéStop: battle it with the recommended party (a missing third one is chosen)",
     "quests": "Quests: when the quest button is gold, claim the GO Pass rewards (VIEW REWARDS, CLAIM ALL)",
-    "bag_clean": "Bag full: discard Potion, Super and Hyper Potion; keep 30 Max Potion, 30 Max Revive, 400 Poké Ball, 100 Great Ball, 30 of each berry",
+    "bag_clean": "Bag full: discard and keep what 'What the bag keeps' says",
     "buddy": "My buddy walks along on the map (a Pokémon next to the trainer may be the buddy)",
     "fast_look": "Realistic look around",
 }
@@ -636,13 +637,19 @@ PAGE = r"""<!DOCTYPE html>
  label.sw input:focus-visible + .track { outline:2px solid var(--chalk); outline-offset:2px; }
  .runfor { display:flex; align-items:center; gap:8px; margin-left:auto; color:var(--mist); font-size:13px; white-space:nowrap; }
  .inp { height:32px; padding:0 9px; border-radius:8px; border:1px solid var(--ridge); background:var(--dusk); }
- input[type=number].inp { width:78px; }
+ input[type=number].inp { width:96px; }       /* (room for 4 digits next to the arrows of a selected field) */
  input[type=text].inp { width:172px; max-width:100%; }
  a.btn { display:inline-flex; align-items:center; text-decoration:none; color:inherit; }
  .recbtns { display:flex; gap:8px; margin-left:auto; }
  .rechint { margin-top:6px; color:var(--mist); font-size:13px; }
  .recbtns .btn[disabled] { opacity:.45; cursor:default; }
  .group.off .field { display:none; }
+ .bagkeep { grid-column:1 / -1; margin:6px 0 2px; font-size:13px; }
+ .bagkeep summary { cursor:pointer; color:var(--blue); font-weight:600; padding:4px 0; }
+ .bagkeep .h { margin:4px 0 8px; }
+ .bagitems { display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); gap:4px 22px; margin-bottom:8px; }
+ .bagitems label { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+ .bagitems input { width:88px; }
  #bapp { max-width:210px; }
  input[type=time].inp { width:116px; }
  select.inp { max-width:100%; }
@@ -863,6 +870,11 @@ PAGE = r"""<!DOCTYPE html>
      <div class="group" data-keys="spin spin_only_when_full close_when_full bag_clean rocket_fight quests">
       <h2>PokéStops and storage</h2>
       <div class="switches"></div>
+      <details class="bagkeep" id="bagkeep"><summary>What the bag keeps when it is cleaned up</summary>
+       <p class="h">How many of each item stay in the bag; the rest is discarded. 0 discards all of it, an empty field leaves the item alone. Items that are not on this list are never touched.</p>
+       <div class="bagitems" id="bagitems"></div>
+       <div class="bar"><button class="btn small" type="button" onclick="bagDefaults()">Standard numbers</button><span class="h" id="bagmsg"></span></div>
+      </details>
      </div>
      <div class="group" data-keys="catch curveball fast_catch fast_look buddy">
       <h2>Catching</h2>
@@ -1282,6 +1294,7 @@ async function refresh() {
     $('frame').dataset.ring = (!s.screen_ok || s.error || tone === 'bad') ? 'bad' : running ? 'run' : 'hold';
     if (!built) { buildOptions(s.labels); built = true; }
     for (const k of Object.keys(s.labels)) { const el = $('o_' + k); if (el) el.checked = !!s.control[k]; }
+    showBag(s.control.bag_keep);
     const tt = $('ttarget');
     if (document.activeElement !== tt) tt.value = s.control.throw_target || 'realistic';
     $('thint').textContent = TARGETS[tt.value] || '';
@@ -1301,6 +1314,42 @@ async function act(a) {
 }
 async function setMax(v) { const n = Math.round(Number(v)); if (n >= 5 && n <= 1440) await fetch('daily_max/' + n, {method: 'POST'}); refresh(); }
 async function setTime(t) { if (/^\d\d:\d\d$/.test(t)) await fetch('daily_time/' + t, {method: 'POST'}); refresh(); }
+const BAG_ITEMS = @@BAGITEMS@@;                      // [name, standard number or null]
+function bagValues(saved) { const o = {}; for (const [n, k] of BAG_ITEMS) o[n] = saved && n in saved ? saved[n] : k; return o; }
+function bagSummary(v) {
+  const gone = [], kept = [];
+  for (const [n] of BAG_ITEMS) { const k = v[n]; if (k === null || k === '' || k === undefined) continue; (Number(k) === 0 ? gone : kept).push(Number(k) === 0 ? n : k + ' ' + n); }
+  const join = xs => xs.length === 1 ? xs[0] : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1];
+  const parts = (gone.length ? ['discards ' + join(gone)] : []).concat(kept.length ? ['keeps ' + join(kept)] : []);
+  if (!parts.length) return 'Nothing is set to be cleaned up.';
+  const t = parts.join('; '); return t[0].toUpperCase() + t.slice(1) + '. Nothing else is touched.';
+}
+function showBag(saved) {
+  const v = bagValues(saved), box = $('bagitems');
+  if (!box.childElementCount) {
+    for (const [n] of BAG_ITEMS) {
+      const l = document.createElement('label'); l.append(n);
+      const i = document.createElement('input'); i.type = 'number'; i.min = 0; i.max = 9999; i.className = 'inp';
+      i.placeholder = 'leave'; i.dataset.n = n; i.setAttribute('aria-label', 'Keep how many ' + n);
+      i.onchange = bagSave; l.append(i); box.append(l);
+    }
+  }
+  for (const i of box.querySelectorAll('input')) if (document.activeElement !== i) i.value = v[i.dataset.n] === null ? '' : v[i.dataset.n];
+  const h = document.querySelector('#o_bag_clean') && document.querySelector('#o_bag_clean').closest('.row').querySelector('.h');
+  if (h) { h.textContent = bagSummary(v); h.closest('.row').title = h.textContent; }
+}
+async function bagSave() {
+  const d = {};
+  for (const i of $('bagitems').querySelectorAll('input')) d[i.dataset.n] = i.value === '' ? null : Number(i.value);
+  const r = await fetch('bag_keep', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(d)});
+  $('bagmsg').textContent = r.ok ? 'Saved.' : 'Not saved: ' + await r.text();
+  refresh();
+}
+async function bagDefaults() {
+  if (!confirm('Set the standard numbers again?')) return;
+  for (const i of $('bagitems').querySelectorAll('input')) { const k = BAG_ITEMS.find(x => x[0] === i.dataset.n)[1]; i.value = k === null ? '' : k; }
+  bagSave();
+}
 async function setTarget(v) { await fetch('throw_target/' + v, {method: 'POST'}); refresh(); }
 function fillApps(apps, cur) {
   const sel = $('bapp');
@@ -1368,6 +1417,7 @@ function setManual(on) {
 }
 refresh(); setInterval(refresh, 3000);
 </script></body></html>"""
+PAGE = PAGE.replace("@@BAGITEMS@@", json.dumps(bag_rules.ITEMS, ensure_ascii=False))
 PAGE = PAGE.replace("@@NAME@@", APP_NAME).replace("@@CHAPTERS@@", json.dumps(CH.as_list()).replace("</", "<\\/"))
 
 
@@ -1816,6 +1866,12 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             ok, msg = test_start(m.group(1), record="rec=1" in self.path)
             return self._send(msg, code=200 if ok else 409)
+        if path == "/bag_keep":
+            c = read_control()
+            c["bag_keep"] = bag_rules.clean(self._json_body())
+            write_control(c)
+            write_log("bag clean-up: what the bag keeps was changed in the web interface - " + bag_rules.summary(c["bag_keep"]))
+            return self._send("ok")
         if path == "/chat/send":
             if not password():                     # (anyone on the network could use the API key)
                 return self._send("set a password for the web interface first (wiki page Installation)", code=409)

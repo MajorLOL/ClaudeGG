@@ -1135,8 +1135,7 @@ BAG_WORDS = ("POTION", "REVIVE", "BALL", "BERR", "LUCKY", "INCENSE", "RAZZ", "PI
 # What is kept of each item when the bag is full (the rest is discarded); items that are not named here are
 # never touched (Ultra Ball, Master Ball, Revive, eggs, lures, incense ...).  The names as the bag shows them,
 # without accents; a name ending in '*' stands for every item whose name contains the word (all berries).
-BAG_KEEP = (("POTION", 0), ("SUPER POTION", 0), ("HYPER POTION", 0), ("MAX POTION", 30), ("MAX REVIVE", 30),
-            ("POKE BALL", 400), ("GREAT BALL", 100), ("BERRY*", 30))
+import bag_rules             # what the bag keeps: set in the web interface ('What the bag keeps'), see bag_rules.py
 BAG_TRASH_X = 0.80          # the trash can of a row, right of its name (fraction of the width) ...
 BAG_TRASH_DY = -0.017       # ... a little above the middle of its name (fraction of the height)
 BAG_COUNT_DY = (0.04, 0.16)  # the count 'x487' stands under the left of the picture, this far under the name
@@ -1151,12 +1150,18 @@ def _plain_name(text):
     return " ".join(re.sub(r"[^A-Z ]", " ", t).split())
 
 
-def bag_keep(name):
+def bag_plan():
+    """[(NAME, keep)] as the bag clean-up uses them now: the numbers set in the web interface (plain upper-case
+    names, 'POKE BALL'), or the standard ones."""
+    return [(_plain_name(n), k) for n, k in bag_rules.rules(setting("bag_keep", None))]
+
+
+def bag_keep(name, plan=None):
     """How many of the item with this name (as read in the bag) are kept, or None: not to be touched."""
     n = _plain_name(name)
     if not n or len(n.split()) > 4:
         return None
-    for rule, keep in BAG_KEEP:
+    for rule, keep in (plan if plan is not None else bag_plan()):
         if rule.endswith("*"):
             if rule[:-1] in n.split():
                 return keep
@@ -1166,13 +1171,14 @@ def bag_keep(name):
     return None
 
 
-def bag_rows(lines, h):
-    """[(name, keep, x, y, count or None)]: the rows of a bag page whose item has a rule (see BAG_KEEP).
+def bag_rows(lines, h, plan=None):
+    """[(name, keep, x, y, count or None)]: the rows of a bag page whose item has a rule (see bag_plan).
     count: the number under the item's picture ('x487'), when it was read."""
     rows = []
     words = _words(lines)
+    plan = plan if plan is not None else bag_plan()
     for text, x, y, _ws in lines:
-        keep = bag_keep(text)
+        keep = bag_keep(text, plan)
         if keep is None:
             continue
         count = None
@@ -1231,7 +1237,7 @@ def _set_discard_number(target, tries=14):
 
 
 def clean_bag():
-    """The bag is full: discard what BAG_KEEP says (from the map, back on the map).  Every discard is checked
+    """The bag is full: discard what bag_plan() says (from the map, back on the map).  Every discard is checked
     on the question itself - the name of the item and the number - before YES; anything else gets NO.
     Returns the number of items discarded."""
     page = _open_bag()
@@ -1240,17 +1246,17 @@ def clean_bag():
         _bag_to_map()
         return 0
     gone, done, prev, still = 0, set(), None, 0
-    log("bag clean-up: the bag is full - discarding: " + ", ".join(
-        f"{r.rstrip('*').title()}{' (all kinds)' if r.endswith('*') else ''} down to {k}" for r, k in BAG_KEEP))
+    plan = bag_plan()
+    log("bag clean-up: the bag is full - discarding: " + ", ".join(f"{r.title()} down to {k}" for r, k in plan))
     pages = acts = 0
-    while pages < BAG_CLEAN_PAGES and acts < 3 * len(BAG_KEEP) + 10:
+    while pages < BAG_CLEAN_PAGES and acts < 3 * len(plan) + 10:
         img = S.screenshot()
         lines = bag_ocr(img)
         h, w = img.shape[:2]
         if S.on_map(img):
             log("bag clean-up: the bag closed - stopping")
             break
-        todo = [r for r in bag_rows(lines, h) if r[0] not in done and 0.12 * h < r[3] < 0.86 * h]
+        todo = [r for r in bag_rows(lines, h, plan) if r[0] not in done and 0.12 * h < r[3] < 0.86 * h]
         acted = False
         for name, keep, x, y, count in todo:
             done.add(name)

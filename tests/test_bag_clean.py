@@ -139,6 +139,36 @@ class CleanBag(unittest.TestCase):
         self.assertIsNone(G.bag_keep("Master Ball"))
         self.assertIsNone(G.bag_keep("A spray-type medicine that restores the HP of one Pokemon"))
 
+    def test_the_numbers_set_in_the_web_interface(self):
+        """24 November: what the bag keeps can be set per item; an empty field leaves the item alone."""
+        saved = G.setting
+        G.setting = lambda key, default=None: ({"Poké Ball": 200, "Ultra Ball": 50, "Potion": None, "Razz Berry": 10}
+                                               if key == "bag_keep" else default)
+        try:
+            self.assertEqual(G.bag_keep("Poké Ball"), 200)
+            self.assertEqual(G.bag_keep("Ultra Ball"), 50)
+            self.assertIsNone(G.bag_keep("Potion"))
+            self.assertEqual(G.bag_keep("Razz Berry"), 10)
+            self.assertEqual(G.bag_keep("Golden Razz Berry"), 30)          # (not set: the standard number)
+            bag = Bag({"POTION": 3, "POKE BALL": 487, "ULTRA BALL": 60})
+            self.clean(bag)
+            self.assertEqual(bag.items, {"POTION": 3, "POKE BALL": 200, "ULTRA BALL": 50}, bag.logs)
+        finally:
+            G.setting = saved
+
+
+class Rules(unittest.TestCase):
+    def test_clean_and_summary(self):
+        import bag_rules as B
+        d = B.clean({"Poké Ball": "250", "Ultra Ball": "", "Potion": -5, "Max Potion": 1e9, "Master Ball": 1,
+                     "Great Ball": "x"})
+        self.assertEqual((d["Poké Ball"], d["Ultra Ball"], d["Potion"], d["Max Potion"], d["Great Ball"]),
+                         (250, None, 0, 9999, 100))
+        self.assertNotIn("Master Ball", d)
+        self.assertEqual(B.summary({n: None for n in B.NAMES}), "Nothing is set to be cleaned up.")
+        self.assertEqual(B.summary(dict({n: None for n in B.NAMES}, **{"Potion": 0, "Poké Ball": 400})),
+                         "Discards Potion; keeps 400 Poké Ball. Nothing else is touched.")
+
 
 if __name__ == "__main__":
     unittest.main()
