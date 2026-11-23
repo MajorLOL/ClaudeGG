@@ -397,6 +397,23 @@ def game_apps():
 
 TODAY_LOG_BYTES = 8000000      # at most this much of the end of the log is read for the counters of today
 _today = {"key": None, "stats": "", "battles": []}
+BATTLES_RESET_FILE = os.path.expanduser("~/battle_count_reset.json")   # 'Reset' under Battles today: from when on
+
+
+def battles_reset_at():
+    """The time of the last 'Reset' of the battles won and lost ('YYYY-MM-DD HH:MM:SS'), or ''."""
+    try:
+        with open(BATTLES_RESET_FILE) as f:
+            return str(json.load(f).get("at", ""))
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
+def reset_battles():
+    """Count the battles won and lost from now on (the log itself is not touched)."""
+    with open(BATTLES_RESET_FILE, "w") as f:
+        json.dump({"at": time.strftime("%Y-%m-%d %H:%M:%S")}, f)
+    _today["key"] = None
 
 
 def today_lines(day=None):
@@ -436,13 +453,13 @@ def battles_of(lines):
         m = BATTLE_DONE.search(line)
         if m:
             t = re.search(r"\b(\d\d:\d\d)(:\d\d)?\b", line)
-            out.append({"time": t.group(1) if t else "", "league": league, "result": m.group(1),
+            out.append({"at": line[:19], "time": t.group(1) if t else "", "league": league, "result": m.group(1),
                         "gave_up": bool(m.group(2)), "foes": foes[:3]})
             foes = []
     return out
 
 
-def stats_of(lines):
+def stats_of(lines, since=""):
     """The day counters: the last '(today: ... caught ...)' line of the bot, with the battles won and lost
     counted from the matches themselves (so the ones of before the counter came are in it too)."""
     stats = ""
@@ -451,7 +468,7 @@ def stats_of(lines):
         if m:
             stats = re.sub(r",\s*\d+ won, \d+ lost", "", m.group(1))
             break
-    games = battles_of(lines)
+    games = [g for g in battles_of(lines) if not since or g["at"] > since]
     if games:
         won = sum(g["result"] == "win" for g in games)
         stats = (stats + ", " if stats else "") + f"{won} won, {len(games) - won} lost"
@@ -462,11 +479,11 @@ def today_stats():
     """(stats, battles) of today, read again only when the log changed."""
     try:
         st = os.stat(LOGFILE)
-        key = (time.strftime("%Y-%m-%d"), st.st_size, st.st_mtime)
+        key = (time.strftime("%Y-%m-%d"), st.st_size, st.st_mtime, battles_reset_at())
     except OSError:
         return "", []
     if _today["key"] != key:
-        _today["stats"], _today["battles"] = stats_of(today_lines(key[0]))
+        _today["stats"], _today["battles"] = stats_of(today_lines(key[0]), key[3])
         _today["key"] = key
     return _today["stats"], _today["battles"]
 
@@ -580,7 +597,8 @@ PAGE = r"""<!DOCTYPE html>
  .field label { cursor:default; }
 
  /* ---------- log ---------- */
- .games h2 { margin:0 0 6px; font-size:13px; font-weight:650; color:var(--mist); }
+ .gamehead { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:6px; }
+ .games h2 { margin:0; font-size:13px; font-weight:650; color:var(--mist); }
  .games h2 b { color:var(--chalk); font-weight:650; }
  .games ol { list-style:none; margin:0; padding:0; max-height:220px; overflow:auto; }
  .games li { display:grid; grid-template-columns:44px 70px minmax(0,1fr); gap:10px; padding:4px 0; border-top:1px solid color-mix(in srgb, var(--ridge) 55%, transparent); font-size:13px; }
@@ -724,7 +742,8 @@ PAGE = r"""<!DOCTYPE html>
   </section>
 
   <section class="sec games" id="games" aria-label="Battles today" hidden>
-   <h2 id="gamesum">Battles today</h2>
+   <div class="gamehead"><h2 id="gamesum">Battles today</h2>
+    <button class="btn small" onclick="resetGames()" title="Counts won and lost from now on. The log itself stays as it is.">Reset</button></div>
    <ol id="gamelist"></ol>
   </section>
 
@@ -848,6 +867,11 @@ function showGames(list) {                            // the GO Battle League ma
     f.title = f.textContent;
     li.append(t, r, f); ol.append(li);
   }
+}
+
+async function resetGames() {
+  if (!confirm('Reset the battles won and lost? Only battles from now on will be counted.')) return;
+  await fetch('battles/reset', {method: 'POST'}); refresh();
 }
 
 async function refresh() {
@@ -1250,6 +1274,9 @@ class Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/action/(start|stop|restart)", path)
         if m:
             bot_action(m.group(1))
+            return self._send("ok")
+        if path == "/battles/reset":
+            reset_battles()
             return self._send("ok")
         if path == "/action/close":
             threading.Thread(target=close_game, daemon=True).start()

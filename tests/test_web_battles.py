@@ -38,14 +38,15 @@ LOG = [
 @unittest.skipIf(W is None, "web.py cannot be imported here")
 class BattlesToday(unittest.TestCase):
     def setUp(self):
-        self.saved = W.LOGFILE
+        self.saved = (W.LOGFILE, W.BATTLES_RESET_FILE)
         W.LOGFILE = os.path.join(tempfile.mkdtemp(), "spin.log")
+        W.BATTLES_RESET_FILE = os.path.join(os.path.dirname(W.LOGFILE), "reset.json")
         with open(W.LOGFILE, "w") as f:
             f.write("\n".join(LOG) + "\n")
         W._today["key"] = None
 
     def tearDown(self):
-        W.LOGFILE = self.saved
+        W.LOGFILE, W.BATTLES_RESET_FILE = self.saved
         W._today["key"] = None
 
     def test_only_the_lines_of_today(self):
@@ -84,6 +85,24 @@ class BattlesToday(unittest.TestCase):
             f.write(f"{today} 10:05:00  battle: battle 2 done: loss (1 won of 2)\n")
         os.utime(W.LOGFILE, (time.time() + 5, time.time() + 5))
         self.assertEqual(W.today_stats()[0], "1 won, 1 lost")
+
+    def test_only_the_battles_after_a_reset(self):
+        stats, games = W.stats_of(W.today_lines(DAY), since=f"{DAY} 09:15:00")
+        self.assertEqual(stats, "4 caught, 0 fled, 2 stops, 0 won, 2 lost")
+        self.assertEqual([g["time"] for g in games], ["09:17", "09:21"])
+
+    def test_the_reset_button_starts_at_nothing(self):
+        today = time.strftime("%Y-%m-%d")
+        with open(W.LOGFILE, "w") as f:
+            f.write(f"{today} 00:00:01  battle: battle 1 done: win (1 won of 1)\n")
+        self.assertEqual(W.today_stats()[0], "1 won, 0 lost")
+        self.assertEqual(W.battles_reset_at(), "")
+        W.reset_battles()
+        self.assertEqual(W.today_stats(), ("", []))
+        later = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() + 2))
+        with open(W.LOGFILE, "a") as f:
+            f.write(f"{later}  battle: battle 2 done: loss (0 won of 1)\n")
+        self.assertEqual(W.today_stats()[0], "0 won, 1 lost")
 
 
 if __name__ == "__main__":
