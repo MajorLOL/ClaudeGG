@@ -3384,7 +3384,8 @@ def step(brain):
 
 # ------------------------------ daily run ----------------------------------
 DAILY_FILE = os.path.expanduser("~/gamebot_daily.json")
-DAILY_MAX_MIN = 480           # default for "max time per game" (minutes), set in the web interface
+DAILY_MAX_MIN = 480           # default for "Stop after ... min" (minutes): how long a run may take, set in the web interface
+FINISH_MAX_S = 150            # s: when the time is up during a catch, this long to finish it
 MAIN_PACKAGE = "com.nianticlabs.pokemongo"     # Play Store version: always first
 run_state = {"done": False, "waiting_logged": False}
 force_start = {"pending": False}   # the bot was just started: play now, do not wait for the start time
@@ -5403,7 +5404,7 @@ def _fight_on_screen():
         return False
 
 
-def battle_run(beat, stop, count, team=None):
+def battle_run(beat, stop, count, team=None, no_more=None):
     """Fights `count` battles one after the other: map -> party screen -> USE THIS PARTY -> fight -> NEXT
     BATTLE (or the check mark when that is all there is: it leads to the Battle screen) -> party screen again
     ... and goes back to the map at the end.  Returns {"fought": n, "wins": n}."""
@@ -5432,6 +5433,9 @@ def battle_run(beat, stop, count, team=None):
                     continue
                 if stop and stop():
                     break
+            if no_more and no_more():                # the time of the run is up: the last fight is done, no new one
+                log(f"battle: the run time is up - no new battle after {res['fought']}")
+                break
             info = battle_open_menu(beat, stop, restart=True, stay=True)
             if not info["ok"]:
                 log(f"battle: the party screen was not reached: {info['why']}")
@@ -5488,7 +5492,7 @@ def battle_run(beat, stop, count, team=None):
     return res
 
 
-def auto_battle(pkg, beat, stop):
+def auto_battle(pkg, beat, stop, no_more=None):
     """Fights the battles of this game when `pkg` is the app chosen for battles (see above).
 
     beat(): call it now and then - it books the time that has passed and tells the watchdog that the
@@ -5509,7 +5513,7 @@ def auto_battle(pkg, beat, stop):
         return 0
     log(f"battle: {battle_count()} battle(s) in '{battle_league()}' with " + ", ".join(m.label for m in team))
     beat()
-    res = battle_run(beat, stop, battle_count(), team)
+    res = battle_run(beat, stop, battle_count(), team, no_more)
     log(f"battle: done - {res['fought']} fought, {res['wins']} won"
         + (" - the normal bot catches the Pokémon of the reward, then the battles go on" if res.get("catch") else
            " - the normal bot goes on from the screen that is there" if res.get("leave") else ""))
@@ -5546,7 +5550,9 @@ def reset_for_game():
 
 
 def daily_limit():
-    """Max minutes one game may run in the daily run (web interface)."""
+    """Max minutes a run may take, all games together ('Stop after ... min' next to the Start button). When they
+    are over, a fight that is going on and a catch are finished, nothing new is started, the game is closed and
+    the run ends."""
     try:
         return min(max(float(setting("daily_max_min", DAILY_MAX_MIN)), 1), 1440)
     except (TypeError, ValueError):
@@ -5572,7 +5578,7 @@ def start_watchdog(pkg, played, clock, d):
         while not stop.wait(WATCHDOG_EVERY):
             silent = time.monotonic() - clock["last"]
             total = played.get(pkg, 0) + silent
-            over = total - daily_limit() * 60
+            over = sum(played.values()) + silent - daily_limit() * 60
             if silent > WATCHDOG_STUCK or (silent > WATCHDOG_STALE and over > WATCHDOG_GRACE):
                 log(f"daily run: {pkg} - the bot has been stuck in one step for {silent / 60:.0f} min"
                     + (f" and the game is over its max time by {over / 60:.0f} min" if over > 0 else "")
@@ -5592,13 +5598,13 @@ def run_one_game(brain, pkg, d):
     S.PACKAGE = pkg
     reset_for_game()
     played = d.setdefault("played", {})            # seconds per game, kept when the bot restarts
-    if played.get(pkg, 0) > daily_limit() * 60:    # (the bot was restarted after the max time: nothing left to play)
-        log(f"daily run: {pkg} already played {played[pkg] / 60:.0f} min (max {daily_limit():.0f} min) - closing the game")
+    if sum(played.values()) > daily_limit() * 60:  # (the bot was restarted after the time was up: nothing left to play)
+        log(f"daily run: the run time of {daily_limit():.0f} min is up - closing the game")
         close_game_completely()
-        log(f"daily run: {pkg} finished")
+        d["time_up"] = True
         return True
-    log(f"daily run: starting {pkg} (max {daily_limit():.0f} min"
-        + (f", {played[pkg] / 60:.0f} min already played)" if played.get(pkg) else ")"))
+    log(f"daily run: starting {pkg} (the run stops after {daily_limit():.0f} min"
+        + (f", {sum(played.values()) / 60:.0f} min played)" if sum(played.values()) else ")"))
     pkgs_now = game_packages()
     if battle_wanted() and pkg == pkgs_now[0] and battle_app() not in pkgs_now:      # said once per run
         log(f"battle: the chosen app {battle_app()} is not installed - no battles in this run")
@@ -5612,13 +5618,15 @@ def run_one_game(brain, pkg, d):
             played[pkg] = played.get(pkg, 0) + (mono - clock["last"])
             clock["last"] = mono
 
-        def stop():
-            return (run_state["done"] or not wanted("daily_cycle")
-                    or played.get(pkg, 0) + (time.monotonic() - clock["last"]) > daily_limit() * 60)
+        def stop():                                # stop at once (also in the middle of a fight)
+            return run_state["done"] or not wanted("daily_cycle")
+
+        def time_up():                             # finish what is going on, start nothing new
+            return sum(played.values()) + (time.monotonic() - clock["last"]) > daily_limit() * 60
 
         if not run_state["done"]:
             try:
-                auto_battle(pkg, beat, stop)       # first the battles (when chosen), then spin and catch
+                auto_battle(pkg, beat, stop, time_up)       # first the battles (when chosen), then spin and catch
             except Exception as e:  # noqa: BLE001
                 log(f"battle: error {e}")
             beat()
@@ -5639,10 +5647,12 @@ def run_one_game(brain, pkg, d):
                 saved = now
             if played[pkg] - reported >= 1800:                    # now and then: how far is it
                 reported = played[pkg]
-                log(f"daily run: {pkg} {played[pkg] / 60:.0f} of {daily_limit():.0f} min played")
-            if played[pkg] > daily_limit() * 60:
-                log(f"daily run: {pkg} reached the max time of {daily_limit():.0f} min - closing the game")
+                log(f"daily run: {sum(played.values()) / 60:.0f} of {daily_limit():.0f} min played")
+            if time_up():
+                finish_catch(brain, beat)
+                log(f"daily run: the run time of {daily_limit():.0f} min is up - closing the game, the run ends")
                 close_game_completely()
+                d["time_up"] = True
                 break
             try:
                 wait = step(brain)
@@ -5661,7 +5671,7 @@ def run_one_game(brain, pkg, d):
                     run_state["battle_resume"] = False
                     log("battle: the Pokémon of the reward was caught - back to the battles")
                     try:
-                        auto_battle(pkg, beat, stop)
+                        auto_battle(pkg, beat, stop, time_up)
                     except Exception as e:  # noqa: BLE001
                         log(f"battle: error {e}")
                     beat()
@@ -5672,6 +5682,33 @@ def run_one_game(brain, pkg, d):
     save_daily(d)
     log(f"daily run: {pkg} finished")
     return True
+
+
+def finish_catch(brain, beat=None):
+    """The time is up: a catch that is going on is finished first (at most FINISH_MAX_S), so no ball is left in
+    the air and no Pokémon on the screen."""
+    t_end = time.time() + FINISH_MAX_S
+    told = False
+    while time.time() < t_end:
+        try:
+            name, _ = brain.screen(S.screenshot())
+        except Exception:  # noqa: BLE001
+            return
+        if name == "mapScreen":
+            return
+        if name != "encounterScreen" and not told:
+            return                                 # (not catching: nothing to finish)
+        if not told:
+            log("daily run: the run time is up - finishing this catch first")
+            told = True
+        try:
+            wait = step(brain)
+        except Exception as e:  # noqa: BLE001
+            log(f"error: {e}")
+            wait = 5
+        if beat:
+            beat()
+        time.sleep(min(wait, max(0.0, t_end - time.time())))
 
 
 def daily_order():
@@ -5712,6 +5749,9 @@ def daily_cycle(brain):
         pkg = pkgs[0]
         if run_one_game(brain, pkg, d):
             d["done"].append(pkg)
+            if d.get("time_up"):                   # the run time is up: the other games are not played this run
+                d["done"] = list(dict.fromkeys(d["done"] + daily_order()))
+                log("daily run: stopped - the run time is up")
             save_daily(d)
         return 5
     key = (setting("daily_time", "08:00"), d.get("start", 0))

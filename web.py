@@ -634,6 +634,7 @@ PAGE = r"""<!DOCTYPE html>
  label.sw input:checked + .track { background:var(--blue); }
  label.sw input:checked + .track::after { transform:translateX(15px); background:#04202e; }
  label.sw input:focus-visible + .track { outline:2px solid var(--chalk); outline-offset:2px; }
+ .runfor { display:flex; align-items:center; gap:8px; margin-left:auto; color:var(--mist); font-size:13px; white-space:nowrap; }
  .inp { height:32px; padding:0 9px; border-radius:8px; border:1px solid var(--ridge); background:var(--dusk); }
  input[type=number].inp { width:78px; }
  input[type=text].inp { width:172px; max-width:100%; }
@@ -794,9 +795,11 @@ PAGE = r"""<!DOCTYPE html>
     <button class="btn danger" onclick="act('stop')">Stop</button>
     <button class="btn" onclick="act('restart')">Restart</button>
     <button class="btn danger" onclick="act('close')">Close game</button>
+    <label class="runfor" for="dmax" title="How long a run may take, all games together. Then a fight that is going on is finished, nothing new starts, the game is closed and the bot waits for the next daily start.">Stop after
+     <input type="number" id="dmax" class="inp" min="5" max="1440" step="5" onchange="setMax(this.value)"> min</label>
    </div>
    <details class="help"><summary>What do these buttons do?</summary>
-    <p>Start and Restart begin a new daily run right away. Stop pauses the bot so you can take over, for example for quests; stop it too before you open Pokémon GO on another device. Close game stops the bot and closes Pokémon GO on the phone; Start plays again. A game that reaches its max time is closed.</p>
+    <p>Start and Restart begin a new daily run right away. Stop pauses the bot so you can take over, for example for quests; stop it too before you open Pokémon GO on another device. Close game stops the bot and closes Pokémon GO on the phone; Start plays again. <b>Stop after ... min</b> is how long a run may take, all games together, counted from Start or the daily start: when the time is up, a battle that is being fought and a Pokémon that is being caught are finished, no new battle starts, the game is closed and the bot waits for the next daily start.</p>
    </details>
   </section>
 
@@ -838,9 +841,6 @@ PAGE = r"""<!DOCTYPE html>
       <div class="switches"></div>
       <div class="row field"><label class="txt" for="dtime"><span class="t">Starts every day at</span></label>
        <input type="time" id="dtime" class="inp" onchange="setTime(this.value)"></div>
-      <div class="row field"><label class="txt" for="dmax"><span class="t">Max time per game</span>
-        <span class="h">Then the next game starts.</span></label>
-       <span><input type="number" id="dmax" class="inp" min="5" max="1440" step="5" onchange="setMax(this.value)"> <span class="unit">min</span></span></div>
      </div>
      <div class="group" id="g_battle" data-keys="battle battle_give_up">
       <h2>Battles</h2>
@@ -943,7 +943,7 @@ img.onerror = () => setTimeout(() => { img.src = 'stream?t=' + Date.now(); }, 30
 
 // Plain wording for each option: [title, extra line]. An option that is not listed shows the text from the server.
 const WORDS = {
-  daily_cycle: ['Play both Pokémon GO apps', 'Each game runs until full or out of time.'],
+  daily_cycle: ['Play both Pokémon GO apps', 'One after the other, each until it is full - or until the run time next to Start is up.'],
   battle: ['Fight battles first', 'Daily run only. The chosen app fights its GO Battle League battles, then spins and catches.'],
   battle_give_up: ['Give up a lost battle', 'When the last Pokémon cannot win any more, leave the battle instead of playing it out.'],
   catch: ['Catch wild Pokémon'],

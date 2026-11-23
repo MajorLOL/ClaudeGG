@@ -925,6 +925,59 @@ class FightLoop(unittest.TestCase):
         self.assertIn("battle: a fight is on the screen - fighting it", logs)
         self.assertEqual(fights, [4, 3], logs)               # (the second without the spots of USE THIS PARTY)
 
+    def test_when_the_run_time_is_up_the_fight_is_finished_and_no_new_one_starts(self):
+        """24 November: 'Stop after ... min' - a fight that is going on is fought to its end (it gets the stop
+        that only the Stop button and the end of the run give), but after it no new battle is opened."""
+        names = ("battle_open_menu", "fight_battle", "_battle_to_map")
+        saved = {n: getattr(G, n) for n in names}
+        logs, opened, stops = [], [], []
+        clock = {"up": False}
+        G.log = logs.append
+        G.battle_open_menu = lambda *a, **k: opened.append(1) or {"ok": True, "title": "GREAT LEAGUE", "members": [],
+                                                                    "use_spots": [(884, 1930)]}
+
+        def fight(beat, stop, *a, **k):
+            stops.append(stop())
+            clock["up"] = True                               # the time runs out during the first fight
+            return {"result": "win", "why": ""}
+        G.fight_battle = fight
+        G._battle_to_map = lambda *a, **k: True
+        S.tap = lambda *a, **k: None
+        S.on_map = lambda img: True
+        S.screenshot = lambda *a, **k: Phone().picture("day_start")
+        try:
+            res = G.battle_run(lambda: None, lambda: False, 5, team=[], no_more=lambda: clock["up"])
+        finally:
+            for n, f in saved.items():
+                setattr(G, n, f)
+        self.assertEqual((res["fought"], res["wins"], len(opened)), (1, 1, 1), logs)
+        self.assertEqual(stops, [False])                     # (the fight itself was not stopped)
+        self.assertIn("battle: the run time is up - no new battle after 1", logs)
+
+    def test_the_run_time_ends_the_whole_run(self):
+        """When the time is up in the first game, the other game is not started: the run is over."""
+        names = ("run_one_game", "daily_order", "load_daily", "save_daily", "last_slot")
+        saved = {n: getattr(G, n) for n in names}
+        d = {"start": 1, "done": [], "slot": 1}
+        played = []
+
+        def one(brain, pkg, dd):
+            played.append(pkg)
+            dd["time_up"] = True
+            return True
+        G.run_one_game, G.daily_order = one, lambda: ["a", "b"]
+        G.load_daily, G.save_daily, G.last_slot = (lambda: d), (lambda dd: None), (lambda now: 1)
+        G.log = lambda m: None
+        try:
+            G.force_start["pending"] = False
+            G.daily_cycle(None)
+            left = [p for p in G.daily_order() if p not in d["done"]]
+        finally:
+            for n, f in saved.items():
+                setattr(G, n, f)
+        self.assertEqual(played, ["a"])
+        self.assertEqual((d["done"], left), (["a", "b"], []))
+
     def test_a_grey_battle_button_ends_the_battles_of_the_day(self):
         saved = (G.BATTLE_DONE_FILE, G.setting)
         G.BATTLE_DONE_FILE = os.path.join(self.dir, "done.json")
