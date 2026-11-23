@@ -3098,6 +3098,112 @@ def layout_watch():
 health = {"t": 0.0, "ok": False}
 
 
+# ------------------------------- quests: the GO Pass rewards ----------------------------------
+# The quest button at the bottom right of the map is gold when something can be claimed (23 November,
+# screenshots): the quest screen -> the tab GO PASS -> its pages (GO PASS: DYNAMAX TRAILS, GO PASS: NOVEMBER)
+# -> down to 'Claimable rewards: N' and VIEW REWARDS -> CLAIM ALL -> (a Pokémon as a reward: an encounter, the
+# normal catching) -> the X at the bottom closes it.
+QUEST_BTN = (0.945, 0.847)     # the quest button on the map (binoculars), gold when something is to be claimed
+QUEST_R = 0.026                # its radius (fraction of the width)
+QUEST_CLOSE = (0.50, 0.925)    # the round X at the bottom of the quest screens
+QUEST_EVERY = 15 * 60          # s: looked at at most this often (a gold button that stays: not every step)
+QUEST_NOTHING = 60 * 60       # s: after a look that found nothing to claim, the next one waits this long
+quest_state = {"t": 0.0}
+
+
+def quest_gold(img):
+    """True when the quest button on the map is gold (orange) instead of white."""
+    h, w = img.shape[:2]
+    cx, cy, r = QUEST_BTN[0] * w, QUEST_BTN[1] * h, QUEST_R * w
+    y0, y1, x0, x1 = int(cy - r), int(cy + r) + 1, int(cx - r), int(cx + r) + 1
+    hsv = cv2.cvtColor(img[max(y0, 0):y1, max(x0, 0):x1], cv2.COLOR_BGR2HSV)
+    gold = (hsv[..., 0] >= 8) & (hsv[..., 0] <= 25) & (hsv[..., 1] >= 120) & (hsv[..., 2] >= 180)
+    return float(gold.mean()) >= 0.45
+
+
+def quests_due(img):
+    if not setting("quests", True) or time.time() - quest_state["t"] < QUEST_EVERY:
+        return False
+    return quest_gold(img)
+
+
+def _tap_word(lines, *words, below=0.0, h=2208):
+    """Tap the first OCR line that holds all `words` (upper case), lower than `below` (fraction).  Returns it."""
+    for t, x, y, _ws in lines:
+        u = t.upper()
+        if all(wd in u for wd in words) and y >= below * h:
+            S.tap(x, y)
+            return (t, x, y)
+    return None
+
+
+def claim_quests():
+    """The quest button is gold: claim what the GO Pass has (VIEW REWARDS -> CLAIM ALL), close with the X.
+    Returns 'claimed', 'nothing', 'catch' (a Pokémon came as a reward: the normal bot catches it) or
+    'failed'."""
+    quest_state["t"] = time.time()
+    log("quests: the quest button is gold - looking at the GO Pass")
+    S.tap(*_frac_xy(QUEST_BTN))
+    shot = _settled(2.5)
+    lines = ocr_lines(shot, 100, 2150, 0.6)
+    save_async("g_quest_0.png", shot)
+    if S.on_map(shot):
+        log("quests: the quest screen did not open")
+        return "failed"
+    h = shot.shape[0]
+    if not _tap_word(lines, "GO PASS"):
+        log(f"quests: no GO PASS tab ({_reads(lines, 80)})")
+        S.tap(*_frac_xy(QUEST_CLOSE))
+        return "failed"
+    shot = _settled(1.5)
+    lines = ocr_lines(shot, 100, 2150, 0.6)
+    pages = [(t, x, y) for t, x, y, _ws in lines if "GO PASS" in t.upper() and ":" in t and y < 0.35 * h] or [None]
+    claimed = 0
+    for page in pages[:3]:
+        if page is not None:
+            S.tap(page[1], page[2])
+            time.sleep(2.0)
+        found = None
+        for _ in range(6):                               # down the page to 'Claimable rewards' / VIEW REWARDS
+            shot = S.screenshot()
+            lines = ocr_lines(shot, 300, 2050, 0.6)
+            found = _tap_word(lines, "VIEW", "REWARDS")
+            if found:
+                break
+            if any("DAILY TASKS" in t.upper() for t, _x, _y, _w in lines):
+                break                                    # (past the place where it would be)
+            S.swipe(884, 1700, 884, 900, 700)
+            time.sleep(1.2)
+        if not found:
+            continue
+        log(f"quests: VIEW REWARDS on '{page[0] if page else 'the GO Pass'}'")
+        shot = _settled(2.0)
+        lines = ocr_lines(shot, 300, 2150, 0.6)
+        save_async("g_quest_rewards.png", shot)
+        if not _tap_word(lines, "CLAIM", "ALL"):
+            log(f"quests: no CLAIM ALL ({_reads(lines, 80)})")
+            break
+        claimed += 1
+        log("quests: CLAIM ALL")
+        time.sleep(4.0)
+        shot = S.screenshot()
+        name, score = screen_class(shot)
+        if name == "encounterScreen" and score >= TH_CLASS:
+            log("quests: a Pokémon came as a reward - the normal bot catches it")
+            quest_state["t"] = time.time() - QUEST_EVERY + 60     # (look again a minute after it)
+            return "catch"
+        break
+    for _ in range(3):                                   # close: the round X at the bottom
+        if S.on_map(S.screenshot()):
+            break
+        S.tap(*_frac_xy(QUEST_CLOSE))
+        time.sleep(2.0)
+    log("quests: " + ("rewards claimed" if claimed else "nothing to claim in the GO Pass - looking again in an hour"))
+    if not claimed:                                      # (the button stays gold for something else: research)
+        quest_state["t"] = time.time() + QUEST_NOTHING - QUEST_EVERY
+    return "claimed" if claimed else "nothing"
+
+
 def step(brain):
     if not S.screen["ok"]:                  # e.g. a foldable was folded during the run: the layout is not supported
         if layout_adapt("the screen has another shape than the canvas"):
@@ -3206,6 +3312,14 @@ def step(brain):
         layout_verify(img)                             # first map picture of this run: is the game drawn as expected?
         if layout["state"] in ("adapting", "adapted") or not S.screen["ok"]:
             return 1.0                                 # (the display changed, or is still being checked: look at the game again)
+    if name == "mapScreen" and quests_due(img):
+        try:
+            res = claim_quests()
+        except Exception as e:  # noqa: BLE001
+            log(f"quests: error {e}")
+            res = "failed"
+        if res != "failed":
+            return 1.0
     if name == "mapScreen":
         perf["shot"] += shot_cost
         perf["t_step"] = t_step
