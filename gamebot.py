@@ -520,7 +520,9 @@ def fast_catch_leave(brain, t_throw):
             _cancel_exit(lines)
             img = None
         else:
-            log(f"fast catch: after BACK the screen is '{kind}', not the map - waiting for the result the normal way")
+            log(f"fast catch: after BACK the screen is '{kind}', not the map - waiting for the result the normal way "
+                f"(read: {_reads(lines, 80) or 'nothing'}; debug/g_fast_back.png)")
+            save_async("g_fast_back.png", img)
             return None
     enc["caught"] = True                                # (so the map does not count it as 'fled'; the check there decides)
     fast_pending.update(xy=xy, t=time.time(), t_throw=t_throw, t_back=t_back, looks=0)
@@ -5862,6 +5864,7 @@ def run_chapter(key):
             ok = bool(stream_test())
             how = "the live video works" if ok else "the live video did not work (see the lines above)"
         elif key == "play":
+            gift_timer["last"] = time.time()   # (the gifts have a test of their own: not the first minute of this one)
             n = _chapter_steps(brain, CHAPTER_PLAY_S, stop=stop)
             ok, how = True, f"{n} steps in {CHAPTER_PLAY_S // 60} minutes"
         elif key == "battle_menu":
