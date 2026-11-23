@@ -33,6 +33,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 
 import cv2
@@ -738,8 +739,19 @@ def do_pokestop(brain, img):
                 S.back()
                 return 1.5
             if S.bag_full(img):
-                log(f"BAG FULL - clean up your bag; skipping stops for {S.BAG_FULL_WAIT // 60} min")
                 S.back()
+                if setting("bag_clean", True) and bag_state.get("cleaned", 0) + BAG_CLEAN_EVERY < time.time():
+                    bag_state["cleaned"] = time.time()
+                    time.sleep(2.0)
+                    try:
+                        gone = clean_bag()
+                    except Exception as e:  # noqa: BLE001
+                        log(f"bag clean-up: error {e}")
+                        _bag_to_map()
+                        gone = 0
+                    if gone:
+                        return 2
+                log(f"BAG FULL - clean up your bag; skipping stops for {S.BAG_FULL_WAIT // 60} min")
                 global SPIN
                 SPIN = False
                 bag_state["full"] = True
@@ -1084,6 +1096,174 @@ def _bag_to_map():
 
 
 BAG_WORDS = ("POTION", "REVIVE", "BALL", "BERR", "LUCKY", "INCENSE", "RAZZ", "PINAP", "NANAB", "EGG", "LURE", "ADVENTURE")
+
+
+# ------------------------------- a full bag: clean-up ----------------------------------
+# What is kept of each item when the bag is full (the rest is discarded); items that are not named here are
+# never touched (Ultra Ball, Master Ball, Revive, eggs, lures, incense ...).  The names as the bag shows them,
+# without accents; a name ending in '*' stands for every item whose name contains the word (all berries).
+BAG_KEEP = (("POTION", 0), ("SUPER POTION", 0), ("HYPER POTION", 0), ("MAX POTION", 30), ("MAX REVIVE", 30),
+            ("POKE BALL", 400), ("GREAT BALL", 100), ("BERRY*", 30))
+BAG_TRASH_X = 0.80          # the trash can of a row, right of its name (fraction of the width) ...
+BAG_TRASH_DY = -0.017       # ... a little above the middle of its name (fraction of the height)
+BAG_COUNT_DY = (0.04, 0.16)  # the count 'x487' stands under the left of the picture, this far under the name
+DISCARD_MINUS_X, DISCARD_PLUS_X = 0.26, 0.726   # 'Discard Poké Ball?': the - and + buttons ...
+DISCARD_NUMBER_AT = 0.458   # ... and the number between them: this far from the title down to YES
+BAG_CLEAN_EVERY = 20 * 60   # s: the bag is cleaned up at most this often (when one freed nothing, it waits)
+BAG_CLEAN_PAGES = 30        # pages of the bag that are looked through
+
+
+def _plain_name(text):
+    t = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().upper()
+    return " ".join(re.sub(r"[^A-Z ]", " ", t).split())
+
+
+def bag_keep(name):
+    """How many of the item with this name (as read in the bag) are kept, or None: not to be touched."""
+    n = _plain_name(name)
+    if not n or len(n.split()) > 4:
+        return None
+    for rule, keep in BAG_KEEP:
+        if rule.endswith("*"):
+            if rule[:-1] in n.split():
+                return keep
+        elif n == rule or (len(n) >= 6 and difflib.SequenceMatcher(None, n, rule).ratio() >= 0.9
+                           and len(n.split()) == len(rule.split())):
+            return keep
+    return None
+
+
+def bag_rows(lines, h):
+    """[(name, keep, x, y, count or None)]: the rows of a bag page whose item has a rule (see BAG_KEEP).
+    count: the number under the item's picture ('x487'), when it was read."""
+    rows = []
+    words = _words(lines)
+    for text, x, y, _ws in lines:
+        keep = bag_keep(text)
+        if keep is None:
+            continue
+        count = None
+        for w, wx, wy in words:
+            m = re.fullmatch(r"[XxKk×]?(\d{1,4})", w.strip())
+            if m and wx < x and BAG_COUNT_DY[0] * h < wy - y < BAG_COUNT_DY[1] * h:
+                count = int(m.group(1))
+                break
+        rows.append((_plain_name(text), keep, x, y, count))
+    return rows
+
+
+def _discard_dialog(img):
+    """(title text, number or None, YES (x, y), NO (x, y), number y) of 'Discard <item>?', or None."""
+    lines = ocr_lines(img, 100, 2150, 0.6)
+    title = next(((t, x, y) for t, x, y, _ws in lines if "DISCARD" in t.upper()), None)
+    if not title:
+        return None
+    yes = next(((x, y) for w, x, y in _words(lines) if w.upper() == "YES" and y > title[2]), None)
+    no = next(((x, y) for w, x, y in _words(lines) if w.upper() == "NO" and y > title[2]), None)
+    if not yes or not no:
+        return None
+    h, w = img.shape[:2]
+    ny = int(title[2] + DISCARD_NUMBER_AT * (yes[1] - title[2]))
+    box = img[max(0, ny - int(0.045 * h)):ny + int(0.045 * h), int(0.38 * w):int(0.62 * w)]
+    gray = cv2.cvtColor(box, cv2.COLOR_BGR2GRAY)
+    _t, bw = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    digits = re.sub(r"\D", "", ocr_line(bw).replace("O", "0").replace("o", "0"))
+    return title[0], (int(digits) if digits else None), yes, no, ny
+
+
+def _canvas(img, x, y):
+    h, w = img.shape[:2]
+    return int(x * S.REF_W / w), int(y * S.REF_H / h)
+
+
+def _set_discard_number(target, tries=14):
+    """Tap - and + of the open 'Discard ...?' until it shows `target`.  Returns the last picture and reading."""
+    img = S.screenshot()
+    d = _discard_dialog(img)
+    for _ in range(tries):
+        if not d or d[1] is None:
+            return img, d
+        n = d[1]
+        if n == target:
+            return img, d
+        h, w = img.shape[:2]
+        x = DISCARD_PLUS_X if target > n else DISCARD_MINUS_X
+        step = abs(target - n)
+        cx, cy = _canvas(img, x * w, d[4])
+        S.swipes([(cx, cy, cx, cy, 70)] * min(step, 40))    # (one adb command: up to 40 taps one after the other)
+        time.sleep(0.8)
+        img = S.screenshot()
+        d = _discard_dialog(img)
+    return img, d
+
+
+def clean_bag():
+    """The bag is full: discard what BAG_KEEP says (from the map, back on the map).  Every discard is checked
+    on the question itself - the name of the item and the number - before YES; anything else gets NO.
+    Returns the number of items discarded."""
+    page = _open_bag()
+    if not page:
+        log("bag clean-up: the bag did not open")
+        _bag_to_map()
+        return 0
+    gone, done, prev, still = 0, set(), None, 0
+    log("bag clean-up: the bag is full - discarding: " + ", ".join(
+        f"{r.rstrip('*').title()}{' (all kinds)' if r.endswith('*') else ''} down to {k}" for r, k in BAG_KEEP))
+    pages = acts = 0
+    while pages < BAG_CLEAN_PAGES and acts < 3 * len(BAG_KEEP) + 10:
+        img = S.screenshot()
+        lines = bag_ocr(img)
+        h, w = img.shape[:2]
+        if S.on_map(img):
+            log("bag clean-up: the bag closed - stopping")
+            break
+        todo = [r for r in bag_rows(lines, h) if r[0] not in done and 0.12 * h < r[3] < 0.86 * h]
+        acted = False
+        for name, keep, x, y, count in todo:
+            done.add(name)
+            if count is None:
+                log(f"bag clean-up: {name.title()}: its number was not read - left as it is")
+                continue
+            if count <= keep:
+                log(f"bag clean-up: {name.title()}: {count} - kept")
+                continue
+            want = count - keep
+            log(f"bag clean-up: {name.title()}: {count}, keeping {keep} - discarding {want}")
+            S.tap(*_canvas(img, BAG_TRASH_X * w, y + BAG_TRASH_DY * h))
+            time.sleep(1.5)
+            shot, d = _set_discard_number(want)
+            save_async(f"g_bag_discard_{len(done)}.png", shot)
+            if not d:
+                log(f"bag clean-up: the question to discard {name.title()} did not come up")
+                acted = True
+                break
+            title, n, yes, no = d[0], d[1], d[2], d[3]
+            if _plain_name(title.replace("?", "")).replace("DISCARD", "").strip() != name or n != want:
+                log(f"bag clean-up: the question reads '{title}' with {n} - not {name.title()} {want}: answering NO")
+                S.tap(*_canvas(shot, *no))
+            else:
+                S.tap(*_canvas(shot, *yes))
+                gone += want
+                log(f"bag clean-up: discarded {want} {name.title()}")
+            time.sleep(2.0)
+            acted = True
+            break                                    # (the list changed: read this page again)
+        if acted:
+            acts += 1
+            continue
+        pages += 1
+        if prev is not None and not screen_changed(img, prev, 0.003):
+            still += 1
+            if still >= 2:
+                break                                # the end of the list
+        else:
+            still = 0
+        prev = img
+        S.swipe(*BAG_SWIPE)
+        time.sleep(1.2)
+    log(f"bag clean-up: done - {gone} items discarded")
+    _bag_to_map()
+    return gone
 
 
 def _words(lines):
