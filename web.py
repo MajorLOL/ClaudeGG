@@ -29,6 +29,7 @@ import cv2
 import numpy as np
 
 import chapters as CH        # the test chapters (Test): what they are; gamebot.py runs them
+import claude_chat           # Claude in the chat on the right side of the page
 import spin_stop as S        # the phone's screen (which display, how big) is found there
 
 # ================================ SETTINGS ================================
@@ -693,6 +694,44 @@ PAGE = r"""<!DOCTYPE html>
   .stats { order:3; width:100%; }
   .stats .grp + .grp { padding-left:0; border-left:0; }
  }
+ /* ---------- Claude: always on the right side ---------- */
+ :root { --chatw:min(400px, 100vw); }
+ .chat { position:fixed; top:0; right:0; bottom:0; width:var(--chatw); z-index:30; display:flex; flex-direction:column;
+  background:var(--dusk); border-left:1px solid var(--ridge); transform:translateX(100%); transition:transform .2s; }
+ .chat.open { transform:none; box-shadow:-12px 0 32px #0008; }
+ .chathead { display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid var(--ridge); }
+ .chathead .btn { white-space:nowrap; }
+ .chathead h2 { margin:0; font-size:16px; font-weight:650; }
+ .chatwho { color:var(--mist); font-size:12px; margin-right:auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+ .chatset { padding:12px 14px; border-bottom:1px solid var(--ridge); display:grid; gap:8px; font-size:13px; }
+ .chatset label { display:grid; gap:3px; color:var(--mist); }
+ .chatset input, .chatset select { height:34px; padding:0 10px; border-radius:8px; border:1px solid var(--ridge); background:var(--night); }
+ .chatset p { margin:0; color:var(--mist); font-size:12px; }
+ .chatset .bar { align-items:center; } #set_msg { color:var(--mist); font-size:12.5px; }
+ .chatlog { flex:1; min-height:0; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; }
+ .msg { max-width:92%; font-size:13.5px; line-height:1.5; overflow-wrap:anywhere; }
+ .msg.user { align-self:flex-end; background:var(--ridge); padding:8px 12px; border-radius:14px 14px 4px 14px; white-space:pre-wrap; }
+ .msg.assistant { align-self:flex-start; }
+ .msg.tell { align-self:center; color:var(--mist); font-size:12px; text-align:center; }
+ .msg.tell a { color:var(--blue); }
+ .msg pre { background:var(--night); padding:8px 10px; border-radius:8px; overflow-x:auto; font-size:12px; white-space:pre; }
+ .msg code { background:var(--night); padding:1px 4px; border-radius:4px; font-size:12px; }
+ .msg pre code { padding:0; background:none; }
+ .msg a { color:var(--blue); }
+ .chatempty { color:var(--mist); font-size:13px; margin:auto 0; text-align:center; }
+ .chatbusy { display:flex; align-items:center; gap:8px; padding:6px 14px; color:var(--hold); font-size:12.5px; }
+ .chatbusy .dot { width:8px; height:8px; border-radius:50%; background:var(--hold); animation:pulse 1.2s ease-in-out infinite; }
+ .chatbusy .btn { margin-left:auto; }
+ @keyframes pulse { 50% { opacity:.25; } }
+ .chatin { display:flex; gap:8px; padding:10px 14px 14px; border-top:1px solid var(--ridge); }
+ .chatin textarea { flex:1; resize:none; min-height:44px; max-height:160px; padding:9px 11px; border-radius:10px; border:1px solid var(--ridge); background:var(--night); font:inherit; color:inherit; }
+ .chatin .btn { align-self:flex-end; height:44px; }
+ .chatopen { position:fixed; right:16px; bottom:16px; z-index:25; background:var(--blue); color:#06202e; border-color:var(--blue); box-shadow:0 6px 20px #0007; }
+ @media (min-width:1000px) {
+  body { padding-right:var(--chatw); }
+  .chat { transform:none; }
+  .chatopen, .chatclose { display:none; }
+ }
  @media (prefers-reduced-motion:reduce) { * { animation:none !important; transition:none !important; } }
 </style></head><body>
 <header class="top">
@@ -823,6 +862,29 @@ PAGE = r"""<!DOCTYPE html>
   </section>
  </div>
 </main>
+<aside class="chat" id="chat" aria-label="Chat with Claude">
+ <div class="chathead">
+  <h2>Claude</h2><span class="chatwho" id="chatwho"></span>
+  <button class="btn small" onclick="chatNew()" title="Start a new conversation">New chat</button>
+  <button class="btn small" id="chatgear" onclick="chatSettings()" title="API key, GitHub and model" aria-expanded="false">Settings</button>
+  <button class="btn small chatclose" onclick="chatToggle(false)" aria-label="Close the chat">Close</button>
+ </div>
+ <form class="chatset" id="chatset" hidden onsubmit="chatSave(event)">
+  <label>Claude API key <input type="password" id="set_key" autocomplete="off" placeholder="not set"></label>
+  <label>GitHub token, for pull requests <input type="password" id="set_gh" autocomplete="off" placeholder="not set"></label>
+  <label>Model <select id="set_model"></select></label>
+  <p>The keys stay on the Pi and are never shown again. Type <b>-</b> in a field to remove that key. Claude sees the log, the phone screen and the code when it needs them; that goes to Anthropic. Changes to the code are only ever proposed as a pull request at <span id="set_maker"></span>, made with your GitHub account.</p>
+  <div class="bar"><button class="btn primary" type="submit">Save</button><span id="set_msg"></span></div>
+ </form>
+ <div class="chatlog" id="chatlog" aria-live="polite"></div>
+ <div class="chatbusy" id="chatbusy" hidden><span class="dot"></span><span id="chatprog">Thinking</span>
+  <button class="btn small" onclick="chatStop()">Stop</button></div>
+ <form class="chatin" onsubmit="chatSend(event)">
+  <textarea id="chattext" rows="2" placeholder="Ask Claude about the bot" aria-label="Message to Claude"></textarea>
+  <button class="btn primary" type="submit" id="chatgo">Send</button>
+ </form>
+</aside>
+<button class="btn chatopen" id="chatopen" onclick="chatToggle(true)">Claude</button>
 <script>
 const $ = id => document.getElementById(id);
 const img = $('scr');
@@ -985,6 +1047,77 @@ function showTest(t) {
   $('testdl').hidden = !t.ready;
   if (t.running) $('testbox').open = true;
 }
+
+// ---------- Claude ----------
+let chatSeen = '';
+function chatToggle(on) { $('chat').classList.toggle('open', on); if (on) $('chattext').focus(); }
+function chatSettings() { const f = $('chatset'); f.hidden = !f.hidden; $('chatgear').setAttribute('aria-expanded', String(!f.hidden)); }
+function esc(t) { return t.replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c])); }
+function md(text) {                                   // a little markdown: code, bold, links, lists, line breaks
+  return text.split(/```/).map((part, i) => {
+    if (i % 2) return '<pre><code>' + esc(part.replace(/^[a-z]*\n/, '')) + '</code></pre>';
+    let h = esc(part);
+    h = h.replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
+         .replace(/^#{1,4} (.+)$/gm, '<b>$1</b>').replace(/^[-*] /gm, '\u2022 ')
+         .replace(/(https:\/\/[^\s<)]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+    return h.replace(/\n/g, '<br>');
+  }).join('');
+}
+function showChat(c) {
+  $('chatwho').textContent = c.has_key ? c.model + (c.github_user ? ', GitHub ' + c.github_user : '') : 'no API key yet';
+  $('set_key').placeholder = c.has_key ? 'set (type a new one to change it)' : 'not set';
+  $('set_gh').placeholder = c.has_github ? 'set for ' + (c.github_user || '?') : 'not set';
+  $('set_maker').textContent = c.maker;
+  const sel = $('set_model');
+  if (sel.options.length !== c.models.length) sel.innerHTML = c.models.map(m => '<option>' + esc(m) + '</option>').join('');
+  if (document.activeElement !== sel) sel.value = c.model;
+  $('chatbusy').hidden = !c.busy; $('chatprog').textContent = c.progress || 'Thinking';
+  $('chatgo').disabled = c.busy;
+  const key = c.messages.length + '|' + (c.messages.length ? c.messages[c.messages.length - 1].text.length : 0) + '|' + c.has_key + c.password;
+  if (key === chatSeen) return;
+  chatSeen = key;
+  const log = $('chatlog'), atEnd = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
+  log.textContent = '';
+  if (!c.messages.length) {
+    const p = document.createElement('p'); p.className = 'chatempty';
+    p.textContent = !c.password ? 'Set a password for the web interface first: Claude uses your API key.'
+      : !c.has_key ? 'Add your Claude API key under Settings to start.'
+      : 'Ask about what the bot did, a problem in the log or on the screen, or a change to the code. Changes become a pull request at ' + c.maker + '.';
+    log.append(p); return;
+  }
+  for (const m of c.messages) {
+    const d = document.createElement('div'); d.className = 'msg ' + (m.role === 'note' ? 'tell' : m.role);
+    if (m.role === 'assistant') d.innerHTML = md(m.text);
+    else if (m.role === 'note' && m.url) { d.append(m.text.split(m.url)[0]); const a = document.createElement('a'); a.href = m.url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = m.url; d.append(a); }
+    else d.textContent = m.text;
+    log.append(d);
+  }
+  if (atEnd || c.busy) log.scrollTop = log.scrollHeight;
+}
+async function chatRefresh() {
+  try { showChat(await (await fetch('chat/state')).json()); } catch (e) {}
+}
+async function chatSend(ev) {
+  ev.preventDefault();
+  const t = $('chattext'), text = t.value.trim();
+  if (!text) return;
+  const r = await fetch('chat/send', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text})});
+  if (!r.ok) { alert(await r.text()); return; }
+  t.value = ''; chatRefresh();
+}
+$('chattext').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatSend(e); } });
+async function chatNew() { if (confirm('Start a new chat? The conversation so far is cleared.')) { await fetch('chat/new', {method: 'POST'}); chatSeen = ''; chatRefresh(); } }
+async function chatStop() { await fetch('chat/stop', {method: 'POST'}); }
+async function chatSave(ev) {
+  ev.preventDefault();
+  const body = {api_key: $('set_key').value, github_token: $('set_gh').value, model: $('set_model').value};
+  const r = await fetch('chat/settings', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  $('set_msg').textContent = await r.text();
+  if (r.ok) { $('set_key').value = ''; $('set_gh').value = ''; }
+  chatSeen = ''; chatRefresh();
+}
+chatRefresh();
+setInterval(chatRefresh, 2500);
 
 async function clearLog() {
   if (!confirm('Delete the whole log and the pictures the bot saved? This cannot be undone. The battles won and lost of today start again at nothing.')) return;
@@ -1415,6 +1548,24 @@ def test_zip():
     return buf.getvalue()
 
 
+# ---------- Claude: the chat on the right side ----------
+def code_dir():
+    """Where the code of the bot is as a git repository (for Claude to read): the clone that is pulled, else
+    the folder of this file."""
+    clone = os.path.expanduser("~/pokemon-go-automation")
+    return clone if os.path.isdir(os.path.join(clone, ".git")) else os.path.dirname(os.path.abspath(__file__))
+
+
+chat = claude_chat.Chat(code_dir(), status_fn=lambda: status(), log_file=LOGFILE, shot_fn=lambda: latest["jpg"],
+                        write_log=write_log, chapters=[c["title"] for c in CH.as_list()])
+
+
+def chat_state():
+    st = chat.state()
+    st["password"] = bool(password())
+    return st
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -1440,6 +1591,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _json_body(self, limit=200000):
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            if n <= 0 or n > limit:
+                return {}
+            d = json.loads(self.rfile.read(n).decode("utf-8", errors="ignore"))
+            return d if isinstance(d, dict) else {}
+        except (ValueError, OSError):
+            return {}
 
     def _stream(self):
         self.send_response(200)
@@ -1483,6 +1644,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
+        elif path == "/chat/state":
+            self._send(json.dumps(chat_state()), "application/json")
         elif path == "/test/download":
             if not test["t0"] or test_running():
                 return self._send("no test yet", code=404)
@@ -1522,6 +1685,19 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             ok, msg = test_start(m.group(1), record="rec=1" in self.path)
             return self._send(msg, code=200 if ok else 409)
+        if path == "/chat/send":
+            if not password():                     # (anyone on the network could use the API key)
+                return self._send("set a password for the web interface first (wiki page Installation)", code=409)
+            ok, msg = chat.send(str(self._json_body().get("text", ""))[:20000])
+            return self._send(msg, code=200 if ok else 409)
+        if path == "/chat/new":
+            return self._send("ok" if chat.new() else "Claude is still answering", code=200)
+        if path == "/chat/stop":
+            chat.stop()
+            return self._send("ok")
+        if path == "/chat/settings":
+            ok, msg = chat.set_settings(self._json_body())
+            return self._send(msg, code=200 if ok else 400)
         if path == "/test/stop":
             test_stop()
             return self._send("ok")
