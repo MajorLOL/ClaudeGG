@@ -610,6 +610,19 @@ PAGE = r"""<!DOCTYPE html>
  .groups { display:grid; grid-template-columns:minmax(0,1fr); gap:0 44px; align-items:start; }
  .group { padding:0 0 10px; }
  .group h2 { margin:0 0 2px; font-size:13px; font-weight:650; color:var(--mist); }
+ /* the option groups as tabs: one group at a time, so the page fits on one screen */
+ .tabs { display:flex; flex-wrap:wrap; gap:2px 4px; margin:0 0 8px; border-bottom:1px solid var(--ridge); }
+ .tabs button { padding:6px 10px 7px; border:0; border-bottom:2px solid transparent; margin-bottom:-1px; background:transparent;
+  color:var(--mist); font-size:13px; font-weight:600; cursor:pointer; }
+ .tabs button:hover { color:var(--chalk); }
+ .tabs button[aria-selected="true"] { color:var(--chalk); border-bottom-color:var(--blue); }
+ .groups.tabbed { display:block; }
+ .groups.tabbed .col { display:contents; }
+ .groups.tabbed .group { display:none; padding:0; }
+ .groups.tabbed .group.on { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:0 28px; align-items:start; }
+ .groups.tabbed .group h2 { display:none; }
+ .groups.tabbed .group.on .switches { display:contents; }
+ .groups.tabbed .row .h { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
  .row { display:flex; align-items:center; gap:14px; padding:4px 0; min-height:32px; }
  .row .txt { flex:1; min-width:0; }
  .t { display:block; }
@@ -680,7 +693,7 @@ PAGE = r"""<!DOCTYPE html>
   .groups { grid-template-columns:1fr 1fr; }
  }
  /* tall enough: everything fits on one page, the log takes the space that is left */
- @media (min-width:1000px) and (min-height:780px) {
+ @media (min-width:1000px) and (min-height:600px) {
   html, body { height:100%; }
   body { display:flex; flex-direction:column; overflow:hidden; }
   main { flex:1; min-height:0; padding-bottom:18px; align-items:stretch; }
@@ -696,6 +709,7 @@ PAGE = r"""<!DOCTYPE html>
  }
  /* ---------- Claude: always on the right side ---------- */
  :root { --chatw:min(400px, 100vw); }
+ @media (min-width:1000px) { :root { --chatw:clamp(320px, 26vw, 400px); } }
  .chat { position:fixed; top:0; right:0; bottom:0; width:var(--chatw); z-index:30; display:flex; flex-direction:column;
   background:var(--dusk); border-left:1px solid var(--ridge); transform:translateX(100%); transition:transform .2s; }
  .chat.open { transform:none; box-shadow:-12px 0 32px #0008; }
@@ -816,7 +830,8 @@ PAGE = r"""<!DOCTYPE html>
   </section>
 
   <section class="sec" aria-label="Options">
-   <div class="groups">
+   <div class="tabs" id="tabs" role="tablist" aria-label="Option groups"></div>
+   <div class="groups tabbed" id="groups">
     <div class="col">
      <div class="group" data-keys="daily_cycle">
       <h2>Daily run</h2>
@@ -961,7 +976,7 @@ function addSwitch(box, key, label) {
   row.className = 'row sw';
   const txt = document.createElement('span'); txt.className = 'txt';
   const t = document.createElement('span'); t.className = 't'; t.textContent = title; txt.append(t);
-  if (hint) { const h = document.createElement('span'); h.className = 'h'; h.textContent = hint; txt.append(h); }
+  if (hint) { const h = document.createElement('span'); h.className = 'h'; h.textContent = hint; txt.append(h); row.title = hint; }
   const inp = document.createElement('input');
   inp.type = 'checkbox'; inp.setAttribute('role', 'switch'); inp.id = 'o_' + key; inp.dataset.k = key;
   const track = document.createElement('span'); track.className = 'track';
@@ -976,6 +991,27 @@ function buildOptions(labels) {
   });
   const more = $('g_more');                          // an option from a newer version that has no place yet
   for (const k of Object.keys(labels)) if (!placed.has(k)) { addSwitch(more.querySelector('.switches'), k, labels[k]); more.hidden = false; }
+  buildTabs();
+}
+function buildTabs() {                                // one tab per group; the chosen one is remembered in this browser
+  const bar = $('tabs'), groups = [...document.querySelectorAll('#groups .group')].filter(g => !g.hidden);
+  let want = '';
+  try { want = localStorage.getItem('optTab') || ''; } catch (e) {}
+  bar.textContent = '';
+  groups.forEach((g, i) => {
+    const name = g.querySelector('h2').textContent;
+    g.id = g.id || 'grp' + i; g.setAttribute('role', 'tabpanel');
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = name;
+    b.setAttribute('role', 'tab'); b.setAttribute('aria-controls', g.id); b.dataset.name = name;
+    b.onclick = () => showTab(name);
+    bar.append(b);
+  });
+  showTab(groups.some(g => g.querySelector('h2').textContent === want) ? want : groups.length ? groups[0].querySelector('h2').textContent : '');
+}
+function showTab(name) {
+  for (const g of document.querySelectorAll('#groups .group')) g.classList.toggle('on', g.querySelector('h2').textContent === name);
+  for (const b of $('tabs').children) b.setAttribute('aria-selected', String(b.dataset.name === name));
+  try { localStorage.setItem('optTab', name); } catch (e) {}
 }
 document.addEventListener('change', e => { if (e.target.matches('.switches input')) setOpt(e.target.dataset.k, e.target.checked); });
 
