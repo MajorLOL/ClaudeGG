@@ -104,6 +104,26 @@ class BattlesToday(unittest.TestCase):
             f.write(f"{later}  battle: battle 2 done: loss (0 won of 1)\n")
         self.assertEqual(W.today_stats()[0], "0 won, 1 lost")
 
+    def test_delete_log_and_pictures_keeps_the_day_counters(self):
+        today = time.strftime("%Y-%m-%d")
+        saved = W.DEBUG_DIR
+        W.DEBUG_DIR = tempfile.mkdtemp()
+        try:
+            for n in ("g_a.png", "g_b.jpg", "notes.json"):
+                open(os.path.join(W.DEBUG_DIR, n), "w").close()
+            with open(W.LOGFILE, "w") as f:
+                f.write(f"{today} 00:00:01  spin: stop spun (today: 5 caught, 1 fled, 7 stops)\n"
+                        f"{today} 00:00:02  battle: battle 1 done: win (1 won of 1) (today: 5 caught, 1 fled, 7 stops, 1 won, 0 lost)\n")
+            self.assertEqual(W.clear_log(), (2, 2))
+            self.assertEqual(sorted(os.listdir(W.DEBUG_DIR)), ["notes.json"])
+            with open(W.LOGFILE) as f:
+                lines = f.read().splitlines()
+            self.assertEqual(len(lines), 1)
+            self.assertIn("(today: 5 caught, 1 fled, 7 stops)", lines[0])
+            self.assertEqual(W.today_stats(), ("5 caught, 1 fled, 7 stops", []))
+        finally:
+            W.DEBUG_DIR = saved
+
 
 if __name__ == "__main__":
     unittest.main()

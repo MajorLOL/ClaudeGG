@@ -233,6 +233,39 @@ def write_log(msg):
         pass
 
 
+def clear_log():
+    """'Delete log and pictures': the log starts again and the pictures of the bot in ~/debug are deleted.
+    The day counters of the bot (caught, fled, stops) go into the first line of the new log, so that a restart
+    still goes on from them; the battles won and lost of today start again at nothing. Returns (lines, pictures)."""
+    today, keep, n_lines = time.strftime("%Y-%m-%d"), "", 0
+    try:
+        with open(LOGFILE, "rb") as f:
+            data = f.read().decode(errors="ignore")
+        n_lines = data.count("\n")
+        for line in reversed(today_lines(today)):
+            m = re.search(r"\(today: ([^)]*caught[^)]*)\)", line)
+            if m:
+                keep = re.sub(r",\s*\d+ won, \d+ lost", "", m.group(1))
+                break
+        os.truncate(LOGFILE, 0)            # (in place: the bot keeps writing to the same file)
+    except OSError:
+        pass
+    pictures = 0
+    try:
+        for n in os.listdir(DEBUG_DIR):
+            if n.lower().endswith((".png", ".jpg")):
+                try:
+                    os.remove(os.path.join(DEBUG_DIR, n))
+                    pictures += 1
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    _today["key"] = None
+    write_log(f"log and {pictures} pictures deleted in the web interface" + (f" (today: {keep})" if keep else ""))
+    return n_lines, pictures
+
+
 CLOSE_ALL_BTN = (875, 1640)     # 'Alle sluiten' / 'Close all' on the recent apps screen
 closing = threading.Lock()
 
@@ -524,6 +557,9 @@ PAGE = r"""<!DOCTYPE html>
  .brand svg { width:28px; height:28px; color:var(--blue); flex:none; }
  .brand h1 { margin:0; font-size:18px; font-weight:650; letter-spacing:-0.01em; }
  .stats { display:flex; flex-wrap:wrap; gap:2px 18px; color:var(--mist); }
+ .stats .grp { display:flex; flex-wrap:wrap; align-items:center; gap:2px 18px; }
+ .stats .grp + .grp { padding-left:18px; border-left:1px solid var(--ridge); }
+ .stats .btn.small { height:26px; }
  .stats b { color:var(--chalk); font-size:17px; font-weight:650; font-variant-numeric:tabular-nums; margin-right:4px; }
  .state { display:flex; align-items:center; gap:9px; padding:5px 14px 5px 11px; border:1px solid var(--ridge); border-radius:999px; font-weight:600; }
  .state i { width:9px; height:9px; border-radius:50%; background:var(--mist); }
@@ -597,8 +633,7 @@ PAGE = r"""<!DOCTYPE html>
  .field label { cursor:default; }
 
  /* ---------- log ---------- */
- .gamehead { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:6px; }
- .games h2 { margin:0; font-size:13px; font-weight:650; color:var(--mist); }
+ .games h2 { margin:0 0 6px; font-size:13px; font-weight:650; color:var(--mist); }
  .games h2 b { color:var(--chalk); font-weight:650; }
  .games ol { list-style:none; margin:0; padding:0; max-height:220px; overflow:auto; }
  .games li { display:grid; grid-template-columns:44px 70px minmax(0,1fr); gap:10px; padding:4px 0; border-top:1px solid color-mix(in srgb, var(--ridge) 55%, transparent); font-size:13px; }
@@ -608,7 +643,7 @@ PAGE = r"""<!DOCTYPE html>
  .games .win .r { color:var(--run); } .games .loss .r { color:var(--stop); }
  .games .f { color:var(--mist); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
  .logsec { display:flex; flex-direction:column; }
- .loghead { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; }
+ .loghead { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:baseline; gap:6px 8px; margin-bottom:6px; }
  .loghead h2 { margin:0; font-size:13px; font-weight:650; color:var(--mist); }
  .loghead span { color:var(--mist); font-size:12px; margin-right:auto; margin-left:10px; }
  .btn.small { height:28px; padding:0 10px; font-size:12px; font-weight:600; }
@@ -636,6 +671,7 @@ PAGE = r"""<!DOCTYPE html>
  @media (max-width:560px) {
   .top { padding:10px 14px; } main { padding:14px; }
   .stats { order:3; width:100%; }
+  .stats .grp + .grp { padding-left:0; border-left:0; }
  }
  @media (prefers-reduced-motion:reduce) { * { animation:none !important; transition:none !important; } }
 </style></head><body>
@@ -742,14 +778,14 @@ PAGE = r"""<!DOCTYPE html>
   </section>
 
   <section class="sec games" id="games" aria-label="Battles today" hidden>
-   <div class="gamehead"><h2 id="gamesum">Battles today</h2>
-    <button class="btn small" onclick="resetGames()" title="Counts won and lost from now on. The log itself stays as it is.">Reset</button></div>
+   <h2 id="gamesum">Battles today</h2>
    <ol id="gamelist"></ol>
   </section>
 
   <section class="sec logsec" aria-label="Log">
    <div class="loghead"><h2>Log</h2><span>Newest first</span>
-    <a class="btn small" href="debug/download" title="A zip with the end of the log and the newest pictures the bot saved: send it along when you ask for help.">Download log and pictures</a></div>
+    <a class="btn small" href="debug/download" title="A zip with the end of the log and the newest pictures the bot saved: send it along when you ask for help.">Download log and pictures</a>
+    <button class="btn small danger" onclick="clearLog()" title="Empties the log and deletes the pictures the bot saved. Download them first if you still need them.">Delete log and pictures</button></div>
    <pre id="log">Loading…</pre>
   </section>
  </div>
@@ -844,9 +880,19 @@ function showStats(text) {
   const found = [...(text || '').matchAll(/(\d+)\s+([A-Za-z]+)/g)];
   if (!found.length) { box.textContent = text ? 'Today: ' + text : 'No activity yet today'; return; }
   const day = document.createElement('span'); day.textContent = 'Today'; box.append(day);
+  const group = () => { const g = document.createElement('span'); g.className = 'grp'; box.append(g); return g; };
+  const play = group(), fights = [];                   // catching and stops apart from the battles won and lost
   for (const [, n, what] of found) {
     const s = document.createElement('span'), b = document.createElement('b');
-    b.textContent = n; s.append(b, what); box.append(s);
+    b.textContent = n; s.append(b, what);
+    if (what === 'won' || what === 'lost') fights.push(s); else play.append(s);
+  }
+  if (!play.childElementCount) play.remove();
+  if (fights.length) {
+    const g = group(), reset = document.createElement('button');
+    reset.className = 'btn small'; reset.textContent = 'Reset'; reset.onclick = resetGames;
+    reset.title = 'Counts the battles won and lost from now on. The log itself stays as it is.';
+    g.append(...fights, reset);
   }
 }
 
@@ -867,6 +913,11 @@ function showGames(list) {                            // the GO Battle League ma
     f.title = f.textContent;
     li.append(t, r, f); ol.append(li);
   }
+}
+
+async function clearLog() {
+  if (!confirm('Delete the whole log and the pictures the bot saved? This cannot be undone. The battles won and lost of today start again at nothing.')) return;
+  await fetch('log/clear', {method: 'POST'}); refresh();
 }
 
 async function resetGames() {
@@ -1275,6 +1326,9 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             bot_action(m.group(1))
             return self._send("ok")
+        if path == "/log/clear":
+            n_lines, pictures = clear_log()
+            return self._send(f"{n_lines} lines, {pictures} pictures")
         if path == "/battles/reset":
             reset_battles()
             return self._send("ok")
