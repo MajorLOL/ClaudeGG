@@ -69,6 +69,12 @@ def _phrase(lines, phrase, th=0.8):
     return False
 
 
+def _glued(lines, letters):
+    """True when one OCR line has these letters one after the other, spaces and signs left out ('CHOOSE
+    YOURPARTY' for CHOOSEYOURPARTY): words that OCR glued together or split are still found."""
+    return any(letters in re.sub(r"[^A-Z]", "", t.upper()) for t, _x, _y, _ws in lines)
+
+
 def _has(lines, word, th=0.8):
     return any(like(w, word, th) for w, _x, _y in words_of(lines))
 
@@ -112,8 +118,9 @@ def screen_kind(lines, on_map=False, league="", k=1.0):
     """
     if on_map:
         return "map"
-    if _phrase(lines, "USE THIS PARTY") or _phrase(lines, "CHOOSE YOUR PARTY"):
-        return "party"
+    if (_phrase(lines, "USE THIS PARTY") or _phrase(lines, "CHOOSE YOUR PARTY") or _glued(lines, "CHOOSEYOURPARTY")
+            or _glued(lines, "USETHISPARTY") or _glued(lines, "RECOMMENDEDBATTLEPARTY")):
+        return "party"                        # (OCR glues words now and then: 'CHOOSE YOURPARTY', 23 November)
     if (_has(lines, "WELCOME") and _has(lines, "BATTLE")) or _phrase(lines, "RISE THROUGH THE RANKS", 0.75):
         return "welcome"                      # (before 'home': its title has GO BATTLE LEAGUE in it too)
     if _phrase(lines, "GO BATTLE LEAGUE") or (

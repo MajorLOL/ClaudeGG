@@ -36,6 +36,16 @@ class ScreenKind(unittest.TestCase):
     def test_party_wins_over_the_league_name(self):
         self.assertEqual(bn.screen_kind(SCREENS["party"], league="Great League"), "party")
 
+    def test_party_screen_with_glued_words(self):
+        # read on 23 November from the party screen of '2026 GO LAIC CUP: GREAT LEAGUE EDITION': the title has the
+        # league name, 'CHOOSE YOURPARTY' is glued and USE THIS PARTY is not read at all
+        lines = [line("2026 GO LAIC CUP: GREAT LEAGUE EDITION", 900, 761), line("CHOOSE YOURPARTY", 900, 1161),
+                 line("RECOMMENDED BATTLE PARTY =", 900, 1315), line("CE 1415 CE 1389 CE 1490", 900, 1494),
+                 line("SOLROCK DUBWOOL VOLBEAT", 900, 1820)]
+        self.assertEqual(bn.screen_kind(lines, league="Great League"), "party")
+        self.assertEqual(bn.screen_kind(lines[:1] + lines[2:], league="Great League"), "party")
+        self.assertEqual(bn.screen_kind(lines[:1], league="Great League"), "league")
+
     def test_league_list(self):
         lines = [line("SELECT A LEAGUE", 600, 300), line("GREAT LEAGUE", 600, 800),
                  line("ULTRA LEAGUE", 600, 1200)]
