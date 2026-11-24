@@ -42,7 +42,7 @@ LOGFILE = os.path.expanduser("~/spin.log")
 CONTROL_FILE = os.path.expanduser("~/gamebot_control.json")
 SERVICE = "spin-stop"
 VIDEO_BASE = 704                            # width (px) of the screenrecord picture; the height follows the shape of the phone screen
-VIDEO_FPS = 8
+VIDEO_FPS = 12
 VIDEO_WIDTH = 480                           # width of the frames sent to the browser
 VIDEO_BITRATE = "2000000"
 OPTIONS = {                                 # key -> label (default: on)
@@ -62,6 +62,7 @@ OPTIONS = {                                 # key -> label (default: on)
     "bag_clean": "Bag full: discard and keep what 'What the bag keeps' says",
     "buddy": "My buddy walks along on the map (a Pokémon next to the trainer may be the buddy)",
     "fast_look": "Realistic look around",
+    "live_look": "Look with the live video of the phone (a picture in a tenth of a second instead of 1-3 s)",
 }
 # ==========================================================================
 
@@ -162,7 +163,8 @@ def video_loop():
                  "--time-limit", "180", "-"],
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             ff = subprocess.Popen(
-                ["ffmpeg", "-loglevel", "error", "-probesize", "32768", "-analyzeduration", "0",
+                ["ffmpeg", "-loglevel", "error", "-threads", "1", "-flags", "low_delay",   # (no pictures held back)
+                 "-probesize", "32768", "-analyzeduration", "0",
                  "-f", "h264", "-i", "pipe:0", "-vf", f"fps={VIDEO_FPS},scale={VIDEO_WIDTH}:-2",
                  "-q:v", "7", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1"],
                 stdin=rec.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -577,6 +579,13 @@ PAGE = r"""<!DOCTYPE html>
  .panel { min-width:0; display:flex; flex-direction:column; }
 
  /* ---------- the phone screen: its frame shows the state of the bot ---------- */
+ .frame { position:relative; }
+ .touch { position:absolute; width:34px; height:34px; margin:-17px 0 0 -17px; border-radius:50%; pointer-events:none;
+  border:2px solid var(--blue); background:color-mix(in srgb, var(--blue) 30%, transparent); animation:touch .6s ease-out forwards; }
+ .touch.line { width:auto; height:0; margin:0; border:0; border-top:3px solid var(--blue); border-radius:2px; background:none; transform-origin:0 0; }
+ @keyframes touch { from { opacity:1; transform:scale(.6); } to { opacity:0; transform:scale(1.6); } }
+ .touch.line { animation:fade .7s ease-out forwards; }
+ @keyframes fade { from { opacity:1; } to { opacity:0; } }
  .frame { padding:6px; border-radius:24px; background:var(--dusk); border:2px solid var(--ring);
   box-shadow:0 0 0 5px color-mix(in srgb, var(--ring) 16%, transparent); transition:border-color .3s, box-shadow .3s; }
  .frame[data-ring="run"] { --ring:var(--run); animation:breathe 3.6s ease-in-out infinite; }
@@ -876,7 +885,7 @@ PAGE = r"""<!DOCTYPE html>
        <div class="bar"><button class="btn small" type="button" onclick="bagDefaults()">Standard numbers</button><span class="h" id="bagmsg"></span></div>
       </details>
      </div>
-     <div class="group" data-keys="catch curveball fast_catch fast_look buddy">
+     <div class="group" data-keys="catch curveball fast_catch fast_look live_look buddy">
       <h2>Catching</h2>
       <div class="switches"></div>
       <div class="row field"><label class="txt" for="ttarget"><span class="t">Throw target</span>
@@ -962,6 +971,7 @@ const WORDS = {
   curveball: ['Always throw a curveball'],
   fast_catch: ['Fast catch', 'After a clear hit, press Back to skip the catch animation. The result is checked on the map.'],
   fast_look: ['Look around like a person'],
+  live_look: ['Look with the live video', 'The map, the ring and the ball are looked at in the live video of the phone: a picture in a tenth of a second instead of 1 to 3 s. Text is still read on sharp screenshots.'],
   buddy: ['My buddy walks along on the map', 'A Pokémon next to the trainer may be the buddy.'],
   spin: ['Spin PokéStops'],
   rocket_fight: ['Battle Team GO Rocket', 'A grunt or leader at a PokéStop is battled with the recommended party; a missing third Pokémon is chosen. The Shadow Pokémon is caught afterwards.'],
@@ -1401,11 +1411,26 @@ img.addEventListener('pointerdown', e => {
   if (!manual) return; e.preventDefault();
   img.setPointerCapture(e.pointerId); down = {p: phonePos(e), t: Date.now()};
 });
+function touchMark(x1, y1, x2, y2) {                 // shows at once where the tap or swipe went (the picture comes later)
+  const f = $('frame'), r = img.getBoundingClientRect(), fr = f.getBoundingClientRect();
+  const m = document.createElement('div');
+  const ax = r.left - fr.left + x1, ay = r.top - fr.top + y1;
+  if (x2 === undefined) { m.className = 'touch'; m.style.left = ax + 'px'; m.style.top = ay + 'px'; }
+  else {
+    m.className = 'touch line'; m.style.left = ax + 'px'; m.style.top = ay + 'px';
+    m.style.width = Math.hypot(x2 - x1, y2 - y1) + 'px'; m.style.transform = `rotate(${Math.atan2(y2 - y1, x2 - x1)}rad)`;
+  }
+  f.append(m); setTimeout(() => m.remove(), 800);
+}
 img.addEventListener('pointerup', e => {
   if (!manual || !down) return; e.preventDefault();
   const p = phonePos(e), ms = Date.now() - down.t, d = Math.hypot(p[0] - down.p[0], p[1] - down.p[1]);
-  if (d < 25 && ms < 450) fetch(`input/tap?x=${p[0]}&y=${p[1]}`, {method: 'POST'});
-  else fetch(`input/swipe?x1=${down.p[0]}&y1=${down.p[1]}&x2=${p[0]}&y2=${p[1]}&ms=${Math.max(ms, 80)}`, {method: 'POST'});
+  const r = img.getBoundingClientRect(), sx = r.width / PW, sy = r.height / PH;
+  if (d < 25 && ms < 450) { touchMark(p[0] * sx, p[1] * sy); fetch(`input/tap?x=${p[0]}&y=${p[1]}`, {method: 'POST'}); }
+  else {
+    touchMark(down.p[0] * sx, down.p[1] * sy, p[0] * sx, p[1] * sy);
+    fetch(`input/swipe?x1=${down.p[0]}&y1=${down.p[1]}&x2=${p[0]}&y2=${p[1]}&ms=${Math.max(ms, 80)}`, {method: 'POST'});
+  }
   down = null;
 });
 img.addEventListener('contextmenu', e => { if (manual) e.preventDefault(); });

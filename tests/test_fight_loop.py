@@ -827,7 +827,7 @@ class FightLoop(unittest.TestCase):
         self.assertEqual(self.answers(phone, "day3_shield_last#again"), ["SHIELD"], log)
         self.assertRegex(log, r"shield question - SHIELD: Blizzard would take 83% of our HP")
         with open(G.SEEN_FILE) as f:                                           # (one more battle with each)
-            self.assertEqual(json.load(f), {"whiscash": {"MUD_BOMB": 3, "BLIZZARD": 3, "SCALD": 1}})
+            self.assertEqual(json.load(f), {"whiscash": {"MUD_BOMB": 3, "BLIZZARD": 3, "SCALD": 1, "first:MUD_BOMB": 1}})
 
     def test_the_first_whiscash_teaches_what_a_whiscash_has(self):
         """Nothing is known of it yet: its attacks are the recommended ones (Mud Bomb, Scald), Scald is possible
@@ -841,7 +841,7 @@ class FightLoop(unittest.TestCase):
         self.assertIn("fight: Whiscash used Blizzard - its charged attacks are taken to be Mud Bomb, Blizzard now "
                       "(the guess was Mud Bomb, Scald)", log)
         with open(G.SEEN_FILE) as f:
-            self.assertEqual(json.load(f), {"whiscash": {"MUD_BOMB": 1, "BLIZZARD": 1}})
+            self.assertEqual(json.load(f), {"whiscash": {"MUD_BOMB": 1, "BLIZZARD": 1, "first:MUD_BOMB": 1}})
 
     def test_seconds_without_a_picture_of_the_fight_count_as_fight(self):
         """The video stands still for three and a half seconds in the plain fight (screenrecord starts again
@@ -1056,7 +1056,7 @@ class FightLoop(unittest.TestCase):
         self.assertEqual(G.load_seen(), {})
         phone, res = self.play(video=True, script=self.BAIT, names=self.WHISCASH)
         self.assertEqual(res["result"], "loss", "\n".join(phone.logs))
-        self.assertEqual(G.load_seen(), {"whiscash": {"MUD_BOMB": 1, "BLIZZARD": 1}})
+        self.assertEqual(G.load_seen(), {"whiscash": {"MUD_BOMB": 1, "BLIZZARD": 1, "first:MUD_BOMB": 1}})
 
     SKY = [("versus", 0.5), ("day_start", 1.0), ("day_dim#charging", 2.0), ("day_dim#first", "throw"),
            ("day3_get_ready_sky", 1.3), ("icons", 4.0), ("day_banner", 1.0), ("day_flash", 1.0), ("day_dim", 2.0),

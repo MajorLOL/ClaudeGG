@@ -35,6 +35,8 @@ import re
 
 import battle_engine as BE
 
+PREDICT_MIN = 4           # battles in which a species was seen to throw its first charged attack ...
+PREDICT_SHARE = 0.8       # ... and the share of them with the same one: then that one is expected first
 HP_JUMP = 0.30            # a bigger change between two pictures has to be seen twice before it is believed
 FAINTED_BELOW = 0.25      # a Pokémon with less HP than this that is replaced has fainted
 LABEL_TRIES = 8           # pictures to read the labels under the buttons from (they are hidden at times)
@@ -100,6 +102,8 @@ class Fight:
         self._came = (self.me, self.me.hp)     # who came in last, and the HP it had before that
         self._aim = (None, None)               # (what aim() was worked out for, its answer)
         self.foe_seen = {}                     # species -> the charged attacks it was seen to use in this battle
+        self._threw_species = set()            # species of the foe that threw a charged attack in this battle
+        self._first_pending = None             # the species whose first charged attack of this battle is on its way
 
     # ------------------------------------------------------------ what is seen ---
     def _believe(self, side, old, new):
@@ -264,6 +268,9 @@ class Fight:
         if self.foe is None:
             self._threw = None
             return
+        if self.foe.species not in self._threw_species:      # its first charged attack of this battle
+            self._threw_species.add(self.foe.species)
+            self._first_pending = self.foe.species
         had = self.foe_energy()
         cost = BE.cheapest_charged(self.foe.species) if sure else 0
         self._threw = (had, cost)
@@ -378,6 +385,11 @@ class Fight:
                 self._foe_e_ok = False
             elif had is not None and move.energy > cost:
                 self._foe_e[0] = max(self._foe_e[0] - (move.energy - cost), 0.0)
+        if self._first_pending == foe.species:  # which attack a species throws first: for the predictor
+            self._first_pending = None
+            count = self.known.setdefault(foe.species, {})
+            count["first:" + found] = count.get("first:" + found, 0) + 1
+            self.learned = True
         seen = self.foe_seen.setdefault(foe.species, [])
         if found in seen:
             return move
@@ -682,6 +694,25 @@ class Fight:
         self.lit = (False, False)              # (spent: the next picture shows what is lit now)
         return button, move, why
 
+    def predict_first(self):
+        """The charged attack the foe on the field will throw first, when earlier battles say so clearly: this
+        species threw it first in at least PREDICT_MIN battles and in PREDICT_SHARE of them, and it can pay for
+        it now.  Returns (Move, how often, of how many) or None.  Only for its first attack of this battle."""
+        foe = self.foe
+        if foe is None or foe.species in self._threw_species:
+            return None
+        firsts = {k[6:]: n for k, n in (self.known.get(foe.species) or {}).items() if k.startswith("first:")}
+        total = sum(firsts.values())
+        if total < PREDICT_MIN:
+            return None
+        mid, n = max(firsts.items(), key=lambda t: t[1])
+        if n < PREDICT_SHARE * total:
+            return None
+        move = next((m for m in foe.charged if m.id == mid), None)
+        if move is None or move not in BE.can_throw(foe, self.foe_energy()):
+            return None
+        return move, n, total
+
     def shield(self, foes=None, ready=False):
         """The question 'Attack incoming! Use a Protect Shield?': (use it, why).  foes: how many Pokémon the foe
         can still fight with (the red Poké Balls of its name box; None: not known).  ready: a charged attack of
@@ -690,8 +721,12 @@ class Fight:
         if self.my_shields <= 0:
             return False, "no shields left"
         mine = max(len([m for m in self.team if m.pos not in self.dead]), 1)
-        use, why = BE.use_shield(self.foe, self.me, self.my_shields, self.me.hp, mine, foes, ready, None,
-                                 self.foe_energy())
+        guess = self.predict_first()
+        use, why = BE.use_shield(self.foe, self.me, self.my_shields, self.me.hp, mine, foes, ready,
+                                 guess[0] if guess else None, self.foe_energy())
+        if guess:
+            why = (f"predicted {guess[0].name} (the first attack of {self.foe.label} in {guess[1]} of "
+                   f"{guess[2]} earlier battles) - {why}")
         if use:
             self.my_shields -= 1
         return use, why

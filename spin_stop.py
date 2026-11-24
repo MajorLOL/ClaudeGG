@@ -693,6 +693,118 @@ def recheck_shot_mode():
         _shot["retry"] = time.time() - 1
 
 
+# ---------- the live video for looking (instead of a screenshot of 1 to 3 s) ----------
+LIVE_WIDTH = 768               # px of the video the bot looks at (the height follows the shape of the screen)
+LIVE_FPS = 12                  # pictures a second handed to Python
+LIVE_BITRATE = "5000000"
+LIVE_WAIT = 0.3                # s: no newer picture in this time after asking = the screen did not change
+LIVE_REST = 300                # s: after the video failed, screenshots for this long before it is tried again
+live = {"stream": None, "off_until": 0.0, "frames": 0, "shots": 0, "note": ""}
+live_wanted = lambda: True     # noqa: E731  (gamebot sets it to the option 'Look with the live video')
+
+
+def live_stream():
+    """The live video of the phone for looking, started the first time it is asked for; None when it is
+    switched off, failed a moment ago, or the phone is not known yet."""
+    if not live_wanted() or time.time() < live["off_until"] or not screen.get("checked"):
+        return None
+    st = live["stream"]
+    if st is not None and (st.failed or not st.is_alive()):
+        why = st.describe()
+        live_stop()
+        live["off_until"] = time.time() + LIVE_REST
+        log(f"live video for looking stopped ({why}) - screenshots for {LIVE_REST // 60} min")
+        return None
+    if st is None:
+        try:
+            import battle_stream as BS
+            size = BS.video_size(screen["w"], screen["h"], base=LIVE_WIDTH)
+            st = BS.FrameStream(size, display_id=screen.get("id"), bitrate=LIVE_BITRATE, fps=LIVE_FPS, low_delay=True)
+            st.start()
+            live["stream"] = st
+            log(f"live video for looking started ({size[0]}x{size[1]}, {LIVE_FPS} pictures a second)")
+        except Exception as e:  # noqa: BLE001
+            live["off_until"] = time.time() + LIVE_REST
+            log(f"live video for looking not possible ({e}) - screenshots")
+            return None
+    return st
+
+
+def live_stop():
+    """Stop the live video (a fight starts a video of its own; two at once are too much for the phone)."""
+    st, live["stream"] = live["stream"], None
+    if st is not None:
+        try:
+            st.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+LIVE_STALE = 10.0              # s: a last picture older than this is not trusted (a screenshot is taken)
+
+
+def _live_picture(st, wait=LIVE_WAIT):
+    """(picture in the size of a screenshot, time it came in) from the live video, or None."""
+    got = st.wait_new(st.seq, timeout=wait)            # a picture that comes after the question ...
+    if got is None:
+        if st.starting() or not st.frames:
+            got = st.wait_new(st.seq, timeout=2.5)     # (screenrecord (re)started: the first picture is on its way)
+        else:
+            got = st.latest()                          # ... or none came: the screen stood still, the last is now
+            if got is not None and time.monotonic() - got[1] > LIVE_STALE:
+                got = None
+    if got is None:
+        return None
+    _seq, t, frame = got
+    return cv2.resize(frame, (screen["w"], screen["h"]), interpolation=cv2.INTER_LINEAR), t
+
+
+def quick_screenshot(on_grab=None):
+    """A picture of the screen from the live video (a tenth of a second) when it runs, else a screenshot.
+    For looking at the map, the ring and the ball; text that has to be read sharply wants screenshot().
+    quick_screenshot.live tells where the last one came from."""
+    st = live_stream()
+    if st is not None:
+        try:
+            got = _live_picture(st)
+        except Exception as e:  # noqa: BLE001
+            log(f"live video picture failed: {e}")
+            got = None
+        if got is not None:
+            live["frames"] += 1
+            quick_screenshot.live, quick_screenshot.t = True, got[1]
+            if on_grab is not None:
+                try:
+                    on_grab()
+                except Exception as e:  # noqa: BLE001
+                    log(f"action after the screenshot failed: {e}")
+            return got[0]
+    live["shots"] += 1
+    quick_screenshot.live, quick_screenshot.t = False, time.monotonic()
+    return screenshot(on_grab)
+
+
+quick_screenshot.live, quick_screenshot.t = False, 0.0
+
+
+def live_frames(seconds, every=0.0):
+    """Pictures of the live video for `seconds`: [(time it came in, picture in screenshot size)], or [] when
+    the video does not run.  every: at least this many s between two."""
+    st = live_stream()
+    if st is None:
+        return []
+    out, seq, end, last = [], st.seq, time.monotonic() + seconds, 0.0
+    while time.monotonic() < end:
+        got = st.wait_new(seq, timeout=max(end - time.monotonic(), 0.01))
+        if got is None:
+            break
+        seq, t, frame = got
+        if t - last >= every:
+            out.append((t, cv2.resize(frame, (screen["w"], screen["h"]), interpolation=cv2.INTER_LINEAR)))
+            last = t
+    return out
+
+
 def screenshot(on_grab=None):
     """on_grab: something to do the moment the picture has been taken (raw mode: before the
     transfer is finished; PNG mode: when it is complete). The caller can start a swipe then and

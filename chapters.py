@@ -11,6 +11,8 @@ CHAPTERS = [
      "Takes one screenshot, says which screen it is and marks what it finds (debug/g_test.png). No taps."),
     ("video",         "Checks",              "Live video",                        "Any screen",
      "Runs the live video of the phone for 8 seconds, as in a battle, and says how many pictures came. No taps."),
+    ("look",          "Checks",              "Looking: video against screenshots", "The map",
+     "Takes ten pictures from the live video and three screenshots, and says how long each took and what the bot finds on the map in both. No taps."),
     ("play",          "Checks",              "Normal play for 3 minutes",         "The map",
      "The normal bot (spin, catch, everything that is switched on) for 3 minutes, then it stops."),
 
@@ -30,6 +32,8 @@ CHAPTERS = [
 
     ("catch",         "Catching",            "Catch this Pokémon",                "An encounter",
      "Catches the Pokémon on the screen (or runs, as the settings say), until the game is out of the encounter."),
+    ("throw",         "Catching",            "One throw",                         "An encounter",
+     "Throws one ball at the Pokémon on the screen, with the ring timing, and says how it went (ring size at the release, where the ball came down). Nothing else."),
     ("bag",           "Items and rewards",   "Clean up the bag",                  "The map",
      "Opens the bag and discards what the bag rules say, then back to the map."),
     ("quests",        "Items and rewards",   "Claim GO Pass rewards",             "The map",

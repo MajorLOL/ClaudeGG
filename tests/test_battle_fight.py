@@ -1074,17 +1074,41 @@ class TheFoesEnergy(unittest.TestCase):
         fight.foe_threw()
         fight.foe_used("Whiscash used Blizzard!")
         self.assertTrue(fight.learned)
-        self.assertEqual(fight.known, {"whiscash": {"MUD_BOMB": 1, "BLIZZARD": 1}})
+        self.assertEqual(fight.known, {"whiscash": {"MUD_BOMB": 1, "BLIZZARD": 1, "first:MUD_BOMB": 1}})
         again = bf.Fight(be.load_team(), log=lambda _m: None, known=fight.known)     # the next battle
         again.set_foe("Whiscash", 1490)
         self.assertEqual(sorted(m.id for m in again.foe.charged), ["BLIZZARD", "MUD_BOMB"])
+
+    def test_the_first_attack_of_a_species_is_predicted_from_earlier_battles(self):
+        """24 November: a Whiscash threw Blizzard first in 4 of 5 earlier battles: its first attack is expected
+        to be Blizzard (not the hardest one it can pay for) - only the first, and only once it has the energy."""
+        known = {"whiscash": {"MUD_BOMB": 5, "BLIZZARD": 5, "first:BLIZZARD": 4, "first:MUD_BOMB": 1}}
+        fight, _logs = self.fight(known=known)
+        fight.fought(6.5)                                        # 67 energy at most: Blizzard (75) not yet
+        self.assertIsNone(fight.predict_first())
+        fight.fought(5.0)
+        move, n, total = fight.predict_first()
+        self.assertEqual((move.id, n, total), ("BLIZZARD", 4, 5))
+        use, why = fight.shield(3)
+        self.assertTrue(why.startswith("predicted Blizzard (the first attack of Whiscash in 4 of 5 earlier battles)"), why)
+        fight.foe_threw()
+        self.assertIsNone(fight.predict_first())                 # (its second attack: no prediction)
+        fight.foe_used("Whiscash used Blizzard!")
+        self.assertEqual(fight.known["whiscash"]["first:BLIZZARD"], 5)
+
+    def test_no_prediction_without_enough_battles_or_a_clear_favourite(self):
+        for known in ({"whiscash": {"first:BLIZZARD": 3}},
+                      {"whiscash": {"first:BLIZZARD": 3, "first:MUD_BOMB": 2}}):
+            fight, _logs = self.fight(known=known)
+            fight.fought(20)
+            self.assertIsNone(fight.predict_first(), known)
 
     def test_an_attack_is_counted_once_a_battle(self):
         fight, _logs = self.fight(known={})
         for _ in range(3):
             fight.foe_threw()
             fight.foe_used("Whiscash used Mud Bomb!")
-        self.assertEqual(fight.known, {"whiscash": {"MUD_BOMB": 1}})
+        self.assertEqual(fight.known, {"whiscash": {"MUD_BOMB": 1, "first:MUD_BOMB": 1}})
 
     def test_what_this_battle_shows_goes_before_what_earlier_ones_did(self):
         fight, _logs = self.fight()                              # (earlier: Mud Bomb 3x, Blizzard 2x, Scald 1x)

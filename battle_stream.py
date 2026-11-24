@@ -32,8 +32,10 @@ def video_size(width, height, base=VIDEO_WIDTH):
 class FrameStream(threading.Thread):
     """Reads pictures of the phone screen in a thread of its own.  latest() / wait_new() give the newest."""
 
-    def __init__(self, size, display_id=None, bitrate=VIDEO_BITRATE, fps=VIDEO_FPS, adb="adb", ffmpeg="ffmpeg"):
+    def __init__(self, size, display_id=None, bitrate=VIDEO_BITRATE, fps=VIDEO_FPS, adb="adb", ffmpeg="ffmpeg",
+                 low_delay=False):
         super().__init__(daemon=True, name="frame-stream")
+        self.low_delay = low_delay      # decode each picture the moment it comes (no frame threads that hold some back)
         self.w, self.h = size
         self.display_id, self.bitrate, self.fps = display_id, bitrate, fps
         self.adb, self.ffmpeg = adb, ffmpeg
@@ -60,7 +62,7 @@ class FrameStream(threading.Thread):
                 "--time-limit", str(TIME_LIMIT), "-"]
         # The same input options as the live view in web.py.  NOT "-fflags nobuffer": with it ffmpeg gives no
         # picture at all from a raw H.264 stream (tried: 0 pictures of 40, without it 40 of 40).
-        ff = [self.ffmpeg, "-loglevel", "error",
+        ff = [self.ffmpeg, "-loglevel", "error", *(["-threads", "1", "-flags", "low_delay"] if self.low_delay else []),
               "-probesize", "32768", "-analyzeduration", "0", "-f", "h264", "-i", "pipe:0", "-an",
               "-vf", f"fps={self.fps},scale={self.w}:{self.h}", "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1"]
         return rec, ff

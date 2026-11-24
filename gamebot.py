@@ -178,6 +178,15 @@ class Brain:
             it.allocate_tensors()
             self.map_pool.put(it)
         self.workers = ThreadPoolExecutor(MAP_WORKERS)
+        # the two looks of every map step (the whole screen and the enlarged middle) side by side, each on half
+        # of the cores, instead of one after the other on all of them (24 November: 1.2 - 2.2 s a look)
+        half = max((os.cpu_count() or 4) // 2, 1)
+        self.pair = []
+        for _ in range(2):
+            it = Interpreter(model_path=p("model_detector_map_v2.tflite"), num_threads=half)
+            it.allocate_tensors()
+            self.pair.append(it)
+        self.pair_pool = ThreadPoolExecutor(2)
         self._seen = None                          # (image, full-frame result, zoom result) of the last quick look
         self.clk = load("model_detector_clickable_v2.tflite")
         self.enc = load("model_detector_encounter.tflite")
@@ -226,13 +235,14 @@ class Brain:
         def near(a, b):
             return abs(a[2] - b[2]) < 100 and abs(a[3] - b[3]) < 100
 
-        def look(box, alone=False):
+        def look(box, alone=False, it=None):
             x0, y0, x1, y1 = box
-            it = self.map if alone else self.map_pool.get()    # alone: the copy that uses all cores
+            pooled = it is None and not alone
+            it = it or (self.map if alone else self.map_pool.get())    # alone: the copy that uses all cores
             try:
                 found = self._ssd(it, self.map_anchors, MAP_LABELS, img[y0:y1, x0:x1])
             finally:
-                if not alone:
+                if pooled:
                     self.map_pool.put(it)
             return [((o[0], o[1], o[2] + x0, o[3] + y0) + tuple(o[4:]), box)
                     for o in found if o[0] == "pokemon" and o[1] >= TH_WEAK]
@@ -240,8 +250,9 @@ class Brain:
         if self._seen is not None and self._seen[0] is img:     # same screenshot: reuse the quick look
             res, zoom = list(self._seen[1]), self._seen[2]
         else:
-            res = self._ssd(self.map, self.map_anchors, MAP_LABELS, img)
-            zoom = look(ZOOM_BOX, alone=True)
+            whole = self.pair_pool.submit(self._ssd, self.pair[0], self.map_anchors, MAP_LABELS, img)
+            zoom = look(ZOOM_BOX, it=self.pair[1])
+            res = whole.result()
             self._seen = (img, list(res), zoom)
         # something that could be a Pokémon (weak hit in the whole screen or the zoom look)?
         self.hint = bool(zoom) or any(r[0] == "pokemon" and r[1] >= 0.2 for r in res)
@@ -325,6 +336,9 @@ def setting(key, default):
             return json.load(f).get(key, default)
     except (OSError, ValueError):
         return default
+
+
+S.live_wanted = lambda: bool(setting("live_look", True))   # option 'Look with the live video'
 
 
 def wanted(key):
@@ -511,7 +525,7 @@ def fast_catch_leave(brain, t_throw):
     log(f"fast catch: clear hit - pressing BACK ({t_back - t_throw:.1f} s after the release)")
     S.back()
     time.sleep(FAST_LOOK_AFTER)
-    img = S.screenshot()
+    img = S.quick_screenshot()
     if not S.on_map(img):
         lines = ocr_lines(img, 100, 2150)
         kind = _screen_kind(img, lines)
@@ -668,7 +682,7 @@ def do_map(brain, img):
         rotation["steps"] = 0                          # found: stop turning
         _, sc, x, y, *_ = pokemon[0]
         t_2 = time.time()
-        img2 = S.screenshot()
+        img2 = S.quick_screenshot()
         perf["shot"] += time.time() - t_2
         seen = brain.second_look(img2, x, y)
         if not seen:
@@ -2240,7 +2254,11 @@ cal = {"k": RING_SPEED,       # ring shrink per second of holding
        "lat": 55.0,           # ms per injected touch event (learned)
        "rel": 0.3,            # s the throw itself takes (learned)
        "aim": 0.0,            # px correction of the curveball landing point (learned)
-       "obs": []}             # last throws: (ring measured, s until release, ring at release)
+       "obs": [],             # last throws: (ring measured, s until release, ring at release)
+       "c_live": -0.12,       # the same as c for a picture of the live video: it came in a little after it was taken
+       "obs_live": []}        # ... and the throws that were timed with the live video
+RING_TRACK_S = 0.8            # s the ring is followed in the live video before the throw is timed
+RING_TRACK_EVERY = 0.1        # s at least between two pictures of the ring
 
 
 def load_cal():
@@ -2409,12 +2427,12 @@ def _circ(a, b):
     return (a - b + 0.5) % 1.0 - 0.5
 
 
-def refit_timing():
+def refit_timing(live=False):
     """Learn from the last throws: the ring at release must equal
     measured - k * (seconds between the screenshot and the release - c). c (moment the
     screenshot is really taken) is fitted from the first throw on, the shrink speed k as
-    soon as there are enough throws."""
-    obs = cal["obs"][-16:]
+    soon as there are enough throws. live: the throws timed with the live video (their own c)."""
+    obs = cal["obs_live" if live else "obs"][-16:]
     if not obs:
         return
     r, t, g = (np.array([o[i] for o in obs]) for i in range(3))
@@ -2429,7 +2447,37 @@ def refit_timing():
         i = int(cost.argmin())
         if best is None or cost[i] < best[0]:
             best = (float(cost[i]), float(k), float(cs[i]))
-    cal["k"], cal["c"] = best[1], best[2]
+    cal["k"], cal["c_live" if live else "c"] = best[1], best[2]
+
+
+def ring_track(brain, first, t_first=None):
+    """Follow the ring in the live video for a moment while the ball is held: [(clock time, ring size)] of the
+    pictures where it could be measured, and the detector's box of the ring (found on the first picture).
+    Empty when the video does not run or no ring is seen."""
+    wall = lambda t: time.time() - (time.monotonic() - t)     # noqa: E731  (clock time of a picture of the video)
+    frames = [(wall(t_first) if t_first else time.time(), first)] + [(wall(t), im)
+                                       for t, im in S.live_frames(RING_TRACK_S, RING_TRACK_EVERY)]
+    rings = [o for o in brain.encounter_objects(first)
+             if o[0] == "boundingBox" and o[1] >= TH_RING and o[3] < BALL_XY[1] - 300]
+    if not rings:
+        return [], None
+    out = []
+    for t, im in frames:
+        m = measure_ring(im, rings[0])
+        if m:
+            out.append((t, float(m["ratio"])))
+    return out, rings[0]
+
+
+def ring_speed(points):
+    """The shrink speed of the ring (size per second) from pictures taken one after another, or None. The ring
+    shrinks from 1 to 0 and starts again: only steps that go down count."""
+    steps = [((r0 - r1) / (t1 - t0)) for (t0, r0), (t1, r1) in zip(points, points[1:])
+             if t1 - t0 >= 0.05 and 0 < r0 - r1 < 0.6]
+    if len(steps) < 2:
+        return None
+    k = float(np.median(steps))
+    return k if 0.25 <= k <= 1.0 else None
 
 
 def save_async(name, img):
@@ -2488,6 +2536,11 @@ def find_ball(img, before):
 def watch_flight(before, ring):
     """Screenshots while the ball flies. Returns (first screenshot, x where the ball came down
     next to the Pokémon or None)."""
+    if S.live_stream() is not None:               # the live video: a picture every tenth of a second
+        time.sleep(0.15)
+        imgs = [im for _t, im in S.live_frames(1.0, 0.12)][:8]
+        if imgs:
+            return _landing(imgs, before, ring)
     shots = []
     with ThreadPoolExecutor(4) as pool:
         time.sleep(0.2)
@@ -2502,6 +2555,11 @@ def watch_flight(before, ring):
                 pass
     if not imgs:
         return None, None
+    return _landing(imgs, before, ring)
+
+
+def _landing(imgs, before, ring):
+    """(first picture, x where the ball came down next to the Pokémon or None)."""
     land_x = None
     if ring:
         _, _, cx, cy, bw, bh = ring
@@ -2511,6 +2569,9 @@ def watch_flight(before, ring):
         if near:
             land_x = min(near, key=lambda b: abs(b[1] - want_y))[0]
     return imgs[0], land_x
+
+
+throw_stats = {"n": 0, "on": 0}   # timed throws and how many got the ring size that was wanted (for the log)
 
 
 def throw_touch(brain, curve, target, target_name, aim_dx=0, power=1.0):
@@ -2525,11 +2586,31 @@ def throw_touch(brain, curve, target, target_name, aim_dx=0, power=1.0):
 
     ring = measured = t_shot = before = None
     t_grab = t_find = 0.0                         # where does the time of the hold go? (for the log)
+    k_now, live_timed = cal["k"], False           # (the speed of the ring for this throw)
     time.sleep(TOUCH_SHOT)
     try:
-        for attempt in range(2):                  # 2nd look: no ring seen / not readable (yet)
+        if target is not None and S.live_stream() is not None:    # the live video: follow the ring for a moment
             t_s = time.time()
-            img = S.screenshot()
+            img = S.quick_screenshot()
+            t_grab += time.time() - t_s
+            if S.quick_screenshot.live:
+                before = img
+                t_f = time.time()
+                points, box = ring_track(brain, img, S.quick_screenshot.t)
+                t_find += time.time() - t_f
+                if box is not None:
+                    ring = box
+                if points:
+                    t_shot, measured = points[-1]
+                    live_timed = True
+                    k = ring_speed(points)
+                    if k is not None:
+                        k_now = 0.5 * k + 0.5 * cal["k"]
+                    log(f"  ring followed in the live video: {len(points)} pictures, size {points[0][1]:.2f} -> "
+                        f"{measured:.2f}" + (f", speed {k:.2f}/s" if k is not None else ""))
+        for attempt in range(0 if live_timed else 2):   # screenshots - 2nd look: no ring seen / not readable (yet)
+            t_s = time.time()
+            img = S.quick_screenshot()
             t_grab += time.time() - t_s
             before = img
             t_f = time.time()
@@ -2540,6 +2621,8 @@ def throw_touch(brain, curve, target, target_name, aim_dx=0, power=1.0):
                 m = measure_ring(img, ring) if target is not None else None
                 if m:
                     measured, t_shot = m["ratio"], t_s
+                    if S.quick_screenshot.live:   # (a picture of the video: its own moment and its own c)
+                        t_shot, live_timed = time.time() - (time.monotonic() - S.quick_screenshot.t), True
                 elif target is not None:
                     save_async(f"g_ring_unreadable_{attempt + 1}.png", img)   # to see afterwards why it could not be read
                     d = dict(ring_diag)
@@ -2591,8 +2674,10 @@ def throw_touch(brain, curve, target, target_name, aim_dx=0, power=1.0):
             for i in range(steps)]
     release = [("MOVE", x, y) for x, y in path[:-1]] + [("UP", *path[-1])]
 
+    c_now = cal["c_live"] if live_timed else cal["c"]
+
     def ring_at(t):                               # ring size at clock time t
-        return (measured - cal["k"] * (t - t_shot - cal["c"])) % 1.0
+        return (measured - k_now * (t - t_shot - c_now)) % 1.0
 
     expect = None
     wait = 0.0
@@ -2600,7 +2685,7 @@ def throw_touch(brain, curve, target, target_name, aim_dx=0, power=1.0):
         diff = (ring_at(time.time() + cal["rel"]) - target) % 1.0
         if diff > 0.93:                           # already just below the target: throw now
             diff -= 1.0
-        wait = max(diff, 0.0) / cal["k"]
+        wait = max(diff, 0.0) / k_now
         log(f"throw target {target_name}: ring measured {measured:.2f}, holding {wait:.2f} s more")
         time.sleep(wait)
     elif target is not None:
@@ -2618,8 +2703,8 @@ def throw_touch(brain, curve, target, target_name, aim_dx=0, power=1.0):
         expect = ring_at(t_rel)
     log(("curveball" if curve else "ball") + f" thrown from x={hand[0]} towards x={int(end[0])} "
         f"(held {t_rel - t_touch:.1f} s, throw in {steps} steps)")
-    log(f"  hold time: screenshot {t_grab:.1f} s + ring search {t_find:.1f} s + spin still going {t_spin:.1f} s + "
-        f"ring wait {wait:.1f} s + release {t_rel - t_b:.1f} s")
+    log(f"  hold time: {'live video' if live_timed else 'screenshot'} {t_grab:.1f} s + ring search {t_find:.1f} s + "
+        f"spin still going {t_spin:.1f} s + ring wait {wait:.1f} s + release {t_rel - t_b:.1f} s")
 
     first, land_x = watch_flight(before, ring)     # where does the ball go, and how big was the ring?
     if first is not None and expect is not None:
@@ -2628,9 +2713,15 @@ def throw_touch(brain, curve, target, target_name, aim_dx=0, power=1.0):
             got = m["ratio"]
             kind = "Excellent" if got < 0.3 else "Great" if got < 0.7 else "Nice"
             log(f"ring at release {got:.2f} ({kind} size, wanted {target:.2f}, expected {expect:.2f})")
-            cal["obs"] = (cal["obs"] + [[round(float(measured), 3), round(t_rel - t_shot, 3),
-                                         round(float(got), 3)]])[-16:]
-            refit_timing()
+            key = "obs_live" if live_timed else "obs"
+            cal[key] = (cal[key] + [[round(float(measured), 3), round(t_rel - t_shot, 3), round(float(got), 3)]])[-16:]
+            refit_timing(live_timed)
+            throw_stats["n"] += 1
+            throw_stats["on"] += kind.lower() == str(target_name).lower()
+            if throw_stats["n"] % 10 == 0:
+                log(f"throws timed: {throw_stats['on']} of the last {throw_stats['n']} hit the wanted ring size "
+                    f"(ring speed {cal['k']:.2f}/s)")
+                throw_stats.update(n=0, on=0)
     if land_x is not None and ring:
         err = land_x - ring[2]
         aimed = err - aim_dx                      # compared with where this throw was meant to go
@@ -2797,6 +2888,7 @@ def catch_result_button(brain, img):
 RESULT_FIRST_LOOK = 2.0        # s after the throw until the first look (a miss shows the ball back in the hand from ~2.5 s)
 RESULT_WINDOW = 20.0           # s after the throw during which we keep looking (flight + up to 3 shakes + catch animation)
 POLL_PAUSE = 0.3               # s between two looks (a screenshot itself already takes ~2 s on the Pi, so no more waiting than this)
+POLL_PAUSE_LIVE = 0.05         # ... with the live video (a picture takes a tenth of a second; the classifier ~0.3 s)
 AFTER_OK_WAIT = 1.5            # s after the tap on OK of the result screen until the map has been drawn again
 AFTER_TAP_WAIT = 2.0           # s after another tap on the way back to the map (a button, closing a summary)
 
@@ -2816,7 +2908,7 @@ def wait_for_result(brain, t_throw):
     Returns True when the ball lies ready for the next throw."""
     time.sleep(max(RESULT_FIRST_LOOK - (time.time() - t_throw), 0.1))
     while True:
-        img = S.screenshot()
+        img = S.quick_screenshot()
         if ball_ready(img):
             return True
         btn = catch_result_button(brain, img)
@@ -2829,7 +2921,7 @@ def wait_for_result(brain, t_throw):
             return False
         if time.time() - t_throw > RESULT_WINDOW:
             return False
-        time.sleep(POLL_PAUSE)
+        time.sleep(POLL_PAUSE_LIVE if S.quick_screenshot.live else POLL_PAUSE)
 
 
 def aim(brain):
@@ -2837,7 +2929,7 @@ def aim(brain):
     bx, by = S.to_real(*BALL_XY)
     hold = subprocess.Popen(["adb", "shell", *S.INPUT, "swipe", str(bx), str(by), str(bx), str(by), "1300"])
     time.sleep(0.4)
-    img = S.screenshot()
+    img = S.quick_screenshot()
     hold.wait(timeout=10)
     time.sleep(0.2)
     rings = [o for o in brain.encounter_objects(img)
@@ -2857,7 +2949,7 @@ def do_encounter(brain, img):
             tap_catch_result(btn, "classified as catch screen")
             return 1.5
         time.sleep(0.5)                         # the ball may just be flipping over / flying back:
-        img = S.screenshot()                    # look once more before deciding it is over
+        img = S.quick_screenshot()              # look once more before deciding it is over
         if ball_ready(img):
             return 0.2
         mark_caught()
@@ -3233,12 +3325,17 @@ def step(brain):
         handoff["img"] = None
     else:
         handoff["img"] = None
-        img = S.unlock_game(S.screenshot(fire_rotation) if rotation["armed"] else S.screenshot())
+        img = S.unlock_game(S.quick_screenshot(fire_rotation) if rotation["armed"] else S.quick_screenshot())
     shot_cost = time.time() - t_shot
 
     name, score = brain.screen(img)
     if score < TH_CLASS:
         name = "onbekend"
+    if S.quick_screenshot.live and name not in ("mapScreen", "encounterScreen"):
+        img = S.unlock_game(S.screenshot())         # (a picture of the video is not sharp enough to read text)
+        name, score = brain.screen(img)
+        if score < TH_CLASS:
+            name = "onbekend"
     if name != "mapScreen" and not S.on_map(img):      # (a swipe started for a picture that turned out not to be the map: forget it)
         rotation.update(fired=None, armed=None)
     health["ok"] = name in ("mapScreen", "encounterScreen", "pokestopScreen")
@@ -4161,6 +4258,7 @@ def _fight_stream():
     """The live video of the phone for this fight (battle_stream.py), or None when it cannot be started."""
     if not FIGHT_VIDEO:
         return None
+    S.live_stop()                              # (the video for looking: the fight has one of its own)
     try:
         import battle_stream as BS
         size = BS.video_size(S.screen["w"], S.screen["h"])
@@ -5888,7 +5986,7 @@ def run_chapter(key):
             S.debug_save("g_test_start.png")
         except Exception as e:  # noqa: BLE001
             log(f"TEST {key}: no screenshot ({e})")
-        brain = Brain() if key in ("screen", "play", "catch", "rocket") else None
+        brain = Brain() if key in ("screen", "play", "catch", "rocket", "look", "throw") else None
         if key.startswith("battle") or key == "rocket_fight":
             try:
                 log(S.probe_input())
@@ -5909,6 +6007,42 @@ def run_chapter(key):
         elif key == "video":
             ok = bool(stream_test())
             how = "the live video works" if ok else "the live video did not work (see the lines above)"
+        elif key == "look":
+            def timed(fn):
+                t = time.time()
+                img = fn()
+                return img, time.time() - t
+            vids = [timed(S.quick_screenshot) for _ in range(10)]
+            live_ok = S.quick_screenshot.live
+            shots = [timed(S.screenshot) for _ in range(3)]
+            t = time.time()
+            found_v = brain.map_objects(vids[-1][0]) if live_ok else []
+            t_det = time.time() - t
+            brain._seen = None
+            found_s = brain.map_objects(shots[-1][0])
+            if live_ok:
+                save_async("g_look_video.png", vids[-1][0])
+            save_async("g_look_shot.png", shots[-1][0])
+            names = lambda objs: ", ".join(f"{o[0]} {o[1]:.2f}" for o in objs[:6]) or "nothing"   # noqa: E731
+            avg = lambda xs: sum(x[1] for x in xs) / len(xs)                                  # noqa: E731
+            log(f"TEST look: screenshots {avg(shots):.2f} s each, finds: {names(found_s)}")
+            if live_ok:
+                log(f"TEST look: live video {avg(vids):.2f} s a picture, finds: {names(found_v)} "
+                    f"(detection {t_det:.2f} s; debug/g_look_video.png and g_look_shot.png)")
+                ok, how = True, f"live video {avg(vids):.2f} s a picture, screenshot {avg(shots):.2f} s"
+            else:
+                ok, how = False, ("the live video does not run (option 'Look with the live video' off, or see the "
+                                  f"lines above) - screenshot {avg(shots):.2f} s")
+        elif key == "throw":
+            name, _ = brain.screen(S.quick_screenshot())
+            if name != "encounterScreen" or not ball_ready(S.screenshot()):
+                how = f"no ball ready on an encounter screen ({name})"
+            else:
+                enc["throws"] += 1
+                t_rel = throw_ball(brain)
+                hit = throw_info.get("hit")
+                ok, how = bool(t_rel), ("thrown - " + ("a clear hit" if hit else "not a clear hit" if hit is False
+                                                       else "where it came down was not seen") + " (see the lines above)")
         elif key == "play":
             gift_timer["last"] = time.time()   # (the gifts have a test of their own: not the first minute of this one)
             n = _chapter_steps(brain, CHAPTER_PLAY_S, stop=stop)
