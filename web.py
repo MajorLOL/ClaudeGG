@@ -527,11 +527,56 @@ def today_stats():
     return _today["stats"], _today["battles"]
 
 
+TEMP_EVERY = 20               # s: the temperatures are read again after this long
+PI_WARM, PI_HOT = 70, 80      # °C of the Pi's processor: warm (fine for a while), hot (it slows itself down from 80)
+PHONE_WARM, PHONE_HOT = 40, 43   # °C of the phone's battery: Samsung's best range is 0-35, above ~43 is too warm
+_temps = {"t": 0.0, "pi": None, "phone": None, "throttled": False}
+
+
+def pi_temp():
+    """°C of the Pi's processor, or None."""
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp") as f:
+            return round(int(f.read().strip()) / 1000.0, 1)
+    except (OSError, ValueError):
+        return None
+
+
+def pi_throttled():
+    """True when the Pi slows itself down right now because of heat (vcgencmd get_throttled, bit 2 / 3)."""
+    try:
+        out = subprocess.run(["vcgencmd", "get_throttled"], capture_output=True, timeout=3).stdout.decode()
+        return bool(int(out.strip().split("=")[1], 16) & 0xC)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def phone_temp(text=None):
+    """°C of the phone's battery from 'dumpsys battery' (it says 'temperature: 312' for 31.2 °C), or None."""
+    text = sh("dumpsys", "battery", timeout=5) if text is None else text
+    m = re.search(r"^\s*temperature:\s*(-?\d+)", text or "", re.M)
+    return round(int(m.group(1)) / 10.0, 1) if m else None
+
+
+def _read_temps():
+    _temps.update(pi=pi_temp(), phone=phone_temp(), throttled=pi_throttled())
+
+
+def temps():
+    """{pi, phone, throttled}: read again in the background at most every TEMP_EVERY s (asking the phone takes
+    a moment; the page gets the last values meanwhile)."""
+    if time.time() - _temps["t"] > TEMP_EVERY:
+        _temps["t"] = time.time()
+        threading.Thread(target=_read_temps, daemon=True, name="temps").start()
+    return {k: _temps[k] for k in ("pi", "phone", "throttled")}
+
+
 def status():
     active = subprocess.run(["systemctl", "is-active", SERVICE], capture_output=True).stdout.decode().strip()
     stats, battles = today_stats()
     _, pw, ph = phone()
-    return {"service": active, "stats": stats, "battles": battles, "test": test_status(), "control": read_control(), "labels": OPTIONS, "apps": game_apps(), "rec": rec_status(),
+    return {"service": active, "stats": stats, "battles": battles, "test": test_status(), "temps": temps(),
+            "temp_limits": {"pi": [PI_WARM, PI_HOT], "phone": [PHONE_WARM, PHONE_HOT]}, "control": read_control(), "labels": OPTIONS, "apps": game_apps(), "rec": rec_status(),
             "w": pw, "h": ph, "phone": S.screen["model"], "screen_note": S.screen["note"], "screen_ok": S.screen["ok"],
             "video": latest["mode"], "error": latest["error"],
             "age": round(time.time() - latest["time"], 1) if latest["time"] else None}
@@ -567,6 +612,10 @@ PAGE = r"""<!DOCTYPE html>
  .stats .grp + .grp { padding-left:18px; border-left:1px solid var(--ridge); }
  .stats .btn.small { height:26px; }
  .stats b { color:var(--chalk); font-size:17px; font-weight:650; font-variant-numeric:tabular-nums; margin-right:4px; }
+ .temps { display:flex; gap:12px; color:var(--mist); font-size:13px; }
+ .temps span { white-space:nowrap; cursor:help; }
+ .temps b { font-weight:650; color:var(--chalk); font-variant-numeric:tabular-nums; }
+ .temps .warm b { color:var(--hold); } .temps .hot b { color:var(--stop); }
  .state { display:flex; align-items:center; gap:9px; padding:5px 14px 5px 11px; border:1px solid var(--ridge); border-radius:999px; font-weight:600; }
  .state i { width:9px; height:9px; border-radius:50%; background:var(--mist); }
  .state[data-s="run"] { border-color:#2a6b57; } .state[data-s="run"] i { background:var(--run); }
@@ -792,6 +841,7 @@ PAGE = r"""<!DOCTYPE html>
   <h1>@@NAME@@</h1>
  </div>
  <div class="stats" id="stats" aria-label="Today"></div>
+ <div class="temps" id="temps" aria-label="Temperatures"></div>
  <div class="state" id="state" data-s="wait" role="status"><i></i><span id="svc">Connecting</span></div>
 </header>
 <main>
@@ -1085,6 +1135,24 @@ function showStats(text) {
   }
 }
 
+function showTemps(t, lim) {
+  const box = $('temps'); box.textContent = '';
+  if (!t) return;
+  const tips = {
+    pi: 'Raspberry Pi processor. Best below 60-65 °C; 70-80 is fine for a while; from 80 °C it slows itself down (85: much slower). Hot: a heatsink with a fan helps most.',
+    phone: 'Phone battery. Samsung: best 0-35 °C; up to about 43 °C is still acceptable while in use; hotter wears the battery and the phone slows down and charges less. Hot: take it out of its case, let air reach it, lower the screen brightness.'};
+  for (const [k, name] of [['pi', 'Pi'], ['phone', 'Phone']]) {
+    if (t[k] === null || t[k] === undefined) continue;
+    const s = document.createElement('span'), b = document.createElement('b');
+    const [warm, hot] = lim[k];
+    s.className = t[k] >= hot ? 'hot' : t[k] >= warm ? 'warm' : '';
+    b.textContent = Math.round(t[k]) + ' °C';
+    s.append(name + ' ', b);
+    if (k === 'pi' && t.throttled) { s.className = 'hot'; s.append(' slowed down'); }
+    s.title = tips[k]; box.append(s);
+  }
+}
+
 function showGames(list) {                            // the GO Battle League matches of today, newest first
   const sec = $('games'), ol = $('gamelist');
   list = list || [];
@@ -1289,6 +1357,7 @@ async function refresh() {
     $('svc').textContent = name; $('state').dataset.s = tone;
     showStats(s.stats);
     showGames(s.battles);
+    showTemps(s.temps, s.temp_limits);
     showTest(s.test);
     if (s.w && s.h) { PW = s.w; PH = s.h; document.documentElement.style.setProperty('--ar', (s.w / s.h).toFixed(4)); }
     $('model').textContent = s.phone || '';

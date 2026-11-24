@@ -125,5 +125,13 @@ class BattlesToday(unittest.TestCase):
             W.DEBUG_DIR = saved
 
 
+@unittest.skipIf(W is None, "web.py cannot be imported here")
+class Temperatures(unittest.TestCase):
+    def test_the_battery_temperature_of_the_phone(self):
+        text = "Current Battery Service state:\n  AC powered: false\n  level: 81\n  temperature: 312\n  technology: Li-ion\n"
+        self.assertEqual(W.phone_temp(text), 31.2)
+        self.assertIsNone(W.phone_temp("no battery here"))
+
+
 if __name__ == "__main__":
     unittest.main()
