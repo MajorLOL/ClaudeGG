@@ -30,8 +30,30 @@ import battle_engine as BE
 
 RAW = "https://raw.githubusercontent.com/pvpoke/pvpoke/master/src/data/"
 CACHE = os.path.join(os.path.expanduser("~"), "models", "pvpoke")
-COLLECTION_FILE = os.path.join(os.path.expanduser("~"), "collection.json")
+MAIN_PACKAGE = "com.nianticlabs.pokemongo"
+COLLECTION_FILE = os.path.join(os.path.expanduser("~"), "collection.json")          # (the Play Store app)
 TEAMS_FILE = os.path.join(os.path.expanduser("~"), "collection_teams.json")
+
+
+def game_key(pkg=None):
+    """A short name for the files of one Pokémon GO app: '' for the Play Store app, else a part of its package
+    name ('com.nianticlabs.pokemongo.ares' -> 'ares'). Every app is another account: its own Pokémon, tags and
+    teams."""
+    pkg = (pkg or MAIN_PACKAGE).strip()
+    if pkg == MAIN_PACKAGE:
+        return ""
+    tail = pkg[len(MAIN_PACKAGE):].strip(".") if pkg.startswith(MAIN_PACKAGE) else pkg
+    return re.sub(r"[^a-z0-9]+", "_", tail.lower()).strip("_") or "other"
+
+
+def collection_file(game=None):
+    k = game_key(game)
+    return COLLECTION_FILE if not k else COLLECTION_FILE.replace(".json", f"-{k}.json")
+
+
+def teams_file(game=None):
+    k = game_key(game)
+    return TEAMS_FILE if not k else TEAMS_FILE.replace(".json", f"-{k}.json")
 FRESH = 24 * 3600            # s: the downloaded PvPoke files are fetched again after this long
 MAX_LEVEL = 50.0             # (51 for a best buddy: not counted)
 TEAM_SIZE = 3
@@ -79,7 +101,9 @@ def species_table(data=None):
         out[p["speciesId"]] = {"name": p["speciesName"], "base": (b["atk"], b["def"], b["hp"]),
                                "types": [t for t in p.get("types", []) if t and t != "none"],
                                "evolutions": (p.get("family") or {}).get("evolutions") or [],
-                               "tags": p.get("tags") or [], "dex": p.get("dex")}
+                               "tags": p.get("tags") or [], "dex": p.get("dex"),
+                               "fast": p.get("fastMoves") or [], "charged": p.get("chargedMoves") or [],
+                               "elite": (p.get("eliteMoves") or []) + (p.get("legacyMoves") or [])}
     if data is None:
         _species.update(out)
     return out
@@ -168,7 +192,9 @@ def match_format(title, cap, formats=None):
 def rankings(cup, cap):
     """{speciesId: {score, moveset}} of a league or cup (PvPoke 'overall')."""
     data = fetch(f"rankings/{cup}/overall/rankings-{cap}.json") or []
-    return {r["speciesId"]: {"score": float(r.get("score", 0)), "moveset": r.get("moveset") or []} for r in data}
+    return {r["speciesId"]: {"score": float(r.get("score", 0)), "moveset": r.get("moveset") or [],
+                             "roles": (r.get("scores") or [0] * 6)[:3], "rank": i + 1}
+            for i, r in enumerate(data)}
 
 
 # ------------------------------------------------------------------ stats ---
@@ -198,6 +224,79 @@ def level_from_cp(base, ivs, cp, exact=True):
 
 
 _LEVELS = None
+
+
+def hp_of(base, ivs, level):
+    """The maximum HP."""
+    return max(10, int((base[2] + ivs[2]) * cpm(level)))
+
+
+def identify(cp, ivs, hp=None, types=None, name=None, table=None):
+    """(speciesId, level, how) of a scanned Pokémon. The name decides when it fits the CP (and the HP); a
+    nickname or a misread name is found by what fits: every species (of these types, when they were read) is
+    tried for a level with exactly this CP and HP. how: 'name', 'stats' or 'name, HP does not fit'.
+    (None, None, why) when nothing fits or more than one species does."""
+    table = table or species_table()
+    ivs = tuple(ivs)
+
+    def fits(sid):
+        base = table[sid]["base"]
+        lv = level_from_cp(base, ivs, cp)
+        if lv is None:
+            return None
+        if hp is not None and hp_of(base, ivs, lv) != hp:
+            return None
+        return lv
+    by_name = find_species(name, table) if name else None
+    if by_name:
+        lv = fits(by_name)
+        if lv is not None:
+            return by_name, lv, "name"
+    want = {t.lower() for t in (types or []) if t}
+    hits = []
+    for sid, row in table.items():
+        if any(t in ("mega", "shadow") for t in row["tags"]) or sid.endswith(("_shadow", "_mega", "_mega_x", "_mega_y")):
+            continue
+        if want and set(row["types"]) != want:
+            continue
+        lv = fits(sid)
+        if lv is not None:
+            hits.append((sid, lv))
+    # forms with the same stats (Pikachu caps ...) are one answer
+    stats = {table[sid]["base"] for sid, _lv in hits}
+    if hits and len(stats) == 1:
+        return hits[0][0], hits[0][1], "stats"
+    if by_name:
+        lv = level_from_cp(table[by_name]["base"], ivs, cp, exact=False)
+        return by_name, lv, "name, HP does not fit"
+    return None, None, ("no species fits" if not hits else f"{len(stats)} species fit")
+
+
+# Power-up costs (per half level), as the game asks them. Levels 1-40: Stardust and Candy per two levels; 40-50:
+# Stardust and Candy XL. Lucky: half the Stardust; Shadow: 1.2x Stardust and Candy; Purified: 0.9x.
+DUST = [200, 400, 600, 800, 1000, 1300, 1600, 1900, 2200, 2500, 3000, 3500, 4000, 4500, 5000, 6000, 7000, 8000, 9000, 10000]
+CANDY = [1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 4, 4, 6, 8, 10, 12, 15]
+DUST_XL = [10000, 11000, 11000, 12000, 12000, 13000, 13000, 14000, 14000, 15000]
+CANDY_XL = [10, 10, 12, 12, 15, 15, 17, 17, 20, 20]
+
+
+def power_cost(from_level, to_level, lucky=False, shadow=False, purified=False):
+    """(stardust, candy, candy XL) to power up from one level to another (an estimate of the game's table)."""
+    dust = candy = xl = 0
+    lv = from_level
+    while lv < to_level - 1e-6:
+        if lv < 40:
+            i = min(int((lv - 1) // 2), len(DUST) - 1)
+            dust += DUST[i]
+            candy += CANDY[i]
+        else:
+            i = min(int(lv - 40), len(DUST_XL) - 1)
+            dust += DUST_XL[i]
+            xl += CANDY_XL[i]
+        lv += 0.5
+    f = 1.2 if shadow else 0.9 if purified else 1.0
+    dust = dust * f * (0.5 if lucky else 1.0)
+    return int(round(dust)), int(math.ceil(candy * f)), int(math.ceil(xl * f))
 
 
 def best_under(base, ivs, cap, min_level=1.0):
@@ -270,18 +369,36 @@ def evaluate(mons, leagues, table=None, ranks=None):
             rk = ranks.get(lg["title"]) or {}
             best = None
             for form in family_forms(sid, table):
-                if form not in rk:
+                rid = form + "_shadow" if m.get("shadow") and form + "_shadow" in rk else form
+                if rid not in rk:
                     continue
                 base = table[form]["base"]
                 where = best_under(base, ivs, lg["cap"], now_level)    # (evolving keeps the level)
                 if where is None:
                     continue                                   # (already over the cap at its level now)
                 fit = iv_fit(base, ivs, lg["cap"])
-                value = rk[form]["score"] * (0.8 + 0.2 * fit)
+                value = rk[rid]["score"] * (0.8 + 0.2 * fit)
+                dust, candy, xl = power_cost(now_level, where[0], m.get("lucky"), m.get("shadow"), m.get("purified"))
+                notes = []
+                if form != sid and m.get("candy") is not None:
+                    pass                                       # (evolution candy is not counted)
+                if m.get("candy") is not None and candy > m["candy"]:
+                    value *= 0.6
+                    notes.append(f"needs {candy} candy, has {m['candy']}")
+                if m.get("xl") is not None and xl > m["xl"]:
+                    value *= 0.6
+                    notes.append(f"needs {xl} candy XL, has {m['xl']}")
+                moves = moves_status(m, form, rk[rid]["moveset"], table)
+                if moves == "elite TM":
+                    value *= 0.85
+                elif moves == "TM":
+                    value *= 0.95
                 if best is None or value > best["value"]:
-                    best = {"form": form, "form_name": table[form]["name"], "score": rk[form]["score"],
+                    best = {"form": form, "rid": rid, "form_name": table[form]["name"] + (" (Shadow)" if rid != form else ""),
+                            "score": rk[rid]["score"], "rank": rk[rid].get("rank"), "roles": rk[rid].get("roles", [0, 0, 0]),
                             "fit": round(fit, 4), "value": round(value, 2), "level": where[0], "cp": where[1],
-                            "moveset": rk[form]["moveset"], "evolve": form != sid}
+                            "moveset": rk[rid]["moveset"], "evolve": form != sid, "now_level": now_level,
+                            "dust": dust, "candy": candy, "xl": xl, "moves": moves, "notes": notes}
             if best:
                 per[lg["title"]] = best
         if per:
@@ -289,12 +406,87 @@ def evaluate(mons, leagues, table=None, ranks=None):
     return out
 
 
+def moves_status(m, form, moveset, table=None):
+    """What the Pokémon needs for the moves PvPoke recommends: 'ok' (it has them), 'TM', 'elite TM' (a legacy or
+    elite move it does not have), or '?' (its moves were not read)."""
+    table = table or species_table()
+    have = m.get("moves")
+    want = set(moveset or [])
+    if not want:
+        return "?"
+    if not have:
+        elite = set(table.get(form, {}).get("elite") or [])
+        return "elite TM?" if want & elite else "?"
+    got = {have.get("fast")} | set(have.get("charged") or [])
+    missing = want - got
+    if not missing:
+        return "ok"
+    elite = set(table.get(form, {}).get("elite") or [])
+    return "elite TM" if missing & elite else "TM"
+
+
 def _weak_to(types):
     """The attack types this type combination takes super effective damage from."""
     return {t for t in BE.load()["types"] if BE.type_mult(t, types) > 1.0}
 
 
-def build_teams(mons, evals, leagues, table=None):
+SIM_CANDIDATES = 9        # per league: the best this many are tried in teams of three with the simulator ...
+SIM_META = 30             # ... against the top this many of the league (1 shield each)
+
+
+def _mon_for(sid, ivs, level, moveset, shadow=False):
+    """A battle_engine.Mon, or None when the engine does not know the species or a move."""
+    try:
+        fast = moveset[0] if moveset else None
+        charged = list(moveset[1:]) if len(moveset) > 1 else None
+        return BE.Mon(sid, level=level, ivs=tuple(ivs), shadow=shadow, fast=fast, charged=charged)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def meta_mons(ranks, cap, table=None, n=SIM_META):
+    """The top n of a league as Mons (IVs 0/15/15 at the best level under the cap: a usual build)."""
+    table = table or species_table()
+    out = []
+    for rid, r in sorted(ranks.items(), key=lambda t: t[1].get("rank", 999))[:n]:
+        sid = rid[:-7] if rid.endswith("_shadow") else rid
+        if sid not in table:
+            continue
+        b = best_under(table[sid]["base"], (0, 15, 15), cap)
+        if b is None:
+            continue
+        m = _mon_for(sid, (0, 15, 15), b[0], r["moveset"], rid.endswith("_shadow"))
+        if m:
+            out.append(m)
+    return out
+
+
+def coverage(members, meta):
+    """0..1: over the top of the league, how well the best of the members does (1v1, 1 shield each)."""
+    if not members or not meta:
+        return 0.0
+    tot = 0.0
+    for foe in meta:
+        tot += max((BE.matchup(m, foe, 1, 1) + 1) / 2 for m in members)
+    return tot / len(meta)
+
+
+def team_roles(team):
+    """Lead, switch and closer, from PvPoke's role scores (lead / closer / switch): the team in that order."""
+    if len(team) < 3:
+        for e, r in zip(team, ("Lead", "Switch", "Closer")):
+            e["role"] = r
+        return team
+    left = list(team)
+    lead = max(left, key=lambda e: e["eval"].get("roles", [0, 0, 0])[0])
+    left.remove(lead)
+    closer = max(left, key=lambda e: e["eval"].get("roles", [0, 0, 0])[1])
+    left.remove(closer)
+    lead["role"], left[0]["role"], closer["role"] = "Lead", "Switch", "Closer"
+    return [lead, left[0], closer]
+
+
+def build_teams(mons, evals, leagues, table=None, ranks=None):
     """A team of three per league, and the league each picked Pokémon is best in.  Each Pokémon goes to one
     league only: the one where it is worth most next to the others there.  In a team the second and third
     Pokémon must not share a weakness with both others (they cover each other).
@@ -337,59 +529,164 @@ def build_teams(mons, evals, leagues, table=None):
             if mid not in used:
                 teams[lg["title"]]["reserves"].append({"mon": by_id[mid], "eval": evals[mid][lg["title"]]})
                 used.add(mid)
+    if ranks:                                          # the simulator: the trio that covers the top of the league best
+        for lg in leagues:
+            _simulated_team(teams[lg["title"]], lg, cands[lg["title"]], evals, by_id, ranks.get(lg["title"]) or {},
+                            used, table)
     for tm in teams.values():
         tm.pop("weak")
+        tm["team"] = team_roles(tm["team"])
     return teams
 
 
+def _simulated_team(tm, lg, cands, evals, by_id, rk, used, table):
+    """Swap the team for the trio of the league's best candidates (that are not in another team) that covers the
+    top of the league best in the simulator; the score of PvPoke and the IV fit weigh in too."""
+    import itertools
+    mine = {e["mon"]["id"] for e in tm["team"] + tm["reserves"]}
+    pool = [mid for _v, mid in cands if mid in mine or mid not in used][:SIM_CANDIDATES]
+    if len(pool) < 3:
+        return
+    meta = meta_mons(rk, lg["cap"], table)
+    mons = {}
+    for mid in pool:
+        ev = evals[mid][lg["title"]]
+        m = by_id[mid]
+        mons[mid] = _mon_for(ev["form"], m["ivs"], ev["level"], ev["moveset"], bool(m.get("shadow")))
+    pool = [mid for mid in pool if mons[mid] is not None]
+    if len(pool) < 3 or not meta:
+        return
+    best, best_score = None, -1.0
+    for trio in itertools.combinations(pool, 3):
+        forms = {evals[mid][lg["title"]]["form"] for mid in trio}
+        if len(forms) < 3:
+            continue
+        cov = coverage([mons[mid] for mid in trio], meta)
+        val = sum(evals[mid][lg["title"]]["value"] for mid in trio) / 300.0
+        score = 0.7 * cov + 0.3 * val
+        if score > best_score:
+            best, best_score = trio, score
+    if not best:
+        return
+    for e in tm["team"] + tm["reserves"]:
+        used.discard(e["mon"]["id"])
+    tm["team"] = [{"mon": by_id[mid], "eval": evals[mid][lg["title"]]} for mid in best]
+    tm["coverage"] = round(coverage([mons[mid] for mid in best], meta), 3)
+    used.update(best)
+    tm["reserves"] = [{"mon": by_id[mid], "eval": evals[mid][lg["title"]]} for _v, mid in cands
+                      if mid not in used][:RESERVES]
+    used.update(e["mon"]["id"] for e in tm["reserves"])
+
+
+WANTED_TOP = 25           # the top this many of a league: wanted when you have none with good IVs for it
+WANTED_FIT = 0.9
+
+
+def wanted_list(mons, evals, leagues, ranks):
+    """Per league: strong species (top WANTED_TOP) you do not have, or only with IVs that fit the cap badly."""
+    out = {}
+    for lg in leagues:
+        rk = ranks.get(lg["title"]) or {}
+        have = {}
+        for mid, e in evals.items():
+            ev = e.get(lg["title"])
+            if ev:
+                have[ev["rid"] if "rid" in ev else ev["form"]] = max(have.get(ev.get("rid", ev["form"]), 0), ev["fit"])
+        rows = []
+        for rid, r in sorted(rk.items(), key=lambda t: t[1].get("rank", 999))[:WANTED_TOP]:
+            fit = have.get(rid)
+            if fit is None or fit < WANTED_FIT:
+                rows.append({"species": rid, "rank": r.get("rank"), "score": r["score"],
+                             "best_fit": round(fit, 3) if fit is not None else None})
+        out[lg["title"]] = rows
+    return out
+
+
+PROTECT_FIT, PROTECT_SCORE = 0.95, 85
+
+
+def protected_ids(mons, evals, teams):
+    """Pokémon that never may go when the storage is cleaned up: team members and reserves, and every one whose
+    IVs fit a league very well (PROTECT_FIT) for a species that is strong there (PROTECT_SCORE)."""
+    out = set()
+    for tm in teams.values():
+        out.update(e["mon"]["id"] for e in tm.get("team", []) + tm.get("reserves", []))
+    for mid, e in evals.items():
+        if any(ev["fit"] >= PROTECT_FIT and ev["score"] >= PROTECT_SCORE for ev in e.values()):
+            out.add(mid)
+    return out
+
+
+def battle_team_entries(teams, league):
+    """The team of the league the bot fights in, as battle_engine wants it in ~/battle_team.json (in the order
+    lead, switch, closer), or None when there is no team of three for that league."""
+    words = set(_norm(league).split())
+    title = next((t for t in teams if words and words <= set(_norm(t).split())), None)
+    if title is None or len(teams[title].get("team", [])) < 3:
+        return None
+    out = []
+    for e in teams[title]["team"]:
+        ev, m = e["eval"], e["mon"]
+        mv = ev.get("moveset") or []
+        out.append({"species": ev["form"], "shadow": bool(m.get("shadow")), "level": ev["level"],
+                    "ivs": list(m["ivs"]), "fast": mv[0] if mv else None, "charged": list(mv[1:]) or None})
+    return out
+
+
 # --------------------------------------------------------------- storage ---
-def load_collection(path=None):
+def load_collection(path=None, game=None):
     try:
-        with open(path or COLLECTION_FILE, encoding="utf-8") as f:
+        with open(path or collection_file(game), encoding="utf-8") as f:
             d = json.load(f)
         return d if isinstance(d, dict) else {}
     except (OSError, ValueError):
         return {}
 
 
-def save_collection(d, path=None):
-    path = path or COLLECTION_FILE
+def save_collection(d, path=None, game=None):
+    path = path or collection_file(game)
     with open(path + ".tmp", "w", encoding="utf-8") as f:
         json.dump(d, f, ensure_ascii=False, indent=0)
     os.replace(path + ".tmp", path)
 
 
-def make_teams(collection=None, leagues=None, path=None):
-    """Work out the teams of the leagues of now from the scanned Pokémon and keep them in TEAMS_FILE."""
-    c = collection if collection is not None else load_collection()
+def make_teams(collection=None, leagues=None, path=None, game=None, simulate=True):
+    """Work out the teams of the leagues of now from the scanned Pokémon of one game and keep them (teams_file)."""
+    c = collection if collection is not None else load_collection(game=game)
     leagues = leagues if leagues is not None else c.get("leagues") or []
     mons = c.get("mons") or []
-    evals = evaluate(mons, leagues)
-    teams = build_teams(mons, evals, leagues)
-    out = {"made": time.strftime("%Y-%m-%d %H:%M"), "leagues": leagues, "teams": teams,
+    ranks = {lg["title"]: rankings(lg["cup"], lg["cap"]) for lg in leagues}
+    evals = evaluate(mons, leagues, ranks=ranks)
+    teams = build_teams(mons, evals, leagues, ranks=ranks if simulate else None)
+    out = {"made": time.strftime("%Y-%m-%d %H:%M"), "game": c.get("game") or game or MAIN_PACKAGE,
+           "leagues": leagues, "teams": teams,
            "best_league": {mid: max(e, key=lambda t: e[t]["value"]) for mid, e in evals.items()},
-           "evals": evals}
-    with open((path or TEAMS_FILE) + ".tmp", "w", encoding="utf-8") as f:
+           "evals": evals, "wanted": wanted_list(mons, evals, leagues, ranks),
+           "protected": sorted(protected_ids(mons, evals, teams))}
+    path = path or teams_file(game or c.get("game"))
+    with open(path + ".tmp", "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False)
-    os.replace((path or TEAMS_FILE) + ".tmp", path or TEAMS_FILE)
+    os.replace(path + ".tmp", path)
     return out
 
 
-def load_teams(path=None):
+def load_teams(path=None, game=None):
     try:
-        with open(path or TEAMS_FILE, encoding="utf-8") as f:
+        with open(path or teams_file(game), encoding="utf-8") as f:
             return json.load(f)
     except (OSError, ValueError):
         return {}
 
 
-EXPORT_FIELDS = ["name", "species", "cp", "atk", "def", "hp", "iv_pct", "level", "scanned", "best_league",
-                 "best_form", "league_cp", "league_level", "league_score", "iv_fit_pct", "value", "in_team", "moveset"]
+EXPORT_FIELDS = ["name", "species", "cp", "atk", "def", "hp", "iv_pct", "level", "shadow", "lucky", "purified",
+                 "scanned", "best_league", "best_form", "league_cp", "league_level", "league_rank", "league_score",
+                 "iv_fit_pct", "value", "in_team", "role", "moveset", "moves", "stardust", "candy", "candy_xl",
+                 "protect"]
 
 
-def export_rows(collection=None, teams=None):
-    c = collection if collection is not None else load_collection()
-    t = teams if teams is not None else load_teams()
+def export_rows(collection=None, teams=None, game=None):
+    c = collection if collection is not None else load_collection(game=game)
+    t = teams if teams is not None else load_teams(game=game)
     evals, best = t.get("evals") or {}, t.get("best_league") or {}
     in_team = {}
     for title, tm in (t.get("teams") or {}).items():
@@ -397,6 +694,11 @@ def export_rows(collection=None, teams=None):
             in_team[e["mon"]["id"]] = title
         for e in tm.get("reserves", []):
             in_team.setdefault(e["mon"]["id"], title + " (reserve)")
+    roles = {}
+    for title, tm in (t.get("teams") or {}).items():
+        for e in tm.get("team", []):
+            roles[e["mon"]["id"]] = e.get("role", "")
+    prot = set(t.get("protected") or [])
     rows = []
     for m in c.get("mons") or []:
         ivs = m.get("ivs") or [None] * 3
@@ -409,15 +711,20 @@ def export_rows(collection=None, teams=None):
                      "best_form": ev["form_name"] if ev else "", "league_cp": ev["cp"] if ev else "",
                      "league_level": ev["level"] if ev else "", "league_score": ev["score"] if ev else "",
                      "iv_fit_pct": round(ev["fit"] * 100, 1) if ev else "", "value": ev["value"] if ev else "",
-                     "in_team": in_team.get(m["id"], ""), "moveset": " / ".join(ev["moveset"]) if ev else ""})
+                     "in_team": in_team.get(m["id"], ""), "moveset": " / ".join(ev["moveset"]) if ev else "",
+                     "shadow": bool(m.get("shadow")), "lucky": bool(m.get("lucky")), "purified": bool(m.get("purified")),
+                     "league_rank": ev.get("rank", "") if ev else "", "role": roles.get(m["id"], ""),
+                     "moves": ev.get("moves", "") if ev else "", "stardust": ev.get("dust", "") if ev else "",
+                     "candy": ev.get("candy", "") if ev else "", "candy_xl": ev.get("xl", "") if ev else "",
+                     "protect": m["id"] in prot})
     return rows
 
 
-def export_csv(collection=None, teams=None):
+def export_csv(collection=None, teams=None, game=None):
     buf = io.StringIO()
     w = csv.DictWriter(buf, fieldnames=EXPORT_FIELDS)
     w.writeheader()
-    for r in export_rows(collection, teams):
+    for r in export_rows(collection, teams, game):
         w.writerow(r)
     return buf.getvalue()
 

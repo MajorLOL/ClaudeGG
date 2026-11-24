@@ -805,6 +805,19 @@ def live_frames(seconds, every=0.0):
     return out
 
 
+def foreground_package():
+    """The package of the app that is on the screen now (dumpsys activity: the resumed activity), or ''."""
+    try:
+        out = adb("shell", "dumpsys", "activity", "activities")
+    except Exception:  # noqa: BLE001
+        return ""
+    for key in ("topResumedActivity", "mResumedActivity", "ResumedActivity"):
+        m = re.search(key + r"[=:].*?\s(\S+?)/", out)
+        if m:
+            return m.group(1)
+    return ""
+
+
 def screenshot(on_grab=None):
     """on_grab: something to do the moment the picture has been taken (raw mode: before the
     transfer is finished; PNG mode: when it is complete). The caller can start a swipe then and

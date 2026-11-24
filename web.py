@@ -64,6 +64,7 @@ OPTIONS = {                                 # key -> label (default: on)
     "bag_clean": "Bag full: discard and keep what 'What the bag keeps' says",
     "buddy": "My buddy walks along on the map (a Pokémon next to the trainer may be the buddy)",
     "fast_look": "Realistic look around",
+    "teams_weekly": "Keep the teams up to date: once a week the leagues, tags, new Pokémon and teams of each game",
     "heat_pause": "Pause when the phone (43 °C) or the Pi (82 °C) gets too hot, until it has cooled down",
     "live_look": "Look with the live video of the phone (a picture in a tenth of a second instead of 1-3 s)",
 }
@@ -631,6 +632,10 @@ PAGE = r"""<!DOCTYPE html>
  .league td.n { font-variant-numeric:tabular-nums; white-space:nowrap; }
  .league .mv { color:var(--mist); font-size:12px; }
  .league .res { color:var(--mist); font-size:12px; margin-top:4px; }
+ .league .role { font-weight:650; white-space:nowrap; }
+ .league .warn { color:var(--hold); }
+ #teamgame { width:auto; min-width:200px; }
+ #wanted p { margin:4px 0; font-size:12.5px; }
  .sub { margin:12px 0 4px; font-size:12.5px; font-weight:650; color:var(--chalk); }
  .hist { display:flex; gap:2px; align-items:flex-end; height:110px; margin:4px 0 2px; }
  .hist .day { flex:1 1 0; min-width:0; display:flex; flex-direction:column; justify-content:flex-end; height:100%; cursor:help; }
@@ -918,10 +923,13 @@ PAGE = r"""<!DOCTYPE html>
   <section class="sec tests" aria-label="Your Pokémon and teams">
    <details id="teambox"><summary><h2>Your Pokémon and teams</h2><span id="teamsum">Scan your Pokémon, then the best team for each league of now.</span></summary>
     <p class="h">The steps are tests in <b>Test one part</b> (group <i>Your Pokémon and teams</i>): read the leagues, make a tag per league, scan the first 5 Pokémon (a check), scan all, make the teams, tag the team members. The teams use the PvPoke rankings of each league and how well each Pokémon's IVs fit its CP cap. Pokémon GO has no natures: IVs, level and CP are what count.</p>
-    <div class="bar"><button class="btn small" onclick="teamsMake()">Make the teams again</button>
-     <a class="btn small" href="collection.csv">Export CSV</a><a class="btn small" href="collection.json">Export JSON</a>
+    <p class="h">Every Pokémon GO app is another account with its own Pokémon, tags and teams: the tests work on the app that is open, the choice below shows one of them.</p>
+    <div class="bar"><label class="sr" for="teamgame">Game</label><select id="teamgame" class="inp" onchange="loadTeams()"></select>
+     <button class="btn small" onclick="teamsMake()">Make the teams again</button>
+     <a class="btn small" id="expcsv" href="collection.csv">Export CSV</a><a class="btn small" id="expjson" href="collection.json">Export JSON</a>
      <span class="h" id="teammsg"></span></div>
     <div id="teamlist"></div>
+    <details class="bagkeep" id="wantbox"><summary>Wanted: strong Pokémon you do not have (with good IVs)</summary><div id="wanted"></div></details>
    </details>
   </section>
 
@@ -969,7 +977,7 @@ PAGE = r"""<!DOCTYPE html>
       <div class="row field"><label class="txt" for="dtime"><span class="t">Starts every day at</span></label>
        <input type="time" id="dtime" class="inp" onchange="setTime(this.value)"></div>
      </div>
-     <div class="group" id="g_battle" data-keys="battle battle_give_up">
+     <div class="group" id="g_battle" data-keys="battle teams_weekly battle_give_up">
       <h2>Battles</h2>
       <div class="switches"></div>
       <div class="row field"><label class="txt" for="bapp"><span class="t">Battle in</span>
@@ -1094,6 +1102,7 @@ const WORDS = {
   curveball: ['Always throw a curveball'],
   fast_catch: ['Fast catch', 'After a clear hit, press Back to skip the catch animation. The result is checked on the map.'],
   fast_look: ['Look around like a person'],
+  teams_weekly: ['Keep the teams up to date', 'Once a week, in the daily run of each game (after its battles): read the leagues, make the tags when they changed, scan the new Pokémon, find shadow / lucky / purified, make the teams, check their moves and candy, tag them, and send the teams to your phone.'],
   heat_pause: ['Pause when it gets too hot', 'From 43 °C of the phone\'s battery or 82 °C of the Pi nothing is tapped until they are below 39 / 72 °C again (45 min at most). A fight that is going on is finished first.'],
   live_look: ['Look with the live video', 'The map, the ring and the ball are looked at in the live video of the phone: a picture in a tenth of a second instead of 1 to 3 s. Text is still read on sharp screenshots.'],
   buddy: ['My buddy walks along on the map', 'A Pokémon next to the trainer may be the buddy.'],
@@ -1281,11 +1290,19 @@ async function loadHistory() {
     box.after(k);
   }
 }
+let teamApps = [];
+function teamGame() { return $('teamgame').value || ''; }
 async function loadTeams() {
+  const sel = $('teamgame');
+  if (!sel.options.length && teamApps.length) {
+    sel.innerHTML = teamApps.map(a => '<option value="' + esc(a[0]) + '">' + esc(a[1] || a[0]) + '</option>').join('');
+  }
+  const g = teamGame(), q = g ? '?game=' + encodeURIComponent(g) : '';
+  $('expcsv').href = 'collection.csv' + q; $('expjson').href = 'collection.json' + q;
   let t = {};
-  try { t = await (await fetch('teams.json')).json(); } catch (e) { return; }
+  try { t = await (await fetch('teams.json' + q)).json(); } catch (e) { return; }
   const box = $('teamlist'); box.textContent = '';
-  $('teamsum').textContent = t.count ? `${t.count} Pokémon scanned (${t.scanned || '?'}); teams of ${t.made || '-'}` : 'Scan your Pokémon, then the best team for each league of now.';
+  $('teamsum').textContent = t.count ? `${t.count} Pokémon scanned (${t.scanned || '?'}; shadow ${t.flags.shadow}, lucky ${t.flags.lucky}); teams of ${t.made || '-'}; ${t.protected} to keep (do not transfer)` : 'Scan your Pokémon, then the best team for each league of now.';
   const nice = id => id.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   for (const lg of (t.leagues || [])) {
     const tm = (t.teams || {})[lg.title] || {team: [], reserves: []};
@@ -1295,22 +1312,36 @@ async function loadTeams() {
     d.append(h);
     if (!tm.team.length) { const p = document.createElement('p'); p.className = 'h'; p.textContent = 'No Pokémon for this league yet.'; d.append(p); }
     const tb = document.createElement('table');
+    if (tm.coverage !== undefined) { const p = document.createElement('p'); p.className = 'h'; p.textContent = 'In the simulator this team does well against ' + Math.round(tm.coverage * 100) + '% of the top 30 of the league.'; d.append(p); }
     for (const e of tm.team) {
       const m = e.mon, v = e.eval, tr = document.createElement('tr');
-      const cells = [m.name + (v.evolve ? ' \u2192 ' + v.form_name : ''), 'CP ' + m.cp + (v.cp !== m.cp ? ' \u2192 ' + v.cp + ' (lv ' + v.level + ')' : ''),
-                     (m.ivs || []).join('/') + ' (' + Math.round(v.fit * 100) + '% fit)'];
-      for (const c of cells) { const td = document.createElement('td'); td.textContent = c; if (c !== cells[0]) td.className = 'n'; tr.append(td); }
-      const mv = document.createElement('td'); mv.className = 'mv'; mv.textContent = (v.moveset || []).map(nice).join(', '); tr.append(mv);
+      const r = document.createElement('td'); r.className = 'role'; r.textContent = e.role || ''; tr.append(r);
+      const cost = v.cp !== m.cp ? `${(v.dust || 0).toLocaleString()} dust, ${v.candy || 0} candy` + (v.xl ? `, ${v.xl} XL` : '') : 'ready';
+      const cells = [m.name + (m.shadow ? ' (Shadow)' : '') + (v.evolve ? ' \u2192 ' + v.form_name : ''),
+                     'CP ' + m.cp + (v.cp !== m.cp ? ' \u2192 ' + v.cp + ' (lv ' + v.level + ')' : ''),
+                     (m.ivs || []).join('/') + ' (' + Math.round(v.fit * 100) + '% fit)', cost];
+      cells.forEach((c, i) => { const td = document.createElement('td'); td.textContent = c; if (i) td.className = 'n'; tr.append(td); });
+      const mv = document.createElement('td'); mv.className = 'mv';
+      mv.textContent = (v.moveset || []).map(nice).join(', ') + (v.moves && v.moves !== 'ok' && v.moves !== '?' ? ' - ' + v.moves + ' needed' : v.moves === 'ok' ? ' (has them)' : '');
+      if (v.notes && v.notes.length) { const w = document.createElement('div'); w.className = 'warn'; w.textContent = v.notes.join('; '); mv.append(w); }
+      tr.append(mv);
       tb.append(tr);
     }
     d.append(tb);
     if (tm.reserves.length) { const r = document.createElement('div'); r.className = 'res'; r.textContent = 'Reserves: ' + tm.reserves.map(e => e.mon.name + ' CP ' + e.mon.cp).join(', '); d.append(r); }
     box.append(d);
   }
+  const wb = $('wanted'); wb.textContent = '';
+  for (const [title, rows] of Object.entries(t.wanted || {})) {
+    const p = document.createElement('p');
+    p.innerHTML = '<b>' + esc(title) + ':</b> ' + (rows.length ? rows.map(w => esc(nice(w.species)) + ' (#' + w.rank + (w.best_fit !== null ? ', yours fits ' + Math.round(w.best_fit * 100) + '%' : '') + ')').join(', ') : 'you have them all');
+    wb.append(p);
+  }
 }
 async function teamsMake() {
   $('teammsg').textContent = 'Working it out...';
-  const r = await fetch('teams/make', {method: 'POST'}); $('teammsg').textContent = await r.text(); loadTeams();
+  const r = await fetch('teams/make', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({game: teamGame()})});
+  $('teammsg').textContent = await r.text(); loadTeams();
 }
 $('teambox').addEventListener('toggle', () => { if ($('teambox').open) loadTeams(); });
 $('morebox').addEventListener('toggle', () => { if ($('morebox').open) loadHistory(); });
@@ -1540,6 +1571,7 @@ async function refresh() {
     showStats(s.stats);
     showGames(s.battles);
     showTemps(s.temps, s.temp_limits);
+    if (s.apps && s.apps.length) teamApps = s.apps.filter(a => /pokemongo/.test(a[0]));
     showUpdate(s.update);
     showAlerts(s.alerts);
     showTest(s.test);
@@ -2020,6 +2052,13 @@ def test_zip():
 
 
 # ---------- looking after the bot: update, warnings ----------
+def req_game(path):
+    """The game (package) a page asks for (?game=...), when it is a Pokémon GO app; else the Play Store one."""
+    m = re.search(r"[?&]game=([A-Za-z0-9._]+)", path or "")
+    pkg = m.group(1) if m else ""
+    return pkg if pkg.startswith("com.nianticlabs.pokemongo") else COL.MAIN_PACKAGE
+
+
 def restart_bot():
     if bot_running():
         subprocess.run(["sudo", "-n", "/usr/bin/systemctl", "restart", SERVICE], capture_output=True)
@@ -2174,21 +2213,26 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
         elif path in ("/collection.csv", "/collection.json", "/teams.json"):
+            game = req_game(self.path)
             if path == "/teams.json":
-                c, t = COL.load_collection(), COL.load_teams()
-                body = {"count": len(c.get("mons") or []), "scanned": c.get("scanned"), "made": t.get("made"),
-                        "leagues": t.get("leagues") or c.get("leagues") or [], "teams": t.get("teams") or {}}
+                c, t = COL.load_collection(game=game), COL.load_teams(game=game)
+                body = {"game": game, "count": len(c.get("mons") or []), "scanned": c.get("scanned"),
+                        "refreshed": c.get("refreshed"), "made": t.get("made"),
+                        "leagues": t.get("leagues") or c.get("leagues") or [], "teams": t.get("teams") or {},
+                        "wanted": t.get("wanted") or {}, "protected": len(t.get("protected") or []),
+                        "flags": {f: sum(1 for m in c.get("mons") or [] if m.get(f)) for f in ("shadow", "lucky", "purified")}}
                 return self._send(json.dumps(body, ensure_ascii=False), "application/json")
             if path == "/collection.csv":
-                data, ctype = COL.export_csv().encode("utf-8-sig"), "text/csv; charset=utf-8"
+                data, ctype = COL.export_csv(game=game).encode("utf-8-sig"), "text/csv; charset=utf-8"
             else:
-                data = json.dumps({"collection": COL.load_collection(), "teams": COL.load_teams()}, ensure_ascii=False,
-                                  indent=1).encode("utf-8")
+                data = json.dumps({"game": game, "collection": COL.load_collection(game=game),
+                                   "teams": COL.load_teams(game=game)}, ensure_ascii=False, indent=1).encode("utf-8")
                 ctype = "application/json"
             self.send_response(200)
             self.send_header("Content-Type", ctype)
-            self.send_header("Content-Disposition", f'attachment; filename="pokemon-{time.strftime("%Y%m%d")}'
-                             + path[path.rindex("."):] + '"')
+            key = COL.game_key(game)
+            self.send_header("Content-Disposition", f'attachment; filename="pokemon-{key + "-" if key else ""}'
+                             f'{time.strftime("%Y%m%d")}' + path[path.rindex("."):] + '"')
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -2246,12 +2290,13 @@ class Handler(BaseHTTPRequestHandler):
             ok, msg = test_start(m.group(1), record="rec=1" in self.path)
             return self._send(msg, code=200 if ok else 409)
         if path == "/teams/make":
-            c = COL.load_collection()
+            game = req_game("?game=" + str(self._json_body().get("game", "")))
+            c = COL.load_collection(game=game)
             if not c.get("mons"):
                 return self._send("No Pokémon scanned yet: run 'Scan all your Pokémon' first", code=409)
             if not c.get("leagues"):
                 return self._send("The leagues are not known yet: run 'Read the leagues of now' first", code=409)
-            t = COL.make_teams(c)
+            t = COL.make_teams(c, game=game)
             n = sum(len(tm["team"]) for tm in t["teams"].values())
             write_log(f"teams: made again in the web interface - {n} Pokémon in {len(t['teams'])} teams")
             return self._send(f"{n} Pokémon in {len(t['teams'])} teams")

@@ -160,6 +160,52 @@ class Bars(unittest.TestCase):
         self.assertIsNone(G._bars(np.full((2208, 1768, 3), 255, np.uint8)))
 
 
+class Collection(unittest.TestCase):
+    def test_a_nickname_is_found_by_its_stats(self):
+        base = TABLE["lapras"]["base"]
+        cp, hp = C.cp_of(base, (2, 14, 15), 25.0), C.hp_of(base, (2, 14, 15), 25.0)
+        self.assertEqual(C.identify(cp, (2, 14, 15), hp, ["water", "ice"], "Nessie", TABLE)[:2], ("lapras", 25.0))
+        self.assertEqual(C.identify(cp, (2, 14, 15), hp, None, "Lapras", TABLE)[2], "name")
+        self.assertIsNone(C.identify(cp + 7, (2, 14, 15), hp, ["water", "ice"], "Nessie", TABLE)[0])
+
+    def test_power_up_costs(self):
+        self.assertEqual(C.power_cost(20.0, 20.0), (0, 0, 0))
+        dust, candy, xl = C.power_cost(30.0, 41.0)
+        self.assertGreater(dust, 0)
+        self.assertGreater(candy, 0)
+        self.assertGreater(xl, 0)
+        self.assertEqual(C.power_cost(30.0, 40.0, lucky=True)[0], C.power_cost(30.0, 40.0)[0] // 2)
+        self.assertGreater(C.power_cost(30.0, 40.0, shadow=True)[1], C.power_cost(30.0, 40.0)[1])
+
+    def test_every_game_has_its_own_files(self):
+        self.assertEqual(C.game_key(), "")
+        self.assertEqual(C.game_key(C.MAIN_PACKAGE), "")
+        self.assertEqual(C.game_key(C.MAIN_PACKAGE + ".samsung"), "samsung")
+        self.assertNotEqual(C.collection_file(C.MAIN_PACKAGE + ".samsung"), C.collection_file())
+        self.assertNotEqual(C.teams_file(C.MAIN_PACKAGE + ".samsung"), C.teams_file())
+
+    def test_moves(self):
+        m = {"moves": {"fast": "WATER_GUN", "charged": ["ICE_BEAM"]}}
+        self.assertEqual(C.moves_status(m, "lapras", ["WATER_GUN", "ICE_BEAM"], TABLE), "ok")
+        self.assertEqual(C.moves_status(m, "lapras", ["WATER_GUN", "SURF"], TABLE), "TM")
+        self.assertEqual(C.moves_status({}, "lapras", ["WATER_GUN"], TABLE), "?")
+
+    def test_roles_wanted_protected_and_the_battle_team(self):
+        def entry(i, roles):
+            return {"mon": {"id": i, "ivs": [0, 15, 15]},
+                    "eval": {"roles": roles, "form": "lapras", "level": 20.0, "moveset": ["A", "B"]}}
+        team = C.team_roles([entry("a", [50, 90, 50]), entry("b", [90, 50, 50]), entry("c", [50, 50, 90])])
+        self.assertEqual([(e["mon"]["id"], e["role"]) for e in team], [("b", "Lead"), ("c", "Switch"), ("a", "Closer")])
+        teams = {"Great League": {"team": team, "reserves": []}}
+        self.assertEqual(len(C.battle_team_entries(teams, "great league")), 3)
+        self.assertIsNone(C.battle_team_entries(teams, "Ultra League"))
+        evals = {"x": {"Great League": {"form": "lapras", "fit": 0.97, "score": 90, "value": 1}}}
+        self.assertEqual(C.protected_ids([], evals, teams), {"a", "b", "c", "x"})
+        ranks = {"Great League": {"lapras": {"rank": 1, "score": 90}, "swalot": {"rank": 2, "score": 88}}}
+        want = C.wanted_list([], evals, [{"title": "Great League"}], ranks)["Great League"]
+        self.assertEqual([w["species"] for w in want], ["swalot"])
+
+
 class Storage(unittest.TestCase):
     def test_collection_file(self):
         path = os.path.join(tempfile.mkdtemp(), "c.json")

@@ -1238,9 +1238,16 @@ SCAN_EVERY_SAVE = 20           # the scan is written to collection.json every so
 TAG_COLOURS = ((0.36, 0.405), (0.475, 0.405), (0.585, 0.405), (0.695, 0.405))   # CREATE TAG: the first row
 
 
-def read_leagues():
+def current_game():
+    """The package of the Pokémon GO app on the screen now (every app is another account), else S.PACKAGE."""
+    pk = S.foreground_package()
+    return pk if "pokemongo" in pk else S.PACKAGE
+
+
+def read_leagues(game=None):
     """The leagues on the league list of the Battle screen now: [{title, cap, cup}] (cup: PvPoke's name), kept in
-    collection.json. Walks there from the map and back."""
+    the collection of this game. Walks there from the map and back."""
+    game = game or current_game()
     info = battle_open_menu(leagues_only=True)
     if not info.get("leagues"):
         log(f"leagues: not read - {info.get('why') or 'unknown'}")
@@ -1249,9 +1256,10 @@ def read_leagues():
     for title, cap in info["leagues"]:
         cup, _cap = COL.match_format(title, cap)
         leagues.append({"title": title, "cap": cap, "cup": cup})
-    c = COL.load_collection()
+    c = COL.load_collection(game=game)
+    c["game"] = game
     c["leagues"], c["leagues_read"] = leagues, time.strftime("%Y-%m-%d %H:%M")
-    COL.save_collection(c)
+    COL.save_collection(c, game=game)
     log("leagues: " + "; ".join(f"{lg['title']} = PvPoke {lg['cup']} {lg['cap']}" for lg in leagues))
     return leagues
 
@@ -1298,9 +1306,30 @@ def _xy(img, frac):
     return int(frac[0] * img.shape[1]), int(frac[1] * img.shape[0])
 
 
-def make_league_tags(leagues=None):
-    """A tag for every league of now, named after it, unless it is there already (TAGS tab). Returns the names."""
-    leagues = leagues if leagues is not None else (COL.load_collection().get("leagues") or read_leagues())
+def _all_tag_text(shot, lines):
+    """The text of every tag on the TAGS tab: the cards are scrolled through (up to five times) and back."""
+    texts, seen = [t for t, _x, _y, _w in lines], set()
+    for i in range(5):
+        h, w = shot.shape[:2]
+        S.swipe(w // 2, int(h * 0.75), w // 2, int(h * 0.35), 350)
+        time.sleep(1.0)
+        shot = S.screenshot()
+        new = [t for t, _x, _y, _w in ocr_lines(shot, 60, 2150)]
+        if set(new) <= seen:
+            break
+        seen.update(new)
+        texts += new
+    for _ in range(i + 1):
+        S.swipe(w // 2, int(h * 0.35), w // 2, int(h * 0.80), 300)
+        time.sleep(0.6)
+    return " | ".join(texts)
+
+
+def make_league_tags(leagues=None, game=None):
+    """A tag for every league of now, named after it, unless it is there already (TAGS tab, all cards looked
+    through). Returns the names."""
+    game = game or current_game()
+    leagues = leagues if leagues is not None else (COL.load_collection(game=game).get("leagues") or read_leagues(game))
     if not leagues:
         return []
     got = _open_storage("TAGS")
@@ -1310,7 +1339,8 @@ def make_league_tags(leagues=None):
     shot, lines = got
     made = []
     try:
-        have = " | ".join(t for t, _x, _y, _ws in lines)
+        have = _all_tag_text(shot, lines)
+        shot = S.screenshot()
         for i, lg in enumerate(leagues):
             name = COL.tag_name(lg["title"], 60)
             if _plain_name(name) in _plain_name(have):
@@ -1355,9 +1385,9 @@ def make_league_tags(leagues=None):
                 made.append(nm)
                 shot, lines = after, al
                 break
-        c = COL.load_collection()
+        c = COL.load_collection(game=game)
         c["tags"] = {lg["title"]: n for lg, n in zip(leagues, made)}
-        COL.save_collection(c)
+        COL.save_collection(c, game=game)
         return made
     finally:
         _bag_to_map()
@@ -1416,6 +1446,33 @@ def _bars(img, lines=None):
         if max(lens) - min(lens) <= 0.08 * max(lens) and max(abs(t[1] - trio[0][1]) for t in trio) <= 20 * k:
             return [COL.bar_value(f, e - a + 1) for _y, a, e, f in trio]
     return None
+
+
+TYPE_WORDS = ("NORMAL", "FIRE", "WATER", "GRASS", "ELECTRIC", "ICE", "FIGHTING", "POISON", "GROUND", "FLYING",
+              "PSYCHIC", "BUG", "ROCK", "GHOST", "DRAGON", "DARK", "STEEL", "FAIRY")
+
+
+def _read_page(img, lines):
+    """{name, cp, hp (max HP), types} of the Pokémon on its page (also under the appraisal: name, CP, HP and
+    the types are above it). Values that were not read are None."""
+    k = img.shape[0] / 2208
+    name, _sid, cp = _read_mon(img, lines)
+    hp = None
+    types = None
+    for t, _x, y, _w in lines:
+        m = re.search(r"(\d{1,4})\s*/\s*(\d{1,4})\s*HP", t.replace("O", "0"))
+        if m and hp is None:
+            hp = int(m.group(2))
+        found = [w for w in TYPE_WORDS if re.search(r"\b" + w + r"\b", t)]
+        if found and "/" in t or (found and len(found) == 1 and t.strip() in TYPE_WORDS):
+            if 700 * k < y < 1700 * k and types is None:
+                types = [w.lower() for w in found][:2]
+    if not name:
+        for t, _x, y, _w in sorted(lines, key=lambda l: l[2]):      # (a nickname: the line above the HP bar)
+            if 600 * k < y < 1300 * k and re.fullmatch(r"[A-Z0-9 .'\-]{2,14}", t.strip()) and "HP" not in t:
+                name = t.strip().title()
+                break
+    return {"name": name, "cp": cp, "hp": hp, "types": types}
 
 
 def _read_mon(img, lines):
@@ -1481,24 +1538,48 @@ def _open_first_and_appraise(search=""):
     return False
 
 
-def scan_collection(limit=None, search="", stop=None):
-    """Go through the Pokémon storage with the appraisal open: for each Pokémon its name, CP and IVs (bars),
-    one after another (swiping to the next). Kept in collection.json (also halfway). limit: at most this many.
-    Returns the number scanned."""
-    c = COL.load_collection()
+def _scan_one(img, lines):
+    """A scanned Pokémon from one picture: {name, species, cp, ivs, level, hp, how} or None (with why)."""
+    page = _read_page(img, lines)
+    ivs = _bars(img)
+    if not ivs or not page["cp"]:
+        return None, f"name {page['name']} CP {page['cp']} bars {ivs}"
+    sid, lv, how = COL.identify(page["cp"], ivs, page["hp"], page["types"], page["name"])
+    if not sid:
+        return None, f"{page['name']} CP {page['cp']} HP {page['hp']} {ivs}: {how}"
+    return {"name": page["name"] or COL.species_table()[sid]["name"], "species": sid, "cp": page["cp"],
+            "ivs": ivs, "level": lv, "hp": page["hp"], "how": how}, ""
+
+
+def scan_collection(limit=None, search="", stop=None, flag=None, game=None):
+    """Go through the Pokémon storage with the appraisal open: for each Pokémon its name, CP, HP, types and IVs
+    (bars), one after another (swiping to the next). The pictures come from the live video when it runs (a sharp
+    screenshot when something was not read); the species is checked against CP and HP (also for a nickname).
+    Kept in the collection of the game (also halfway). limit: at most this many; search: only what the game's
+    search finds ('age0-7': caught in the last week); flag ('shadow', 'lucky', 'purified'): only mark the ones
+    the search finds (search = flag) in the collection. Returns the number scanned."""
+    game = game or current_game()
+    c = COL.load_collection(game=game)
+    c["game"] = game
     old = {m["id"]: m for m in c.get("mons") or []}
-    seen, n, same, last = {}, 0, 0, None
+    seen, n, same, last, dup = {}, 0, 0, None, {}
+    flagged = set()
     t0 = time.time()
-    if not _open_first_and_appraise(search):
+    if not _open_first_and_appraise(flag or search):
         _bag_to_map()
         return 0
     try:
         while (limit is None or n < limit) and not (stop and stop()):
-            img = S.screenshot()
+            img = S.quick_screenshot()
             lines = ocr_lines(img, 60, 2150)
-            name, sid, cp = _read_mon(img, lines)
-            ivs = _bars(img, lines)
-            key = (sid, cp, tuple(ivs) if ivs else None)
+            mon, why = _scan_one(img, lines)
+            if mon is None or mon["how"] != "name":
+                sharp = S.screenshot()                      # (once more on a sharp screenshot)
+                sl = ocr_lines(sharp, 60, 2150)
+                mon2, why2 = _scan_one(sharp, sl)
+                if mon2 is not None and (mon is None or mon2["how"] == "name"):
+                    mon, why, img = mon2, why2, sharp
+            key = (mon["species"], mon["cp"], tuple(mon["ivs"])) if mon else ("?", why)
             if key == last:
                 same += 1
                 if same >= SCAN_SAME:
@@ -1506,38 +1587,207 @@ def scan_collection(limit=None, search="", stop=None):
                     break
             else:
                 same, last = 0, key
-                if sid and cp and ivs:
-                    mid = f"{sid}-{cp}-{ivs[0]}-{ivs[1]}-{ivs[2]}"
-                    lv = COL.level_from_cp(COL.species_table()[sid]["base"], ivs, cp, exact=False)
-                    seen[mid] = {"id": mid, "name": name, "species": sid, "cp": cp, "ivs": ivs, "level": lv,
-                                 "scanned": time.strftime("%Y-%m-%d %H:%M")}
+                if mon:
+                    base_id = f"{mon['species']}-{mon['cp']}-{mon['ivs'][0]}-{mon['ivs'][1]}-{mon['ivs'][2]}"
+                    dup[base_id] = dup.get(base_id, 0) + 1
+                    mid = base_id + (f"#{dup[base_id]}" if dup[base_id] > 1 else "")   # (two that are the same)
+                    if flag:
+                        flagged.add(mid)
+                    else:
+                        prev = old.get(mid, {})
+                        seen[mid] = {**{k: prev[k] for k in ("shadow", "lucky", "purified", "moves", "candy", "xl")
+                                        if k in prev},
+                                     "id": mid, **mon, "scanned": time.strftime("%Y-%m-%d %H:%M")}
                     n += 1
                     if n <= 3 or n % 25 == 0:
-                        log(f"scan: {n}: {name} CP {cp} IVs {ivs[0]}/{ivs[1]}/{ivs[2]} level {lv}")
+                        log(f"scan: {n}: {mon['species']} CP {mon['cp']} IVs {mon['ivs'][0]}/{mon['ivs'][1]}/"
+                            f"{mon['ivs'][2]} level {mon['level']} ({mon['how']})")
                 else:
                     save_async(f"g_scan_unread{n % 5}.png", img)
-                    log(f"scan: not read: name {name} CP {cp} bars {ivs} (debug/g_scan_unread{n % 5}.png)")
-                if n and n % SCAN_EVERY_SAVE == 0:
+                    log(f"scan: not read ({why}; debug/g_scan_unread{n % 5}.png)")
+                if n and n % SCAN_EVERY_SAVE == 0 and not flag:
                     c["mons"] = list({**old, **seen}.values())
-                    COL.save_collection(c)
+                    COL.save_collection(c, game=game)
             (x1, y1), (x2, y2) = _xy(img, SCAN_SWIPE[0]), _xy(img, SCAN_SWIPE[1])
             S.swipe(x1, y1, x2, y2, 220)
             time.sleep(0.9)
     finally:
-        c["mons"] = list(({**old, **seen} if limit or search else (seen or old)).values())
-        c["scanned"] = time.strftime("%Y-%m-%d %H:%M")
-        COL.save_collection(c)
-        log(f"scan: {n} Pokémon read in {(time.time() - t0) / 60:.0f} min ({len(c['mons'])} in collection.json)")
+        if flag:
+            for mid, m in old.items():
+                m[flag] = mid in flagged
+            c["mons"] = list(old.values())
+            log(f"scan: {len(flagged)} Pokémon are {flag}")
+        else:
+            c["mons"] = list(({**old, **seen} if limit or search else (seen or old)).values())
+            c["scanned"] = time.strftime("%Y-%m-%d %H:%M")
+        COL.save_collection(c, game=game)
+        log(f"scan: {n} Pokémon read in {(time.time() - t0) / 60:.0f} min ({len(c['mons'])} in the collection of "
+            f"{game})")
         _bag_to_map()
     return n
 
 
-def tag_team_members(teams=None):
+def _search_and_open(lines, shot, text):
+    """On the Pokémon tab: search for `text` and open the first Pokémon. Returns its page."""
+    field = next(((x, y) for w, x, y in _words(lines) if _like(w, "SEARCH", 0.8)), _xy(shot, (0.5, 0.275)))
+    S.tap(*field)
+    time.sleep(1.2)
+    _type_text(text)
+    time.sleep(0.6)
+    S.adb("shell", "input", "keyevent", "66")
+    res = _settled(2.0)
+    S.tap(*_xy(res, FIRST_TILE))
+    return _settled(2.0)
+
+
+def _number_above(lines, word, k, exclude=None):
+    """The number on the line just above a label (STARDUST, CANDY, CANDY XL); '284.694' -> 284694."""
+    for t, x, y, _w in lines:
+        if word in t and not (exclude and exclude in t):
+            above = [(y - y2, t2) for t2, x2, y2, _w2 in lines if 0 < y - y2 < 130 * k and abs(x2 - x) < 260 * k]
+            for _d, t2 in sorted(above):
+                m = re.search(r"\d[\d.,]*", t2)
+                if m:
+                    return int(re.sub(r"[.,]", "", m.group(0)))
+    return None
+
+
+def check_team(game=None, stop=None):
+    """For the team members and reserves of every league: open the Pokémon (search by name and CP), read the
+    Candy, Candy XL and Stardust under it, scroll down and read its moves. Kept in the collection; the teams are
+    made again with it (a Pokémon without the right moves or without enough candy counts less)."""
+    game = game or current_game()
+    c = COL.load_collection(game=game)
+    t = COL.load_teams(game=game)
+    by_id = {m["id"]: m for m in c.get("mons") or []}
+    table = COL.species_table()
+    done = 0
+    for title, tm in (t.get("teams") or {}).items():
+        for e in tm.get("team", []) + tm.get("reserves", []):
+            if stop and stop():
+                break
+            m = by_id.get(e["mon"]["id"])
+            if not m:
+                continue
+            got = _open_storage("POKEMON")
+            if got is None:
+                return done
+            shot, lines = got
+            try:
+                page = _search_and_open(lines, shot, f"{table.get(m['species'], {}).get('name', m['name'])}&cp{m['cp']}")
+                pl = ocr_lines(page, 60, 2150)
+                k = page.shape[0] / 2208
+                m["candy"] = _number_above(pl, "CANDY", k, exclude="XL")
+                m["xl"] = _number_above(pl, "XL", k)
+                m["stardust"] = _number_above(pl, "STARDUST", k)
+                h, w = page.shape[:2]
+                S.swipe(w // 2, int(h * 0.80), w // 2, int(h * 0.35), 400)     # down to the moves
+                time.sleep(1.2)
+                low = S.screenshot()
+                ll = ocr_lines(low, 60, 2150)
+                fast, charged = None, []
+                row = table.get(m["species"], {})
+                for t2, _x, _y, _w in ll:
+                    mv = COL.BE.find_move(t2)
+                    if not mv:
+                        continue
+                    if mv in (row.get("fast") or []) and fast is None:
+                        fast = mv
+                    elif mv in (row.get("charged") or []) and mv not in charged:
+                        charged.append(mv)
+                if fast or charged:
+                    m["moves"] = {"fast": fast, "charged": charged}
+                done += 1
+                log(f"teams: {m['species']} CP {m['cp']}: moves {fast} / {', '.join(charged) or '?'}, candy {m['candy']}, "
+                    f"XL {m['xl']}")
+                if not (fast or charged):
+                    save_async("g_moves.png", low)
+            finally:
+                _bag_to_map()
+    COL.save_collection(c, game=game)
+    if done:
+        COL.make_teams(c, game=game)
+    return done
+
+
+def write_battle_team(teams=None, game=None):
+    """The team of the league the bot fights in (and of the app that fights) becomes ~/battle_team.json."""
+    game = game or current_game()
+    if game != battle_app():
+        return False
+    t = teams if teams is not None else COL.load_teams(game=game).get("teams") or {}
+    entries = COL.battle_team_entries(t, battle_league())
+    if not entries:
+        return False
+    import battle_engine as BE2
+    with open(BE2.team_file(), "w", encoding="utf-8") as f:
+        json.dump(entries, f, indent=1)
+    log("teams: the battle team is now " + ", ".join(e["species"] for e in entries) + f" ({battle_league()})")
+    return True
+
+
+TEAMS_EVERY = 6.5 * 24 * 3600   # s: the weekly round (leagues, tags, new Pokémon, teams) after this long
+
+
+def teams_due(game):
+    """Option 'Keep the teams up to date': the weekly round is due for this game."""
+    if not setting("teams_weekly", False):
+        return False
+    c = COL.load_collection(game=game)
+    try:
+        last = time.mktime(time.strptime(c.get("refreshed", "2000-01-01 00:00"), "%Y-%m-%d %H:%M"))
+    except ValueError:
+        last = 0
+    return time.time() - last > TEAMS_EVERY
+
+
+def teams_refresh(game=None, stop=None):
+    """The weekly round of a game: read the leagues; when they changed (or never): a tag for each; scan the
+    Pokémon of the last week (or all, the first time); shadow / lucky / purified; make the teams; check their
+    moves and candy; tag them; the battle team; a message to the phone."""
+    game = game or current_game()
+    c = COL.load_collection(game=game)
+    before = [lg["title"] for lg in c.get("leagues") or []]
+    leagues = read_leagues(game)
+    if not leagues:
+        return False
+    changed = [lg["title"] for lg in leagues] != before
+    log(f"teams: weekly round for {game} - the leagues {'changed' if changed else 'are the same'}")
+    if changed:
+        make_league_tags(leagues, game)
+    first = not c.get("mons")
+    if not (stop and stop()):
+        scan_collection(search="" if first else "age0-7", stop=stop, game=game)
+    for flag in ("shadow", "lucky", "purified"):
+        if stop and stop():
+            break
+        scan_collection(flag=flag, stop=stop, game=game)
+    t = COL.make_teams(game=game)
+    if not (stop and stop()):
+        check_team(game, stop)
+        t = COL.load_teams(game=game)
+    if changed and not (stop and stop()):
+        tag_team_members(t, game)
+    write_battle_team(t.get("teams"), game)
+    c = COL.load_collection(game=game)
+    c["refreshed"] = time.strftime("%Y-%m-%d %H:%M")
+    COL.save_collection(c, game=game)
+    lines = [f"{title}: " + ", ".join(f"{e.get('role', '')} {e['eval']['form_name']}" for e in tm["team"])
+             for title, tm in (t.get("teams") or {}).items()]
+    topic = str(setting("ntfy_topic", "") or "")
+    if topic:
+        extras.ntfy_send(topic, "New teams", "\n".join(lines) or "no teams")
+    log("teams: " + " | ".join(lines))
+    return True
+
+
+def tag_team_members(teams=None, game=None):
     """Give the Pokémon of the teams (and their reserves) the tag of their league: storage -> search for the
     Pokémon (name and CP) -> its page -> the tag button -> the league's tag. (The tag screens of a Pokémon were not
     seen yet: every step is read first, and the routine stops at a screen it does not know.)"""
-    t = teams if teams is not None else COL.load_teams()
-    names = COL.load_collection().get("tags") or {}
+    game = game or current_game()
+    t = teams if teams is not None else COL.load_teams(game=game)
+    names = COL.load_collection(game=game).get("tags") or {}
     done = 0
     for title, tm in (t.get("teams") or {}).items():
         tag = names.get(title) or COL.tag_name(title, 60)
@@ -1548,15 +1798,8 @@ def tag_team_members(teams=None):
                 return done
             shot, lines = got
             try:
-                field = next(((x, y) for w, x, y in _words(lines) if _like(w, "SEARCH", 0.8)), _xy(shot, (0.5, 0.275)))
-                S.tap(*field)
-                time.sleep(1.2)
-                _type_text(f"{m['name']}&cp{m['cp']}")
-                time.sleep(0.6)
-                S.adb("shell", "input", "keyevent", "66")
-                res = _settled(2.0)
-                S.tap(*_xy(res, FIRST_TILE))
-                page = _settled(2.0)
+                sp_name = COL.species_table().get(m["species"], {}).get("name", m["name"])
+                page = _search_and_open(lines, shot, f"{re.sub(r' [(].*', '', sp_name)}&cp{m['cp']}")
                 pl = ocr_lines(page, 60, 2150)
                 spot = next(((x, y) for w, x, y in _words(pl) if _like(w, "TAG", 0.9) or _like(w, "TAGS", 0.9)), None)
                 if spot is None:
@@ -6254,6 +6497,12 @@ def run_one_game(brain, pkg, d):
             except Exception as e:  # noqa: BLE001
                 log(f"battle: error {e}")
             beat()
+        if not run_state["done"] and teams_due(pkg):
+            try:
+                teams_refresh(pkg, stop=lambda: stop() or time_up())
+            except Exception as e:  # noqa: BLE001
+                log(f"teams: error {e}")
+            beat()
         saved = time.time()
         reported = played.get(pkg, 0)
         resumes = 0
@@ -6628,25 +6877,38 @@ def run_chapter(key):
             ok = len(done) == 3 and all(r for _k, r in done)
             how = ", ".join(f"{CH.chapter(k)['title']} {'done' if r else 'FAILED'}" for k, r in done)
         elif key == "leagues":
-            got = read_leagues()
+            got = read_leagues(current_game())
             ok, how = bool(got), ("; ".join(f"{lg['title']} (max CP {lg['cap']}, PvPoke {lg['cup']})" for lg in got)
                                   or "the leagues were not read")
         elif key == "tags":
             leagues = read_leagues()
             made = make_league_tags(leagues) if leagues else []
             ok, how = bool(leagues) and len(made) == len(leagues), (f"tags: {', '.join(made)}" if made else "no tags made")
-        elif key in ("scan_test", "scan"):
-            n = scan_collection(limit=5 if key == "scan_test" else None, stop=stop)
-            ok, how = n > 0, f"{n} Pokémon scanned (collection.json)"
+        elif key in ("scan_test", "scan", "scan_new"):
+            n = scan_collection(limit=5 if key == "scan_test" else None, search="age0-7" if key == "scan_new" else "",
+                                stop=stop)
+            ok, how = n > 0, f"{n} Pokémon scanned ({current_game()})"
+        elif key == "scan_flags":
+            ns = [scan_collection(flag=f, stop=stop) for f in ("shadow", "lucky", "purified")]
+            ok, how = True, f"shadow {ns[0]}, lucky {ns[1]}, purified {ns[2]}"
+        elif key == "check_team":
+            n = check_team(stop=stop)
+            ok, how = n > 0, f"moves and candy read of {n} Pokémon; the teams were made again"
+        elif key == "refresh":
+            ok = teams_refresh(stop=stop)
+            how = "the weekly round is done" if ok else "the leagues were not read"
         elif key == "teams":
-            c = COL.load_collection()
+            game = current_game()
+            c = COL.load_collection(game=game)
             if not c.get("leagues"):
-                c["leagues"] = read_leagues()
-                COL.save_collection(c)
-            t = COL.make_teams(c)
+                read_leagues(game)
+                c = COL.load_collection(game=game)
+            t = COL.make_teams(c, game=game)
+            write_battle_team(t["teams"], game)
             for title, tm in t["teams"].items():
                 log(f"TEST teams: {title}: " + ", ".join(
-                    f"{e['mon']['name']} CP {e['mon']['cp']} -> {e['eval']['form_name']} CP {e['eval']['cp']}" for e in tm["team"])
+                    f"{e.get('role', '')} {e['mon']['name']} CP {e['mon']['cp']} -> {e['eval']['form_name']} CP {e['eval']['cp']}"
+                    for e in tm["team"])
                     + (" | reserves: " + ", ".join(e["mon"]["name"] for e in tm["reserves"]) if tm["reserves"] else ""))
             ok = any(tm["team"] for tm in t["teams"].values())
             how = (f"teams for {len(t['teams'])} leagues from {len(c.get('mons') or [])} Pokémon" if ok
