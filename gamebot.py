@@ -1564,7 +1564,9 @@ def _read_mon(img, lines):
             continue
         found = COL.find_species(t.title())
         if found:
-            name, sid = t.title(), found
+            # (without the bits OCR makes of the pencil and the gender sign: 'Latios ~', 24 November)
+            name, sid = re.sub(r"[^\w .'\-:()]+", " ", t).split("  ")[0].strip(" .-").title() or t.title(), found
+            name = re.sub(r"\s+[^\w(]{0,2}$", "", name).strip()
             break
     return name, sid, cp
 
