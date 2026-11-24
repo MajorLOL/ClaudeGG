@@ -276,6 +276,13 @@ TOOLS = [
      "file:line: text, at most 100 hits.", "input_schema": {"type": "object", "properties": {
          "pattern": {"type": "string"}, "path": {"type": "string", "description": "only this file"}},
          "required": ["pattern"]}},
+    {"name": "run_test", "description": "Run one test of 'Test one part' on the phone (it stops the bot; the game has "
+     "to be on the start screen of the test). The user is asked first and can say no. Waits until the test is over "
+     "and returns its result and what was logged meanwhile. Use it to try something on the phone, then read the log.",
+     "input_schema": {"type": "object", "properties": {
+         "key": {"type": "string", "description": "the test: {keys}"},
+         "why": {"type": "string", "description": "one sentence for the user: why this test"}},
+         "required": ["key", "why"]}},
     {"name": "save_note", "description": "Keep a short note in the knowledge of this project, which every chat of the "
      "project gets: a finding or a decision worth remembering later (not what is in the code or the log anyway).",
      "input_schema": {"type": "object", "properties": {"text": {"type": "string", "description": "one or two sentences"}},
@@ -312,12 +319,24 @@ code (English names, comments and log lines in plain words). Say in the descript
 "Test one part" when one fits.
 - Never put trainer names (player names seen on the screen or in the log), screenshots, log lines with player names, \
 API keys or tokens into a pull request.
-- Things on the phone you do not do yourself: tell the user what to press or which test to run.
+- You do not tap on the phone. To try something on the phone, run a test with run_test (the user says yes or no
+first) and read its log; otherwise tell the user what to press.
 - Answer in the language the user writes in, short and to the point. Code, log lines and pull requests stay in English.
 
 The code on this Pi: version {version}. Now: {now}.
 
 This chat belongs to the project "{project}". Keep what is worth remembering for later chats of this project with save_note (a finding, a decision of the user) - not things that are in the code or the log anyway.{instructions}{notes}"""
+
+
+def tools_for(chapters):
+    """TOOLS with the keys of the tests filled in."""
+    keys = ", ".join(f"{c['key']} ({c['title']}; start: {c['start']})" for c in chapters) or "-"
+    return [dict(t, description=t["description"].replace("{keys}", keys)) if t["name"] != "run_test" else
+            dict(t, input_schema=dict(t["input_schema"], properties=dict(
+                t["input_schema"]["properties"],
+                key=dict(t["input_schema"]["properties"]["key"],
+                         description=t["input_schema"]["properties"]["key"]["description"].replace("{keys}", keys)))))
+            for t in TOOLS]
 
 
 def _new_id():
@@ -328,8 +347,15 @@ class Chat:
     """The chats with Claude, in projects: a project has instructions and knowledge (notes) that every chat of it
     gets; a chat is one conversation. One answer at a time, in a thread; the page asks for the state."""
 
-    def __init__(self, repo_dir, status_fn=None, log_file=None, shot_fn=None, write_log=None, chapters=None):
+    def __init__(self, repo_dir, status_fn=None, log_file=None, shot_fn=None, write_log=None, chapters=None,
+                 tests=None):
         self.repo_dir = repo_dir
+        # tests: {"list": [{key, title, start, what}], "start": fn(key) -> (ok, msg), "status": fn() -> dict,
+        #         "log_since": fn(t0) -> str}  (the web interface's Test one part), or None
+        self.tests = tests
+        self.confirm = None                    # {key, title, start, why}: a test that waits for the user's yes
+        self._answer_evt = threading.Event()
+        self._answer_yes = False
         self.status_fn = status_fn or (lambda: {})
         self.log_file = log_file or os.path.expanduser("~/spin.log")
         self.shot_fn = shot_fn or (lambda: None)
@@ -591,7 +617,7 @@ class Chat:
                 "error": self.error, "messages": self.shown[-SHOWN_KEEP:], "tokens": self.tokens,
                 "chat": {"id": self.cur["id"], "title": self.cur.get("title") or "New chat"},
                 "project": p, "projects": [{"id": q["id"], "name": q["name"]} for q in self.projects],
-                "chats": self.chats(p["id"])}
+                "chats": self.chats(p["id"]), "confirm": self.confirm}
 
     def set_settings(self, d):
         """api_key / github_token: '' leaves it as it is, '-' removes it. Returns (ok, message)."""
@@ -621,6 +647,15 @@ class Chat:
 
     def stop(self):
         self.cancel = True
+        self._answer_evt.set()
+
+    def answer(self, yes):
+        """The user's answer to the test Claude asked to run."""
+        if self.confirm is None:
+            return False
+        self._answer_yes = bool(yes)
+        self._answer_evt.set()
+        return True
 
     # --- asking ---
     def send(self, text):
@@ -697,13 +732,56 @@ class Chat:
     def _call(self, key, model, system, effort=""):
         for attempt in range(3):
             try:
-                return call_claude(key, model, system, self._trim(self.messages, pictures=True), TOOLS, effort)
+                return call_claude(key, model, system, self._trim(self.messages, pictures=True),
+                                   tools_for(self.tests["list"] if self.tests else []), effort)
             except ApiError as e:
                 if e.code in (429, 500, 502, 503, 529) and attempt < 2:
                     self.progress = "Busy at Anthropic - trying again"
                     time.sleep(8 * (attempt + 1))
                     continue
                 raise
+
+    TEST_ASK_S = 300           # s the user has to say yes to a test
+    TEST_MAX_S = 15 * 60       # s a test may take before Claude stops waiting
+
+    def _run_test(self, inp):
+        if not self.tests:
+            return "tests cannot be run from here", True
+        key = str(inp.get("key", ""))
+        ch = next((c for c in self.tests["list"] if c["key"] == key), None)
+        if ch is None:
+            return "no such test; the tests are: " + ", ".join(c["key"] for c in self.tests["list"]), True
+        self._answer_evt.clear()
+        self._answer_yes = False
+        self.confirm = {"key": key, "title": ch["title"], "start": ch["start"], "why": str(inp.get("why", ""))[:300]}
+        self.progress = f"Waiting for your yes to the test '{ch['title']}'"
+        try:
+            self._answer_evt.wait(self.TEST_ASK_S)
+        finally:
+            self.confirm = None
+        if self.cancel:
+            return "stopped by the user", True
+        if not self._answer_yes:
+            self._show("note", f"Test '{ch['title']}' not run.")
+            return "the user said no (or did not answer) - do not run it again unless asked", True
+        ok, msg = self.tests["start"](key)
+        if not ok:
+            return f"the test did not start: {msg}", True
+        self._show("note", f"Test '{ch['title']}' started.")
+        t0 = time.time()
+        self.progress = f"Test '{ch['title']}' is running"
+        time.sleep(2)
+        while time.time() - t0 < self.TEST_MAX_S and not self.cancel:
+            st = self.tests["status"]()
+            if not st.get("running"):
+                break
+            time.sleep(2)
+        st = self.tests["status"]()
+        log = self.tests["log_since"](t0 - 2) or "(nothing was logged)"
+        self._show("note", f"Test '{ch['title']}': {'done' if st.get('ok') else 'failed'} - {st.get('result', '')}")
+        return (f"result: {'done' if st.get('ok') else 'failed'} - {st.get('result', '')}"
+                + (" (still running, Claude stopped waiting)" if st.get("running") else "")
+                + f"\nlog of the test:\n{log[-30000:]}"), False
 
     def run_tool(self, name, inp, model=""):
         """(content for the tool_result, is_error)."""
@@ -767,6 +845,8 @@ class Chat:
                                 if len(hits) >= 100:
                                     return "\n".join(hits) + "\n(more hits: search narrower)", False
                 return "\n".join(hits) or "nothing found", False
+            if name == "run_test":
+                return self._run_test(inp)
             if name == "save_note":
                 text = " ".join(str(inp.get("text") or "").split())[:500]
                 if not text:

@@ -13,6 +13,8 @@ CHAPTERS = [
      "Runs the live video of the phone for 8 seconds, as in a battle, and says how many pictures came. No taps."),
     ("look",          "Checks",              "Looking: video against screenshots", "The map",
      "Takes ten pictures from the live video and three screenshots, and says how long each took and what the bot finds on the map in both. No taps."),
+    ("checks",        "Checks",              "All checks without taps",           "Any screen (the map for the last one)",
+     "What the bot sees, the live video and looking (video against screenshots), one after the other. Nothing is tapped."),
     ("play",          "Checks",              "Normal play for 3 minutes",         "The map",
      "The normal bot (spin, catch, everything that is switched on) for 3 minutes, then it stops."),
 
@@ -38,6 +40,8 @@ CHAPTERS = [
      "Opens the bag and discards what the bag rules say, then back to the map."),
     ("quests",        "Items and rewards",   "Claim GO Pass rewards",             "The map",
      "Opens the quests, GO Pass, View rewards, Claim all, and closes them again (also when the button is not gold)."),
+    ("storage",       "Items and rewards",   "Pokémon storage: look",             "The map",
+     "Opens the Pokémon storage, searches with 'What may go from the storage' and takes a picture of what came up. Nothing is selected or sent away."),
     ("gifts",         "Items and rewards",   "Gifts",                             "The map",
      "One round of opening and sending gifts, as the gift settings say."),
 ]

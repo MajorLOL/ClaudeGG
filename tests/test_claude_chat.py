@@ -8,6 +8,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -210,6 +211,58 @@ class Conversation(unittest.TestCase):
             self.assertNotIn("output_config", sent)
         finally:
             C._http = saved
+
+    def test_claude_asks_before_a_test_and_reads_its_log(self):
+        started, state = [], {"running": False, "ok": True, "result": "1 fought, 1 won"}
+        self.chat.tests = {"list": [{"key": "battle_one", "title": "One battle", "start": "The map", "what": "x"}],
+                           "start": lambda key: started.append(key) or (True, "ok"),
+                           "status": lambda: state, "log_since": lambda t0: "battle: battle 1 done: win"}
+        saved = C.time.sleep
+        C.time.sleep = lambda s: None
+        try:
+            import threading
+            got = {}
+            th = threading.Thread(target=lambda: got.update(r=self.chat._run_test({"key": "battle_one", "why": "to see"})))
+            th.start()
+            t_end = time.time() + 5
+            while self.chat.state()["confirm"] is None and time.time() < t_end:
+                time.sleep(0.01)
+            self.assertEqual(self.chat.state()["confirm"]["title"], "One battle")
+            self.assertTrue(self.chat.answer(True))
+            th.join(5)
+        finally:
+            C.time.sleep = saved
+        out, err = got["r"]
+        self.assertFalse(err)
+        self.assertEqual(started, ["battle_one"])
+        self.assertIn("result: done - 1 fought, 1 won", out)
+        self.assertIn("battle 1 done: win", out)
+        self.assertIsNone(self.chat.state()["confirm"])
+
+    def test_no_means_no_test(self):
+        started = []
+        self.chat.tests = {"list": [{"key": "look", "title": "Looking", "start": "The map", "what": "x"}],
+                           "start": lambda key: started.append(key) or (True, "ok"),
+                           "status": lambda: {}, "log_since": lambda t0: ""}
+        import threading
+        got = {}
+        th = threading.Thread(target=lambda: got.update(r=self.chat._run_test({"key": "look", "why": "w"})))
+        th.start()
+        t_end = time.time() + 5
+        while self.chat.state()["confirm"] is None and time.time() < t_end:
+            time.sleep(0.01)
+        self.chat.answer(False)
+        th.join(5)
+        self.assertEqual(started, [])
+        self.assertTrue(got["r"][1])
+        self.assertIn("said no", got["r"][0])
+        self.assertTrue(self.chat._run_test({"key": "nope", "why": ""})[1])
+
+    def test_the_test_keys_are_in_the_tools(self):
+        tools = C.tools_for([{"key": "look", "title": "Looking", "start": "The map"}])
+        run = next(t for t in tools if t["name"] == "run_test")
+        self.assertIn("look (Looking; start: The map)", run["input_schema"]["properties"]["key"]["description"])
+        self.assertNotIn("{keys}", json.dumps(tools))
 
     def test_an_api_key_that_is_refused(self):
         def refuse(*a):

@@ -30,6 +30,7 @@ import numpy as np
 
 import chapters as CH        # the test chapters (Test): what they are; gamebot.py runs them
 import bag_rules             # what the bag clean-up keeps
+import extras                # updating, the history of the days, warnings (ntfy), backup
 import claude_chat           # Claude in the chat on the right side of the page
 import spin_stop as S        # the phone's screen (which display, how big) is found there
 
@@ -62,6 +63,7 @@ OPTIONS = {                                 # key -> label (default: on)
     "bag_clean": "Bag full: discard and keep what 'What the bag keeps' says",
     "buddy": "My buddy walks along on the map (a Pokémon next to the trainer may be the buddy)",
     "fast_look": "Realistic look around",
+    "heat_pause": "Pause when the phone (43 °C) or the Pi (82 °C) gets too hot, until it has cooled down",
     "live_look": "Look with the live video of the phone (a picture in a tenth of a second instead of 1-3 s)",
 }
 # ==========================================================================
@@ -530,7 +532,7 @@ def today_stats():
 TEMP_EVERY = 20               # s: the temperatures are read again after this long
 PI_WARM, PI_HOT = 70, 80      # °C of the Pi's processor: warm (fine for a while), hot (it slows itself down from 80)
 PHONE_WARM, PHONE_HOT = 40, 43   # °C of the phone's battery: Samsung's best range is 0-35, above ~43 is too warm
-_temps = {"t": 0.0, "pi": None, "phone": None, "throttled": False}
+_temps = {"t": 0.0, "pi": None, "phone": None, "throttled": False, "level": None, "charging": None}
 
 
 def pi_temp():
@@ -559,7 +561,9 @@ def phone_temp(text=None):
 
 
 def _read_temps():
-    _temps.update(pi=pi_temp(), phone=phone_temp(), throttled=pi_throttled())
+    text = sh("dumpsys", "battery", timeout=5)
+    level, charging, _c = extras.battery(text)
+    _temps.update(pi=pi_temp(), phone=phone_temp(text), throttled=pi_throttled(), level=level, charging=charging)
 
 
 def temps():
@@ -568,14 +572,17 @@ def temps():
     if time.time() - _temps["t"] > TEMP_EVERY:
         _temps["t"] = time.time()
         threading.Thread(target=_read_temps, daemon=True, name="temps").start()
-    return {k: _temps[k] for k in ("pi", "phone", "throttled")}
+    return {k: _temps[k] for k in ("pi", "phone", "throttled", "level", "charging")}
 
 
 def status():
     active = subprocess.run(["systemctl", "is-active", SERVICE], capture_output=True).stdout.decode().strip()
     stats, battles = today_stats()
     _, pw, ph = phone()
+    up = {k: extras.update[k] for k in ("behind", "subjects", "version", "error", "running", "result", "dirty")}
     return {"service": active, "stats": stats, "battles": battles, "test": test_status(), "temps": temps(),
+            "update": up, "alerts": {"topic": read_control().get("ntfy_topic", ""), "last": extras.alerts["last"],
+                                     "last_t": extras.alerts["last_t"]},
             "temp_limits": {"pi": [PI_WARM, PI_HOT], "phone": [PHONE_WARM, PHONE_HOT]}, "control": read_control(), "labels": OPTIONS, "apps": game_apps(), "rec": rec_status(),
             "w": pw, "h": ph, "phone": S.screen["model"], "screen_note": S.screen["note"], "screen_ok": S.screen["ok"],
             "video": latest["mode"], "error": latest["error"],
@@ -612,6 +619,19 @@ PAGE = r"""<!DOCTYPE html>
  .stats .grp + .grp { padding-left:18px; border-left:1px solid var(--ridge); }
  .stats .btn.small { height:26px; }
  .stats b { color:var(--chalk); font-size:17px; font-weight:650; font-variant-numeric:tabular-nums; margin-right:4px; }
+ .version { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; margin-top:8px; color:var(--mist); font-size:12.5px; }
+ .version .new { color:var(--hold); font-weight:600; }
+ .version ul { margin:2px 0 0; padding-left:18px; width:100%; }
+ .sub { margin:12px 0 4px; font-size:12.5px; font-weight:650; color:var(--chalk); }
+ .hist { display:flex; gap:2px; align-items:flex-end; height:110px; margin:4px 0 2px; }
+ .hist .day { flex:1 1 0; min-width:0; display:flex; flex-direction:column; justify-content:flex-end; height:100%; cursor:help; }
+ .hist .d { overflow:hidden; white-space:nowrap; }
+ .hist .c { background:var(--run); border-radius:3px 3px 0 0; min-height:1px; }
+ .hist .s { background:var(--blue); min-height:0; }
+ .hist .d { font-size:10px; color:var(--mist); text-align:center; margin-top:2px; }
+ .histkey { display:flex; gap:14px; font-size:12px; color:var(--mist); }
+ .histkey i { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:4px; }
+ #ntfy { width:220px; }
  .temps { display:flex; gap:12px; color:var(--mist); font-size:13px; }
  .temps span { white-space:nowrap; cursor:help; }
  .temps b { font-weight:650; color:var(--chalk); font-variant-numeric:tabular-nums; }
@@ -708,6 +728,7 @@ PAGE = r"""<!DOCTYPE html>
  .bagitems { display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); gap:4px 22px; margin-bottom:8px; }
  .bagitems label { display:flex; align-items:center; justify-content:space-between; gap:8px; }
  .bagitems input { width:88px; }
+ #storesearch { width:100%; height:auto; padding:7px 10px; font-family:ui-monospace, monospace; font-size:12.5px; resize:vertical; }
  #bapp { max-width:210px; }
  input[type=time].inp { width:116px; }
  select.inp { max-width:100%; }
@@ -817,6 +838,8 @@ PAGE = r"""<!DOCTYPE html>
  .msg pre code { padding:0; background:none; }
  .msg a { color:var(--blue); }
  .chatempty { color:var(--mist); font-size:13px; margin:auto 0; text-align:center; }
+ .chatask { margin:0 14px 8px; padding:10px 12px; border:1px solid var(--hold); border-radius:10px; background:#33290f; font-size:13px; }
+ .chatask p { margin:0 0 6px; }
  .chatbusy { display:flex; align-items:center; gap:8px; padding:6px 14px; color:var(--hold); font-size:12.5px; }
  .chatbusy .dot { width:8px; height:8px; border-radius:50%; background:var(--hold); animation:pulse 1.2s ease-in-out infinite; }
  .chatbusy .btn { margin-left:auto; }
@@ -864,6 +887,7 @@ PAGE = r"""<!DOCTYPE html>
     <label class="runfor" for="dmax" title="How long a run may take, all games together. Then a fight that is going on is finished, nothing new starts, the game is closed and the bot waits for the next daily start.">Stop after
      <input type="number" id="dmax" class="inp" min="5" max="1440" step="5" onchange="setMax(this.value)"> min</label>
    </div>
+   <div class="version" id="version"></div>
    <details class="help"><summary>What do these buttons do?</summary>
     <p>Start and Restart begin a new daily run right away. Stop pauses the bot so you can take over, for example for quests; stop it too before you open Pokémon GO on another device. Close game stops the bot and closes Pokémon GO on the phone; Start plays again. <b>Stop after ... min</b> is how long a run may take, all games together, counted from Start or the daily start: when the time is up, a battle that is being fought and a Pokémon that is being caught are finished, no new battle starts, the game is closed and the bot waits for the next daily start.</p>
    </details>
@@ -879,6 +903,24 @@ PAGE = r"""<!DOCTYPE html>
     <label class="testrec"><input type="checkbox" id="testrec"> Record the screen during the test (the recording goes into the test zip)</label>
     <div class="chapters" id="chapters"></div>
     <p class="hint">Starting a test stops the bot. Put the game on the start screen first. Afterwards press Start to play normally again.</p>
+   </details>
+  </section>
+
+  <section class="sec tests" aria-label="History, warnings and backup">
+   <details id="morebox"><summary><h2>History, warnings and backup</h2><span>The days so far, messages to your phone, and what the bot has learned.</span></summary>
+    <h3 class="sub">History</h3>
+    <div class="hist" id="hist"><p class="h">No days counted yet.</p></div>
+    <h3 class="sub">Warnings on your phone</h3>
+    <p class="h">With the free app <b>ntfy</b> on your phone, subscribed to a topic of your own (a name nobody guesses, for example <i>gamebot-dennis-4827</i>), the bot sends a message when the phone is not connected, its battery is below 15 % and not charging, the phone or the Pi is too hot, the bot wrote nothing for 20 minutes, and when a daily run is over. Each warning at most once an hour.</p>
+    <div class="bar"><input id="ntfy" class="inp" placeholder="your ntfy topic" maxlength="64" aria-label="ntfy topic">
+     <button class="btn small" onclick="ntfySave()">Save</button><button class="btn small" onclick="ntfyTest()">Send a test</button>
+     <span class="h" id="ntfymsg"></span></div>
+    <p class="h" id="alertlast"></p>
+    <h3 class="sub">Backup</h3>
+    <p class="h">The settings and what the bot has learned (throw timing, the attacks of opponents, the little games, the history). No keys or passwords. Put back after a new installation; restart the bot afterwards.</p>
+    <div class="bar"><a class="btn small" href="backup">Download backup</a>
+     <label class="btn small" for="restorefile">Put a backup back</label><input type="file" id="restorefile" accept=".zip" hidden onchange="restore(this)">
+     <span class="h" id="restoremsg"></span></div>
    </details>
   </section>
 
@@ -902,7 +944,7 @@ PAGE = r"""<!DOCTYPE html>
    <div class="tabs" id="tabs" role="tablist" aria-label="Option groups"></div>
    <div class="groups tabbed" id="groups">
     <div class="col">
-     <div class="group" data-keys="daily_cycle">
+     <div class="group" data-keys="daily_cycle heat_pause">
       <h2>Daily run</h2>
       <div class="switches"></div>
       <div class="row field"><label class="txt" for="dtime"><span class="t">Starts every day at</span></label>
@@ -933,6 +975,12 @@ PAGE = r"""<!DOCTYPE html>
        <p class="h">How many of each item stay in the bag; the rest is discarded. 0 discards all of it, an empty field leaves the item alone. Items that are not on this list are never touched.</p>
        <div class="bagitems" id="bagitems"></div>
        <div class="bar"><button class="btn small" type="button" onclick="bagDefaults()">Standard numbers</button><span class="h" id="bagmsg"></span></div>
+      </details>
+      <details class="bagkeep" id="storekeep"><summary>What may go from the Pokémon storage (look only, for now)</summary>
+       <p class="h">A search as you type it in the game's Pokémon storage: what it finds may go. The test <b>Pokémon storage: look</b> opens the storage, searches with it and takes a picture of what came up - nothing is selected or sent away yet. Sending away comes once those pictures show the screens are known. The standard search keeps every shiny, legendary, mythical, 3* and 4*, favourite, tagged, costume, lucky, shadow, purified, traded, background, Dynamax, XXL and XXS Pokémon, and only picks species you have two or more of, below CP 1500.</p>
+       <textarea id="storesearch" class="inp" rows="3" maxlength="240" spellcheck="false" aria-label="Search for the Pokémon that may go"></textarea>
+       <div class="bar"><button class="btn small" type="button" onclick="storeSave()">Save</button>
+        <button class="btn small" type="button" onclick="storeSave(true)">Standard search</button><span class="h" id="storemsg"></span></div>
       </details>
      </div>
      <div class="group" data-keys="catch curveball fast_catch fast_look live_look buddy">
@@ -999,6 +1047,12 @@ PAGE = r"""<!DOCTYPE html>
   <div class="bar"><button class="btn primary" type="submit">Save</button><span id="set_msg"></span></div>
  </form>
  <div class="chatlog" id="chatlog" aria-live="polite"></div>
+ <div class="chatask" id="chatask" hidden>
+  <p><b>Claude wants to run a test:</b> <span id="askwhat"></span></p>
+  <p class="h" id="askwhy"></p>
+  <div class="bar"><button class="btn primary small" onclick="chatAnswer(true)">Run the test</button>
+   <button class="btn small" onclick="chatAnswer(false)">No</button></div>
+ </div>
  <div class="chatbusy" id="chatbusy" hidden><span class="dot"></span><span id="chatprog">Thinking</span>
   <button class="btn small" onclick="chatStop()">Stop</button></div>
  <form class="chatin" onsubmit="chatSend(event)">
@@ -1021,6 +1075,7 @@ const WORDS = {
   curveball: ['Always throw a curveball'],
   fast_catch: ['Fast catch', 'After a clear hit, press Back to skip the catch animation. The result is checked on the map.'],
   fast_look: ['Look around like a person'],
+  heat_pause: ['Pause when it gets too hot', 'From 43 °C of the phone\'s battery or 82 °C of the Pi nothing is tapped until they are below 39 / 72 °C again (45 min at most). A fight that is going on is finished first.'],
   live_look: ['Look with the live video', 'The map, the ring and the ball are looked at in the live video of the phone: a picture in a tenth of a second instead of 1 to 3 s. Text is still read on sharp screenshots.'],
   buddy: ['My buddy walks along on the map', 'A Pokémon next to the trainer may be the buddy.'],
   spin: ['Spin PokéStops'],
@@ -1148,9 +1203,82 @@ function showTemps(t, lim) {
     s.className = t[k] >= hot ? 'hot' : t[k] >= warm ? 'warm' : '';
     b.textContent = Math.round(t[k]) + ' °C';
     s.append(name + ' ', b);
+    if (k === 'phone' && t.level !== null && t.level !== undefined) {
+      const lv = document.createElement('b'); lv.textContent = ' ' + t.level + '%' + (t.charging ? ' charging' : '');
+      if (t.level <= 15 && !t.charging) lv.style.color = 'var(--stop)';
+      s.append(lv);
+    }
     if (k === 'pi' && t.throttled) { s.className = 'hot'; s.append(' slowed down'); }
     s.title = tips[k]; box.append(s);
   }
+}
+
+let shownVersion = '';
+function showUpdate(u) {
+  const box = $('version'); if (!u) return;
+  if (shownVersion && u.version && u.version !== shownVersion) { location.reload(); return; }   // (updated: the new page)
+  shownVersion = u.version || shownVersion;
+  box.textContent = '';
+  const v = document.createElement('span'); v.textContent = 'Version ' + (u.version || '?'); box.append(v);
+  if (u.running || /^Updated/.test(u.result || '')) {
+    const r = document.createElement('span'); r.className = 'new'; r.textContent = (u.result || 'Updating...') + ' - the page reloads by itself'; box.append(r); return;
+  }
+  if (u.behind > 0) {
+    const n = document.createElement('span'); n.className = 'new'; n.textContent = u.behind + (u.behind === 1 ? ' update' : ' updates') + ' ready';
+    const b = document.createElement('button'); b.className = 'btn small primary'; b.textContent = 'Update';
+    b.onclick = async () => {
+      if (!confirm('Update now? The bot and the web interface restart (a fight that is going on is stopped).')) return;
+      const r = await fetch('update/run', {method: 'POST'}); if (!r.ok) alert(await r.text()); refresh();
+    };
+    const ul = document.createElement('ul');
+    for (const t of u.subjects) { const li = document.createElement('li'); li.textContent = t; ul.append(li); }
+    box.append(n, b, ul);
+  } else {
+    const ok = document.createElement('span'); ok.textContent = u.error ? 'could not look for updates: ' + u.error : 'up to date';
+    const c = document.createElement('button'); c.className = 'btn small'; c.textContent = 'Look again';
+    c.onclick = async () => { c.disabled = true; await fetch('update/check', {method: 'POST'}); refresh(); };
+    box.append(ok, c);
+  }
+  if (u.result && /failed/.test(u.result)) { const f = document.createElement('span'); f.style.color = 'var(--stop)'; f.textContent = u.result; box.append(f); }
+}
+async function loadHistory() {
+  const box = $('hist');
+  let h = [];
+  try { h = await (await fetch('history?days=30')).json(); } catch (e) { return; }
+  if (!h.length) return;
+  const top = Math.max(1, ...h.map(d => d.caught + d.stops));
+  box.textContent = '';
+  for (const d of h) {
+    const col = document.createElement('div'); col.className = 'day';
+    col.title = d.day + ': ' + d.caught + ' caught, ' + d.fled + ' fled, ' + d.stops + ' stops, ' + d.won + ' won, ' + d.lost + ' lost';
+    const st = document.createElement('div'); st.className = 's'; st.style.height = (d.stops / top * 85) + '%';
+    const c = document.createElement('div'); c.className = 'c'; c.style.height = (d.caught / top * 85) + '%';
+    const l = document.createElement('div'); l.className = 'd'; l.textContent = d.day.slice(8);
+    col.append(c, st, l); box.append(col);
+  }
+  if (!$('histkey')) {
+    const k = document.createElement('div'); k.className = 'histkey'; k.id = 'histkey';
+    k.innerHTML = '<span><i style="background:var(--run)"></i>caught</span><span><i style="background:var(--blue)"></i>stops</span><span>hold the mouse on a day for all its numbers</span>';
+    box.after(k);
+  }
+}
+$('morebox').addEventListener('toggle', () => { if ($('morebox').open) loadHistory(); });
+function showAlerts(a) {
+  if (!a) return;
+  const i = $('ntfy'); if (document.activeElement !== i && !i.dataset.edited) i.value = a.topic || '';
+  $('alertlast').textContent = a.last ? 'Last warning: ' + a.last : '';
+}
+$('ntfy').addEventListener('input', () => { $('ntfy').dataset.edited = '1'; });
+async function ntfySave() {
+  const r = await fetch('alerts/settings', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({topic: $('ntfy').value})});
+  $('ntfymsg').textContent = await r.text(); delete $('ntfy').dataset.edited;
+}
+async function ntfyTest() { const r = await fetch('alerts/test', {method: 'POST'}); $('ntfymsg').textContent = await r.text(); }
+async function restore(inp) {
+  const f = inp.files[0]; if (!f) return;
+  if (!confirm('Put the backup "' + f.name + '" back? Files of the same name on the Pi are replaced.')) { inp.value = ''; return; }
+  const r = await fetch('restore', {method: 'POST', body: await f.arrayBuffer()});
+  $('restoremsg').textContent = await r.text(); inp.value = '';
 }
 
 function showGames(list) {                            // the GO Battle League matches of today, newest first
@@ -1293,6 +1421,8 @@ function showChat(c) {
   if (sel.options.length !== c.models.length) sel.innerHTML = c.models.map(m => '<option>' + esc(m) + '</option>').join('');
   if (document.activeElement !== sel) sel.value = c.model;
   $('chatbusy').hidden = !c.busy; $('chatprog').textContent = c.progress || 'Thinking';
+  const ask = c.confirm; $('chatask').hidden = !ask;
+  if (ask) { $('askwhat').textContent = ask.title + ' (start: ' + ask.start + ')'; $('askwhy').textContent = ask.why; }
   $('chatgo').disabled = c.busy;
   const key = c.chat.id + '|' + c.messages.length + '|' + (c.messages.length ? c.messages[c.messages.length - 1].text.length : 0) + '|' + c.has_key + c.password;
   if (key === chatSeen) return;
@@ -1328,6 +1458,7 @@ async function chatSend(ev) {
 }
 $('chattext').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatSend(e); } });
 async function chatNew() { await post('chat/new', {}); $('chattext').focus(); }
+async function chatAnswer(yes) { await post('chat/confirm', {yes}); }
 async function chatStop() { await fetch('chat/stop', {method: 'POST'}); }
 async function chatSave(ev) {
   ev.preventDefault();
@@ -1358,6 +1489,8 @@ async function refresh() {
     showStats(s.stats);
     showGames(s.battles);
     showTemps(s.temps, s.temp_limits);
+    showUpdate(s.update);
+    showAlerts(s.alerts);
     showTest(s.test);
     if (s.w && s.h) { PW = s.w; PH = s.h; document.documentElement.style.setProperty('--ar', (s.w / s.h).toFixed(4)); }
     $('model').textContent = s.phone || '';
@@ -1374,6 +1507,7 @@ async function refresh() {
     if (!built) { buildOptions(s.labels); built = true; }
     for (const k of Object.keys(s.labels)) { const el = $('o_' + k); if (el) el.checked = !!s.control[k]; }
     showBag(s.control.bag_keep);
+    showStore(s.control);
     const tt = $('ttarget');
     if (document.activeElement !== tt) tt.value = s.control.throw_target || 'realistic';
     $('thint').textContent = TARGETS[tt.value] || '';
@@ -1428,6 +1562,14 @@ async function bagDefaults() {
   if (!confirm('Set the standard numbers again?')) return;
   for (const i of $('bagitems').querySelectorAll('input')) { const k = BAG_ITEMS.find(x => x[0] === i.dataset.n)[1]; i.value = k === null ? '' : k; }
   bagSave();
+}
+const STORE_DEFAULT = @@STORESEARCH@@;
+function showStore(c) { const t = $('storesearch'); if (document.activeElement !== t && !t.dataset.edited) t.value = c.storage_search || STORE_DEFAULT; }
+$('storesearch').addEventListener('input', () => { $('storesearch').dataset.edited = '1'; });
+async function storeSave(standard) {
+  if (standard) $('storesearch').value = STORE_DEFAULT;
+  const r = await fetch('storage_search', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({search: $('storesearch').value})});
+  $('storemsg').textContent = r.ok ? 'Saved.' : await r.text(); delete $('storesearch').dataset.edited; refresh();
 }
 async function setTarget(v) { await fetch('throw_target/' + v, {method: 'POST'}); refresh(); }
 function fillApps(apps, cur) {
@@ -1511,6 +1653,9 @@ function setManual(on) {
 }
 refresh(); setInterval(refresh, 3000);
 </script></body></html>"""
+STORAGE_SEARCH = ("count2-&!shiny&!legendary&!mythical&!ultra beasts&!4*&!3*&!favorite&!#&!costume&!lucky&!shadow"
+                  "&!purified&!traded&!background&!dynamax&!gigantamax&!xxl&!xxs&cp-1500")   # (the same as in gamebot.py)
+PAGE = PAGE.replace("@@STORESEARCH@@", json.dumps(STORAGE_SEARCH))
 PAGE = PAGE.replace("@@BAGITEMS@@", json.dumps(bag_rules.ITEMS, ensure_ascii=False))
 PAGE = PAGE.replace("@@NAME@@", APP_NAME).replace("@@CHAPTERS@@", json.dumps(CH.as_list()).replace("</", "<\\/"))
 
@@ -1823,6 +1968,62 @@ def test_zip():
     return buf.getvalue()
 
 
+# ---------- looking after the bot: update, warnings ----------
+def restart_bot():
+    if bot_running():
+        subprocess.run(["sudo", "-n", "/usr/bin/systemctl", "restart", SERVICE], capture_output=True)
+
+
+def restart_web():
+    os._exit(0)                                 # (systemd starts the web interface again: Restart=always)
+
+
+_summary = {"seen": ""}
+
+
+def run_summary():
+    """(key, text) once a daily run ended since the last look ('daily run complete' / 'the run time is up'), or None."""
+    for line in reversed(read_log(300)):
+        if re.search(r"daily run (complete|: stopped)", line):
+            key = line[:19]
+            if key == _summary["seen"]:
+                return None
+            first = not _summary["seen"]
+            _summary["seen"] = key
+            if first:                               # (the web interface just started: not a new end)
+                return None
+            stats, _games = today_stats()
+            return key, "Today: " + (stats or "nothing counted")
+    return None
+
+
+def watcher():
+    """Every minute: is everything all right? Warnings go to the ntfy topic set in the web interface."""
+    while True:
+        try:
+            topic = read_control().get("ntfy_topic", "")
+            st = adb_state = ""
+            try:
+                adb_state = subprocess.run(["adb", "get-state"], capture_output=True, timeout=10).stdout.decode().strip()
+            except Exception:  # noqa: BLE001
+                pass
+            t = temps()
+            try:
+                log_age = time.time() - os.path.getmtime(LOGFILE)
+            except OSError:
+                log_age = 0
+            st = {"adb_ok": adb_state == "device", "level": t.get("level"), "charging": t.get("charging"),
+                  "phone_c": t.get("phone"), "pi_c": t.get("pi"), "log_age": log_age, "bot_running": bot_running(),
+                  "summary": run_summary()}
+            sent = extras.watch_once(topic, st)
+            for key in sent:
+                write_log(f"warning sent to the phone: {key}")
+            extras.update_check(code_dir())
+        except Exception as e:  # noqa: BLE001
+            print(f"watcher: {e}")
+        time.sleep(60)
+
+
 # ---------- Claude: the chat on the right side ----------
 def code_dir():
     """Where the code of the bot is as a git repository (for Claude to read): the clone that is pulled, else
@@ -1832,7 +2033,9 @@ def code_dir():
 
 
 chat = claude_chat.Chat(code_dir(), status_fn=lambda: status(), log_file=LOGFILE, shot_fn=lambda: latest["jpg"],
-                        write_log=write_log, chapters=[c["title"] for c in CH.as_list()])
+                        write_log=write_log, chapters=[c["title"] for c in CH.as_list()],
+                        tests={"list": CH.as_list(), "start": lambda key: test_start(key), "status": lambda: test_status(),
+                               "log_since": lambda t0: log_since(t0)})
 
 
 def chat_state():
@@ -1919,6 +2122,18 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
+        elif path == "/history":
+            self._send(json.dumps(extras.history_read(int((self.path.partition("days=")[2] or "30")[:3] or 30))),
+                       "application/json")
+        elif path == "/backup":
+            data = extras.backup_zip()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Disposition", 'attachment; filename="gamebot-backup-'
+                             + time.strftime("%Y%m%d-%H%M") + '.zip"')
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
         elif path == "/chat/state":
             self._send(json.dumps(chat_state()), "application/json")
         elif path == "/test/download":
@@ -1960,6 +2175,42 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             ok, msg = test_start(m.group(1), record="rec=1" in self.path)
             return self._send(msg, code=200 if ok else 409)
+        if path == "/update/check":
+            extras.update_check(code_dir(), force=True)
+            return self._send("ok")
+        if path == "/update/run":
+            if not os.path.isdir(os.path.join(code_dir(), ".git")):
+                return self._send("no git clone in ~/pokemon-go-automation", code=409)
+            if extras.update.get("dirty"):
+                return self._send("the clone has changes of its own: update by hand (git status)", code=409)
+            ok = extras.update_run(code_dir(), restart_bot, restart_web, write_log)
+            return self._send("ok" if ok else "already updating", code=200 if ok else 409)
+        if path == "/alerts/settings":
+            topic = str(self._json_body().get("topic", "")).strip()
+            if topic and not re.fullmatch(r"[A-Za-z0-9_-]{6,64}", topic):
+                return self._send("a topic has 6-64 letters, digits, - or _", code=400)
+            c = read_control()
+            c["ntfy_topic"] = topic
+            write_control(c)
+            return self._send("saved")
+        if path == "/alerts/test":
+            err = extras.ntfy_send(read_control().get("ntfy_topic", ""), "Gamebot", "A test message from the web interface.")
+            return self._send(err or "sent", code=200 if not err else 400)
+        if path == "/restore":
+            n = int(self.headers.get("Content-Length") or 0)
+            data = self.rfile.read(n) if 0 < n <= extras.BACKUP_MAX else b""
+            ok, msg = extras.backup_restore(data)
+            if ok:
+                write_log("backup: " + msg)
+            return self._send(msg, code=200 if ok else 400)
+        if path == "/storage_search":
+            t = " ".join(str(self._json_body().get("search", "")).split())
+            if not re.fullmatch(r"[A-Za-z0-9 &,!*#:+\-]{1,240}", t):
+                return self._send("only letters, digits, spaces and & , ! * # : + - (at most 240)", code=400)
+            c = read_control()
+            c["storage_search"] = t
+            write_control(c)
+            return self._send("ok")
         if path == "/bag_keep":
             c = read_control()
             c["bag_keep"] = bag_rules.clean(self._json_body())
@@ -1984,6 +2235,9 @@ class Handler(BaseHTTPRequestHandler):
             p = chat.save_project(self._json_body())
             return self._send(json.dumps(p) if p else "a project needs a name", "application/json" if p else
                               "text/plain; charset=utf-8", code=200 if p else 400)
+        if path == "/chat/confirm":
+            ok = chat.answer(bool(self._json_body().get("yes")))
+            return self._send("ok" if ok else "nothing to answer", code=200 if ok else 409)
         if path == "/chat/stop":
             chat.stop()
             return self._send("ok")
@@ -2079,6 +2333,7 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     read_control()                              # applies the standard profile once
     threading.Thread(target=video_loop, daemon=True).start()
+    threading.Thread(target=watcher, daemon=True, name="watcher").start()
     if not password():
         print(f"WARNING: no password set ({PASSWORD_FILE}) - anyone on your network can watch")
     print(f"{APP_NAME} web on http://0.0.0.0:{PORT}")

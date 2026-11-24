@@ -406,6 +406,10 @@ def count(key):
     if stats["day"] != today:
         stats.update(day=today, caught=0, fled=0, stops=0, won=0, lost=0)
     stats[key] += 1
+    try:
+        extras.history_record(today, stats)
+    except Exception:  # noqa: BLE001
+        pass
     return (f"(today: {stats['caught']} caught, {stats['fled']} fled, {stats['stops']} stops"
             + (f", {stats['won']} won, {stats['lost']} lost" if stats["won"] or stats["lost"] else "") + ")")
 
@@ -1142,6 +1146,83 @@ def _bag_to_map():
         time.sleep(2)
 
 
+# ------------------------------- Pokémon storage: look (nothing is sent away) ----------------------------------
+STORAGE_SEARCH = ("count2-&!shiny&!legendary&!mythical&!ultra beasts&!4*&!3*&!favorite&!#&!costume&!lucky&!shadow"
+                  "&!purified&!traded&!background&!dynamax&!gigantamax&!xxl&!xxs&cp-1500")
+STORAGE_SEARCH_Y = 0.15        # the search field near the top of the storage (fraction of the height), when not read
+
+
+def storage_search():
+    """The search of 'what may go' (web interface), or the standard one."""
+    t = str(setting("storage_search", STORAGE_SEARCH) or STORAGE_SEARCH)
+    return t if re.fullmatch(r"[A-Za-z0-9 &,!*#:+\-]{1,240}", t) else STORAGE_SEARCH
+
+
+def _type_text(text):
+    """Type text in the field that has the focus (spaces as %s; inside single quotes for the phone's shell)."""
+    S.adb("shell", "input text '" + text.replace("'", "").replace(" ", "%s") + "'")
+
+
+def storage_look():
+    """From the map: main menu -> POKÉMON -> search with storage_search() -> a picture of what came up
+    (debug/g_storage_result.png) -> back to the map.  Nothing is selected and nothing is sent away: this shows
+    which Pokémon the search would pick.  Returns {ok, used, max, why}."""
+    out = {"ok": False, "used": None, "max": None, "why": ""}
+    S.tap(*MENU_BTN)
+    spots = None
+    try:
+        for step in range(7):
+            shot = _settled(2.5)
+            lines = ocr_lines(shot, 100, 2150)
+            ws = _words(lines)
+            k = shot.shape[0] / 2208
+            count = next((w for w, x, y in ws if y < 500 * k and re.fullmatch(r"\d{1,4}/\d{3,4}", w)), None)
+            top_pokemon = any(_like(w, "POKEMON", 0.8) and y < 450 * k for w, x, y in ws)
+            log(f"storage: step {step}: {_reads(lines, 90)}")
+            if (count or top_pokemon) and not any(_like(w, "ITEMS", 0.8) and y < 450 * k for w, x, y in ws):
+                if count:
+                    out["used"], out["max"] = (int(v) for v in count.split("/"))
+                save_async("g_storage.png", shot)
+                field = next(((x, y) for w, x, y in ws if _like(w, "SEARCH", 0.8) and y < 700 * k), None)
+                x, y = field or (shot.shape[1] // 2, int(STORAGE_SEARCH_Y * shot.shape[0]))
+                log(f"storage: the Pokémon storage is open ({count or 'count not read'}) - searching at ({x}, {y})")
+                S.tap(x, y)
+                time.sleep(1.5)
+                _type_text(storage_search())
+                time.sleep(0.8)
+                S.adb("shell", "input", "keyevent", "66")
+                res = _settled(2.5)
+                save_async("g_storage_result.png", res)
+                log(f"storage: searched '{storage_search()}' - what came up is in debug/g_storage_result.png "
+                    f"({_reads(ocr_lines(res, 100, 2150), 120)})")
+                out["ok"] = True
+                return out
+            if S.on_map(shot):
+                S.tap(*MENU_BTN)
+                continue
+            if _screen_kind(shot, lines) == "menu":
+                if spots is None:
+                    found = sorted([(x, y) for w, x, y in ws if _like(w, "POKEMON", 0.75) and 1250 * k < y < 1700 * k
+                                    and x < shot.shape[1] // 2], key=lambda p: p[0])
+                    if not found:
+                        out["why"] = "POKEMON is not in the main menu"
+                        break
+                    x, y = found[0]
+                    spots = [(x, y + int(ITEMS_ICON_DY * k)), (x, y)]
+                if not spots:
+                    out["why"] = "the storage did not open"
+                    break
+                S.tap(*spots.pop(0))
+            else:
+                S.back()
+        out["why"] = out["why"] or "the storage was not reached"
+        return out
+    finally:
+        _bag_to_map()
+        if out["used"] is not None:
+            log(f"storage: {out['used']} of {out['max']} places used")
+
+
 BAG_WORDS = ("POTION", "REVIVE", "BALL", "BERR", "LUCKY", "INCENSE", "RAZZ", "PINAP", "NANAB", "EGG", "LURE", "ADVENTURE")
 
 
@@ -1150,6 +1231,7 @@ BAG_WORDS = ("POTION", "REVIVE", "BALL", "BERR", "LUCKY", "INCENSE", "RAZZ", "PI
 # never touched (Ultra Ball, Master Ball, Revive, eggs, lures, incense ...).  The names as the bag shows them,
 # without accents; a name ending in '*' stands for every item whose name contains the word (all berries).
 import bag_rules             # what the bag keeps: set in the web interface ('What the bag keeps'), see bag_rules.py
+import extras               # the history of the days (gamebot_history.json)
 BAG_TRASH_X = 0.80          # the trash can of a row, right of its name (fraction of the width) ...
 BAG_TRASH_DY = -0.017       # ... a little above the middle of its name (fraction of the height)
 BAG_COUNT_DY = (0.04, 0.16)  # the count 'x487' stands under the left of the picture, this far under the name
@@ -3304,7 +3386,62 @@ def claim_quests():
     return "claimed" if claimed else "nothing"
 
 
+HEAT_EVERY = 60              # s between two looks at the temperatures
+HEAT_PHONE, HEAT_PHONE_OK = 43.0, 39.0    # °C of the phone's battery: pause from here, go on again below that
+HEAT_PI, HEAT_PI_OK = 82.0, 72.0          # °C of the Pi's processor: the same
+HEAT_MAX_PAUSE = 45 * 60     # s: a pause never takes longer than this (a sensor that is stuck)
+heat = {"t": 0.0, "since": None, "phone": None, "pi": None}
+
+
+def read_heat():
+    """(°C of the phone's battery, °C of the Pi), None for what cannot be read."""
+    phone = pi = None
+    try:
+        m = re.search(r"^\s*temperature:\s*(-?\d+)", S.adb("shell", "dumpsys", "battery"), re.M)
+        phone = int(m.group(1)) / 10.0 if m else None
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp") as f:
+            pi = int(f.read().strip()) / 1000.0
+    except (OSError, ValueError):
+        pass
+    return phone, pi
+
+
+def heat_wait():
+    """Option 'Pause when it gets hot': s to wait when the phone or the Pi is too hot (nothing is tapped then),
+    0 when the bot may go on. Looked at every HEAT_EVERY s (and every 30 s while it pauses)."""
+    if not setting("heat_pause", True):
+        heat["since"] = None
+        return 0
+    now = time.time()
+    if now - heat["t"] < (30 if heat["since"] else HEAT_EVERY):
+        return 30 if heat["since"] else 0
+    heat["t"] = now
+    phone, pi = heat["phone"], heat["pi"] = read_heat()
+    if heat["since"] is None:
+        hot = [f"the phone's battery is {phone:.0f} °C" for _ in [1] if phone is not None and phone >= HEAT_PHONE] + \
+              [f"the Pi is {pi:.0f} °C" for _ in [1] if pi is not None and pi >= HEAT_PI]
+        if hot:
+            heat["since"] = now
+            log(f"heat: {' and '.join(hot)} - pausing until it is below {HEAT_PHONE_OK:.0f} / {HEAT_PI_OK:.0f} °C")
+            return 30
+        return 0
+    cool = (phone is None or phone <= HEAT_PHONE_OK) and (pi is None or pi <= HEAT_PI_OK)
+    if cool or now - heat["since"] > HEAT_MAX_PAUSE:
+        log(f"heat: going on after {(now - heat['since']) / 60:.0f} min"
+            + ("" if cool else " (the longest pause is over, although it is still warm)")
+            + (f" - phone {phone:.0f} °C" if phone is not None else "") + (f", Pi {pi:.0f} °C" if pi is not None else ""))
+        heat["since"] = None
+        return 0
+    return 30
+
+
 def step(brain):
+    wait = heat_wait()
+    if wait:
+        return wait
     if not S.screen["ok"]:                  # e.g. a foldable was folded during the run: the layout is not supported
         if layout_adapt("the screen has another shape than the canvas"):
             return 3
@@ -5959,6 +6096,9 @@ def _chapter_steps(brain, seconds, until_map=False, stop=None):
     return n
 
 
+chapter_stop = {"now": False}     # Stop test: also the parts of 'All checks' that are still to come
+
+
 def run_chapter(key):
     """gamebot.py chapter <key>: one part of the bot on its own (see chapters.py). It starts on the screen
     that is on the phone now, logs 'TEST <key>: started' and at the end 'TEST <key>: done - ...' (or
@@ -5969,7 +6109,7 @@ def run_chapter(key):
     if not ch:
         log(f"TEST {key}: no such test - there are: {', '.join(CH.KEYS)}")
         return False
-    stopped = {"now": False}
+    stopped = chapter_stop
 
     def on_term(*_):
         stopped["now"] = True
@@ -6096,6 +6236,19 @@ def run_chapter(key):
         elif key == "quests":
             res = claim_quests()
             ok, how = res != "failed", res
+        elif key == "checks":
+            done = []
+            for k in ("screen", "video", "look"):
+                if stopped["now"]:
+                    break
+                done.append((k, run_chapter(k)))
+            ok = len(done) == 3 and all(r for _k, r in done)
+            how = ", ".join(f"{CH.chapter(k)['title']} {'done' if r else 'FAILED'}" for k, r in done)
+        elif key == "storage":
+            res = storage_look()
+            ok = res["ok"]
+            how = ((f"searched; {res['used']} of {res['max']} places used" if res["used"] is not None else "searched")
+                   + " - see debug/g_storage_result.png" if ok else res["why"])
         elif key == "gifts":
             gifts_round()
             ok, how = True, "round over (see the gift lines above)"
