@@ -1481,7 +1481,51 @@ CP_BOX = (0.035, 0.14, 0.25, 0.75)       # (y0, y1, x0, x1): 'CP 3007' above the
 HP_BOX = (0.56, 0.592, 0.38, 0.62)       # '161 / 161 HP' under the name
 
 
+CP_TEXT = (0.045, 0.122, 0.28, 0.72)     # (y0, y1, x0, x1): only the 'CP 3007' line, above the arc
+NAME_BOX = (0.49, 0.545, 0.2, 0.8)       # the name (or nickname) on the white card, above the HP bar
+
+
 def _read_cp(img):
+    """The CP at the top of a Pokémon's page: the text that is lighter than the background around it (top-hat),
+    so also on a light, sunny background (24 November: 'CP112' on a bright sky). The older white-only reading
+    is the fallback."""
+    h, w = img.shape[:2]
+    y0, y1, x0, x1 = CP_TEXT
+    g = cv2.cvtColor(img[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)], cv2.COLOR_BGR2GRAY)
+    if g.size:
+        sc = 110 / g.shape[0]
+        g = cv2.resize(g, None, fx=sc, fy=sc, interpolation=cv2.INTER_CUBIC)
+        th = cv2.morphologyEx(g, cv2.MORPH_TOPHAT, cv2.getStructuringElement(cv2.MORPH_RECT, (41, 41)))
+        _t, b = cv2.threshold(th, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        b = cv2.copyMakeBorder(255 - b, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=255)
+        t = _tess_line(b, "CPcp0123456789")
+        m = re.search(r"[Pp]\s*(\d{2,5})", t)
+        if m:
+            return int(m.group(1))
+    return _read_cp_white(img)
+
+
+def _read_name(img):
+    """The name on the Pokémon's card, read on its own (dark letters on the white-to-blue card; the general OCR
+    misses it under the appraisal: 'Vee' for Eevee). '' when nothing was read."""
+    h, w = img.shape[:2]
+    y0, y1, x0, x1 = NAME_BOX
+    g = cv2.cvtColor(img[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)], cv2.COLOR_BGR2GRAY)
+    if g.size == 0:
+        return ""
+    g = cv2.resize(g, None, fx=90 / g.shape[0], fy=90 / g.shape[0], interpolation=cv2.INTER_CUBIC)
+    _t, b = cv2.threshold(g, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    if (b == 0).mean() > 0.5:
+        b = 255 - b
+    b = cv2.copyMakeBorder(b, 15, 15, 15, 15, cv2.BORDER_CONSTANT, value=255)
+    t = _tess_line(b, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.'- ")
+    words = t.split()
+    while words and len(words[-1].strip(".'-")) < 2:           # (the pencil and the gender sign: 'Eevee .')
+        words.pop()
+    return " ".join(words).strip(" .-")
+
+
+def _read_cp_white(img):
     """The CP at the top of a Pokémon's page (also under the appraisal). The general OCR does not see the white
     'CP3007' on the coloured background (24 November): only the white parts of the picture are read, without the
     arc under it."""
@@ -1540,6 +1584,9 @@ def _read_page(img, lines):
                 types = [w.lower() for w in found][:2]
     cp = _read_cp(img) or cp
     hp = _read_hp(img) or hp
+    own = _read_name(img)
+    if own and (not name or COL.find_species(own.title())):
+        name = own.title()                                  # (the name read on its own is the better one)
     if not name:
         for t, _x, y, _w in sorted(lines, key=lambda l: l[2]):      # (a nickname: the line above the HP bar)
             if 600 * k < y < 1300 * k and re.fullmatch(r"[A-Z0-9 .'\-]{2,14}", t.strip()) and "HP" not in t:

@@ -172,6 +172,11 @@ class Collection(unittest.TestCase):
         self.assertEqual(C.identify(cp, (2, 14, 15), hp, ["water", "ice"], "Nessie", TABLE)[:2], ("lapras", 25.0))
         self.assertEqual(C.identify(cp, (2, 14, 15), hp, None, "Lapras", TABLE)[2], "name")
         self.assertIsNone(C.identify(cp + 7, (2, 14, 15), hp, ["water", "ice"], "Nessie", TABLE)[0])
+        # two species with the same CP and HP: a misread name picks the one it looks like (24 November)
+        t = {"eevee": {"name": "Eevee"}, "pidgey": {"name": "Pidgey"}, "eelektrik": {"name": "Eelektrik"}}
+        self.assertEqual(C.closest_name("Eeve", ["eevee", "pidgey"], t), "eevee")
+        self.assertIsNone(C.closest_name("Nessie", ["eevee", "pidgey"], t))
+        self.assertIsNone(C.closest_name("Ee", ["eevee", "eelektrik"], t))
 
     def test_power_up_costs(self):
         self.assertEqual(C.power_cost(20.0, 20.0), (0, 0, 0))

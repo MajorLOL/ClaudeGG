@@ -231,6 +231,16 @@ def hp_of(base, ivs, level):
     return max(10, int((base[2] + ivs[2]) * cpm(level)))
 
 
+def closest_name(name, sids, table):
+    """Of these species, the one whose name looks most like what was read ('Eeve' -> eevee), when it is clearly
+    the closest (more than one species fits the CP, HP and IVs and the name was misread); else None."""
+    near = sorted(((difflib.SequenceMatcher(None, name.lower(), table[sid]["name"].lower()).ratio(), sid)
+                   for sid in sids), reverse=True)
+    if near and near[0][0] >= 0.6 and (len(near) == 1 or near[0][0] - near[1][0] >= 0.15):
+        return near[0][1]
+    return None
+
+
 def identify(cp, ivs, hp=None, types=None, name=None, table=None):
     """(speciesId, level, how) of a scanned Pokémon. The name decides when it fits the CP (and the HP); a
     nickname or a misread name is found by what fits: every species (of these types, when they were read) is
@@ -269,6 +279,10 @@ def identify(cp, ivs, hp=None, types=None, name=None, table=None):
     if by_name:
         lv = level_from_cp(table[by_name]["base"], ivs, cp, exact=False)
         return by_name, lv, "name, HP does not fit"
+    if hits and name:
+        sid = closest_name(name, [sid for sid, _lv in hits], table)
+        if sid:
+            return sid, dict(hits)[sid], "stats, name like"
     return None, None, ("no species fits" if not hits else f"{len(stats)} species fit")
 
 
