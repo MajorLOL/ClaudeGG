@@ -1593,6 +1593,13 @@ def _open_first_and_appraise(search=""):
     S.tap(x, y)
     page = _settled(2.0)
     save_async("g_scan_page.png", page)
+    return _appraise_here(page)
+
+
+def _appraise_here(page=None):
+    """On a Pokémon's page: its menu -> APPRAISE -> tap through the leader's words until the bars are there.
+    Also to open the appraisal again when it closed halfway a scan (24 November: after 300 Pokémon)."""
+    page = page if page is not None else S.screenshot()
     S.tap(*_xy(page, MENU_RB))
     menu = _settled(1.5)
     ml = ocr_lines(menu, 60, 2150)
@@ -1637,7 +1644,7 @@ def scan_collection(limit=None, search="", stop=None, flag=None, game=None):
     c = COL.load_collection(game=game)
     c["game"] = game
     old = {m["id"]: m for m in c.get("mons") or []}
-    seen, n, tried, same, last, dup = {}, 0, 0, 0, None, {}
+    seen, n, tried, same, last, dup, reopen = {}, 0, 0, 0, None, {}, 0
     flagged = set()
     t0 = time.time()
     if not _open_first_and_appraise(flag or search):
@@ -1655,8 +1662,30 @@ def scan_collection(limit=None, search="", stop=None, flag=None, game=None):
                 mon2, why2 = _scan_one(sharp, sl)
                 if mon2 is not None and (mon is None or mon2["how"] == "name"):
                     mon, why, img = mon2, why2, sharp
+                elif mon is None and not _bars(sharp):
+                    # the appraisal closed (the page of a Pokémon without the bars): open it again, then this
+                    # Pokémon once more - without it every next Pokémon is 'not read' (24 November)
+                    reopen += 1
+                    if reopen > 3:
+                        save_async("g_scan_lost.png", sharp)
+                        log("scan: the appraisal does not open again - stopped (debug/g_scan_lost.png)")
+                        break
+                    log("scan: the appraisal closed - opening it again")
+                    if not _appraise_here(sharp):
+                        log("scan: the appraisal did not open again - stopped")
+                        break
+                    tried -= 1
+                    continue
+            reopen = 0
+            if mon is None and "CP None" in why:
+                save_async("g_scan_nocp.png", img)          # (to see why the CP was not read)
             key = (mon["species"], mon["cp"], tuple(mon["ivs"])) if mon else ("?", why)
-            if key == last:
+            if key == last and mon is None:                 # (a Pokémon not read ends the list only after many)
+                same += 1
+                if same >= 8:
+                    log(f"scan: the same unread page after {same} swipes - stopped")
+                    break
+            elif key == last:
                 same += 1
                 if same >= SCAN_SAME:
                     log(f"scan: the same Pokémon after {same} swipes - the end of the list")
