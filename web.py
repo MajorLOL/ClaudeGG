@@ -30,6 +30,7 @@ import numpy as np
 
 import chapters as CH        # the test chapters (Test): what they are; gamebot.py runs them
 import bag_rules             # what the bag clean-up keeps
+import collection as COL     # your Pokémon and the teams of the leagues of now
 import extras                # updating, the history of the days, warnings (ntfy), backup
 import claude_chat           # Claude in the chat on the right side of the page
 import spin_stop as S        # the phone's screen (which display, how big) is found there
@@ -622,6 +623,14 @@ PAGE = r"""<!DOCTYPE html>
  .version { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; margin-top:8px; color:var(--mist); font-size:12.5px; }
  .version .new { color:var(--hold); font-weight:600; }
  .version ul { margin:2px 0 0; padding-left:18px; width:100%; }
+ .league { margin:10px 0 4px; padding:8px 10px; border:1px solid var(--ridge); border-radius:10px; font-size:13px; }
+ .league h3 { margin:0 0 4px; font-size:13px; }
+ .league h3 small { color:var(--mist); font-weight:400; margin-left:6px; }
+ .league table { width:100%; border-collapse:collapse; }
+ .league td { padding:3px 6px 3px 0; vertical-align:top; border-top:1px solid color-mix(in srgb, var(--ridge) 55%, transparent); }
+ .league td.n { font-variant-numeric:tabular-nums; white-space:nowrap; }
+ .league .mv { color:var(--mist); font-size:12px; }
+ .league .res { color:var(--mist); font-size:12px; margin-top:4px; }
  .sub { margin:12px 0 4px; font-size:12.5px; font-weight:650; color:var(--chalk); }
  .hist { display:flex; gap:2px; align-items:flex-end; height:110px; margin:4px 0 2px; }
  .hist .day { flex:1 1 0; min-width:0; display:flex; flex-direction:column; justify-content:flex-end; height:100%; cursor:help; }
@@ -903,6 +912,16 @@ PAGE = r"""<!DOCTYPE html>
     <label class="testrec"><input type="checkbox" id="testrec"> Record the screen during the test (the recording goes into the test zip)</label>
     <div class="chapters" id="chapters"></div>
     <p class="hint">Starting a test stops the bot. Put the game on the start screen first. Afterwards press Start to play normally again.</p>
+   </details>
+  </section>
+
+  <section class="sec tests" aria-label="Your Pokémon and teams">
+   <details id="teambox"><summary><h2>Your Pokémon and teams</h2><span id="teamsum">Scan your Pokémon, then the best team for each league of now.</span></summary>
+    <p class="h">The steps are tests in <b>Test one part</b> (group <i>Your Pokémon and teams</i>): read the leagues, make a tag per league, scan the first 5 Pokémon (a check), scan all, make the teams, tag the team members. The teams use the PvPoke rankings of each league and how well each Pokémon's IVs fit its CP cap. Pokémon GO has no natures: IVs, level and CP are what count.</p>
+    <div class="bar"><button class="btn small" onclick="teamsMake()">Make the teams again</button>
+     <a class="btn small" href="collection.csv">Export CSV</a><a class="btn small" href="collection.json">Export JSON</a>
+     <span class="h" id="teammsg"></span></div>
+    <div id="teamlist"></div>
    </details>
   </section>
 
@@ -1262,6 +1281,38 @@ async function loadHistory() {
     box.after(k);
   }
 }
+async function loadTeams() {
+  let t = {};
+  try { t = await (await fetch('teams.json')).json(); } catch (e) { return; }
+  const box = $('teamlist'); box.textContent = '';
+  $('teamsum').textContent = t.count ? `${t.count} Pokémon scanned (${t.scanned || '?'}); teams of ${t.made || '-'}` : 'Scan your Pokémon, then the best team for each league of now.';
+  const nice = id => id.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  for (const lg of (t.leagues || [])) {
+    const tm = (t.teams || {})[lg.title] || {team: [], reserves: []};
+    const d = document.createElement('div'); d.className = 'league';
+    const h = document.createElement('h3'); h.textContent = lg.title;
+    const sm = document.createElement('small'); sm.textContent = 'max CP ' + (lg.cap >= 10000 ? 'none' : lg.cap) + ', PvPoke ' + lg.cup; h.append(sm);
+    d.append(h);
+    if (!tm.team.length) { const p = document.createElement('p'); p.className = 'h'; p.textContent = 'No Pokémon for this league yet.'; d.append(p); }
+    const tb = document.createElement('table');
+    for (const e of tm.team) {
+      const m = e.mon, v = e.eval, tr = document.createElement('tr');
+      const cells = [m.name + (v.evolve ? ' \u2192 ' + v.form_name : ''), 'CP ' + m.cp + (v.cp !== m.cp ? ' \u2192 ' + v.cp + ' (lv ' + v.level + ')' : ''),
+                     (m.ivs || []).join('/') + ' (' + Math.round(v.fit * 100) + '% fit)'];
+      for (const c of cells) { const td = document.createElement('td'); td.textContent = c; if (c !== cells[0]) td.className = 'n'; tr.append(td); }
+      const mv = document.createElement('td'); mv.className = 'mv'; mv.textContent = (v.moveset || []).map(nice).join(', '); tr.append(mv);
+      tb.append(tr);
+    }
+    d.append(tb);
+    if (tm.reserves.length) { const r = document.createElement('div'); r.className = 'res'; r.textContent = 'Reserves: ' + tm.reserves.map(e => e.mon.name + ' CP ' + e.mon.cp).join(', '); d.append(r); }
+    box.append(d);
+  }
+}
+async function teamsMake() {
+  $('teammsg').textContent = 'Working it out...';
+  const r = await fetch('teams/make', {method: 'POST'}); $('teammsg').textContent = await r.text(); loadTeams();
+}
+$('teambox').addEventListener('toggle', () => { if ($('teambox').open) loadTeams(); });
 $('morebox').addEventListener('toggle', () => { if ($('morebox').open) loadHistory(); });
 function showAlerts(a) {
   if (!a) return;
@@ -2122,6 +2173,25 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
+        elif path in ("/collection.csv", "/collection.json", "/teams.json"):
+            if path == "/teams.json":
+                c, t = COL.load_collection(), COL.load_teams()
+                body = {"count": len(c.get("mons") or []), "scanned": c.get("scanned"), "made": t.get("made"),
+                        "leagues": t.get("leagues") or c.get("leagues") or [], "teams": t.get("teams") or {}}
+                return self._send(json.dumps(body, ensure_ascii=False), "application/json")
+            if path == "/collection.csv":
+                data, ctype = COL.export_csv().encode("utf-8-sig"), "text/csv; charset=utf-8"
+            else:
+                data = json.dumps({"collection": COL.load_collection(), "teams": COL.load_teams()}, ensure_ascii=False,
+                                  indent=1).encode("utf-8")
+                ctype = "application/json"
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Disposition", f'attachment; filename="pokemon-{time.strftime("%Y%m%d")}'
+                             + path[path.rindex("."):] + '"')
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
         elif path == "/history":
             self._send(json.dumps(extras.history_read(int((self.path.partition("days=")[2] or "30")[:3] or 30))),
                        "application/json")
@@ -2175,6 +2245,16 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             ok, msg = test_start(m.group(1), record="rec=1" in self.path)
             return self._send(msg, code=200 if ok else 409)
+        if path == "/teams/make":
+            c = COL.load_collection()
+            if not c.get("mons"):
+                return self._send("No Pokémon scanned yet: run 'Scan all your Pokémon' first", code=409)
+            if not c.get("leagues"):
+                return self._send("The leagues are not known yet: run 'Read the leagues of now' first", code=409)
+            t = COL.make_teams(c)
+            n = sum(len(tm["team"]) for tm in t["teams"].values())
+            write_log(f"teams: made again in the web interface - {n} Pokémon in {len(t['teams'])} teams")
+            return self._send(f"{n} Pokémon in {len(t['teams'])} teams")
         if path == "/update/check":
             extras.update_check(code_dir(), force=True)
             return self._send("ok")

@@ -103,6 +103,30 @@ def league_lines(lines, league, th=0.8):
     return out
 
 
+def read_leagues(lines, width=1768):
+    """The leagues on the league list ('CHOOSE YOUR LEAGUE'): [(title, max CP)], top to bottom.  A title can take
+    two lines ('Master League: Mega' / 'Edition'); under it 'Max CP per Pokémon: 2.500' (or 'No limit')."""
+    out, title = [], []
+    for t, _x, y, ws in sorted(lines, key=lambda l: l[2]):
+        xs = [x for _w, x, _y in ws] or [_x]
+        if min(xs) < width * 0.42:                     # (titles are on the right of the badges)
+            continue
+        u = " ".join(t.split())
+        if re.search(r"MAX\s*C\s*P", u):
+            cap = None
+            if "NO LIMIT" in u or "UNLIMITED" in u:
+                cap = 10000
+            else:
+                m = re.search(r"(\d)[.,\s]?(\d{3})", u)
+                cap = int(m.group(1) + m.group(2)) if m else None
+            if title and cap:
+                out.append((" ".join(title).title().replace("Go ", "GO ").replace("Laic", "LAIC"), cap))
+            title = []
+        elif u and not re.search(r"CHOOSE YOUR LEAGUE|SEE WHAT|COMING NEXT", u):
+            title.append(u)
+    return out
+
+
 def screen_kind(lines, on_map=False, league="", k=1.0):
     """What is on the screen?
 

@@ -24,9 +24,9 @@ ls -la ~/models
 
 echo "== Program files =="
 if [ "$REPO" != "$HOME" ]; then
-  cp "$REPO"/gamebot.py "$REPO"/spin_stop.py "$REPO"/web.py "$REPO"/device_check.py "$REPO"/battle_engine.py "$REPO"/battle_nav.py "$REPO"/battle_vision.py "$REPO"/battle_fight.py "$REPO"/battle_stream.py "$REPO"/battle_minigame.py "$REPO"/chapters.py "$REPO"/claude_chat.py "$REPO"/bag_rules.py "$REPO"/extras.py ~/
+  cp "$REPO"/gamebot.py "$REPO"/spin_stop.py "$REPO"/web.py "$REPO"/device_check.py "$REPO"/battle_engine.py "$REPO"/battle_nav.py "$REPO"/battle_vision.py "$REPO"/battle_fight.py "$REPO"/battle_stream.py "$REPO"/battle_minigame.py "$REPO"/chapters.py "$REPO"/claude_chat.py "$REPO"/bag_rules.py "$REPO"/extras.py "$REPO"/collection.py ~/
 fi
-ls -la ~/gamebot.py ~/spin_stop.py ~/web.py ~/device_check.py ~/battle_engine.py ~/battle_nav.py ~/battle_vision.py ~/battle_fight.py ~/battle_stream.py ~/battle_minigame.py ~/chapters.py ~/claude_chat.py ~/bag_rules.py ~/extras.py
+ls -la ~/gamebot.py ~/spin_stop.py ~/web.py ~/device_check.py ~/battle_engine.py ~/battle_nav.py ~/battle_vision.py ~/battle_fight.py ~/battle_stream.py ~/battle_minigame.py ~/chapters.py ~/claude_chat.py ~/bag_rules.py ~/extras.py ~/collection.py
 
 echo "== Test =="
 cd ~

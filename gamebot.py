@@ -1223,6 +1223,376 @@ def storage_look():
             log(f"storage: {out['used']} of {out['max']} places used")
 
 
+# ------------------------------- your Pokémon: leagues, tags, scan, teams ----------------------------------
+# (collection.py does the sums; here are the steps on the phone.  The screens of the storage were seen on
+# screenshots of 24 November: tabs TAGS / POKEMON / EGGS at the top, 'Search' under them, three Pokémon a row;
+# TAGS: cards of the tags with a round + at the bottom left; CREATE TAG: 'Enter tag name', colours, DONE.)
+import collection as COL     # your Pokémon and the teams (collection.py)
+
+TAG_PLUS = (0.145, 0.885)      # the round + on the TAGS tab (fractions of the screen)
+FIRST_TILE = (0.205, 0.45)     # the first Pokémon of the storage (when its CP is not read)
+MENU_RB = (0.88, 0.905)        # the round menu button at the bottom right of a Pokémon's page
+SCAN_SWIPE = ((0.85, 0.30), (0.15, 0.30))   # to the next Pokémon (from right to left, high on the screen)
+SCAN_SAME = 3                  # the same Pokémon this many times after a swipe: the end of the list
+SCAN_EVERY_SAVE = 20           # the scan is written to collection.json every so many Pokémon
+TAG_COLOURS = ((0.36, 0.405), (0.475, 0.405), (0.585, 0.405), (0.695, 0.405))   # CREATE TAG: the first row
+
+
+def read_leagues():
+    """The leagues on the league list of the Battle screen now: [{title, cap, cup}] (cup: PvPoke's name), kept in
+    collection.json. Walks there from the map and back."""
+    info = battle_open_menu(leagues_only=True)
+    if not info.get("leagues"):
+        log(f"leagues: not read - {info.get('why') or 'unknown'}")
+        return []
+    leagues = []
+    for title, cap in info["leagues"]:
+        cup, _cap = COL.match_format(title, cap)
+        leagues.append({"title": title, "cap": cap, "cup": cup})
+    c = COL.load_collection()
+    c["leagues"], c["leagues_read"] = leagues, time.strftime("%Y-%m-%d %H:%M")
+    COL.save_collection(c)
+    log("leagues: " + "; ".join(f"{lg['title']} = PvPoke {lg['cup']} {lg['cap']}" for lg in leagues))
+    return leagues
+
+
+def _open_storage(tab="POKEMON"):
+    """From the map: main menu -> POKEMON -> the tab (POKEMON or TAGS). Returns (picture, lines) or None."""
+    S.tap(*MENU_BTN)
+    spots = None
+    for step in range(8):
+        shot = _settled(2.2)
+        lines = ocr_lines(shot, 60, 2150)
+        ws = _words(lines)
+        k = shot.shape[0] / 2208
+        tabs = {w: (x, y) for w, x, y in ws if y < 420 * k and any(_like(w, t, 0.8) for t in ("TAGS", "POKEMON", "EGGS"))}
+        if any(_like(w, "EGGS", 0.8) for w in tabs) or any(_like(w, "TAGS", 0.8) for w in tabs):
+            want = next(((x, y) for w, (x, y) in tabs.items() if _like(w, tab, 0.8)), None)
+            if want is None:
+                log(f"storage: the tab {tab} is not read ({_reads(lines, 80)})")
+                return None
+            S.tap(*want)
+            shot = _settled(1.8)
+            return shot, ocr_lines(shot, 60, 2150)
+        if S.on_map(shot):
+            S.tap(*MENU_BTN)
+            continue
+        if _screen_kind(shot, lines) == "menu":
+            if spots is None:
+                found = sorted([(x, y) for w, x, y in ws if _like(w, "POKEMON", 0.75) and 1250 * k < y < 1700 * k
+                                and x < shot.shape[1] // 2], key=lambda p: p[0])
+                if not found:
+                    break
+                x, y = found[0]
+                spots = [(x, y + int(ITEMS_ICON_DY * k)), (x, y)]
+            if not spots:
+                break
+            S.tap(*spots.pop(0))
+        else:
+            S.back()
+    log("storage: the Pokémon storage did not open")
+    return None
+
+
+def _xy(img, frac):
+    return int(frac[0] * img.shape[1]), int(frac[1] * img.shape[0])
+
+
+def make_league_tags(leagues=None):
+    """A tag for every league of now, named after it, unless it is there already (TAGS tab). Returns the names."""
+    leagues = leagues if leagues is not None else (COL.load_collection().get("leagues") or read_leagues())
+    if not leagues:
+        return []
+    got = _open_storage("TAGS")
+    if got is None:
+        _bag_to_map()
+        return []
+    shot, lines = got
+    made = []
+    try:
+        have = " | ".join(t for t, _x, _y, _ws in lines)
+        for i, lg in enumerate(leagues):
+            name = COL.tag_name(lg["title"], 60)
+            if _plain_name(name) in _plain_name(have):
+                log(f"tags: '{name}' is there already")
+                made.append(name)
+                continue
+            for attempt, nm in enumerate((name, COL.tag_name(lg["title"], 24))):
+                S.tap(*_xy(shot, TAG_PLUS))
+                form = _settled(1.6)
+                fl = ocr_lines(form, 60, 2150)
+                if not any("CREATE TAG" in t or "TAG NAME" in t for t, _x, _y, _w in fl):
+                    save_async("g_tag_create.png", form)
+                    log(f"tags: CREATE TAG did not open ({_reads(fl, 80)}) - see debug/g_tag_create.png")
+                    return made
+                field = next(((x, y) for t, x, y, _w in fl if "TAG NAME" in t or "ENTER" in t), _xy(form, (0.35, 0.255)))
+                S.tap(field[0] + 120, field[1])
+                time.sleep(0.8)
+                _type_text(nm)
+                time.sleep(0.6)
+                S.adb("shell", "input", "keyevent", "66")
+                time.sleep(0.6)
+                S.tap(*_xy(form, TAG_COLOURS[i % len(TAG_COLOURS)]))
+                time.sleep(0.4)
+                form = _settled(1.0)
+                fl = ocr_lines(form, 60, 2150)
+                done = next(((x, y) for t, x, y, _w in fl if t.strip() == "DONE" or "DONE" in t.split()), None)
+                if done is None:
+                    save_async("g_tag_form.png", form)
+                    log("tags: DONE is not read (debug/g_tag_form.png)")
+                    S.back()
+                    return made
+                S.tap(*done)
+                after = _settled(1.6)
+                al = ocr_lines(after, 60, 2150)
+                if any("CREATE TAG" in t for t, _x, _y, _w in al):          # not taken (a name too long?)
+                    save_async(f"g_tag_refused{attempt}.png", after)
+                    log(f"tags: the game did not take the name '{nm}' ({_reads(al, 80)})")
+                    S.back()
+                    time.sleep(1.2)
+                    continue
+                log(f"tags: made the tag '{nm}' for {lg['title']}")
+                made.append(nm)
+                shot, lines = after, al
+                break
+        c = COL.load_collection()
+        c["tags"] = {lg["title"]: n for lg, n in zip(leagues, made)}
+        COL.save_collection(c)
+        return made
+    finally:
+        _bag_to_map()
+
+
+BARS_BOX = (0.02, 0.50, 0.45, 0.93)   # where the panel with the three appraisal bars is (x0, y0, x1, y1 fractions)
+
+
+def _bar_row(hsv_row, k):
+    """(start, end, filled length) of the longest bar on one row of pixels, or None. Filled: orange (Attack,
+    Defense) or pale red (a full HP bar); empty: light grey; the three parts have small gaps between them."""
+    h, sat, v = hsv_row[:, 0].astype(int), hsv_row[:, 1].astype(int), hsv_row[:, 2].astype(int)
+    fill = (sat > 60) & (v > 150) & ((h <= 25) | (h >= 160))
+    grey = (sat < 40) & (v > 170) & (v < 242)
+    cols = np.where(fill | grey)[0]
+    if len(cols) < 2:
+        return None
+    runs, start, prev = [], cols[0], cols[0]
+    for c in cols[1:]:
+        if c - prev > 24 * k:
+            runs.append((start, prev))
+            start = c
+        prev = c
+    runs.append((start, prev))
+    a, b = max(runs, key=lambda r: r[1] - r[0])
+    filled = np.where(fill[a:b + 1])[0]
+    return int(a), int(b), int(filled[-1] + 1) if len(filled) else 0
+
+
+def _bars(img, lines=None):
+    """The three appraisal bars: [attack, defense, hp] (0..15) or None. Found by their colours in the white panel
+    at the bottom left (seen on 24 November): three bars of the same length one under the other, each of three
+    parts; the filled part orange (pale red when it is 15), the rest light grey. (The labels next to them are too
+    small and coloured for OCR.)"""
+    H, W = img.shape[:2]
+    k = H / 2208
+    x0, y0, x1, y1 = (int(BARS_BOX[0] * W), int(BARS_BOX[1] * H), int(BARS_BOX[2] * W), int(BARS_BOX[3] * H))
+    hsv = cv2.cvtColor(img[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+    bands, cur = [], None
+    for r in range(0, hsv.shape[0], max(1, int(3 * k))):
+        got = _bar_row(hsv[r], k)
+        if got and got[1] - got[0] >= 0.15 * W:
+            if cur and r - cur["last"] <= 12 * k:
+                cur["rows"].append(got)
+                cur["last"] = r
+            else:
+                cur = {"rows": [got], "last": r, "y": r}
+                bands.append(cur)
+    best = []
+    for b in bands:                                    # per band: its longest row (the middle of the bar)
+        a, e, f = max(b["rows"], key=lambda g: g[1] - g[0])
+        best.append((b["y"], a, e, f))
+    for i in range(len(best) - 2):                     # three bars in a row of (nearly) the same length
+        trio = best[i:i + 3]
+        lens = [e - a for _y, a, e, _f in trio]
+        if max(lens) - min(lens) <= 0.08 * max(lens) and max(abs(t[1] - trio[0][1]) for t in trio) <= 20 * k:
+            return [COL.bar_value(f, e - a + 1) for _y, a, e, f in trio]
+    return None
+
+
+def _read_mon(img, lines):
+    """(name, species id, CP) of the Pokémon on its page (also under the appraisal)."""
+    k = img.shape[0] / 2208
+    cp = None
+    for t, _x, y, _w in lines:
+        if y < 700 * k:
+            m = re.search(r"[CE]{0,2}\s*P\s*(\d{2,5})\b", t.replace("O", "0"))
+            if m:
+                cp = int(m.group(1))
+                break
+    name = sid = None
+    for t, _x, y, _w in sorted(lines, key=lambda l: l[2]):
+        if y < 500 * k or y > 1500 * k or re.search(r"\d|/|HP|WEIGHT|HEIGHT|STARDUST|CANDY|ATTACK|DEFENSE", t):
+            continue
+        found = COL.find_species(t.title())
+        if found:
+            name, sid = t.title(), found
+            break
+    return name, sid, cp
+
+
+def _open_first_and_appraise(search=""):
+    """Storage -> (search) -> the first Pokémon -> its menu -> APPRAISE -> the bars. Returns True when the bars
+    are on the screen."""
+    got = _open_storage("POKEMON")
+    if got is None:
+        return False
+    shot, lines = got
+    if search:
+        field = next(((x, y) for w, x, y in _words(lines) if _like(w, "SEARCH", 0.8)), _xy(shot, (0.5, 0.275)))
+        S.tap(*field)
+        time.sleep(1.2)
+        _type_text(search)
+        time.sleep(0.6)
+        S.adb("shell", "input", "keyevent", "66")
+        shot = _settled(2.0)
+        lines = ocr_lines(shot, 60, 2150)
+    k = shot.shape[0] / 2208
+    cps = sorted([(y, x) for w, x, y in _words(lines) if re.fullmatch(r"C?P?\d{2,5}", w) and 400 * k < y < 900 * k])
+    x, y = (cps[0][1], int(cps[0][0] + 170 * k)) if cps else _xy(shot, FIRST_TILE)
+    S.tap(x, y)
+    page = _settled(2.0)
+    save_async("g_scan_page.png", page)
+    S.tap(*_xy(page, MENU_RB))
+    menu = _settled(1.5)
+    ml = ocr_lines(menu, 60, 2150)
+    spot = next(((x, y) for w, x, y in _words(ml) if _like(w, "APPRAISE", 0.8)), None)
+    if spot is None:
+        save_async("g_scan_menu.png", menu)
+        log(f"scan: APPRAISE is not in the menu ({_reads(ml, 80)}) - see debug/g_scan_menu.png")
+        return False
+    S.tap(*spot)
+    for _ in range(6):                                # the leader talks first: tap until the bars are there
+        time.sleep(1.2)
+        img = S.screenshot()
+        if _bars(img):
+            return True
+        S.tap(*_xy(img, (0.5, 0.80)))
+    save_async("g_scan_appraise.png", img)
+    log("scan: the appraisal bars did not come (debug/g_scan_appraise.png)")
+    return False
+
+
+def scan_collection(limit=None, search="", stop=None):
+    """Go through the Pokémon storage with the appraisal open: for each Pokémon its name, CP and IVs (bars),
+    one after another (swiping to the next). Kept in collection.json (also halfway). limit: at most this many.
+    Returns the number scanned."""
+    c = COL.load_collection()
+    old = {m["id"]: m for m in c.get("mons") or []}
+    seen, n, same, last = {}, 0, 0, None
+    t0 = time.time()
+    if not _open_first_and_appraise(search):
+        _bag_to_map()
+        return 0
+    try:
+        while (limit is None or n < limit) and not (stop and stop()):
+            img = S.screenshot()
+            lines = ocr_lines(img, 60, 2150)
+            name, sid, cp = _read_mon(img, lines)
+            ivs = _bars(img, lines)
+            key = (sid, cp, tuple(ivs) if ivs else None)
+            if key == last:
+                same += 1
+                if same >= SCAN_SAME:
+                    log(f"scan: the same Pokémon after {same} swipes - the end of the list")
+                    break
+            else:
+                same, last = 0, key
+                if sid and cp and ivs:
+                    mid = f"{sid}-{cp}-{ivs[0]}-{ivs[1]}-{ivs[2]}"
+                    lv = COL.level_from_cp(COL.species_table()[sid]["base"], ivs, cp, exact=False)
+                    seen[mid] = {"id": mid, "name": name, "species": sid, "cp": cp, "ivs": ivs, "level": lv,
+                                 "scanned": time.strftime("%Y-%m-%d %H:%M")}
+                    n += 1
+                    if n <= 3 or n % 25 == 0:
+                        log(f"scan: {n}: {name} CP {cp} IVs {ivs[0]}/{ivs[1]}/{ivs[2]} level {lv}")
+                else:
+                    save_async(f"g_scan_unread{n % 5}.png", img)
+                    log(f"scan: not read: name {name} CP {cp} bars {ivs} (debug/g_scan_unread{n % 5}.png)")
+                if n and n % SCAN_EVERY_SAVE == 0:
+                    c["mons"] = list({**old, **seen}.values())
+                    COL.save_collection(c)
+            (x1, y1), (x2, y2) = _xy(img, SCAN_SWIPE[0]), _xy(img, SCAN_SWIPE[1])
+            S.swipe(x1, y1, x2, y2, 220)
+            time.sleep(0.9)
+    finally:
+        c["mons"] = list(({**old, **seen} if limit or search else (seen or old)).values())
+        c["scanned"] = time.strftime("%Y-%m-%d %H:%M")
+        COL.save_collection(c)
+        log(f"scan: {n} Pokémon read in {(time.time() - t0) / 60:.0f} min ({len(c['mons'])} in collection.json)")
+        _bag_to_map()
+    return n
+
+
+def tag_team_members(teams=None):
+    """Give the Pokémon of the teams (and their reserves) the tag of their league: storage -> search for the
+    Pokémon (name and CP) -> its page -> the tag button -> the league's tag. (The tag screens of a Pokémon were not
+    seen yet: every step is read first, and the routine stops at a screen it does not know.)"""
+    t = teams if teams is not None else COL.load_teams()
+    names = COL.load_collection().get("tags") or {}
+    done = 0
+    for title, tm in (t.get("teams") or {}).items():
+        tag = names.get(title) or COL.tag_name(title, 60)
+        for e in tm.get("team", []) + tm.get("reserves", []):
+            m = e["mon"]
+            got = _open_storage("POKEMON")
+            if got is None:
+                return done
+            shot, lines = got
+            try:
+                field = next(((x, y) for w, x, y in _words(lines) if _like(w, "SEARCH", 0.8)), _xy(shot, (0.5, 0.275)))
+                S.tap(*field)
+                time.sleep(1.2)
+                _type_text(f"{m['name']}&cp{m['cp']}")
+                time.sleep(0.6)
+                S.adb("shell", "input", "keyevent", "66")
+                res = _settled(2.0)
+                S.tap(*_xy(res, FIRST_TILE))
+                page = _settled(2.0)
+                pl = ocr_lines(page, 60, 2150)
+                spot = next(((x, y) for w, x, y in _words(pl) if _like(w, "TAG", 0.9) or _like(w, "TAGS", 0.9)), None)
+                if spot is None:
+                    S.tap(*_xy(page, MENU_RB))
+                    menu = _settled(1.5)
+                    pl = ocr_lines(menu, 60, 2150)
+                    spot = next(((x, y) for w, x, y in _words(pl) if _like(w, "TAG", 0.9) or _like(w, "TAGS", 0.9)), None)
+                    page = menu
+                if spot is None:
+                    save_async("g_tag_page.png", page)
+                    log(f"tags: no tag button for {m['name']} CP {m['cp']} ({_reads(pl, 80)}) - see debug/g_tag_page.png; "
+                        "send this picture so the tag screens can be added")
+                    return done
+                S.tap(*spot)
+                pick = _settled(1.6)
+                pk = ocr_lines(pick, 60, 2150)
+                want = _plain_name(tag)
+                row = next(((x, y) for t2, x, y, _w in pk if _like(_plain_name(t2), want, 0.8)), None)
+                if row is None:
+                    save_async("g_tag_pick.png", pick)
+                    log(f"tags: the tag '{tag}' is not in the list ({_reads(pk, 80)}) - see debug/g_tag_pick.png")
+                    return done
+                S.tap(*row)
+                time.sleep(0.8)
+                after = _settled(1.0)
+                al = ocr_lines(after, 60, 2150)
+                ok_btn = next(((x, y) for w, x, y in _words(al) if w in ("DONE", "OK", "SAVE")), None)
+                if ok_btn:
+                    S.tap(*ok_btn)
+                done += 1
+                log(f"tags: {m['name']} CP {m['cp']} has the tag '{tag}'")
+            finally:
+                _bag_to_map()
+    return done
+
+
 BAG_WORDS = ("POTION", "REVIVE", "BALL", "BERR", "LUCKY", "INCENSE", "RAZZ", "PINAP", "NANAB", "EGG", "LURE", "ADVENTURE")
 
 
@@ -3767,7 +4137,7 @@ def _battle_to_map(beat=None, leaving_setup=False):
     return S.on_map(S.screenshot())
 
 
-def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
+def battle_open_menu(beat=None, stop=None, restart=False, stay=False, leagues_only=False):
     """Walks from the map (or from the Battle screen after a fight) to the party screen of the chosen league.
 
     map -> main menu -> BATTLE tile -> Battle screen -> BATTLE button -> [league list] -> party screen.
@@ -3780,6 +4150,7 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
     the basic rewards, the lower one (premium rewards, costs a pass) is never tapped.
     stay: wait on the party screen (the fight starts from there); otherwise go back to the map. restart:
     when the way back to the map fails, restart the game (the daily run needs the map).
+    leagues_only: stop at the league list, read the leagues on it ("leagues": [(title, max CP)]) and go back.
     Returns {"ok": bool, "why": str, "title": str, "members": [...], "use_spots": [(x, y), ...]}; with
     "leave": True the screen was left as it is (BACK could throw away a reward: a Pokémon to catch)."""
     import battle_vision as BV
@@ -3900,6 +4271,18 @@ def battle_open_menu(beat=None, stop=None, restart=False, stay=False):
             k = shot.shape[0] / 2208
             if kind in ("party", "league"):
                 in_setup = True
+            if leagues_only and kind == "league":
+                info["leagues"] = BN.read_leagues(lines, shot.shape[1])
+                save_async("g_leagues.png", shot)
+                if info["leagues"]:
+                    info["ok"] = True
+                    log("leagues: " + ", ".join(f"{t} (max CP {c})" for t, c in info["leagues"]))
+                else:
+                    info["why"] = "the leagues on the list were not read (see debug/g_leagues.png)"
+                break
+            if leagues_only and kind == "party":         # (the game went to a party screen by itself: back)
+                S.back()
+                continue
             if kind == "party":
                 info["ok"] = True
                 info["title"] = BN.party_title(lines, k)
@@ -6244,6 +6627,33 @@ def run_chapter(key):
                 done.append((k, run_chapter(k)))
             ok = len(done) == 3 and all(r for _k, r in done)
             how = ", ".join(f"{CH.chapter(k)['title']} {'done' if r else 'FAILED'}" for k, r in done)
+        elif key == "leagues":
+            got = read_leagues()
+            ok, how = bool(got), ("; ".join(f"{lg['title']} (max CP {lg['cap']}, PvPoke {lg['cup']})" for lg in got)
+                                  or "the leagues were not read")
+        elif key == "tags":
+            leagues = read_leagues()
+            made = make_league_tags(leagues) if leagues else []
+            ok, how = bool(leagues) and len(made) == len(leagues), (f"tags: {', '.join(made)}" if made else "no tags made")
+        elif key in ("scan_test", "scan"):
+            n = scan_collection(limit=5 if key == "scan_test" else None, stop=stop)
+            ok, how = n > 0, f"{n} Pokémon scanned (collection.json)"
+        elif key == "teams":
+            c = COL.load_collection()
+            if not c.get("leagues"):
+                c["leagues"] = read_leagues()
+                COL.save_collection(c)
+            t = COL.make_teams(c)
+            for title, tm in t["teams"].items():
+                log(f"TEST teams: {title}: " + ", ".join(
+                    f"{e['mon']['name']} CP {e['mon']['cp']} -> {e['eval']['form_name']} CP {e['eval']['cp']}" for e in tm["team"])
+                    + (" | reserves: " + ", ".join(e["mon"]["name"] for e in tm["reserves"]) if tm["reserves"] else ""))
+            ok = any(tm["team"] for tm in t["teams"].values())
+            how = (f"teams for {len(t['teams'])} leagues from {len(c.get('mons') or [])} Pokémon" if ok
+                   else "no teams: scan your Pokémon first (and read the leagues)")
+        elif key == "tag_teams":
+            n = tag_team_members()
+            ok, how = n > 0, f"{n} Pokémon tagged"
         elif key == "storage":
             res = storage_look()
             ok = res["ok"]
