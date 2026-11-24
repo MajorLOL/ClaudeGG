@@ -863,9 +863,12 @@ PAGE = r"""<!DOCTYPE html>
  .chatin .btn { align-self:flex-end; height:44px; }
  .chatopen { position:fixed; right:16px; bottom:16px; z-index:25; background:var(--blue); color:#06202e; border-color:var(--blue); box-shadow:0 6px 20px #0007; }
  @media (min-width:1000px) {
-  body { padding-right:var(--chatw); }
+  body { padding-right:var(--chatw); transition:padding-right .2s; }
   .chat { transform:none; }
-  .chatopen, .chatclose { display:none; }
+  .chatopen { display:none; }
+  body.chathide { padding-right:0; }                 /* (Hide: the page gets the whole width) */
+  body.chathide .chat { transform:translateX(100%); }
+  body.chathide .chatopen { display:inline-flex; align-items:center; }
  }
  @media (prefers-reduced-motion:reduce) { * { animation:none !important; transition:none !important; } }
 </style></head><body>
@@ -1047,7 +1050,7 @@ PAGE = r"""<!DOCTYPE html>
   <button class="btn small" id="chatsbtn" onclick="chatList()" title="The chats and projects" aria-expanded="false">Chats</button>
   <button class="btn small" onclick="chatNew()" title="Start a new chat in this project">New chat</button>
   <button class="btn small" id="chatgear" onclick="chatSettings()" title="API key, GitHub and model" aria-expanded="false">Settings</button>
-  <button class="btn small chatclose" onclick="chatToggle(false)" aria-label="Close the chat">Close</button>
+  <button class="btn small chatclose" onclick="chatToggle(false)" title="Hide the chat: the page gets the whole width" aria-label="Hide the chat">Hide</button>
  </div>
  <button class="chatwhere" id="chatwhere" onclick="chatList()" title="Show the chats of this project"></button>
  <div class="chatlist" id="chatlist" hidden>
@@ -1422,7 +1425,14 @@ function showTest(t) {
 
 // ---------- Claude ----------
 let chatSeen = '';
-function chatToggle(on) { $('chat').classList.toggle('open', on); if (on) $('chattext').focus(); }
+function chatToggle(on) {
+  if (matchMedia('(min-width:1000px)').matches) {          // (wide: the chat is part of the page, Hide gives the room back)
+    document.body.classList.toggle('chathide', !on);
+    try { localStorage.setItem('chathide', on ? '0' : '1'); } catch (e) {}
+  } else $('chat').classList.toggle('open', on);
+  if (on) $('chattext').focus();
+}
+try { if (localStorage.getItem('chathide') === '1') document.body.classList.add('chathide'); } catch (e) {}
 function chatSettings() {
   const f = $('chatset'); f.hidden = !f.hidden; $('chatgear').setAttribute('aria-expanded', String(!f.hidden));
   if (!f.hidden) { $('chatlist').hidden = true; $('chatsbtn').setAttribute('aria-expanded', 'false'); }
