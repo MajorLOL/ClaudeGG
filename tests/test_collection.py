@@ -211,6 +211,18 @@ class Collection(unittest.TestCase):
         self.assertEqual([w["species"] for w in want], ["swalot"])
 
 
+@unittest.skipIf(G is None, "gamebot cannot be imported here")
+class Buttons(unittest.TestCase):
+    def test_the_green_done_button(self):
+        img = np.full((2208, 1768, 3), 248, np.uint8)
+        cv2.rectangle(img, (566, 1745), (1206, 1910), (150, 205, 70), -1)        # (BGR: green)
+        cv2.circle(img, (884, 2030), 70, (140, 130, 20), -1)                     # (the teal X under it)
+        x, y = G._green_button(img)
+        self.assertLess(abs(x - 886), 5)
+        self.assertLess(abs(y - 1828), 5)
+        self.assertIsNone(G._green_button(np.full((2208, 1768, 3), 248, np.uint8)))
+
+
 class Storage(unittest.TestCase):
     def test_collection_file(self):
         path = os.path.join(tempfile.mkdtemp(), "c.json")

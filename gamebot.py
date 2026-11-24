@@ -1325,6 +1325,21 @@ def _all_tag_text(shot, lines):
     return " | ".join(texts)
 
 
+def _green_button(img, y0=0.6, y1=0.97):
+    """The centre of the wide green button (DONE) in the lower part of the screen, or None. Its white letters with
+    wide gaps ('D O N E') on the green gradient are not always read (24 November)."""
+    h, w = img.shape[:2]
+    hsv = cv2.cvtColor(img[int(y0 * h):int(y1 * h)], cv2.COLOR_BGR2HSV)
+    mask = ((hsv[..., 0] >= 35) & (hsv[..., 0] <= 90) & (hsv[..., 1] > 70) & (hsv[..., 2] > 140)).astype(np.uint8)
+    n, _lab, st, cen = cv2.connectedComponentsWithStats(mask, 8)
+    best = None
+    for i in range(1, n):
+        x, y, bw, bh, area = st[i]
+        if bw > 0.25 * w and 0.03 * h < bh < 0.15 * h and area > 0.5 * bw * bh and (best is None or area > best[0]):
+            best = (area, int(cen[i][0]), int(cen[i][1] + y0 * h))
+    return best[1:] if best else None
+
+
 def make_league_tags(leagues=None, game=None):
     """A tag for every league of now, named after it, unless it is there already (TAGS tab, all cards looked
     through). Returns the names."""
@@ -1366,7 +1381,7 @@ def make_league_tags(leagues=None, game=None):
                 time.sleep(0.4)
                 form = _settled(1.0)
                 fl = ocr_lines(form, 60, 2150)
-                done = next(((x, y) for t, x, y, _w in fl if t.strip() == "DONE" or "DONE" in t.split()), None)
+                done = next(((x, y) for t, x, y, _w in fl if "DONE" in t.replace(" ", "")), None) or _green_button(form)
                 if done is None:
                     save_async("g_tag_form.png", form)
                     log("tags: DONE is not read (debug/g_tag_form.png)")
@@ -1887,9 +1902,13 @@ def tag_team_members(teams=None, game=None):
                 time.sleep(0.8)
                 after = _settled(1.0)
                 al = ocr_lines(after, 60, 2150)
-                ok_btn = next(((x, y) for w, x, y in _words(al) if w in ("DONE", "OK", "SAVE")), None)
-                if ok_btn:
-                    S.tap(*ok_btn)
+                ok_btn = (next(((x, y) for t2, x, y, _w in al if "DONE" in t2.replace(" ", "")), None)
+                          or next(((x, y) for w, x, y in _words(al) if w in ("OK", "SAVE")), None) or _green_button(after))
+                if ok_btn is None:
+                    save_async("g_tag_done.png", after)
+                    log("tags: DONE is not read (debug/g_tag_done.png)")
+                    return done
+                S.tap(*ok_btn)
                 done += 1
                 log(f"tags: {m['name']} CP {m['cp']} has the tag '{tag}'")
             finally:
