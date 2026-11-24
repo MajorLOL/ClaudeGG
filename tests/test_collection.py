@@ -74,6 +74,11 @@ class Data(unittest.TestCase):
                  line("MAX CP PER POKEMON: 1.500", 1000, 1340), line("SEE WHAT'S COMING NEXT ON 24 NOVEMBER!", 300, 2100)]
         self.assertEqual(BN.read_leagues(lines), [("Ultra League", 2500), ("Master League: Mega Edition", 10000),
                                                   ("2026 GO LAIC Cup: Great League Edition", 1500)])
+        # a word of a badge on the same line as 'Max CP' (24 November: the third league was missed)
+        lines[8] = ("CHAMPIONSHIP MAX CP PER POKEMON: 1.500", 355, 1340,
+                    [("CHAMPIONSHIP", 355, 1340)] + [(w, 1000 + i * 60, 1340) for i, w in
+                                                     enumerate("MAX CP PER POKEMON: 1.500".split())])
+        self.assertEqual(BN.read_leagues(lines)[-1], ("2026 GO LAIC Cup: Great League Edition", 1500))
 
     def test_tag_names(self):
         self.assertEqual(C.tag_name("Ultra League"), "Ultra League")

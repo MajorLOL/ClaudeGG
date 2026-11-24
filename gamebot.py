@@ -1452,6 +1452,62 @@ TYPE_WORDS = ("NORMAL", "FIRE", "WATER", "GRASS", "ELECTRIC", "ICE", "FIGHTING",
               "PSYCHIC", "BUG", "ROCK", "GHOST", "DRAGON", "DARK", "STEEL", "FAIRY")
 
 
+def _tess_line(img, chars):
+    """One line of text (tesseract --psm 7) with only these characters."""
+    ok, buf = cv2.imencode(".png", img)
+    try:
+        return subprocess.run(["tesseract", "stdin", "stdout", "--psm", "7", "-c", "tessedit_char_whitelist=" + chars],
+                              env=OCR["env"], input=buf.tobytes(), capture_output=True, timeout=20).stdout.decode().strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return ""
+
+
+CP_BOX = (0.035, 0.14, 0.25, 0.75)       # (y0, y1, x0, x1): 'CP 3007' above the Pokémon, white on the background
+HP_BOX = (0.56, 0.592, 0.38, 0.62)       # '161 / 161 HP' under the name
+
+
+def _read_cp(img):
+    """The CP at the top of a Pokémon's page (also under the appraisal). The general OCR does not see the white
+    'CP3007' on the coloured background (24 November): only the white parts of the picture are read, without the
+    arc under it."""
+    h, w = img.shape[:2]
+    y0, y1, x0, x1 = CP_BOX
+    crop = img[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)]
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    mask = ((hsv[..., 2] > 200) & (hsv[..., 1] < 70)).astype(np.uint8)
+    n, lab, st, _c = cv2.connectedComponentsWithStats(mask, 8)
+    ch, cw = mask.shape
+    keep = np.zeros_like(mask)
+    for i in range(1, n):
+        _x, _y, bw, bh, area = st[i]
+        if 0.12 * ch < bh < 0.7 * ch and bw < 0.2 * cw and area > 4:     # (letters; not the arc, not specks)
+            keep[lab == i] = 255
+    if not keep.any():
+        return None
+    sc = 100 / ch
+    pic = cv2.resize(255 - keep, None, fx=sc, fy=sc, interpolation=cv2.INTER_CUBIC)
+    pic = cv2.copyMakeBorder(pic, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=255)
+    t = _tess_line(pic, "CPcp0123456789")
+    m = re.search(r"[Pp]\s*(\d{2,5})", t) or re.fullmatch(r"(\d{2,5})", t)
+    return int(m.group(1)) if m else None
+
+
+def _read_hp(img):
+    """The maximum HP under the name ('161 / 161 HP'), also under the appraisal (a darker background)."""
+    h, w = img.shape[:2]
+    y0, y1, x0, x1 = HP_BOX
+    g = cv2.cvtColor(img[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)], cv2.COLOR_BGR2GRAY)
+    if g.size == 0:
+        return None
+    g = cv2.resize(g, None, fx=70 / g.shape[0], fy=70 / g.shape[0], interpolation=cv2.INTER_CUBIC)
+    _t, b = cv2.threshold(g, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    if (b == 0).mean() > 0.5:
+        b = 255 - b
+    b = cv2.copyMakeBorder(b, 15, 15, 15, 15, cv2.BORDER_CONSTANT, value=255)
+    m = re.search(r"(\d{1,4})\s*/\s*(\d{1,4})", _tess_line(b, "0123456789/HP "))
+    return int(m.group(2)) if m else None
+
+
 def _read_page(img, lines):
     """{name, cp, hp (max HP), types} of the Pokémon on its page (also under the appraisal: name, CP, HP and
     the types are above it). Values that were not read are None."""
@@ -1467,6 +1523,8 @@ def _read_page(img, lines):
         if found and "/" in t or (found and len(found) == 1 and t.strip() in TYPE_WORDS):
             if 700 * k < y < 1700 * k and types is None:
                 types = [w.lower() for w in found][:2]
+    cp = _read_cp(img) or cp
+    hp = _read_hp(img) or hp
     if not name:
         for t, _x, y, _w in sorted(lines, key=lambda l: l[2]):      # (a nickname: the line above the HP bar)
             if 600 * k < y < 1300 * k and re.fullmatch(r"[A-Z0-9 .'\-]{2,14}", t.strip()) and "HP" not in t:
@@ -1562,14 +1620,15 @@ def scan_collection(limit=None, search="", stop=None, flag=None, game=None):
     c = COL.load_collection(game=game)
     c["game"] = game
     old = {m["id"]: m for m in c.get("mons") or []}
-    seen, n, same, last, dup = {}, 0, 0, None, {}
+    seen, n, tried, same, last, dup = {}, 0, 0, 0, None, {}
     flagged = set()
     t0 = time.time()
     if not _open_first_and_appraise(flag or search):
         _bag_to_map()
         return 0
     try:
-        while (limit is None or n < limit) and not (stop and stop()):
+        while (limit is None or tried < limit) and not (stop and stop()):
+            tried += 1                                      # (the limit counts the Pokémon looked at, read or not)
             img = S.quick_screenshot()
             lines = ocr_lines(img, 60, 2150)
             mon, why = _scan_one(img, lines)
@@ -1603,11 +1662,13 @@ def scan_collection(limit=None, search="", stop=None, flag=None, game=None):
                         log(f"scan: {n}: {mon['species']} CP {mon['cp']} IVs {mon['ivs'][0]}/{mon['ivs'][1]}/"
                             f"{mon['ivs'][2]} level {mon['level']} ({mon['how']})")
                 else:
-                    save_async(f"g_scan_unread{n % 5}.png", img)
-                    log(f"scan: not read ({why}; debug/g_scan_unread{n % 5}.png)")
+                    save_async(f"g_scan_unread{tried % 5}.png", img)
+                    log(f"scan: not read ({why}; debug/g_scan_unread{tried % 5}.png)")
                 if n and n % SCAN_EVERY_SAVE == 0 and not flag:
                     c["mons"] = list({**old, **seen}.values())
                     COL.save_collection(c, game=game)
+            if limit is not None and tried >= limit:
+                break                                       # (no swipe past the last one)
             (x1, y1), (x2, y2) = _xy(img, SCAN_SWIPE[0]), _xy(img, SCAN_SWIPE[1])
             S.swipe(x1, y1, x2, y2, 220)
             time.sleep(0.9)

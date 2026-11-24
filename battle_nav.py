@@ -108,10 +108,17 @@ def read_leagues(lines, width=1768):
     two lines ('Master League: Mega' / 'Edition'); under it 'Max CP per Pokémon: 2.500' (or 'No limit')."""
     out, title = [], []
     for t, _x, y, ws in sorted(lines, key=lambda l: l[2]):
-        xs = [x for _w, x, _y in ws] or [_x]
-        if min(xs) < width * 0.42:                     # (titles are on the right of the badges)
+        if re.search(r"CHOOSE YOUR LEAGUE|SEE WHAT|COMING NEXT", " ".join(t.split())):
             continue
-        u = " ".join(t.split())
+        if ws:                                         # (titles are on the right of the badges; a word of a
+            keep = [w for w, x, _y in ws if x >= width * 0.42]   # badge can be on the same line: 'CHAMPIONSHIP')
+            if not keep:
+                continue
+            u = " ".join(" ".join(keep).split())
+        elif _x < width * 0.42:
+            continue
+        else:
+            u = " ".join(t.split())
         if re.search(r"MAX\s*C\s*P", u):
             cap = None
             if "NO LIMIT" in u or "UNLIMITED" in u:

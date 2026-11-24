@@ -2018,9 +2018,9 @@ def test_stop():
     proc = test["proc"]
     if not proc or proc.poll() is not None:
         return
-    proc.terminate()                                  # (the test says 'stopped' and saves the screen)
-    try:
-        proc.wait(timeout=10)
+    proc.terminate()                                  # (the test says 'stopped', saves the screen and goes back
+    try:                                              # to the map: from the appraisal that takes a while)
+        proc.wait(timeout=30)
     except subprocess.TimeoutExpired:
         proc.kill()
 
