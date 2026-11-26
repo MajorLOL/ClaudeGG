@@ -35,7 +35,7 @@ const char* const TestBackend::SOURCE_FILE =
 
 namespace{
 
-const char* const TEST_REPOSITORY = "/repos/MajorLOL/Arduino-Source";
+const char* const TEST_REPOSITORY = "/repos/MajorLOL/ClaudeGG";
 
 //  One answer of the Messages API as it streams in.
 QByteArray make_stream(const QJsonArray& blocks, const QString& stop_reason){

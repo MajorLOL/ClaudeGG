@@ -184,7 +184,7 @@ const char RELEASES_JSON[] =
     "{\"tag_name\":\"pocketpilot-build-9\",\"draft\":false,\"prerelease\":true,\"published_at\":\"2026-10-01T08:00:00Z\"},"
     "{\"tag_name\":\"v1.2.3\",\"draft\":false,\"prerelease\":false,\"published_at\":\"2026-12-01T08:00:00Z\"}]";
 
-const char PROJECT_URL[] = "https://github.com/MajorLOL/Arduino-Source/tree/pocketpilot";
+const char PROJECT_URL[] = "https://github.com/MajorLOL/ClaudeGG/tree/pocketpilot";
 
 }
 
@@ -1913,13 +1913,13 @@ int check_updates(Logger& logger){
     //  Where the releases are.
     const ReleaseLocation location = release_location(PROJECT_URL);
     check(
-        location.api_url == "https://api.github.com/repos/MajorLOL/Arduino-Source/releases?per_page=30" &&
-        location.page_url == "https://github.com/MajorLOL/Arduino-Source/releases" &&
-        location.tag_page_url == "https://github.com/MajorLOL/Arduino-Source/releases/tag/",
+        location.api_url == "https://api.github.com/repos/MajorLOL/ClaudeGG/releases?per_page=30" &&
+        location.page_url == "https://github.com/MajorLOL/ClaudeGG/releases" &&
+        location.tag_page_url == "https://github.com/MajorLOL/ClaudeGG/releases/tag/",
         "the addresses of the releases"
     );
-    check(!release_location("https://example.com/MajorLOL/Arduino-Source/tree/x").valid(), "not another site's address");
-    check(!release_location("https://github.com/../Arduino-Source/tree/x").valid(), "no \"..\" for an owner");
+    check(!release_location("https://example.com/MajorLOL/ClaudeGG/tree/x").valid(), "not another site's address");
+    check(!release_location("https://github.com/../ClaudeGG/tree/x").valid(), "no \"..\" for an owner");
     check(!release_location("https://github.com/a b/c/tree/x").valid(), "no space in a name");
     check(!release_location("https://github.com/MajorLOL").valid(), "an address without a repository");
     check(!release_location(QString()).valid(), "no address");
@@ -1956,7 +1956,7 @@ int check_updates(Logger& logger){
         UpdateResult result = verdict(200, RELEASES_JSON, 80);
         check(result.state == UpdateState::NEWER_AVAILABLE && result.latest.build == 88, "build 80 is told that 88 is out");
         check(
-            result.page_url == "https://github.com/MajorLOL/Arduino-Source/releases/tag/pocketpilot-build-88",
+            result.page_url == "https://github.com/MajorLOL/ClaudeGG/releases/tag/pocketpilot-build-88",
             "the page is made from the number, not taken from the answer"
         );
         const QString text = update_text(result, "#123456");
