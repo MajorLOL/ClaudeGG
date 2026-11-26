@@ -987,7 +987,8 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             log.write((today + " 09:11:40  battle: battle 2 done: loss (given up)\n").toUtf8());
         }
         error.clear();
-        check(phone.bot_state(state, 5, &error) && state.battles_won == 1 && state.battles_lost == 1, "the battles of today are counted: " + QString::number(state.battles_won) + " won, " + QString::number(state.battles_lost) + " lost");
+        const bool asked = phone.bot_state(state, 5, &error);     //  (before the text: the order of the arguments is not fixed)
+        check(asked && state.battles_won == 1 && state.battles_lost == 1, "the battles of today are counted: " + QString::number(state.battles_won) + " won, " + QString::number(state.battles_lost) + " lost");
 
         //  A part that does not end by itself: it can be stopped, and the bot is not started over it.
         {
