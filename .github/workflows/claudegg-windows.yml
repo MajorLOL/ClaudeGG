@@ -705,6 +705,46 @@ jobs:
           }
           Write-Host "The installations test passed."
 
+      #  One main window, the installations in it (see Source/ClaudeGG/ClaudeGG_Embed.h):
+      #  the proof that a window of another process can be made a child of a
+      #  window of this one, here with a window that is only a colour. It may
+      #  fail without failing the build until the installations really are
+      #  shown in the main window; then it becomes strict.
+      - name: Embedding test
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $dir = (Resolve-Path "Arduino-Source/SerialPrograms/bin/RelWithDebInfo").Path
+          New-Item -ItemType Directory -Force -Path "embed-screenshots" | Out-Null
+          $shots = (Resolve-Path "embed-screenshots").Path
+          $process = Start-Process -FilePath "$dir/ClaudeGG.exe" -WorkingDirectory $dir -ArgumentList "--embed-test", "`"$shots`"" -PassThru
+          $handle = $process.Handle
+          if ($process.WaitForExit(180000)) {
+            $code = $process.ExitCode
+          } else {
+            $process.Kill()
+            $code = -1
+          }
+          Write-Host "The embedding test: exit code $code."
+          if (Test-Path "$shots/embed-test.txt") {
+            Get-Content "$shots/embed-test.txt" | ForEach-Object { Write-Host $_ }
+          } else {
+            Write-Host "The test wrote no report."
+          }
+          Get-ChildItem "$shots/embed-test.png" -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "PP-PREVIEW-BEGIN $($_.Name)"
+            Write-Host ([Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName)))
+            Write-Host "PP-PREVIEW-END $($_.Name)"
+          }
+          Get-ChildItem $dir -Filter "ClaudeGG*.log" -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "---- the end of $($_.Name) ----"
+            Get-Content $_.FullName -Tail 30
+          }
+          if ($code -ne 0) {
+            throw "The embedding test failed (exit code $code): see the lines above."
+          }
+          Write-Host "The embedding test passed."
+
       #  Pokemon Automation's own tests (its repository CommandLineTests, pinned
       #  by its commit), run by the program itself with --command-line-test-mode,
       #  as its own workflow does. For now they may fail without failing the
@@ -752,6 +792,7 @@ jobs:
             ClaudeGG-Windows.zip
             ui-screenshots/*.png
             setup-screenshots/*.png
+            embed-screenshots/*.png
 
       - name: Upload what a failed interface test left behind
         if: failure()

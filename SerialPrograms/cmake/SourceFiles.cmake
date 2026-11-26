@@ -1497,6 +1497,8 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_Intro.h
     Source/ClaudeGG/ClaudeGG_Firmware.cpp
     Source/ClaudeGG/ClaudeGG_Firmware.h
+    Source/ClaudeGG/ClaudeGG_Embed.cpp
+    Source/ClaudeGG/ClaudeGG_Embed.h
     Source/ClaudeGG/ClaudeGG_Instances.cpp
     Source/ClaudeGG/ClaudeGG_Instances.h
     Source/ClaudeGG/ClaudeGG_Language.cpp

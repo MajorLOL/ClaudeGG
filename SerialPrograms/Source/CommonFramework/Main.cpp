@@ -46,6 +46,7 @@
 #include "Options/Environment/ThemeSelectorOption.h"
 #include "Startup/SetupSettings.h"
 #include "Windows/MainWindow.h"
+#include "ClaudeGG/ClaudeGG_Embed.h"
 #include "ClaudeGG/ClaudeGG_Instances.h"
 #include "ClaudeGG/ClaudeGG_Intro.h"
 #include "ClaudeGG/ClaudeGG_Language.h"
@@ -118,6 +119,8 @@ int run_program(int argc, char *argv[]){
                 strcmp(argv[i], ClaudeGG::TUTORIAL_TEST_OPTION) == 0 ||
                 strcmp(argv[i], ClaudeGG::INSTANCE_TEST_OPTION) == 0 ||
                 strcmp(argv[i], ClaudeGG::INSTANCES_HUB_TEST_OPTION) == 0 ||
+                strcmp(argv[i], ClaudeGG::EMBED_TEST_OPTION) == 0 ||
+                strcmp(argv[i], ClaudeGG::EMBED_PROBE_OPTION) == 0 ||
                 strcmp(argv[i], "--command-line-test-mode") == 0
             ){
                 test_run = true;
@@ -342,11 +345,23 @@ int run_program(int argc, char *argv[]){
         bool setup_test = false;
         bool instance_test = false;
         bool hub_test = false;
+        bool embed_test = false;
+        bool embed_probe = false;
         QString setup_folder;
         QString hub_folder;
+        QString embed_folder;
         for (int i = 1; i < argc; i++){
             if (strcmp(argv[i], ClaudeGG::INSTANCE_TEST_OPTION) == 0){
                 instance_test = true;
+            }
+            if (strcmp(argv[i], ClaudeGG::EMBED_PROBE_OPTION) == 0){
+                embed_probe = true;
+            }
+            if (strcmp(argv[i], ClaudeGG::EMBED_TEST_OPTION) == 0){
+                embed_test = true;
+                if (i + 1 < argc){
+                    embed_folder = QString::fromLocal8Bit(argv[i + 1]);
+                }
             }
             if (strcmp(argv[i], ClaudeGG::INSTANCES_HUB_TEST_OPTION) == 0){
                 hub_test = true;
@@ -385,6 +400,13 @@ int run_program(int argc, char *argv[]){
         }
         if (hub_test){
             return ClaudeGG::run_instances_hub(application, hub_folder);
+        }
+        //  The proof of the embedding: a window in a window of another process.
+        if (embed_probe){
+            return ClaudeGG::run_embed_probe(application);
+        }
+        if (embed_test){
+            return ClaudeGG::run_embed_test(application, embed_folder);
         }
         if (ClaudeGG::is_overview_process()){
             return ClaudeGG::run_instances_hub(application, QString());
@@ -567,6 +589,7 @@ int main(int argc, char *argv[]){
             std::cerr << error.toStdString() << std::endl;
             return 1;
         }
+        ClaudeGG::read_embed_options(argc, argv);
     }
 
 #if defined(__linux__)
