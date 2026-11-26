@@ -1,0 +1,73 @@
+/*  Computer Program Widget
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ *  This is the Qt Widget implementation of the UI for ComputerProgramSession.
+ *
+ *  On construction, this class attaches itself to the session it is constructed
+ *  with and automatically detaches on destruction. Therefore, this class must
+ *  not outlive the session it is constructed with. While not useful, it is also
+ *  safe to construct multiple UI classes attached to the same session.
+ *
+ *  Modifications directly to the session object will automatically update this
+ *  UI class. For example, if you use Discord to change the volume of the
+ *  audio playback, it will move the slider as shown by this UI.
+ *
+ */
+
+#ifndef PokemonAutomation_ComputerPrograms_ComputerProgramWidget_H
+#define PokemonAutomation_ComputerPrograms_ComputerProgramWidget_H
+
+#include <QVBoxLayout>
+#include "Common/Qt/UiStateQtWidget.h"
+#include "CommonFramework/Panels/UI/PanelElements.h"
+#include "ComputerPrograms/Framework/ComputerProgramSession.h"
+#include "ComputerProgramSession.h"
+
+namespace PokemonAutomation{
+
+    class ProgramResourceDownloadTableWidget;
+
+
+
+class ComputerProgramWidget
+    : public QWidget
+    , public UiComponentQtWidget
+    , private ProgramSession::Listener
+{
+public:
+    using ParentState = ComputerProgramSession;
+
+public:
+    ~ComputerProgramWidget();
+    ComputerProgramWidget(QWidget& parent, ComputerProgramSession& session);
+
+    virtual QWidget& widget() override{
+        return *this;
+    }
+
+private:
+    virtual void state_change(ProgramState state) override;
+    virtual void stats_update(const StatsTracker* current_stats, const StatsTracker* historical_stats) override;
+    virtual void error(const std::string& message) override;
+    virtual void download_error(const std::string& message) override;
+    virtual void download_added(std::shared_ptr<ResourceDownload> download_ptr) override;
+    virtual void all_downloads_done() override;
+
+    ProgramResourceDownloadTableWidget* ensure_downloads_table();
+
+private:
+    ComputerProgramSession& m_session;
+    QVBoxLayout* m_layout;
+    StatsBar* m_stats_bar;
+    RunnablePanelActionBar* m_actions_bar;
+
+    // WARNING: Do not use directly. Always use ensure_downloads_table().
+    ProgramResourceDownloadTableWidget* m_internal_lazy_downloads_table = nullptr;
+    std::atomic<bool> m_popup_is_open{false};
+};
+
+
+
+}
+#endif

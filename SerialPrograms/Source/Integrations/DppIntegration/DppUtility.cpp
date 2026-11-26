@@ -1,0 +1,128 @@
+/*  DPP Utility
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ */
+
+#ifdef PA_DPP
+
+#include "Common/Compiler.h"
+#include "Common/Cpp/Logging/GlobalLogger.h"
+#include "Common/Cpp/Logging/TaggedLogger.h"
+#include "Integrations/DppIntegration/DppUtility.h"
+//#include "CommonFramework/GlobalSettingsPanel.h"
+
+//#include <iostream>
+//using std::cout;
+//using std::endl;
+
+using namespace dpp;
+namespace PokemonAutomation{
+namespace Integration{
+namespace DppUtility{
+
+std::map<std::string, std::atomic_int> Utility::user_counts;
+
+Logger& Utility::dpp_logger(){
+    static TaggedLogger logger(global_logger_raw(), "DPP");
+    return logger;
+}
+
+void Utility::log(const std::string& message, const std::string& identity, const loglevel& ll){
+    std::string log = identity + (std::string)": " + message;
+    Color color;
+    switch (ll){
+        case ll_debug: color = COLOR_CYAN; break;
+        case ll_error: color = COLOR_RED; break;
+        case ll_critical: color = COLOR_MAGENTA; break;
+        default:
+            //  This one is too spammy.
+            if (log.starts_with("Internal Log: W: <binary frame> size=")){
+                return;
+            }
+            color = COLOR_PURPLE;
+            break;
+    };
+
+    dpp_logger().log(log, color);
+}
+
+void Utility::get_user_counts(cluster& bot, const guild_create_t& event){
+    // Retrieve ID and exit early if we have already pulled members for this guild.
+#if DPP_VERSION_LONG >= 0x00100100 // (dpp version 10.1.0)
+    auto id = std::to_string(event.created.id);
+    if (!user_counts.empty() && user_counts.count(id)){
+        log("Users for " + event.created.name + " already initialized.", "get_user_counts()", ll_info);
+        return;
+    }
+
+    uint32_t count = event.created.member_count;
+    user_counts.emplace(id, count);
+    log("User count: " + std::to_string(count) + " (" + event.created.name + ")", "get_user_counts()", ll_info);
+#else
+    auto id = std::to_string(event.created->id);
+    if (!user_counts.empty() && user_counts.count(id)){
+        log("Users for " + event.created->name + " already initialized.", "get_user_counts()", ll_info);
+        return;
+    }
+
+    uint32_t count = event.created->member_count;
+    user_counts.emplace(id, count);
+    log("User count: " + std::to_string(count) + " (" + event.created->name + ")", "get_user_counts()", ll_info);
+#endif
+}
+
+
+int64_t Utility::get_value_from_input(
+    const commandhandler& handler,
+    const std::string& command_name,
+    uint8_t param_index,
+    const std::string& input,
+    std::string& out
+){
+    auto cmd = handler.commands.find(command_name);
+    auto& choices = cmd->second.parameters[param_index].second.choices;
+    for (auto& choice : choices){
+        std::string val = std::get<std::string>(choice.first);
+        if (val == input || choice.second == input){
+            out = choice.second;
+            return std::stoi(val);
+        }
+    }
+    return -1;
+}
+
+int64_t Utility::sanitize_integer_input(const parameter_list_t& params, const uint8_t& index){
+    int64_t val = std::get<int64_t>(params[index].second);
+    if (val < 0){
+        return 0;
+    }
+    return val;
+}
+
+std::optional<int64_t> Utility::sanitize_optional_integer_input(const dpp::parameter_list_t& params, const uint8_t& index){
+    if (index >= params.size()){
+        return std::nullopt;
+    }
+
+    const auto& value_variant = params[index].second;
+
+    // Check if the parameter was omitted
+    if (std::holds_alternative<std::monostate>(value_variant)){
+        return std::nullopt;
+    }
+
+    // Extract and sanitize the integer
+    int64_t val = std::get<int64_t>(value_variant);
+    if (val < 0){
+        return 0;
+    }
+    return val;
+}
+
+
+
+}
+}
+}
+#endif

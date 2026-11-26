@@ -1,0 +1,88 @@
+/*  OCR Routines
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ */
+
+#ifndef PokemonAutomation_CommonTools_OCR_Routines_H
+#define PokemonAutomation_CommonTools_OCR_Routines_H
+
+#include <cstdint>
+#include <vector>
+#include "CommonFramework/Language.h"
+#include "OCR_RawTesseractOCR.h"
+
+namespace PokemonAutomation{
+    class ImageViewRGB32;
+namespace OCR{
+
+struct StringMatchResult;
+class DictionaryMatcher;
+
+
+struct TextColorRange{
+    uint32_t mins;
+    uint32_t maxs;
+
+    TextColorRange(uint32_t p_mins, uint32_t p_maxs)
+        : mins(p_mins)
+        , maxs(p_maxs)
+    {}
+};
+
+bool ocr_language_available(Language language);
+
+// Main OCR function for Pokemon automation.
+// It uses the OCR library as per the dropdown in GlobalSettings
+// If the preferred library's resource is missing (i.e. it has not been downloaded),
+// an error will be thrown within OCR initialization infra.
+// psm: text layout mode to help improve OCR model accuracy.
+//   with PaddleOCR, SINGLE_LINE (and other single-line modes) assume the image is
+//   already cropped to one line of text. AUTO, SINGLE_BLOCK and SINGLE_COLUMN run the
+//   PaddleOCR text detection model to find each line first, and return the lines
+//   separated by '\n'.
+std::string ocr_read(Language language, const ImageViewRGB32& image, PageSegMode psm = PageSegMode::SINGLE_LINE);
+
+//
+//  Return if we should allow multiple OCRs are run in parallel.
+//  The reason why this may return false is if the OCR backend is already
+//  parallelizing - in which case parallelizing on top may oversubscribe and
+//  lag the computer.
+//
+//  This is merely a performance hint. You are free to parallelize even if this
+//  returns false.
+//
+bool allow_parallel_ocr(PageSegMode psm = PageSegMode::SINGLE_LINE);
+
+
+void ensure_ocr_instances(Language language, size_t instances = 1);
+
+void clear_ocr_cache();
+
+// psm: Tesseract Page Segmentation mode. See
+//   SerialPrograms/Source/CommonTools/OCR/OCR_RawTesseractOCR.h:PageSegMode
+StringMatchResult multifiltered_OCR(
+    Language language, const DictionaryMatcher& dictionary, const ImageViewRGB32& image,
+    const std::vector<TextColorRange>& text_color_ranges,
+    double log10p_spread,
+    double min_text_ratio = 0.01, double max_text_ratio = 0.50,
+    OCR::PageSegMode psm = OCR::PageSegMode::SINGLE_LINE
+);
+
+StringMatchResult dictionary_OCR(
+    Language language, const DictionaryMatcher& dictionary, const ImageViewRGB32& image,
+    double log10p_spread, OCR::PageSegMode psm = OCR::PageSegMode::SINGLE_LINE
+);
+
+
+const std::vector<TextColorRange>& BLACK_TEXT_FILTERS();
+const std::vector<TextColorRange>& WHITE_TEXT_FILTERS();
+const std::vector<TextColorRange>& BLACK_OR_WHITE_TEXT_FILTERS();
+const std::vector<TextColorRange>& BLUE_TEXT_FILTERS();
+const std::vector<TextColorRange>& LIME_TEXT_FILTERS();
+
+
+
+}
+}
+#endif

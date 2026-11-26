@@ -1,0 +1,115 @@
+/*  Controller Connection
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ */
+
+#ifndef PokemonAutomation_Controllers_ControllerConnection_H
+#define PokemonAutomation_Controllers_ControllerConnection_H
+
+#include <vector>
+#include "Common/Cpp/ListenerSet.h"
+#include "Common/Cpp/Concurrency/SpinLock.h"
+#include "ControllerDescriptor.h"
+
+namespace PokemonAutomation{
+
+
+
+class ControllerConnection : public CancellableScope{
+public:
+    enum class Status{
+        NOT_CONNECTED,
+        READY,
+        FAILED_TO_CONNECT,
+    };
+
+public:
+    struct StatusListener{
+//        virtual void pre_connection_not_ready(ControllerConnection& connection){}
+        virtual void post_connection_ready(ControllerConnection& connection){}
+        virtual void status_text_changed(
+            ControllerConnection& connection, const std::string& text
+        ){}
+        virtual void on_error(
+            ControllerConnection& connection, const std::string& text
+        ){};
+    };
+
+    void add_status_listener(StatusListener& listener);
+    void remove_status_listener(StatusListener& listener);
+
+
+protected:
+    ControllerConnection()
+        : m_current_controller(ControllerType::None)
+        , m_status(Status::NOT_CONNECTED)
+    {}
+public:
+    virtual ~ControllerConnection() = default;
+
+    virtual void try_set_controller_type(
+        ControllerType controller_type,
+        bool clear_settings
+    ) noexcept{}
+
+
+public:
+    ControllerType current_controller() const noexcept{
+        return m_current_controller.load(std::memory_order_acquire);
+    }
+    bool is_ready() const noexcept{ return status() == Status::READY; }
+    Status status() const noexcept{ return m_status.load(std::memory_order_acquire); }
+    //  The status shown in the GUI's controller panel, formatted as HTML: each line is
+    //  colored with <font> tags and the two lines are joined with <br>.
+    std::string status_text() const;
+    //  The same status as plain text, for non-GUI callers (e.g. the Python bindings):
+    //  the text of each line as it was set, without colors, joined with a newline.
+    //  e.g. "PABotBase2-Pico1W (UART) (2026062701)"
+    std::string raw_status_text() const;
+
+    //  It it not safe to call this until "is_ready()" is true.
+    const std::vector<ControllerType>& controller_list() noexcept{
+        return m_controller_list;
+    }
+
+
+public:
+    void set_status_line0(const std::string& text, Color color = Color());
+    void set_status_line1(const std::string& text, Color color = Color());
+
+
+protected:
+    void declare_ready();
+    void declare_failed();
+
+
+private:
+//    void signal_pre_not_ready();
+    void signal_post_ready();
+    void signal_status_text_changed(const std::string& text);
+    void signal_error(const std::string& text);
+
+
+protected:
+    //  This is written to once and never modified again.
+    std::vector<ControllerType> m_controller_list;
+
+    std::atomic<ControllerType> m_current_controller;
+    std::atomic<Status> m_status;
+
+
+private:
+    mutable SpinLock m_status_text_lock;
+    std::string m_status_line0;     //  HTML, for status_text()
+    std::string m_status_line1;
+    std::string m_raw_status_line0; //  plain text, for raw_status_text()
+    std::string m_raw_status_line1;
+    ListenerSet<StatusListener> m_status_listeners;
+};
+
+
+
+
+}
+#endif

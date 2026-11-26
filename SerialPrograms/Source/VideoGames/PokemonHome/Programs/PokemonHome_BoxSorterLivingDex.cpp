@@ -1,0 +1,771 @@
+/*  Home Box Sorter Living Dex
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ */
+
+#include <array>
+#include <cmath>
+#include <limits>
+#include <optional>
+#include <sstream>
+#include <vector>
+#include "Common/Cpp/Exceptions.h"
+#include "Common/Cpp/Strings/Unicode.h"
+#include "Common/Cpp/Json/JsonValue.h"
+#include "Common/Cpp/Json/JsonArray.h"
+#include "Common/Cpp/Json/JsonObject.h"
+#include "CommonFramework/GlobalAutoPaths.h"
+#include "CommonFramework/Exceptions/OperationFailedExceptionWithScreenshot.h"
+#include "CommonFramework/Notifications/ProgramNotifications.h"
+#include "CommonFramework/ProgramStats/StatsTracking.h"
+#include "CommonFramework/VideoPipeline/VideoOverlayScopes.h"
+#include "CommonTools/Async/InferenceRoutines.h"
+#include "CommonTools/StartupChecks/StartProgramChecks.h"
+#include "CommonTools/OCR/OCR_StringNormalization.h"
+#include "CommonTools/VisualDetectors/FrozenImageDetector.h"
+#include "NintendoSwitch/Commands/NintendoSwitch_Commands_PushButtons.h"
+#include "Pokemon/Pokemon_Strings.h"
+#include "Pokemon/Pokemon_BoxCursor.h"
+#include "Pokemon/Pokemon_CollectedPokemonInfo.h"
+#include "VideoGames/PokemonHome/Inference/PokemonHome_BoxViewDetector.h"
+#include "VideoGames/PokemonHome/Inference/PokemonHome_SummaryScreenDetector.h"
+#include "PokemonHome_BoxNavigation.h"
+#include "PokemonHome_BoxSorterLivingDex.h"
+
+namespace PokemonAutomation{
+namespace NintendoSwitch{
+namespace PokemonHome{
+using namespace Pokemon;
+
+
+BoxSorterLivingDex_Descriptor::BoxSorterLivingDex_Descriptor()
+    : SingleSwitchProgramDescriptor(
+        "PokemonHome:BoxSorterLivingDex",
+        STRING_POKEMON + " Home", "Box Sorter Living Dex",
+        "Programs/PokemonHome/BoxSorterLivingDex.html",
+        "Arrange boxes of " + STRING_POKEMON + " into living dex order.",
+        PanelQualityStanding::OFFICIAL,
+        ProgramControllerClass::StandardController_RequiresPrecision,
+        FeedbackType::REQUIRED,
+        AllowCommandsWhenRunning::DISABLE_COMMANDS
+    )
+{}
+
+struct BoxSorterLivingDex_Descriptor::Stats : public StatsTracker{
+    Stats()
+        : pkmn(m_stats["Pokemon"])
+        , empty(m_stats["Empty Slots"])
+        , swaps(m_stats["Swaps"])
+    {
+        m_display_order.emplace_back(Stat("Pokemon"));
+        m_display_order.emplace_back(Stat("Empty Slots"));
+        m_display_order.emplace_back(Stat("Swaps"));
+    }
+    std::atomic<uint64_t>& pkmn;
+    std::atomic<uint64_t>& empty;
+    std::atomic<uint64_t>& swaps;
+};
+
+std::unique_ptr<StatsTracker> BoxSorterLivingDex_Descriptor::make_stats() const{
+    return std::unique_ptr<StatsTracker>(new Stats());
+}
+
+BoxSorterLivingDex::~BoxSorterLivingDex(){
+    LIVING_DEX_STYLE.remove_listener(*this);
+    OT_NAME_LANGUAGE.remove_listener(*this);
+};
+
+BoxSorterLivingDex::BoxSorterLivingDex()
+    : LIVING_DEX_START_BOX(
+        "<b>Living Dex Starting Box:</b><br>Box number where the living dex placement begins (1-indexed).",
+        LockMode::LOCK_WHILE_RUNNING,
+        1, 1, (uint16_t)MAX_HOME_BOXES
+    )
+    , REJECT_BOX_START(
+        "<b>Reject Box Range Start:</b><br>First box of the range reserved for rejected or overflow " + STRING_POKEMON + ".",
+        LockMode::LOCK_WHILE_RUNNING,
+        1, 1, (uint16_t)MAX_HOME_BOXES
+    )
+    , REJECT_BOX_END(
+        "<b>Reject Box Range End:</b><br>Last box of the range reserved for rejected or overflow " + STRING_POKEMON + ".",
+        LockMode::LOCK_WHILE_RUNNING,
+        1, 1, (uint16_t)MAX_HOME_BOXES
+    )
+    , LIVING_DEX_STYLE(
+        "<b>Living Dex Style:</b><br>Please see the wiki for a detailed explanation of each style.",
+        {
+            {LivingDexStyle::SORTED_BY_FORMS, "sorted_by_forms", "Sorted by Forms"},
+            {LivingDexStyle::SORTED_BY_SPECIES, "sorted_by_species", "Sorted by Species"},
+            {LivingDexStyle::AJP_FINAL_FORM, "ajp_final_form", "AJP Final Form"},
+            {LivingDexStyle::AJP_FINAL_FORM_FORM, "ajp_final_form_form", "AJP Final Form Form"},
+            {LivingDexStyle::AJP_LIVING, "ajp_living", "AJP Living"},
+            {LivingDexStyle::AJP_LIVING_FORM, "ajp_living_form", "AJP Living Form"},
+            {LivingDexStyle::AJP_LIVING_FORM_LITE, "ajp_living_form_lite", "AJP Living Form Lite"},
+            {LivingDexStyle::POKEPC_FULLY_SORTED, "pokepc_fully_sorted", "PokePC Fully Sorted"},
+            {LivingDexStyle::POKEPC_FULLY_SORTED_MINIMAL, "pokepc_fully_sorted_minimal", "PokePC Fully Sorted (Minimal)"},
+            {LivingDexStyle::POKEPC_GROUPED_BALANCED, "pokepc_grouped_balanced", "PokePC Grouped Balanced"},
+            {LivingDexStyle::POKEPC_GROUPED_REGION, "pokepc_grouped_region", "PokePC Grouped by Region"},
+            {LivingDexStyle::POKEPC_SORTED_SPECIES, "pokepc_sorted_species", "PokePC Sorted by Species"},
+            {LivingDexStyle::POKEPC_SORTED_SPECIES_MINIMAL, "pokepc_sorted_species_minimal", "PokePC Sorted by Species (Minimal)"},
+            {LivingDexStyle::POKEPC_SPECIES_FIRST, "pokepc_species_first", "PokePC Species First"},
+            {LivingDexStyle::CUSTOM, "custom", "Custom"},
+        },
+        LockMode::LOCK_WHILE_RUNNING,
+        LivingDexStyle::SORTED_BY_FORMS
+    )
+    , CUSTOM_DEX_FILE(
+        "<b>Custom Living Dex File:</b><br>Select a JSON template in the same format as the files in Resources/PokemonHome/DexTemplates.",
+        LockMode::LOCK_WHILE_RUNNING,
+        "",
+        "JSON Files (*.json)",
+        "Select a living dex JSON file..."
+    )
+    , SHINY_DEX(
+        "<b>Shiny Dex:</b><br>Enable or disable shiny dex mode.",
+        LockMode::LOCK_WHILE_RUNNING,
+        false
+    )
+    , OT_NAME_LANGUAGE(
+        "<b>OT Name Language:</b><br>Language of the OT name you are filtering for. "
+        "If set to None, OT names will not be read.",
+        LanguageSet{
+            Language::English,
+            Language::Japanese,
+            Language::Spanish,
+            Language::French,
+            Language::German,
+            Language::Italian,
+            Language::Korean,
+            Language::ChineseSimplified,
+            Language::ChineseTraditional,
+        },
+        LockMode::LOCK_WHILE_RUNNING,
+        false
+    )
+    , OT_NAME(
+        false,
+        "<b>OT Name Filter:</b><br>Only keep pokemon with this OT name in the living dex. "
+        "Leave blank to accept any OT name.",
+        LockMode::LOCK_WHILE_RUNNING,
+        "",
+        "Enter OT name here..."
+    )
+    , VIDEO_DELAY(
+          "<b>Capture Card Delay:</b>",
+          LockMode::LOCK_WHILE_RUNNING,
+          "400 ms"
+    )
+    , GAME_DELAY(
+          "<b>" + STRING_POKEMON + " Home App Delay:</b>",
+          LockMode::LOCK_WHILE_RUNNING,
+          "240 ms"
+    )
+    , OUTPUT_FILE(
+          false,
+          "<b>Output File:</b><br>JSON file basename to catalogue box info found by the program.",
+          LockMode::LOCK_WHILE_RUNNING,
+          "living_dex_order",
+          "living_dex_order"
+    )
+    , DRY_RUN(
+          "<b>Dry Run:</b><br>Catalogue and make sorting plan without execution. Check output at <output_file>.json and <output_file>-sorted.json)",
+          LockMode::LOCK_WHILE_RUNNING,
+          false
+    )
+    , NOTIFICATIONS({
+          &NOTIFICATION_PROGRAM_FINISH
+    })
+{
+    PA_ADD_OPTION(LIVING_DEX_START_BOX);
+    PA_ADD_OPTION(REJECT_BOX_START);
+    PA_ADD_OPTION(REJECT_BOX_END);
+    PA_ADD_OPTION(LIVING_DEX_STYLE);
+    PA_ADD_OPTION(CUSTOM_DEX_FILE);
+    PA_ADD_OPTION(SHINY_DEX);
+    PA_ADD_OPTION(OT_NAME_LANGUAGE);
+    PA_ADD_OPTION(OT_NAME);
+    PA_ADD_OPTION(VIDEO_DELAY);
+    PA_ADD_OPTION(GAME_DELAY);
+    PA_ADD_OPTION(OUTPUT_FILE);
+    PA_ADD_OPTION(DRY_RUN);
+    PA_ADD_OPTION(NOTIFICATIONS);
+
+    BoxSorterLivingDex::on_config_value_changed(this);
+
+    LIVING_DEX_STYLE.add_listener(*this);
+    OT_NAME_LANGUAGE.add_listener(*this);
+}
+
+void BoxSorterLivingDex::on_config_value_changed(void* object){
+    CUSTOM_DEX_FILE.set_visibility(
+        LIVING_DEX_STYLE == LivingDexStyle::CUSTOM ? ConfigOptionState::ENABLED : ConfigOptionState::HIDDEN
+    );
+    if (OT_NAME_LANGUAGE == Language::None){
+        OT_NAME.set_visibility(ConfigOptionState::HIDDEN);
+    }else{
+        OT_NAME.set_visibility(ConfigOptionState::ENABLED);
+    }
+}
+
+void validate_living_dex_template(const JsonValue& json, const std::string& path){
+    const JsonArray* entries = json.to_array();
+    if (entries == nullptr){
+        throw ParseException(path + ": Expected a JSON array of living dex entries. Check the JSON syntax and outer square brackets.");
+    }
+    if (entries->empty()){
+        throw ParseException(path + ": The living dex template must contain at least one entry.");
+    }
+    if (entries->size() > MAX_HOME_BOXES * 30){
+        throw ParseException(path + ": The living dex template exceeds HOME's capacity of " + std::to_string(MAX_HOME_BOXES * 30) + " slots.");
+    }
+
+    for (size_t i = 0; i < entries->size(); i++){
+        const std::string location = path + " (entry " + std::to_string(i + 1) + ")";
+        const JsonObject& obj = (*entries)[i].to_object_throw(location);
+        auto field = [&](const char* key, JsonType expected_type) -> const JsonValue&{
+            const JsonValue& value = obj.get_value_throw(key, location);
+            if (value.type() != expected_type){
+                throw JsonParseException(location, key, expected_type, value.type());
+            }
+            return value;
+        };
+        const std::string& species = field("species_slug", JsonType::STRING).to_string_throw();
+        const std::string& form = field("form_slug", JsonType::STRING).to_string_throw();
+        const std::string& slug = field("slug", JsonType::STRING).to_string_throw();
+        const int64_t nat_id = field("natID", JsonType::INTEGER).to_integer_throw();
+        const std::string& primary = field("primaryType", JsonType::STRING).to_string_throw();
+        const bool gender_difference = field("has_gender_difference", JsonType::BOOLEAN).to_boolean_throw();
+        if (nat_id < 0 || nat_id > std::numeric_limits<uint16_t>::max()){
+            throw ParseException(location + ": 'natID' must be an integer from 1 to 65535, or 0 for an empty slot.");
+        }
+
+        PokemonType secondary_type = PokemonType::NONE;
+        const JsonValue* secondary = obj.get_value("secondaryType");
+        if (secondary != nullptr && !secondary->is_null()){
+            const std::string& type = field("secondaryType", JsonType::STRING).to_string_throw();
+            secondary_type = POKEMON_TYPE_SLUGS().get_enum(type, PokemonType::NONE);
+            if (secondary_type == PokemonType::NONE && type != "none"){
+                throw ParseException(location + ": Unknown 'secondaryType': '" + type + "'. Use a lowercase Pokemon type, or null/\"none\" for no secondary type.");
+            }
+        }
+
+        // Bundled templates reserve empty slots with this placeholder entry.
+        if (nat_id == 0){
+            if (species != "empty" || !form.empty() || !slug.empty() || !primary.empty()
+                || secondary_type != PokemonType::NONE || gender_difference
+            ){
+                throw ParseException(location + ": An empty slot (natID 0) requires species_slug \"empty\", empty form_slug/slug/primaryType, no secondary type, and has_gender_difference false.");
+            }
+            continue;
+        }
+
+        for (const char* key : {"species_slug", "form_slug", "slug"}){
+            if (obj.get_string_throw(key, location).find_first_not_of(" \t\r\n") == std::string::npos){
+                throw ParseException(location + ": '" + key + "' must not be blank. Use \"none\" for a Pokemon with no special form.");
+            }
+        }
+        if (POKEMON_TYPE_SLUGS().get_enum(primary, PokemonType::NONE) == PokemonType::NONE){
+            throw ParseException(location + ": Unknown 'primaryType': '" + primary + "'. Use a lowercase Pokemon type such as \"normal\" or \"grass\".");
+        }
+        if (gender_difference && !slug.ends_with("-male") && !slug.ends_with("-female")){
+            throw ParseException(location + ": When 'has_gender_difference' is true, 'slug' must end with \"-male\" or \"-female\".");
+        }
+    }
+}
+
+bool BoxSorterLivingDex::is_viable_for_dex(
+    const LivingDexEntry& entry, 
+    const CollectedPokemonInfo& pokemonInfo, 
+    const std::string& normalized_ot_name
+){
+    if (OT_NAME_LANGUAGE != Language::None){
+        if (normalized_ot_name != pokemonInfo.ot_name){
+            return false;
+        }
+    }
+
+    if (SHINY_DEX != pokemonInfo.shiny){
+        return false;
+    }
+
+    if (entry.nat_id != pokemonInfo.dex_number){
+        return false;
+    }
+
+    if (entry.has_gender_difference){
+        if (entry.slug.ends_with("-female") && pokemonInfo.gender != StatsHuntGenderFilter::Female){
+            return false;
+        }
+
+        if (entry.slug.ends_with("-male") && pokemonInfo.gender != StatsHuntGenderFilter::Male){
+            return false;
+        }
+    }
+
+    if (entry.primary_type != pokemonInfo.primary_type || entry.secondary_type != pokemonInfo.secondary_type){
+        return false;
+    }
+
+    if (entry.form_slug == "gigantamax" && !pokemonInfo.gmax){
+        return false;
+    }
+
+    return true;
+}
+
+[[nodiscard]] BoxCursor BoxSorterLivingDex::populate_box_data(
+    SingleSwitchProgramEnvironment& env,
+    ProControllerContext& context,
+    std::vector<SortingRule> sort_preferences,
+    std::vector<std::optional<CollectedPokemonInfo>>& boxes_data,
+    size_t box_count,
+    BoxCursor& nav_cursor,
+    Language ot_name_language
+){
+    BoxCursor dest_cursor;
+    size_t starting_box(nav_cursor.box);
+    VideoOverlaySet video_overlay_set(env.console);
+    BoxViewWatcher box_view_watcher(&env.console.overlay());
+    SummaryScreenWatcher summary_screen_watcher(&env.console.overlay());
+
+    for (size_t box_idx = 0; box_idx < box_count; box_idx++){
+        if (box_idx != 0){
+            dest_cursor = BoxCursor(starting_box + box_idx, 0, 0);
+            nav_cursor = move_cursor_to(env, context, nav_cursor, dest_cursor, GAME_DELAY);
+        }else{
+            env.log("Moving the cursor to the first slot on the page.");
+            if (!go_to_first_slot(env, context, VIDEO_DELAY)){
+                throw UserSetupError(
+                    env.logger(),
+                    "ERROR: Could not move cursor to the first slot, please consider adjusting delay."
+                );
+            }
+        }
+
+        context.wait_for_all_requests();
+        const std::string log_msg = "Checking box " + std::to_string(box_idx + 1) + "/" + std::to_string(box_count);
+        env.log(log_msg);
+        env.console.overlay().add_log(log_msg);
+
+        // Check box grid color stddev to find occupied slots and fill boxes_data with placeholder pokemon info.
+        const std::array<size_t, 2> first_pokemon_slot = find_occupied_slots_in_box(env, context, boxes_data, sort_preferences);
+
+        //enter the summary screen to read pokemon info
+        if (first_pokemon_slot[0] != SIZE_MAX){
+            // moving cursor to the first pokemon slot
+            dest_cursor = { starting_box + box_idx, first_pokemon_slot[0], first_pokemon_slot[1] };
+            nav_cursor = move_cursor_to(env, context, nav_cursor, dest_cursor, GAME_DELAY);
+
+            env.log_to_ui("Checking Summary...");
+
+            pbf_press_button(context, BUTTON_A, 80ms, GAME_DELAY);
+            context.wait_for_all_requests();
+            video_overlay_set.clear();
+            pbf_press_dpad(context, DPAD_DOWN, 80ms, GAME_DELAY);
+            pbf_press_button(context, BUTTON_A, 80ms, 100ms);
+            context.wait_for_all_requests();
+            int ret = wait_until(env.console, context, Seconds(5), { summary_screen_watcher });
+            if (ret != 0){
+                OperationFailedExceptionWithScreenshot::fire(
+                    ErrorReportMode::SEND_ERROR_REPORT, "HomeBoxSorter(): does not find summary screen after 5 sec", env.console
+                );
+            }
+
+            // cycle through each summary of the current box and fill pokemon information
+            for (size_t row = 0; row < BOX_ROWS; row++){
+                for (size_t column = 0; column < BOX_COLS; column++){
+                    const size_t global_idx = to_global_index(box_idx, row, column);
+                    if (!boxes_data[global_idx].has_value()){
+                        continue;
+                    }
+
+                    // Read the summary screen and assign data to boxes_data[global_idx]
+                    read_summary_screen(env, boxes_data[global_idx].value(), ot_name_language, Language::None);
+
+                    // Press button R to go to next summary screen
+                    pbf_press_button(context, BUTTON_R, 80ms, 300ms);
+                    context.wait_for_all_requests();
+
+                    // Wait for the summary screen transition to end
+                    FrozenImageDetector frozen_image_detector(COLOR_GREEN, { 0.388, 0.238, 0.109, 0.062 }, Milliseconds(80), 20);
+                    frozen_image_detector.make_overlays(video_overlay_set);
+                    wait_until(env.console, context, 5s, { frozen_image_detector });
+                }
+            }
+
+            // log detailed pokemon infomation of this box
+            std::ostringstream ss;
+            ss << std::endl;
+            for (size_t row = 0; row < BOX_ROWS; row++){
+                for (size_t column = 0; column < BOX_COLS; column++){
+                    ss << "[" << row << ", " << column << "]: " << boxes_data[to_global_index(box_idx, row, column)] << std::endl;
+                }
+            }
+            env.log(ss.str());
+
+            //get out of summary with a lot of delay because it's slow for some reasons
+            pbf_press_button(context, BUTTON_B, 80ms, 100ms);
+            context.wait_for_all_requests();
+            ret = wait_until(env.console, context, Seconds(5), { box_view_watcher });
+            if (ret != 0){
+                OperationFailedExceptionWithScreenshot::fire(
+                    ErrorReportMode::SEND_ERROR_REPORT, "BoxSorterLivingDex(): does not find box view after 5 sec", env.console
+                );
+            }
+            video_overlay_set.clear();
+        }
+        video_overlay_set.clear();
+    }
+
+    return nav_cursor;
+}
+
+void BoxSorterLivingDex::program(SingleSwitchProgramEnvironment& env, ProControllerContext& context){
+    StartProgramChecks::check_performance_class_wired_or_wireless(context);
+
+    std::string path;
+    
+    switch (LIVING_DEX_STYLE){
+        case LivingDexStyle::SORTED_BY_FORMS:
+            path = RESOURCE_PATH() + "PokemonHome/DexTemplates/living_dex_by_forms.json";
+            break;
+        case LivingDexStyle::SORTED_BY_SPECIES:
+            path = RESOURCE_PATH() + "PokemonHome/DexTemplates/living_dex_by_species.json";
+            break;
+        case LivingDexStyle::AJP_FINAL_FORM:
+            path = RESOURCE_PATH() + "PokemonHome/DexTemplates/ajp_final_form.json";
+            break;
+        case LivingDexStyle::AJP_FINAL_FORM_FORM:
+            path = RESOURCE_PATH() + "PokemonHome/DexTemplates/ajp_final_form_form.json";
+            break;
+        case LivingDexStyle::AJP_LIVING:
+            path = RESOURCE_PATH() + "PokemonHome/DexTemplates/ajp_living.json";
+            break;
+        case LivingDexStyle::AJP_LIVING_FORM:
+            path = RESOURCE_PATH() + "PokemonHome/DexTemplates/ajp_living_form.json";
+            break;
+        case LivingDexStyle::AJP_LIVING_FORM_LITE:
+            path = RESOURCE_PATH() + "PokemonHome/DexTemplates/ajp_living_form_lite.json";
+            break;
+        case LivingDexStyle::POKEPC_FULLY_SORTED:
+            path = RESOURCE_PATH() + "PokemonHome/DexTemplates/pokepc_fully_sorted.json";
+            break;
+        case LivingDexStyle::POKEPC_FULLY_SORTED_MINIMAL:
+            path = RESOURCE_PATH() + "PokemonHome/DexTemplates/pokepc_fully_sorted_minimal.json";
+            break;
+        case LivingDexStyle::POKEPC_GROUPED_BALANCED:
+            path = RESOURCE_PATH() + "PokemonHome/DexTemplates/pokepc_grouped_balanced.json";
+            break;
+        case LivingDexStyle::POKEPC_GROUPED_REGION:
+            path = RESOURCE_PATH() + "PokemonHome/DexTemplates/pokepc_grouped_region.json";
+            break;
+        case LivingDexStyle::POKEPC_SORTED_SPECIES:
+            path = RESOURCE_PATH() + "PokemonHome/DexTemplates/pokepc_sorted_species.json";
+            break;
+        case LivingDexStyle::POKEPC_SORTED_SPECIES_MINIMAL:
+            path = RESOURCE_PATH() + "PokemonHome/DexTemplates/pokepc_sorted_species_minimal.json";
+            break;
+        case LivingDexStyle::POKEPC_SPECIES_FIRST:
+            path = RESOURCE_PATH() + "PokemonHome/DexTemplates/pokepc_species_first.json";
+            break;
+        case LivingDexStyle::CUSTOM:
+            path = CUSTOM_DEX_FILE;
+            if (path.find_first_not_of(" \t\r\n") == std::string::npos){
+                throw UserSetupError(env.logger(), "Select a Custom Living Dex File before starting the program.");
+            }
+            break;
+        default:
+            throw InternalProgramError(
+                &env.logger(), PA_CURRENT_FUNCTION, "Invalid living dex style"
+            );
+    }
+    
+    JsonValue json;
+    try{
+        json = load_json_file(path);
+        validate_living_dex_template(json, path);
+    }catch (const FileException& e){
+        throw UserSetupError(env.logger(), "Unable to read the living dex template. Check that the selected file exists and is readable.\n" + e.message());
+    }catch (const ParseException& e){
+        throw UserSetupError(env.logger(), "Invalid living dex template:\n" + e.message());
+    }
+    const JsonArray& slugs = json.to_array_throw(path);
+
+    std::vector<LivingDexEntry> living_dex_order;
+    living_dex_order.reserve(slugs.size());
+    for (const JsonValue& entry_value : slugs){
+        const JsonObject& obj = entry_value.to_object_throw(path);
+        LivingDexEntry entry;
+        entry.species_slug = obj.get_string_throw("species_slug", path);
+        entry.form_slug = obj.get_string_throw("form_slug", path);
+        entry.nat_id = (uint16_t)obj.get_integer_throw("natID", path);
+        entry.primary_type = POKEMON_TYPE_SLUGS().get_enum(obj.get_string_throw("primaryType", path), PokemonType::NONE);
+        entry.secondary_type = POKEMON_TYPE_SLUGS().get_enum(obj.get_string_default("secondaryType", "none"), PokemonType::NONE);
+        entry.slug = obj.get_string_throw("slug", path);
+        entry.has_gender_difference = obj.get_boolean_throw("has_gender_difference", path);
+        living_dex_order.emplace_back(std::move(entry));
+    }
+
+    std::string ot_name = static_cast<std::string>(OT_NAME);
+    env.log("OT Name user input: " + ot_name);
+    std::string ot_name_normalized = utf32_to_str(OCR::normalize_utf32(ot_name));
+    env.log("OT Name normalized: " + ot_name_normalized);
+
+    // TODO allow users to have rules for the "best" version of a pokemon to be kept in the living dex box
+    // It would be nice to add OT as most users that care about living dex also like to have it with their OT
+    // Sort preferences isn't really used as the json/options dictate the exact pokemon to be placed in each slot.
+    const std::vector<SortingRule> sort_preferences(
+        {
+            { SortingRuleType::DexNo, false } 
+        });
+
+    BoxSorterLivingDex_Descriptor::Stats& stats = env.current_stats<BoxSorterLivingDex_Descriptor::Stats>();
+
+    // vector that will store data for each slot
+    std::vector<std::optional<CollectedPokemonInfo>> living_dex_boxes_data;
+
+    BoxCursor dest_cursor;
+    BoxCursor nav_cursor((LIVING_DEX_START_BOX - 1), 0, 0);
+
+    size_t living_dex_box_count = (size_t)std::ceil((double)living_dex_order.size() / 30);
+    size_t living_dex_end = LIVING_DEX_START_BOX + living_dex_box_count - 1;
+
+    if (REJECT_BOX_START > REJECT_BOX_END){
+        throw UserSetupError(
+            env.logger(),
+            "ERROR: Reject box range is invalid, please ensure start is less than or equal to end."
+        );
+    }
+
+    if (living_dex_end > MAX_HOME_BOXES){
+        throw UserSetupError(
+            env.logger(),
+            "ERROR: Living dex boxes exceed max box count, please adjust box settings."
+        );
+    }
+
+    if (LIVING_DEX_START_BOX <= REJECT_BOX_END && REJECT_BOX_START <= living_dex_end){
+        throw UserSetupError(
+            env.logger(),
+            "ERROR: Living dex boxes overlap with reject boxes, please adjust box settings."
+        );
+    }
+
+    exit_menus(env, context);
+    switch_selection_mode(env, context, BoxSelectionMode::Normal);
+
+    nav_cursor = populate_box_data(env, context, sort_preferences, living_dex_boxes_data, living_dex_box_count, nav_cursor, OT_NAME_LANGUAGE);
+
+    dest_cursor = BoxCursor((REJECT_BOX_START - 1), 0, 0);
+    nav_cursor = move_cursor_to(env, context, nav_cursor, dest_cursor, GAME_DELAY);
+    context.wait_for_all_requests();
+
+    std::vector<std::optional<CollectedPokemonInfo>> reject_boxes_data;
+    size_t reject_box_count = REJECT_BOX_END - REJECT_BOX_START + 1;
+
+    nav_cursor = populate_box_data(env, context, sort_preferences, reject_boxes_data, reject_box_count, nav_cursor, OT_NAME_LANGUAGE);
+
+    if (DRY_RUN){
+        save_boxes_data_to_json(living_dex_boxes_data, "living_boxes_unsorted.json");
+        save_boxes_data_to_json(reject_boxes_data, "reject_boxes_unsorted.json");
+    }
+
+    std::ostringstream ss;
+
+    for (size_t i = 0; i < living_dex_order.size(); i++){
+        bool found = false;
+        LivingDexEntry entry = living_dex_order[i];
+        env.log("Looking for " + entry.slug + " in the living dex boxes.");
+        for(size_t j = i; j < living_dex_boxes_data.size(); j++){
+            if (!living_dex_boxes_data[j].has_value()){
+                continue;
+            }
+
+            if (!is_viable_for_dex(entry, *living_dex_boxes_data[j], ot_name_normalized)){
+                continue;
+            }
+
+            found = true;
+            if (i == j){
+                // already in the right spot, do nothing
+                break;
+            }
+            else{
+
+                BoxCursor pokemon_cursor = BoxCursor(LIVING_DEX_START_BOX - 1 + j / 30, (j / 6) % 5, j % 6);
+                BoxCursor destination_cursor = BoxCursor(LIVING_DEX_START_BOX - 1 + i / 30, (i / 6) % 5, i % 6);
+
+                if (!DRY_RUN){
+                    ss << "Swapping " << living_dex_boxes_data[j] << " at " << pokemon_cursor << " and " << living_dex_boxes_data[i] << " at " << destination_cursor;
+                    env.console.log(ss.str());
+                    ss.str("");
+
+                    nav_cursor = move_cursor_to(env, context, nav_cursor, pokemon_cursor, GAME_DELAY);
+                    pbf_press_button(context, BUTTON_Y, 80ms, GAME_DELAY.get() + 240ms);
+
+                    nav_cursor = move_cursor_to(env, context, nav_cursor, destination_cursor, GAME_DELAY);
+                    pbf_press_button(context, BUTTON_Y, 80ms, GAME_DELAY.get() + 240ms);
+
+                    context.wait_for_all_requests();
+
+                    stats.swaps++;
+                    env.update_stats();
+                }
+
+                std::swap(living_dex_boxes_data[j], living_dex_boxes_data[i]);  
+            }
+
+            break;
+        }
+
+        if (found){
+            continue;
+        }
+
+        env.log("Could not find a pokemon for " + entry.slug + " in the living dex boxes, looking in reject boxes for a valid match.");
+
+        for (size_t j = 0; j < reject_boxes_data.size(); j++){
+            if (!reject_boxes_data[j].has_value()){
+                continue;
+            }
+
+            if (!is_viable_for_dex(entry, *reject_boxes_data[j], ot_name_normalized)){
+                continue;
+            }
+
+            found = true;
+
+            BoxCursor pokemon_cursor = BoxCursor(REJECT_BOX_START - 1 + j / 30, (j / 6) % 5, j % 6);
+            BoxCursor destination_cursor = BoxCursor(LIVING_DEX_START_BOX - 1 + i / 30, (i / 6) % 5, i % 6);
+            
+            if (!DRY_RUN){
+                ss << "Swapping " << reject_boxes_data[j] << " at " << pokemon_cursor << " and " << living_dex_boxes_data[i] << " at " << destination_cursor;
+                env.console.log(ss.str());
+                ss.str("");
+                nav_cursor = move_cursor_to(env, context, nav_cursor, pokemon_cursor, GAME_DELAY);
+                pbf_press_button(context, BUTTON_Y, 80ms, GAME_DELAY.get() + 240ms);
+                nav_cursor = move_cursor_to(env, context, nav_cursor, destination_cursor, GAME_DELAY);
+                pbf_press_button(context, BUTTON_Y, 80ms, GAME_DELAY.get() + 240ms);
+                context.wait_for_all_requests();
+                stats.swaps++;
+                env.update_stats();
+            }
+
+            std::swap(living_dex_boxes_data[i], reject_boxes_data[j]);
+
+            break;
+        }
+
+        if (found){
+            continue;
+        }
+
+        if (!living_dex_boxes_data[i].has_value()){
+            continue;
+        }
+
+        // move the pokemon in the current living dex slot to the reject box or later in the living dex
+        size_t empty_reject_slot = SIZE_MAX;
+        size_t empty_living_dex_slot = SIZE_MAX;
+        for (size_t j = 0; j < reject_boxes_data.size(); j++){
+            if (!reject_boxes_data[j].has_value()){
+                empty_reject_slot = j;
+                break;
+            }
+        }
+        if (empty_reject_slot == SIZE_MAX){
+            env.log("No empty reject box slots available to move pokemon out of the way, placing in open slot in living dex for now.");
+
+            for (size_t j = i + 1; j < living_dex_boxes_data.size(); j++){
+                if (!living_dex_boxes_data[j].has_value()){
+                    empty_living_dex_slot = j;
+                    break;
+                }
+            }
+        }
+        BoxCursor pokemon_cursor = BoxCursor(LIVING_DEX_START_BOX - 1 + i / 30, (i / 6) % 5, i % 6);
+        BoxCursor destination_cursor;
+        
+        if (empty_reject_slot != SIZE_MAX){
+            destination_cursor = BoxCursor(REJECT_BOX_START - 1 + empty_reject_slot / 30, (empty_reject_slot / 6) % 5, empty_reject_slot % 6);
+        }
+        else if (empty_living_dex_slot != SIZE_MAX){
+            destination_cursor = BoxCursor(LIVING_DEX_START_BOX - 1 + empty_living_dex_slot / 30, (empty_living_dex_slot / 6) % 5, empty_living_dex_slot % 6);
+        }
+        else{
+            throw UserSetupError(
+                env.logger(),
+                "ERROR: No empty slots available to move pokemon out of the way, please consider removing some duplicates or increasing the reject box range."
+            );
+        }
+
+        if (!DRY_RUN){
+            ss << "Moving " << living_dex_boxes_data[i] << " at " << pokemon_cursor << " to " << destination_cursor;
+            env.console.log(ss.str());
+            ss.str("");
+            nav_cursor = move_cursor_to(env, context, nav_cursor, pokemon_cursor, GAME_DELAY);
+            pbf_press_button(context, BUTTON_Y, 80ms, GAME_DELAY.get() + 240ms);
+            nav_cursor = move_cursor_to(env, context, nav_cursor, destination_cursor, GAME_DELAY);
+            pbf_press_button(context, BUTTON_Y, 80ms, GAME_DELAY.get() + 240ms);
+            context.wait_for_all_requests();
+            stats.swaps++;
+            env.update_stats();
+        }
+
+        if (empty_living_dex_slot != SIZE_MAX){
+            std::swap(living_dex_boxes_data[i], living_dex_boxes_data[empty_living_dex_slot]);
+        }
+        else{
+            std::swap(living_dex_boxes_data[i], reject_boxes_data[empty_reject_slot]);
+        }
+    }
+
+    for (size_t i = living_dex_order.size(); i < living_dex_boxes_data.size(); i++){
+        if (!living_dex_boxes_data[i].has_value()){
+            continue;
+        }
+
+        size_t empty_reject_slot = SIZE_MAX;
+        for (size_t j = 0; j < reject_boxes_data.size(); j++){
+            if (!reject_boxes_data[j].has_value()){
+                empty_reject_slot = j;
+                break;
+            }
+        }
+
+        if (empty_reject_slot == SIZE_MAX){
+            break;
+        }
+
+        BoxCursor pokemon_cursor = BoxCursor(LIVING_DEX_START_BOX - 1 + i / 30, (i / 6) % 5, i % 6);
+        BoxCursor destination_cursor = BoxCursor(REJECT_BOX_START - 1 + empty_reject_slot / 30, (empty_reject_slot / 6) % 5, empty_reject_slot % 6);
+
+        if (!DRY_RUN){
+            ss << "Moving " << living_dex_boxes_data[i] << " at " << pokemon_cursor << " to " << destination_cursor;
+            env.console.log(ss.str());
+            ss.str("");
+            nav_cursor = move_cursor_to(env, context, nav_cursor, pokemon_cursor, GAME_DELAY);
+            pbf_press_button(context, BUTTON_Y, 80ms, GAME_DELAY.get() + 240ms);
+            nav_cursor = move_cursor_to(env, context, nav_cursor, destination_cursor, GAME_DELAY);
+            pbf_press_button(context, BUTTON_Y, 80ms, GAME_DELAY.get() + 240ms);
+            context.wait_for_all_requests();
+            stats.swaps++;
+            env.update_stats();
+        }
+        
+        std::swap(living_dex_boxes_data[i], reject_boxes_data[empty_reject_slot]);
+        
+    }
+
+    if (DRY_RUN){
+        save_boxes_data_to_json(living_dex_boxes_data, "living_boxes_sorted.json");
+        save_boxes_data_to_json(reject_boxes_data, "reject_boxes_sorted.json");
+    }
+
+    send_program_finished_notification(env, NOTIFICATION_PROGRAM_FINISH);
+}
+
+}
+}
+}

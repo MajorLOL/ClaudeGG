@@ -1,0 +1,73 @@
+/*  Panel List
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ */
+
+#ifndef PokemonAutomation_PanelList_H
+#define PokemonAutomation_PanelList_H
+
+#include <vector>
+#include "CommonFramework/ImageTypes/ImageRGB32.h"
+#include "CommonFramework/Panels/PanelSession.h"
+#include "CommonFramework/Panels/PanelTools.h"
+
+class QWidget;
+
+namespace PokemonAutomation{
+
+class PanelListWidget;
+
+
+class PanelListDescriptor{
+    using MakePanelEntries = std::vector<PanelEntry>(*)();
+
+public:
+    virtual ~PanelListDescriptor() = default;
+    PanelListDescriptor(
+        std::string name,
+        const std::string& icon_path = "",
+        bool enabled = true
+    );
+
+    const std::string& name() const{ return m_name; }
+    const ImageRGB32& icon() const{ return m_icon; }
+    bool enabled() const{ return m_enabled; }
+
+    PanelListWidget* make_QWidget(QWidget& parent, PanelHolder& holder) const;
+
+    //  The programs of this list in its order, for the overview and the
+    //  search over all lists.
+    struct ProgramSummary{
+        std::string section;        //  The title of its section, as in the list.
+        std::string name;
+        std::string description;
+        std::string tag;            //  "beta", "rough", ...; empty for a regular program.
+        std::string tag_meaning;
+    };
+    std::vector<ProgramSummary> program_summaries() const;
+
+    //  A program of this list by its name, with its panel made but not shown
+    //  (the setup shows the options of the panel next to its list of
+    //  programs). The session refers to its descriptor, so the two go
+    //  together, the descriptor outliving the session. Both empty when the
+    //  list has no program of that name.
+    struct ProgramPanel{
+        std::shared_ptr<const PanelDescriptor> descriptor;
+        std::unique_ptr<PanelSession> session;
+    };
+    ProgramPanel make_program_panel(const std::string& name) const;
+
+protected:
+    virtual std::vector<PanelEntry> make_panels() const = 0;
+
+protected:
+    std::string m_name;
+    ImageRGB32 m_icon;
+    bool m_enabled;
+};
+
+
+
+}
+#endif

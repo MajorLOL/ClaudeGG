@@ -1,0 +1,782 @@
+/*  ML Paddle OCR
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ *  
+ */
+
+#include <array>
+#include <fstream>
+#include <limits>
+#include <iostream>
+#include "Common/Cpp/Exceptions.h"
+#include "Common/Cpp/Filesystem/Filesystem.h"
+#include "Common/Cpp/Hardware/FloatingPointMode.h"
+#include "Common/Cpp/Logging/GlobalLogger.h"
+#include "CommonFramework/GlobalAutoPaths.h"
+#include "CommonFramework/GlobalSettingsPanel.h"
+#include "CommonFramework/StaticGlobals.h"
+#include "CommonFramework/Options/Environment/PerformanceOptions.h"
+#include "CommonFramework/ImageTypes/ImageRGB32_OpenCV.h"
+#include "ML/Models/ML_ONNXRuntimeHelpers.h"
+#include "ML_PaddleOCRPipeline.h"
+
+using std::cout;
+using std::endl;
+
+namespace PokemonAutomation{
+namespace ML{
+
+
+std::pair<std::string, std::string> PaddleOCRPipeline::get_paths(Language language){
+    std::string base = RESOURCE_PATH() + "PaddleOCR/";
+    switch(language){
+    case Language::None:
+        throw InternalProgramError(nullptr, PA_CURRENT_FUNCTION, "Attempted to call OCR without a language.");
+    case Language::English:
+        return {base + "english/rec.onnx", base + "english/dict.txt"};
+    case Language::Japanese:
+        return {base + "chinese/rec.onnx", base + "chinese/dict.txt"};
+    case Language::Spanish:
+        return {base + "latin/rec.onnx", base + "latin/dict.txt"};
+    case Language::French:
+        return {base + "latin/rec.onnx", base + "latin/dict.txt"};
+    case Language::German:
+        return {base + "latin/rec.onnx", base + "latin/dict.txt"};   
+    case Language::Italian:
+        return {base + "latin/rec.onnx", base + "latin/dict.txt"};   
+    case Language::Korean:
+        return {base + "korean/rec.onnx", base + "korean/dict.txt"};  
+    case Language::ChineseSimplified:
+        return {base + "chinese/rec.onnx", base + "chinese/dict.txt"};
+    case Language::ChineseTraditional:
+        return {base + "chinese/rec.onnx", base + "chinese/dict.txt"}; 
+    default:
+        throw InternalProgramError(nullptr, PA_CURRENT_FUNCTION, "Attempted to call OCR on an unknown language.");
+    }
+}
+
+PaddleOCRPipeline::PaddleOCRPipeline(Language language)
+    : PaddleOCRPipeline(
+        language,
+        // Shared by all languages. This is the downloadable resource "PaddleOCRDetection",
+        // see Packages/Resources/ResourceDownloadList.json.
+        DOWNLOADED_RESOURCE_PATH() + "PaddleOCRDetection/det.onnx",
+        get_paths(language).first,
+        get_paths(language).second
+    )
+{}
+
+PaddleOCRPipeline::PaddleOCRPipeline(
+    Language language,
+    std::string det_path,
+    std::string rec_path,
+    std::string dict_path
+)
+    : m_rec_session(
+        create_session(
+            rec_path,
+            ML_MODEL_CACHE_PATH() + "PaddleOCRPipeline/",
+            PerformanceOptions::instance().ONNX_OPTIONS.USE_GPU
+        )
+    )
+    , m_language(language)
+    , m_input_name(m_rec_session.GetInputNameAllocated(0, Ort::AllocatorWithDefaultOptions{}).get())
+    , m_output_name(m_rec_session.GetOutputNameAllocated(0, Ort::AllocatorWithDefaultOptions{}).get())
+    , m_logger(global_logger_raw(), "OCR")
+    , m_det_path(std::move(det_path))
+{
+    load_dictionary(Filesystem::Path(dict_path));
+}
+
+PaddleOCRDetector& PaddleOCRPipeline::detector(){
+    std::lock_guard<Mutex> lg(m_detector_lock);
+    if (!m_detector){
+        // The detection model is a downloadable resource, so it may be missing.
+        // Programs that use multi-line OCR should list "PaddleOCRDetection" in their
+        // descriptor's required resources so it's downloaded before they start.
+        if (!Filesystem::exists(Filesystem::Path(m_det_path))){
+            throw FileException(
+                &m_logger, PA_CURRENT_FUNCTION,
+                "PaddleOCR text detection model not found. "
+                "Please download the \"PaddleOCRDetection\" resource from the Settings panel.",
+                m_det_path
+            );
+        }
+        m_logger.log("Loading PaddleOCR text detection model: " + m_det_path);
+        m_detector = std::make_unique<PaddleOCRDetector>(m_det_path);
+    }
+    return *m_detector;
+}
+
+
+
+void PaddleOCRPipeline::load_dictionary(const Filesystem::Path& path){
+
+    const bool debugging = STATIC_GLOBALS.PADDLE_OCR_DEBUG;
+
+    if (debugging){
+        m_logger.log("[OCR-INFO] Loading dictionary from: " + path.string());
+        m_logger.log("[OCR-INFO] Current working directory: " +
+                    Filesystem::current_path().string());
+
+        std::error_code ec;
+        const auto absolute_path = Filesystem::absolute(path);
+
+        if (!ec){
+            m_logger.log("[OCR-INFO] Absolute dictionary path: " +
+                        absolute_path.string());
+
+            m_logger.log("[OCR-INFO] Dictionary exists: " +
+                        std::string(Filesystem::exists(absolute_path) ? "true" : "false"));
+
+            if (Filesystem::exists(absolute_path)){
+                const auto file_size = Filesystem::file_size(absolute_path, ec);
+
+                if (!ec){
+                    m_logger.log("[OCR-INFO] Dictionary file size: " +
+                                std::to_string(file_size) + " bytes");
+                }
+            }
+        }
+    }
+
+    std::ifstream fs_file(path.stdpath());
+
+    if (!fs_file.is_open()){
+        m_logger.log("[OCR-ERROR] Failed to open dictionary: " + path.string());
+        throw FileException(nullptr, PA_CURRENT_FUNCTION, "PaddleOCRPipeline::load_dictionary(): Failed to open dictionary.", path.string());
+    }
+
+    std::string line;
+    while (std::getline(fs_file, line)){
+        m_dictionary.push_back(line);
+    }
+
+    if (fs_file.bad()){
+        m_logger.log("[OCR-ERROR] I/O error while reading dictionary: " + path.string());
+    }
+
+    if (debugging){
+        m_logger.log("[OCR-INFO] Loaded " +
+                    std::to_string(m_dictionary.size()) +
+                    " dictionary entries");
+    }
+}
+
+
+std::string PaddleOCRPipeline::recognize(const ImageViewRGB32& image){
+    const int debug_image_index = m_debug_image_index.fetch_add(1, std::memory_order_relaxed) + 1;
+
+    if (image.width() == 0 || image.height() == 0){
+        m_logger.log("[OCR-DEBUG] Input was an empty image.");
+        return "";
+    }
+    cv::Mat image_bgr;
+    cv::cvtColor(to_OpenCV_ref(image), image_bgr, cv::COLOR_BGRA2BGR);
+
+    // 1. Crop tightly around the text, with small safety margin
+    cv::Mat cropped_image = crop_to_text_region_with_padding(image_bgr, debug_image_index);
+    if (cropped_image.empty()){
+        if(STATIC_GLOBALS.PADDLE_OCR_DEBUG){
+            m_logger.log("[OCR-DEBUG] Crop to text region returned empty image.");
+        }
+        return "";
+    }
+
+
+    return recognize_line(cropped_image);
+}
+
+
+std::vector<PaddleOCRTextResult> PaddleOCRPipeline::detect_and_recognize(const ImageViewRGB32& image){
+    const int debug_image_index = m_debug_image_index.fetch_add(1, std::memory_order_relaxed) + 1;
+
+    // Same as `recognize()`: drop alpha from our BGRA pixels into a BGR image.
+    if (image.width() == 0 || image.height() == 0){
+        return {};
+    }
+    cv::Mat image_bgr;
+    cv::cvtColor(to_OpenCV_ref(image), image_bgr, cv::COLOR_BGRA2BGR);
+
+    // 1. Find all text regions.
+    std::vector<PaddleOCRTextBox> boxes = detector().detect(image_bgr);
+
+    // 2. Put them in reading order.
+    std::vector<std::vector<size_t>> lines = group_text_boxes_into_lines(boxes);
+
+    // 3. Recognize each region. Words of the same line that are close together are
+    //    merged and recognized as one piece. See `merge_text_boxes_in_line()`.
+    std::vector<PaddleOCRTextResult> results;
+    for (size_t line_index = 0; line_index < lines.size(); line_index++){
+        std::vector<PaddleOCRTextBox> line_boxes;
+        for (size_t box_index : lines[line_index]){
+            line_boxes.emplace_back(boxes[box_index]);
+        }
+        for (const PaddleOCRTextBox& box : merge_text_boxes_in_line(line_boxes)){
+            cv::Mat crop = crop_text_box(image_bgr, box);
+            if (crop.empty()){
+                continue;
+            }
+            // Same as `recognize()`: pad narrow crops (e.g. a lone "1") so the
+            // recognition model does not stretch them.
+            add_horizontal_padding(crop, debug_image_index);
+
+            PaddleOCRTextResult result;
+            result.text = recognize_line(crop);
+            result.box = box;
+            result.line_index = line_index;
+            if (STATIC_GLOBALS.PADDLE_OCR_DEBUG){
+                ImagePixelBox r = box.pixel_box(image_bgr.cols, image_bgr.rows);
+                m_logger.log(
+                    "[OCR-DET-DEBUG] Line " + std::to_string(line_index) +
+                    ", box (" + std::to_string(r.min_x) + ", " + std::to_string(r.min_y) + ", " +
+                    std::to_string(r.width()) + ", " + std::to_string(r.height()) +
+                    "), score " + std::to_string(box.score) + ": '" + result.text + "'"
+                );
+            }
+            results.emplace_back(std::move(result));
+        }
+    }
+    return results;
+}
+
+
+std::string PaddleOCRPipeline::recognize_multiline(const ImageViewRGB32& image){
+    // Chinese and Japanese don't put spaces between words.
+    const char* word_separator = " ";
+    switch (m_language){
+    case Language::ChineseSimplified:
+    case Language::ChineseTraditional:
+    case Language::Japanese:
+        word_separator = "";
+        break;
+    default:;
+    }
+
+    std::string text;
+    size_t current_line = 0;
+    bool line_empty = true;
+    for (const PaddleOCRTextResult& result : detect_and_recognize(image)){
+        if (result.text.empty()){
+            continue;
+        }
+        if (!text.empty()){
+            if (result.line_index != current_line){
+                text += "\n";
+                line_empty = true;
+            }
+            if (!line_empty){
+                text += word_separator;
+            }
+        }
+        text += result.text;
+        current_line = result.line_index;
+        line_empty = false;
+    }
+    return text;
+}
+
+
+std::string PaddleOCRPipeline::recognize_line(const cv::Mat& cropped_image){
+
+    const bool debugging = STATIC_GLOBALS.PADDLE_OCR_DEBUG;
+
+    // 2. Calculate dynamic width (maintain aspect ratio)
+    // the model shape is {1, 3, 48, dynamic_width}. Note that the height is fixed at 48 pixels
+    // the input image must be scaled to match the height of 48, for the neural network
+    int target_h = 48;
+    float aspect_ratio = (float)cropped_image.cols / cropped_image.rows;
+
+    int target_w = std::max(
+        1,
+        (int)std::round(target_h * aspect_ratio)
+    );
+
+    if (target_w <= 0 || target_w > 8192){
+        m_logger.log("[OCR-ERROR] Abnormally scaled target width calculated: " + std::to_string(target_w));
+        return "";
+    }
+
+    cv::Mat resized_image;
+    cv::resize(
+        cropped_image,
+        resized_image,
+        cv::Size(target_w, target_h),
+        0,
+        0,
+        cv::INTER_LINEAR
+    );
+
+
+    // 3. Prepare the input exactly the way PaddleOCR prepared images when it trained the
+    //    PP-OCRv5 recognition models (all four we ship: en/latin/korean mobile and the
+    //    server model used for Chinese/Japanese):
+    //    a. BGR channel order. PaddleOCR decodes images with OpenCV and never converts
+    //       them to RGB. Our BGR image is already in this order.
+    //    b. Scale [0, 255] to [-1, 1]: pixel / 255, then - 0.5, then / 0.5.
+    //       (No ImageNet mean/std here, unlike the detection model.)
+    //    c. Pad on the right to a width of at least 320 with zeros, i.e. mid-gray in the
+    //       [-1, 1] range. Training pads every line to a fixed-width canvas
+    //       (`image_shape: [3, 48, 320]`), and inference pads to at least 320 wide.
+    //
+    //    Matching this preprocessing improves model confidence.
+    //
+    //    Sources (links pinned to the versions that were checked):
+    //    - Training and eval config (`DecodeImage: img_mode: BGR`, `RecResizeImg` with
+    //      `image_shape: [3, 48, 320]`). The latin, korean and server configs match:
+    //      https://github.com/PaddlePaddle/PaddleOCR/blob/dab3fe35379033fdcb2d0e9572fac0b36c9a9ebf/configs/rec/PP-OCRv5/multi_language/en_PP-OCRv5_mobile_rec.yaml#L86-L129
+    //    - Training resize and normalization (`MultiScaleDataSet.resize_norm_img()`):
+    //      https://github.com/PaddlePaddle/PaddleOCR/blob/dab3fe35379033fdcb2d0e9572fac0b36c9a9ebf/ppocr/data/simple_dataset.py#L467-L495
+    //    - Eval resize and normalization (`resize_norm_img()`):
+    //      https://github.com/PaddlePaddle/PaddleOCR/blob/dab3fe35379033fdcb2d0e9572fac0b36c9a9ebf/ppocr/data/imaug/rec_img_aug.py#L631-L656
+    //    - PaddleOCR inference (`TextRecognizer.resize_norm_img()`, default shape 3,48,320):
+    //      https://github.com/PaddlePaddle/PaddleOCR/blob/dab3fe35379033fdcb2d0e9572fac0b36c9a9ebf/tools/infer/predict_rec.py#L208-L261
+    //    - Inference configs shipped with the official models:
+    //      https://huggingface.co/PaddlePaddle/en_PP-OCRv5_mobile_rec/blob/267c36e24c331595590fe7bd72bde2436fd286f2/inference.yml
+    //      https://huggingface.co/PaddlePaddle/PP-OCRv5_server_rec/blob/b26c3587fda8da3c8ec0ce357214b4d661ff1558/inference.yml
+    //    - PaddleX, the runtime PaddleOCR 3.x uses: reads BGR per the inference.yml, then
+    //      `OCRReisizeNormImg` does the same resize, normalization and padding:
+    //      https://github.com/PaddlePaddle/PaddleX/blob/c50f5da858020db473a2285f089bb8c7bbd6afdc/paddlex/inference/models/text_recognition/predictor.py#L142-L209
+    //      https://github.com/PaddlePaddle/PaddleX/blob/c50f5da858020db473a2285f089bb8c7bbd6afdc/paddlex/inference/models/text_recognition/processors.py#L47-L98
+    constexpr int MIN_TARGET_W = 320;
+    const int tensor_w = std::max(target_w, MIN_TARGET_W);
+    const std::array<int64_t, 4> input_shape = {1, 3, target_h, tensor_w};
+
+    // Zero-filled, and zero is the padding value.
+    std::vector<float> input_buffer(3 * (size_t)target_h * tensor_w, 0.0f);
+    write_recognition_input_NCHW(resized_image, input_buffer.data(), tensor_w);
+
+    if (debugging){
+        m_logger.log("[OCR-DEBUG] Cropped image constraints - Width: " + std::to_string(cropped_image.cols) 
+            + ", Height: " + std::to_string(cropped_image.rows) 
+            + ", Channels: " + std::to_string(cropped_image.channels()) 
+            + ", Total Pixels: " + std::to_string(cropped_image.total()));
+
+        size_t nan_count = 0;
+        size_t subnormal_count = 0;
+        for (float val : input_buffer){
+            if (std::isnan(val)){
+                nan_count++;
+            }else if (val != 0.0f && std::fpclassify(val) == FP_SUBNORMAL){
+                subnormal_count++;
+            }
+        }
+        m_logger.log("[OCR-DEBUG] Tensor payload validation - Total Floats: " + std::to_string(input_buffer.size())
+                + ", NaNs detected: " + std::to_string(nan_count) 
+                + ", Subnormal (denormal) values: " + std::to_string(subnormal_count));
+        m_logger.log("[OCR-DEBUG] Shape Definition - NCHW: [" + std::to_string(input_shape[0]) + "," + std::to_string(input_shape[1]) 
+                + "," + std::to_string(input_shape[2]) + "," + std::to_string(input_shape[3]) + "]");
+    }
+
+    // 4. Wrap the buffer as the input tensor, without copying. `input_buffer` stays alive
+    //    and unchanged until `Run()` returns.
+    static const Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+        memory_info,
+        input_buffer.data(), input_buffer.size(),
+        input_shape.data(), input_shape.size()
+    );
+
+    const char* input_names[] = {m_input_name.c_str()};
+    const char* output_names[] = {m_output_name.c_str()};  
+
+    try{
+        if (debugging){
+            m_logger.log("[OCR-DEBUG] Calling m_rec_session.Run() now...");
+        }
+
+        // 5. Run the recognition session. The large recognition models produce denormal
+        //    floats, which are very slow on Intel CPUs (see FloatingPointMode.h).
+        FlushDenormalsToZeroScope flush_denormals;
+        auto outputs = m_rec_session.Run(
+            Ort::RunOptions{nullptr}, 
+            input_names,   // char** 
+            &input_tensor, // Ort::Value* (array of 1)
+            1,             // input_count
+            output_names,  // char**
+            1              // output_count
+        );
+        return decode_CTC(
+            outputs[0].GetTensorMutableData<float>(),
+            outputs[0].GetTensorTypeAndShapeInfo().GetShape(),
+            m_dictionary
+        );
+    }catch (Ort::Exception& e){
+        throw InternalProgramError(
+            nullptr,
+            PA_CURRENT_FUNCTION,
+            "PaddleOCRPipeline::recognize(): Failed." + std::string(e.what())
+        );
+    }
+}
+
+
+cv::Mat crop_to_text_region_with_padding(const cv::Mat& image, int debug_image_index){
+    // get a binary image, for cropping purposes
+    cv::Mat binary = get_binary_image(image);
+
+    // Find coordinates of all non-zero pixels (the text)
+    std::vector<cv::Point> nonZeroCoords;
+    cv::findNonZero(binary, nonZeroCoords);
+    if (nonZeroCoords.empty()){
+        return {};
+    }
+
+    // create bounding box for crop
+    cv::Rect bbox = cv::boundingRect(nonZeroCoords);
+
+    // get the current gap between the text and the edge
+    int top_gap = bbox.y;
+    int bottom_gap = image.rows - (bbox.y + bbox.height);
+    int left_gap = bbox.x;
+    int right_gap = image.cols - (bbox.x + bbox.width);
+
+    // calculate the desired padding
+    // Horizontal padding is also at least half the text height. With a too-tight crop, the
+    // recognition model tends to drop a thin character at the edge, e.g. "Lv. 1" read
+    // as "Lv." (PokemonHome/SummaryScreen/squirtle_Shiny.png).
+    int pad_x = std::max({4, bbox.width / 15, bbox.height / 2});  // ~5-10%
+    int pad_y = std::max(2, bbox.height / 15);  // ~5-10%
+
+
+    cv::Mat cropped_image;
+    if (top_gap >= pad_y && bottom_gap >= pad_y && left_gap >= pad_x && right_gap >= pad_x){
+        // Original image has plenty of padding.
+        // We just expand the bounding box out by pad_x, pad_y and crop directly.
+
+        // we guarantee that bbox.x - pad_x >= 0
+        // and image.cols >= bbox.width + (pad_x * 2)
+        cv::Rect optimal_crop(
+            bbox.x - pad_x,
+            bbox.y - pad_y,
+            bbox.width + (pad_x * 2),
+            bbox.height + (pad_y * 2)
+        );
+        // crop the original image
+        // the crop should be within bounds.
+        cropped_image = image(optimal_crop).clone();
+    }else{
+
+        // add more padding to original image
+        cv::Scalar bg = estimate_background_color(image);
+        cv::Mat padded_image;
+        cv::copyMakeBorder(
+            image,
+            padded_image,
+            pad_y, pad_y,
+            pad_x, pad_x,
+            cv::BORDER_CONSTANT,
+            bg
+        );
+
+        if (STATIC_GLOBALS.PADDLE_OCR_DEBUG_IMAGE){
+            cv::imwrite(std::to_string(debug_image_index) + "-padded" + ".png", padded_image);
+        }
+
+        cv::Rect final_crop(
+            bbox.x, // (bbox.x + pad_x) - pad_x cancels out perfectly to just bbox.x
+            bbox.y, // (bbox.y + pad_y) - pad_y cancels out perfectly to just bbox.y
+            bbox.width + (pad_x * 2),
+            bbox.height + (pad_y * 2)
+        );
+
+        // crop the padded image
+        // the crop should be within bounds.
+        
+        cropped_image = padded_image(final_crop).clone();
+    }
+
+    if (STATIC_GLOBALS.PADDLE_OCR_DEBUG_IMAGE){
+        cv::imwrite(std::to_string(debug_image_index) + "-binary" + ".png", binary);
+        cv::imwrite(std::to_string(debug_image_index) + "-cropped_image" +".png", cropped_image);
+    }
+
+    // add horizontal padding to tall/narrow characters
+    add_horizontal_padding(cropped_image, debug_image_index);
+
+    cv::Mat binary_tight_crop = binary(bbox).clone();
+    add_vertical_padding(cropped_image, binary_tight_crop, debug_image_index);
+
+
+    return cropped_image;
+}
+
+cv::Mat get_binary_image(const cv::Mat& image){
+    // first convert to grayscale
+    cv::Mat gray;
+    cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY);
+    cv::Mat binary;
+    cv::threshold(gray, binary, 0, 255,
+                cv::THRESH_BINARY_INV | cv::THRESH_OTSU);
+
+    double ratio = cv::countNonZero(binary) /
+                static_cast<double>(binary.total());
+
+    // we want text pixels to be white for the next step
+    // If most pixels are white, Otsu likely classified the background as foreground.
+    // Flip it so text becomes white again.
+    if (ratio > 0.5){
+        cv::bitwise_not(binary, binary);
+    }
+
+    return binary;
+}
+
+
+void add_vertical_padding(cv::Mat& image, const cv::Mat& binary_tight_crop, int debug_image_index){
+    if (image.empty()){
+        return;
+    }
+
+    int h = binary_tight_crop.rows;
+    int w = binary_tight_crop.cols;
+
+    if (is_horizontal_line(binary_tight_crop, debug_image_index)){
+        cout << "Input image is likely just a horizontal line." << endl;
+        cv::Scalar bg = estimate_background_color(image);
+
+        int target_h = static_cast<int>(std::ceil(w / 2));
+        int top = (target_h - h) / 2;
+        int bottom = target_h - h - top;
+        cv::Mat padded_image;
+        cv::copyMakeBorder(
+            image,
+            padded_image,
+            top, bottom,
+            0, 0,              // no horizontal padding
+            cv::BORDER_CONSTANT,
+            bg
+        );
+        image = padded_image;
+
+        if (STATIC_GLOBALS.PADDLE_OCR_DEBUG_IMAGE){
+            cv::imwrite(std::to_string(debug_image_index) + "-vertic-padded" + ".png", image);
+        }
+    }
+
+}
+
+bool is_horizontal_line(const cv::Mat& binary, int debug_image_index){
+
+    int h = binary.rows;
+    int w = binary.cols;
+    constexpr float min_ratio = 4.0f;
+    if (h <= 0 || (float)w / h < min_ratio){
+        return false;
+    }
+
+    // Find all contours
+    std::vector<std::vector<cv::Point>> contours;
+    std::vector<cv::Vec4i> hierarchy;
+    cv::findContours(binary, contours, hierarchy, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+
+    for (size_t i = 0; i < contours.size(); ++i){
+        if (STATIC_GLOBALS.PADDLE_OCR_DEBUG_IMAGE){
+            cv::Mat contour_image = binary(cv::boundingRect(contours[i])).clone();
+            cv::imwrite(std::to_string(debug_image_index) + "-contour_image-" + std::to_string(i) + ".png", contour_image);
+        }
+
+        if (!is_line_shape(binary, contours[i])){
+            // cout << "Input image is likely NOT a horizontal line." << endl;
+
+            return false;
+            // std::cout << "Contour #" << i << " matches the criteria!" << std::endl;
+        }
+    }
+
+
+    return true;
+}
+
+bool is_line_shape(const cv::Mat& binary, const std::vector<cv::Point>& contour){
+    
+    cv::Mat cropped_binary = binary(cv::boundingRect(contour)).clone();
+    double area = cv::countNonZero(cropped_binary);
+    
+    // Safety check to avoid division by zero on tiny noise artifacts
+    if (area <= 0){
+        return false;
+    }
+
+    // 2. Get the straight bounding box
+    cv::Rect rect = cv::boundingRect(contour);
+    double width = static_cast<double>(rect.width);
+    double height = static_cast<double>(rect.height);
+
+    // 3. Calculate Aspect Ratio (Width / Height)
+    double aspectRatio = width / height;
+
+    // 4. Calculate Bounding Box Density (Area / Bounding Box Area)
+    double bboxArea = width * height;
+    double density = area / bboxArea;
+
+    if (STATIC_GLOBALS.PADDLE_OCR_DEBUG_IMAGE){
+        cout << "area: " << std::to_string(area) << endl;
+        cout << "bboxArea: " << std::to_string(bboxArea) << endl;
+        cout << "Density: " << std::to_string(density) << endl;
+        cout << "aspectRatio: " << std::to_string(aspectRatio) << endl;
+    }
+
+
+    // 5. Evaluate both conditions
+    // - Density must be greater than 75%
+    // - Aspect ratio must be greater than 2 (at least twice as wide as it is tall)
+    return (density >= 0.75) && (aspectRatio > 2.0);
+}
+
+void add_horizontal_padding(cv::Mat& image, int debug_image_index){
+    if (image.empty()){
+        return;
+    }
+
+    int h = image.rows;
+    int w = image.cols;
+    constexpr float min_ratio = 0.8f;
+
+    // add horizontal padding to tall/narrow characters
+    if (h > 0 && (float)w / h < min_ratio){
+        int target_w = static_cast<int>(std::ceil(min_ratio * h));
+
+        int left = (target_w - w) / 2;
+        int right = target_w - w - left;
+
+        cv::Scalar bg = estimate_background_color(image);
+        cv::Mat padded_image;
+        cv::copyMakeBorder(
+            image,
+            padded_image,
+            0, 0,              // no vertical padding
+            left, right,
+            cv::BORDER_CONSTANT,
+            bg
+        );
+        image = padded_image;
+
+        if (STATIC_GLOBALS.PADDLE_OCR_DEBUG_IMAGE){
+            cv::imwrite(std::to_string(debug_image_index) + "-horiz-padded" + ".png", image);
+        }
+    }
+
+}
+
+
+
+cv::Scalar estimate_background_color(const cv::Mat& image){
+    if (image.empty() || image.type() != CV_8UC3){
+        return cv::Scalar(255, 255, 255);
+    }
+
+    // use the corner pixels to estimate the background color
+    const cv::Vec3b* top = image.ptr<cv::Vec3b>(0);
+    const cv::Vec3b* bottom = image.ptr<cv::Vec3b>(image.rows - 1);
+
+    cv::Scalar tl(top[0]);
+    cv::Scalar tr(top[image.cols - 1]);
+    cv::Scalar bl(bottom[0]);
+    cv::Scalar br(bottom[image.cols - 1]);
+
+    return (tl + tr + bl + br) * 0.25;
+}
+
+
+void write_recognition_input_NCHW(const cv::Mat& image_bgr, float* dst, int dst_width){
+    const int rows = image_bgr.rows;
+    const int cols = image_bgr.cols;
+    const size_t plane_size = (size_t)rows * dst_width;
+
+    // Split the interleaved B, G, R into separate 2D planes.
+    cv::Mat channels[3];
+    cv::split(image_bgr, channels);
+
+    // Scale each color channel from [0, 255] to [-1, 1] and write it into `dst`
+    for (int c = 0; c < 3; c++){
+        float* plane_data = dst + c * plane_size;
+        // Create a view of `dst` with row step == `dst_width * sizeof(float)`.
+        // This is to accommodate the right padded columns.
+        cv::Mat plane(rows, cols, CV_32FC1, plane_data, dst_width * sizeof(float));
+        channels[c].convertTo(plane, CV_32F, 2.0 / 255.0, -1.0);
+    }
+}
+
+
+std::string PaddleOCRPipeline::decode_CTC(float* data, const std::vector<int64_t>& shape, const std::vector<std::string>& dict){
+
+    const bool debugging = STATIC_GLOBALS.PADDLE_OCR_DEBUG;
+
+    std::string text = "";
+    size_t seq_len = static_cast<size_t>(shape[1]);
+    int64_t num_cls = shape[2];
+    size_t last_index = 0; 
+
+    // Initial boundary logging configuration
+    if (debugging){
+        m_logger.log("[OCR-CTC-DEBUG] Starting decode_CTC. Sequence Length: " + std::to_string(seq_len) + 
+                ", Total Classes: " + std::to_string(num_cls) + 
+                ", Dictionary Size: " + std::to_string(dict.size()));
+    }
+
+    if (dict.empty()){
+        m_logger.log("[OCR-CTC-ERROR] FATAL: Dictionary payload array is empty! Parsing loops will fail to resolve text indicators.");
+    }
+
+    for (size_t i = 0; i < seq_len; ++i){
+        float* row = data + i * num_cls;
+        // 1. Get the character index with highest probability (Argmax)
+        size_t argmax = std::distance(row, std::max_element(row, row + num_cls));
+
+        // 2. CTC Decoding Rules:
+        // Rule A: Index 0 is the CTC Blank. Skip it.
+        // Rule B: Skip consecutive duplicate characters (e.g., "aa" -> "a").
+        if (argmax > 0 && argmax != last_index){
+            // Index 1 from the model maps to the 1st line of your .txt file (Vector index 0)
+            size_t dict_idx = argmax - 1; 
+            if (dict_idx < dict.size()){
+                if (debugging){
+                    m_logger.log("[OCR-CTC-DEBUG] Step " + std::to_string(i) + 
+                               ": Predicted Argmax = " + std::to_string(argmax) + 
+                               " -> Target Dict Index = " + std::to_string(dict_idx) +
+                               " (Character resolved: '" + dict[dict_idx] + "')");
+                }
+                text += dict[dict_idx];
+            }else {
+                m_logger.log("[OCR-CTC-ERROR] Step " + std::to_string(i) + 
+                            ": Predicted Argmax = " + std::to_string(argmax) + 
+                            " -> Target Dict Index = " + std::to_string(dict_idx) + 
+                            " (ERROR: Calculated index is out of bounds for the dictionary memory layout!)");
+            }
+        }
+        last_index = argmax;
+    }
+
+    if (debugging){
+        m_logger.log("[OCR-CTC-DEBUG] Complete loop execution tracking finish. Resulting string extraction: '" + text + "'");
+    }
+
+    return text;
+}
+
+
+template <typename _Tp>
+_Tp safe_convert(size_t value){
+    if (value > static_cast<size_t>(std::numeric_limits<_Tp>::max())){
+        throw InternalProgramError(nullptr, PA_CURRENT_FUNCTION, "safe_convert: Value too large for template type _Tp.");
+    }
+    return static_cast<_Tp>(value);
+}
+
+cv::Rect ImageFloatBox_to_cv_Rect(size_t width, size_t height, const ImageFloatBox& box){
+    ImagePixelBox pixelbox = floatbox_to_pixelbox(width, height, box);
+    
+    return cv::Rect(
+        safe_convert<int>(pixelbox.min_x),
+        safe_convert<int>(pixelbox.min_y),
+        safe_convert<int>(pixelbox.width()),
+        safe_convert<int>(pixelbox.height())
+    );
+}
+
+
+
+}
+}

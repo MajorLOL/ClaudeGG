@@ -1,0 +1,463 @@
+/*  Global Settings Panel
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ */
+
+#include <iostream>
+#ifdef QT_CORE_LIB
+#include <QCoreApplication>
+#include <QDesktopServices>
+#include <QMetaObject>
+#include <QUrl>
+#endif
+#include "Common/Cpp/ColoredText.h"
+#include "Common/Cpp/Containers/Pimpl.tpp"
+#include "Common/Cpp/LifetimeSanitizer.h"
+#include "Common/Cpp/Filesystem/Filesystem.h"
+#include "Common/Cpp/Json/JsonValue.h"
+#include "Common/Cpp/Json/JsonArray.h"
+#include "Common/Cpp/Json/JsonObject.h"
+#include "Common/Cpp/Options/KeyboardLayoutOption.h"
+#include "CommonFramework/Globals.h"
+#include "CommonFramework/StaticGlobals.h"
+#include "CommonFramework/GlobalAutoPaths.h"
+#include "CommonFramework/Logging/Logger.h"
+#include "CommonFramework/Options/CheckForUpdatesOption.h"
+#include "CommonFramework/Options/ResolutionOption.h"
+#include "CommonFramework/Options/Environment/SleepSuppressOption.h"
+#include "CommonFramework/Options/Environment/ThemeSelectorOption.h"
+#include "CommonFramework/Options/Environment/PerformanceOptions.h"
+#include "CommonFramework/Recording/StreamHistoryOption.h"
+#include "CommonFramework/AudioPipeline/AudioPipelineOptions.h"
+#include "CommonFramework/VideoPipeline/VideoPipelineOptions.h"
+#include "CommonFramework/ErrorReports/ErrorReports.h"
+#include "Controllers/ControllerSettings.h"
+#include "PocketPilot/PocketPilot_Language.h"
+//#include "CommonFramework/Environment/Environment.h"
+#include "Integrations/DiscordSettingsOption.h"
+#include "CommonFramework/Options/DeviceDropdownAliases.h"
+#include "GlobalSettingsPanel.h"
+
+// #include <iostream>
+// using std::cout;
+// using std::endl;
+
+namespace PokemonAutomation{
+
+
+
+
+GlobalSettings& GlobalSettings::instance(){
+    static GlobalSettings settings;
+    return settings;
+}
+GlobalSettings::~GlobalSettings(){
+    ENABLE_LIFETIME_SANITIZER0.remove_listener(*this);
+    OPEN_SETUP_BUTTON.remove_listener(static_cast<ButtonListener&>(*this));
+    OPEN_BASE_FOLDER_BUTTON.remove_listener(static_cast<ButtonListener&>(*this));
+}
+GlobalSettings::GlobalSettings()
+    : BatchOption(LockMode::LOCK_WHILE_RUNNING)
+    , CHECK_FOR_UPDATES(CONSTRUCT_TOKEN)
+    , LANGUAGE(
+        "<b>Language:</b><br>"
+        "The language of the menus, the settings and the explanations. English is the default. "
+        "What is not translated yet stays English. With Other, the program reads the file "
+        "Languages/custom.json next to it.",
+        {
+            {UiLanguage::ENGLISH, "en", "English"},
+            {UiLanguage::DUTCH,   "nl", "Nederlands"},
+            {UiLanguage::GERMAN,  "de", "Deutsch"},
+            {UiLanguage::FRENCH,  "fr", "Français"},
+            {UiLanguage::SPANISH, "es", "Español"},
+            {UiLanguage::CUSTOM,  "custom", "Other (Languages/custom.json)"},
+        },
+        LockMode::UNLOCK_WHILE_RUNNING,
+        UiLanguage::ENGLISH
+    )
+    , GAME_CONSOLE(
+        "<b>Console:</b><br>"
+        "The console the program is used with. It is chosen in the setup, on the screen after the language, "
+        "and can be changed here.",
+        {
+            {SetupConsole::NONE,    "none",    "Not chosen yet"},
+            {SetupConsole::SWITCH,  "switch",  "Nintendo Switch"},
+            {SetupConsole::SWITCH2, "switch2", "Nintendo Switch 2"},
+        },
+        LockMode::UNLOCK_WHILE_RUNNING,
+        SetupConsole::NONE
+    )
+    , OPEN_SETUP_BUTTON(
+        "<b>Setup:</b><br>"
+        "The language, the console and the microcontroller, with the steps for it, full screen like at the first start.",
+        "Open the setup"
+    )
+    , ASK_LANGUAGE(
+        "<b>Ask for the language at the next start:</b><br>"
+        "The question comes once, after the intro. It turns itself off when you have answered.",
+        LockMode::UNLOCK_WHILE_RUNNING,
+        true
+    )
+    , ASK_SETUP(
+        "<b>Ask for the microcontroller at the next start:</b><br>"
+        "The question and the steps for the board come once, after the language. It turns itself off when you have answered.",
+        LockMode::UNLOCK_WHILE_RUNNING,
+        true
+    )
+    , ASK_GAME(
+        "<b>Ask which game to start at every start:</b><br>"
+        "A screen of its own with the games, after the intro and the setup. Pick a game and the program opens with it; "
+        "\"Choose later\" goes to the main window as it is. Turn this off to go straight to the main window. "
+        "Takes effect at the next start.",
+        LockMode::UNLOCK_WHILE_RUNNING,
+        true
+    )
+    , ASK_PROGRAM(
+        "<b>Ask which program to start after the game:</b><br>"
+        "After the game comes a screen of its own with its programs. "
+        "Pick one and the program opens with its page; \"Choose later\" goes to the main window with the game's programs. "
+        "Turn this off to go straight to the main window after the game. Takes effect at the next start.",
+        LockMode::UNLOCK_WHILE_RUNNING,
+        true
+    )
+    , KEEP_SCREEN_ON(
+        "<b>Keep the screen on:</b><br>Holds off the screen's sleep while the program is open. It is switched at the foot of an open program, and kept for the next start.",
+        LockMode::UNLOCK_WHILE_RUNNING,
+        false
+    )
+    , OPEN_BASE_FOLDER_BUTTON(
+        "<b>Runtime Base Folder:</b>",
+        "Open Folder"
+    )
+    , STATS_FILE(
+        false,
+        "<b>Stats File:</b><br>Use the stats file here. Multiple instances of the program can use the same file.",
+        LockMode::LOCK_WHILE_RUNNING,
+#if defined(__APPLE__)
+        Filesystem::application_scratch_path().string() + "/UserSettings/PA-Stats.txt",
+        Filesystem::application_scratch_path().string() + "/UserSettings/PA-Stats.txt"
+#else
+        "UserSettings/PA-Stats.txt",
+        "UserSettings/PA-Stats.txt"
+#endif
+    )
+    , TEMP_FOLDER(
+        false,
+        "<b>Temp Folder:</b><br>Place temporary files in this directory.",
+        LockMode::LOCK_WHILE_RUNNING,
+#if defined(__APPLE__)
+        Filesystem::application_scratch_path().string() + "/TempFiles/",
+        Filesystem::application_scratch_path().string() + "/TempFiles/"
+#else
+        "TempFiles/",
+        "TempFiles/"
+#endif
+    )
+    , THEME(CONSTRUCT_TOKEN)
+    , STARTER_COLOR(CONSTRUCT_TOKEN)
+    , OCR_LIBRARY(
+        "<b>OCR library:",
+        {
+            {OcrLibrary::PADDLE_OCR,         "paddle-ocr",           "Paddle OCR"},
+            {OcrLibrary::TESSERACT,            "tesseract",              "Tesseract"},
+        },
+        LockMode::LOCK_WHILE_RUNNING,
+        OcrLibrary::PADDLE_OCR
+    )
+    , OCR_WARNING(
+        "WARNING: If you change the OCR library away from the default (PaddleOCR), you must ensure that you have the necessary resource downloaded. "
+        "Otherwise, the programs that use OCR will throw an error."
+    )
+    , WINDOW_SIZE(
+        CONSTRUCT_TOKEN,
+        "Window Size/Position:",
+        "Set the size/position of the window. Takes effect immediately.<br>"
+        "Use this to easily set the window to a specific resolution for streaming alignment.",
+        1280, 1000,
+        0, 0,
+        false
+    )
+    , LOG_WINDOW_SIZE(
+        CONSTRUCT_TOKEN,
+        "Output Window Size/Position:",
+        "Set the size/position of the output window. Takes effect immediately.<br>",
+        600, 1200,
+        0, 0,
+        false
+    )
+    , LOG_WINDOW_STARTUP(
+        "<b>Open Output Window at startup:</b>",
+        LockMode::UNLOCK_WHILE_RUNNING,
+        false
+    )
+    , PLAY_INTRO(
+        "<b>Play the intro at startup:</b><br>"
+        "The short film that plays first when the program starts. "
+        "A click or any key skips it. Takes effect at the next start.",
+        LockMode::UNLOCK_WHILE_RUNNING,
+        true
+    )
+    , KEYBOARD_CONTROLS_LAYOUT(
+        CONSTRUCT_TOKEN,
+        "<b>System Keyboard Layout:</b><br>"
+        "This is the keyboard layout of your system. "
+        "This is needed for the HID keyboard controller to work correctly.",
+        LockMode::UNLOCK_WHILE_RUNNING,
+        KeyboardLayout::QWERTY
+    )
+    , DEVICE_ALIASES(CONSTRUCT_TOKEN)
+    , STREAM_HISTORY(CONSTRUCT_TOKEN)
+    , SLEEP_SUPPRESS(CONSTRUCT_TOKEN)
+    , m_discord_settings(
+        "<font size=4><b>Discord Settings:</b> Integrate with Discord. (" +
+        make_text_url(
+            ONLINE_DOC_URL_BASE + "DiscordIntegration/index.html",
+            "online documentation"
+        ) + ")</font>"
+    )
+    , RICH_PRESENCE(
+        "<b>Enable Rich Presence:</b><br>"
+        "Display program activity and status under your Discord user. "
+        "It shows as " + UPSTREAM_PROGRAM_NAME + ", whose Discord application this is.<br>"
+        "Restart the program for the change to take effect.",
+        LockMode::UNLOCK_WHILE_RUNNING,
+        false
+    )
+    , ALL_STATS(
+        "<b>All Stats:</b><br>Include all-time stats for notifications.",
+        LockMode::UNLOCK_WHILE_RUNNING,
+        true
+    )
+    , DISCORD(CONSTRUCT_TOKEN)
+    , m_advanced_options(
+        "<font size=4><b>Advanced Options:</b> You should not need to touch anything below here.</font>"
+    )
+    , DUMP_VIDEO_FORMATS(
+        "<b>Dump Video Formats:</b><br>Log all video formats supported by your capture card.",
+        LockMode::UNLOCK_WHILE_RUNNING,
+        false
+    )
+    , SAVE_DEBUG_IMAGES(
+        "<b>Save Debug Images:</b><br>"
+        "If the program fails to read something when it should succeed, save the image for debugging purposes.",
+        LockMode::LOCK_WHILE_RUNNING,
+        true
+    )
+    , SAVE_DEBUG_VIDEOS_ON_SWITCH(
+        "<b>Save Debug Videos on Switch:</b><br>"
+        "If the program fails, save a video on Switch for debugging purposes.",
+        LockMode::LOCK_WHILE_RUNNING,
+        false
+    )
+//    , NAUGHTY_MODE_OPTION("<b>Naughty Mode:</b>", false)
+    , AUDIO_PIPELINE(CONSTRUCT_TOKEN)
+    , VIDEO_PIPELINE(CONSTRUCT_TOKEN)
+    , ENABLE_LIFETIME_SANITIZER0(
+        "<b>Enable Lifetime Sanitizer: (for debugging)</b><br>"
+        "Check for C++ object lifetime violations. Terminate program with stack dump if violations are found. "
+        "If enabling, you must restart the program for it to take effect.",
+        LockMode::UNLOCK_WHILE_RUNNING,
+        true
+//        IS_BETA_VERSION
+    )
+    , ERROR_REPORTS(CONSTRUCT_TOKEN)
+    , DEVELOPER_TOKEN(
+        true,
+        "<b>Developer Token:</b><br>Restart application to take full effect after changing this.",
+        LockMode::LOCK_WHILE_RUNNING,
+        "", ""
+    )
+{
+    PA_ADD_OPTION(LANGUAGE);
+    PA_ADD_OPTION(GAME_CONSOLE);
+    PA_ADD_OPTION(OPEN_SETUP_BUTTON);
+    PA_ADD_OPTION(ASK_LANGUAGE);
+    PA_ADD_OPTION(ASK_SETUP);
+    PA_ADD_OPTION(ASK_GAME);
+    PA_ADD_OPTION(ASK_PROGRAM);
+    PA_ADD_OPTION(KEEP_SCREEN_ON);
+    PA_ADD_OPTION(OPEN_BASE_FOLDER_BUTTON);
+    PA_ADD_OPTION(CHECK_FOR_UPDATES);
+    PA_ADD_OPTION(STATS_FILE);
+    PA_ADD_OPTION(TEMP_FOLDER);
+    PA_ADD_OPTION(THEME);
+    PA_ADD_OPTION(STARTER_COLOR);
+    PA_ADD_OPTION(WALLPAPER);
+    PA_ADD_OPTION(OCR_LIBRARY);
+
+    // gated behind Dev mode. see GlobalSettings::load_json
+    // PA_ADD_OPTION(OCR_WARNING); // TODO: enable this when Tesseract is no longer a default resource.
+    PA_ADD_OPTION(RESOURCE_DOWNLOAD_TABLE);
+    PA_ADD_OPTION(DOWNLOAD_ERROR);
+
+    PA_ADD_OPTION(WINDOW_SIZE);
+    PA_ADD_OPTION(LOG_WINDOW_SIZE);
+    PA_ADD_OPTION(LOG_WINDOW_STARTUP);
+    PA_ADD_OPTION(PLAY_INTRO);
+
+    PA_ADD_OPTION(KEYBOARD_CONTROLS_LAYOUT);
+    PA_ADD_OPTION(DEVICE_ALIASES);
+    PA_ADD_OPTION(STREAM_HISTORY);
+
+#ifdef PA_ENABLE_SLEEP_SUPPRESS
+    PA_ADD_OPTION(SLEEP_SUPPRESS);
+#endif
+
+    PA_ADD_STATIC(m_discord_settings);
+#ifdef PA_SOCIAL_SDK
+    PA_ADD_OPTION(RICH_PRESENCE);
+#endif
+    PA_ADD_OPTION(ALL_STATS);
+    PA_ADD_OPTION(DISCORD);
+
+    PA_ADD_STATIC(m_advanced_options);
+    add_option(PokemonAutomation::LOG_EVERYTHING(), "LOG_EVERYTHING");
+    PA_ADD_OPTION(DUMP_VIDEO_FORMATS);
+    PA_ADD_OPTION(SAVE_DEBUG_IMAGES);
+
+    // gated behind Dev mode. see GlobalSettings::load_json
+    PA_ADD_OPTION(SAVE_DEBUG_VIDEOS_ON_SWITCH);
+//    PA_ADD_OPTION(NAUGHTY_MODE);
+
+    add_option(PerformanceOptions::instance(), "PERFORMANCE");
+
+    PA_ADD_OPTION(AUDIO_PIPELINE);
+    PA_ADD_OPTION(VIDEO_PIPELINE);
+
+    add_option(ControllerSettings::instance().COMMAND_QUEUE_LIMIT, "COMMAND_QUEUE_LIMIT");
+    // gated behind Dev mode. see GlobalSettings::load_json
+    add_option(ControllerSettings::instance().DEVICE_LOGGING_FLAG, "DEVICE_LOGGING_FLAG");
+
+
+    PA_ADD_OPTION(ENABLE_LIFETIME_SANITIZER0);
+
+#ifdef PA_OFFICIAL
+    PA_ADD_OPTION(ERROR_REPORTS);
+#endif
+
+    PA_ADD_OPTION(DEVELOPER_TOKEN);
+
+    DOWNLOAD_ERROR.set_visibility(ConfigOptionState::HIDDEN);
+    //  The check for a new version is for Pokemon Automation's own
+    //  releases: this fork does not run it.
+    CHECK_FOR_UPDATES->set_visibility(ConfigOptionState::HIDDEN);
+    SAVE_DEBUG_VIDEOS_ON_SWITCH.set_visibility(ConfigOptionState::HIDDEN);
+    ControllerSettings::instance().DEVICE_LOGGING_FLAG.set_visibility(ConfigOptionState::HIDDEN);
+
+    GlobalSettings::on_config_value_changed(this);
+    ENABLE_LIFETIME_SANITIZER0.add_listener(*this);
+    OPEN_SETUP_BUTTON.add_listener(static_cast<ButtonListener&>(*this));
+    OPEN_BASE_FOLDER_BUTTON.add_listener(static_cast<ButtonListener&>(*this));
+}
+
+JsonValue GlobalSettings::to_json() const{
+    JsonObject obj = std::move(*BatchOption::to_json().to_object());
+    obj["NAUGHTY_MODE"] = STATIC_GLOBALS.NAUGHTY_MODE;
+
+    JsonObject command_line_test_obj;
+    command_line_test_obj["RUN"] = COMMAND_LINE_TEST_MODE;
+    obj["COMMAND_LINE_TESTS"] = std::move(command_line_test_obj);
+    obj["DEBUG"] = STATIC_GLOBALS.to_json_debug();
+
+    return obj;
+}
+void GlobalSettings::load_json(const JsonValue& json){
+    const JsonObject* obj = json.to_object();
+    if (obj == nullptr){
+        return;
+    }
+
+    STATIC_GLOBALS.load_json(json);
+    BatchOption::load_json(json);
+
+    // cout << "DEVELOPER_MODE: " << STATIC_GLOBALS.DEVELOPER_MODE << endl;
+    // cout << "INTERNAL_DEVELOPER_MODE: " << STATIC_GLOBALS.INTERNAL_DEVELOPER_MODE << endl;
+    const bool developer_mode = STATIC_GLOBALS.DEVELOPER_MODE;
+
+    ConfigOptionState devmode_visibility = developer_mode
+        ? ConfigOptionState::ENABLED
+        : ConfigOptionState::HIDDEN;
+    DOWNLOAD_ERROR.set_visibility(devmode_visibility);
+    SAVE_DEBUG_VIDEOS_ON_SWITCH.set_visibility(devmode_visibility);
+    PerformanceOptions::instance().ONNX_OPTIONS.USE_GPU.set_visibility(devmode_visibility);
+    ControllerSettings::instance().DEVICE_LOGGING_FLAG.set_visibility(devmode_visibility);
+
+    //  Remake this to update the color.
+    m_discord_settings.set_text(
+        "<font size=4><b>Discord Settings:</b> Integrate with Discord. (" +
+        make_text_url(
+            ONLINE_DOC_URL_BASE + "DiscordIntegration/index.html",
+            "online documentation"
+        ) + ")</font>"
+    );
+
+    const JsonObject* command_line_tests_setting = obj->get_object("COMMAND_LINE_TESTS");
+    if (command_line_tests_setting){
+        command_line_tests_setting->read_boolean(COMMAND_LINE_TEST_MODE, "RUN");
+        if (COMMAND_LINE_TEST_MODE){
+            std::cout << "Enter command line test mode." << std::endl;
+        }
+    }
+}
+
+
+
+void GlobalSettings::on_config_value_changed(void* object){
+    bool enabled = ENABLE_LIFETIME_SANITIZER0;
+    if (enabled){
+        global_logger_tagged().log("LifeTime Sanitizer: Enabled", COLOR_BLUE);
+    }else{
+        global_logger_tagged().log("LifeTime Sanitizer: Disabled", COLOR_BLUE);
+        LifetimeSanitizer::disable();
+    }
+}
+
+void GlobalSettings::on_press(ButtonCell& button){
+#ifdef QT_CORE_LIB
+    if (&button == &OPEN_SETUP_BUTTON){
+        //  Later, not inside the button: the setup runs its own window.
+        if (qApp != nullptr){
+            QMetaObject::invokeMethod(qApp, []{
+                PocketPilot::open_setup();
+            }, Qt::QueuedConnection);
+        }
+        return;
+    }
+    if (&button == &OPEN_BASE_FOLDER_BUTTON){
+        // Open the runtime base folder in the system file manager
+        QDesktopServices::openUrl(QUrl::fromLocalFile(QString::fromStdString(RUNTIME_BASE_PATH())));
+        return;
+    }
+#endif
+}
+
+void GlobalSettings::connect_row_with_download(const std::string& resource_slug, std::shared_ptr<ResourceDownload>& download_ptr){
+    RESOURCE_DOWNLOAD_TABLE.connect_row_with_download(resource_slug, download_ptr);
+}
+
+
+GlobalSettings_Descriptor::GlobalSettings_Descriptor()
+    : OptionsPanelDescriptor(
+        "",
+        "Global Settings", "Global Settings",
+        "",
+        "Global Settings",
+        PanelQualityStanding::OFFICIAL
+    )
+{}
+GlobalSettings_Descriptor::Wrapper& GlobalSettings_Descriptor::instance(){
+    static Wrapper wrapper;
+    return wrapper;
+}
+
+
+GlobalSettingsPanel::GlobalSettingsPanel()
+    : settings(GlobalSettings::instance())
+{
+    settings.DEVICE_ALIASES->add_connected_devices();
+    PA_ADD_OPTION(settings);
+}
+
+
+}

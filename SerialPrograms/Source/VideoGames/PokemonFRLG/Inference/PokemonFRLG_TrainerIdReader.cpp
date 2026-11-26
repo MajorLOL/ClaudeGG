@@ -1,0 +1,106 @@
+/*  Trainer ID Reader
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ */
+
+#include "Common/Cpp/Color.h"
+#include "Common/Cpp/Filesystem/Filesystem.h"
+#include "CommonFramework/GlobalSettingsPanel.h"
+#include "CommonFramework/ImageTypes/ImageViewRGB32.h"
+#include "CommonFramework/VideoPipeline/VideoOverlayScopes.h"
+#include "CommonFramework/ImageTypes/ImageRGB32.h"
+#include "CommonTools/Images/ImageFilter.h"
+#include "CommonTools/OCR/OCR_NumberReader.h"
+#include "CommonTools/OCR/OCR_Routines.h"
+#include "Tests/ImageUnitTest.h"
+#include "Tests/TestUtils.h"
+#include "VideoGames/PokemonFRLG/PokemonFRLG_Settings.h"
+#include "PokemonFRLG_TrainerIdReader.h"
+#include "PokemonFRLG_DigitReader.h"
+namespace PokemonAutomation {
+namespace NintendoSwitch {
+namespace PokemonFRLG {
+
+TrainerIdReader::TrainerIdReader(Color color)
+    : m_color(color)
+    , m_box_tid(0.742683, 0.117314, 0.129734, 0.076006)
+    , m_box_tid_spa(0.766667, 0.112286, 0.129345, 0.076068)
+    , m_box_tid_jpn(0.712981, 0.118836, 0.207212, 0.077373)
+    , m_box_tid_fra(0.759829, 0.120833, 0.129915, 0.07094)
+{}
+
+void TrainerIdReader::make_overlays(VideoOverlaySet &items) const {
+    const BoxOption &GAME_BOX = GameSettings::instance().GAME_BOX;
+    items.add(m_color, GAME_BOX.inner_to_outer(m_box_tid));
+    items.add(m_color, GAME_BOX.inner_to_outer(m_box_tid_spa));
+    items.add(m_color, GAME_BOX.inner_to_outer(m_box_tid_jpn));
+    items.add(m_color, GAME_BOX.inner_to_outer(m_box_tid_fra));
+}
+
+uint16_t TrainerIdReader::read_tid(
+    Logger& logger, Language language, const ImageViewRGB32& frame
+){
+    ImageViewRGB32 game_screen =
+            extract_box_reference(frame, GameSettings::instance().GAME_BOX);
+
+    
+    ImageViewRGB32 tid_region = extract_box_reference(game_screen, language == Language::Japanese ? m_box_tid_jpn :
+                                                                   language == Language::Spanish  ? m_box_tid_spa :
+                                                                   language == Language::French   ? m_box_tid_fra :
+                                                                   m_box_tid);
+
+    // waterfill segmentation + template matching
+    // against the PokemonFRLG/Digits/0-9.png templates.
+    return uint16_t(read_digits_waterfill_template(logger, tid_region, DigitTemplateType::DialogBox));
+}
+
+
+class Test_TrainerIdReader : public ImageUnitTest{
+public:
+    Test_TrainerIdReader(const std::string& image)
+        : ImageUnitTest("PokemonFRLG::TrainerIdReader - " + image, {image})
+    {}
+
+    virtual UnitTestResult run_on_images(
+        Logger& logger, CancellableScope& scope,
+        const std::vector<ImageRGB32>& images
+    ) const override{
+        const std::vector<std::string> words =
+                parse_words(Filesystem::Path(image_paths()[0]).stem().string());
+        if (words.size() < 2){
+            return "Error: filename must be <anything>_<language code>_<trainer id>.";
+        }
+
+        const std::string& language_word = words[words.size() - 2];
+        Language language = language_code_to_enum(language_word);
+        if (language == Language::None || language == Language::EndOfList){
+            return "Error: invalid language word in filename: " + language_word;
+        }
+        int target_tid = 0;
+        if (!parse_int(words.back(), target_tid)){
+            return "Error: filename must end with the trainer ID: " + words.back();
+        }
+
+        const ImageRGB32& image = images[0];
+        TrainerIdReader reader;
+        int tid = reader.read_tid(logger, language, image);
+
+        TEST_RESULT_COMPONENT_EQUAL_STR(tid, target_tid, "trainer id");
+        return true;
+    };
+};
+
+
+void add_tests_TrainerIdReader(UnitTestDatabase& database){
+    database.add<Test_TrainerIdReader>("PokemonFRLG/TrainerIdReader/tom_eng_60895.jpg");
+    database.add<Test_TrainerIdReader>("PokemonFRLG/TrainerIdReader/nyash_jpn_45345.png");
+    database.add<Test_TrainerIdReader>("PokemonFRLG/TrainerIdReader/alberto_spa_65385.png");
+    database.add<Test_TrainerIdReader>("PokemonFRLG/TrainerIdReader/antoine_fra_57574.png");
+}
+
+
+} // namespace PokemonFRLG
+} // namespace NintendoSwitch
+} // namespace PokemonAutomation
+

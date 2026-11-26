@@ -1,0 +1,148 @@
+/*  Video Source (Still Image)
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ */
+
+#include <QWidget>
+#include <QPainter>
+#include <QFileDialog>
+#include "CommonFramework/ImageTypes/ImageRGB32_Qt.h"
+#include "VideoSource_StillImage.h"
+
+//#include <iostream>
+//using std::cout;
+//using std::endl;
+
+namespace PokemonAutomation{
+
+
+
+bool VideoSourceDescriptor_StillImage::operator==(const VideoSourceDescriptor& x) const{
+    if (typeid(*this) != typeid(x)){
+        return false;
+    }
+
+    std::string other_path = static_cast<const VideoSourceDescriptor_StillImage&>(x).m_path;
+
+    ReadSpinLock lg(m_lock, PA_CURRENT_FUNCTION);
+    return m_path == other_path;
+}
+
+std::string VideoSourceDescriptor_StillImage::path() const{
+    ReadSpinLock lg(m_lock, PA_CURRENT_FUNCTION);
+    return m_path;
+}
+void VideoSourceDescriptor_StillImage::set_path(std::string path){
+    WriteSpinLock lg(m_lock, PA_CURRENT_FUNCTION);
+    m_path = std::move(path);
+}
+
+void VideoSourceDescriptor_StillImage::run_post_select(){
+//    if (!m_path.empty()){
+//        return;
+//    }
+    std::string path = QFileDialog::getOpenFileName(
+        nullptr, "Open image file", ".", "*.png *.jpg"
+    ).toStdString();
+    set_path(std::move(path));
+}
+JsonValue VideoSourceDescriptor_StillImage::to_json() const{
+    ReadSpinLock lg(m_lock, PA_CURRENT_FUNCTION);
+    return m_path;
+}
+void VideoSourceDescriptor_StillImage::load_json(const JsonValue& json){
+//    cout << "load_json: " << m_path << endl;
+    const std::string* name = json.to_string();
+    if (name != nullptr){
+        WriteSpinLock lg(m_lock, PA_CURRENT_FUNCTION);
+        m_path = *name;
+    }
+}
+
+std::unique_ptr<VideoSource> VideoSourceDescriptor_StillImage::make_VideoSource(
+    Logger& logger,
+    Resolution resolution,
+    VideoFormat format,
+    FramesPerSecond fps
+) const{
+//    cout << "make_VideoSource: " << m_path << endl;
+    return std::make_unique<VideoSource_StillImage>(logger, path(), resolution, format);
+}
+
+
+
+
+
+VideoSource_StillImage::VideoSource_StillImage(
+    Logger& logger,
+    const std::string& path,
+    Resolution resolution,
+    VideoFormat format
+)
+    : VideoSource(logger, false)
+    , m_original_image(QString::fromStdString(path))
+    , m_format(VideoFormat::OTHER)
+{
+    if (resolution){
+        m_snapshot = VideoSnapshot(
+            QImage_to_ImageRGB32(
+                m_original_image.scaled(
+                    (int)resolution.width,
+                    (int)resolution.height
+                )
+            ),
+            current_time()
+        );
+    }else{
+        m_snapshot = VideoSnapshot(
+            QImage_to_ImageRGB32(m_original_image),
+            current_time()
+        );
+    }
+    if (m_original_image.isNull()){
+        return;
+    }
+    m_resolution = m_snapshot.frame->size();
+
+    m_formats[{1280, 720}][VideoFormat::OTHER] = {0};
+    m_formats[{1920, 1080}][VideoFormat::OTHER] = {0};
+    m_formats[{3840, 2160}][VideoFormat::OTHER] = {0};
+    m_formats[{(size_t)m_original_image.width(), (size_t)m_original_image.height()}][VideoFormat::OTHER] = {0};
+}
+
+
+
+class VideoWidget_StillImage : public QWidget{
+public:
+    VideoWidget_StillImage(QWidget* parent, VideoSource_StillImage& source)
+        : QWidget(parent)
+        , m_source(source)
+    {}
+
+private:
+    virtual void paintEvent(QPaintEvent* event) override{
+        QWidget::paintEvent(event);
+
+        QRect rect(0, 0, this->width(), this->height());
+        QPainter painter(this);
+        painter.drawImage(rect, m_source.m_original_image);
+    }
+
+private:
+    VideoSource_StillImage& m_source;
+};
+
+
+
+
+
+QWidget* VideoSource_StillImage::make_display_QtWidget(QWidget* parent){
+    return new VideoWidget_StillImage(parent, *this);
+}
+
+
+
+
+}
+

@@ -1,0 +1,56 @@
+/*  Simple Integer Option
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ */
+
+#ifndef PokemonAutomation_SimpleIntegerWidget_H
+#define PokemonAutomation_SimpleIntegerWidget_H
+
+#include <QLineEdit>
+#include "Common/Cpp/Options/SimpleIntegerOption.h"
+#include "ConfigWidget.h"
+
+namespace PokemonAutomation{
+
+
+
+class SimpleIntegerCellWidget : public QLineEdit, public ConfigWidget{
+public:
+    using ParentState = SimpleIntegerCellBase;
+    using NativeType = ParentState::NativeType;
+
+public:
+    ~SimpleIntegerCellWidget();
+    SimpleIntegerCellWidget(QWidget& parent, SimpleIntegerCellBase& value);
+
+    virtual void update_value() override;
+    virtual void on_config_value_changed(void* object) override;
+
+private:
+    SimpleIntegerCellBase& m_value;
+};
+
+
+
+class SimpleIntegerOptionWidget : public QWidget, public ConfigWidget{
+public:
+    using ParentState = SimpleIntegerOptionBase;
+    using NativeType = ParentState::NativeType;
+
+public:
+    ~SimpleIntegerOptionWidget();
+    SimpleIntegerOptionWidget(QWidget& parent, SimpleIntegerOptionBase& value);
+
+    virtual void update_value() override;
+    virtual void on_config_value_changed(void* object) override;
+
+private:
+    SimpleIntegerCellWidget* m_cell;
+};
+
+
+
+
+}
+#endif

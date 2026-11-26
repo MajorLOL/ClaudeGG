@@ -1,0 +1,571 @@
+/*  Video Session
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ */
+
+#include <set>
+#include "Common/Cpp/EarlyShutdown.h"
+#include "Common/Cpp/Concurrency/Mutex.h"
+#include "CommonFramework/GlobalSettingsPanel.h"
+#include "CommonFramework/GlobalServices.h"
+#include "CommonFramework/VideoPipeline/VideoPipelineOptions.h"
+#include "Backends/VideoFrameQt.h"
+#include "Sources/VideoSource_Null.h"
+#include "VideoSession.h"
+
+//#include <iostream>
+//using std::cout;
+//using std::endl;
+
+namespace PokemonAutomation{
+
+
+namespace{
+
+//  The sessions that exist (Claude GG: for latest_video_snapshot()). A session
+//  leaves the list before anything of it is taken down.
+Mutex& session_list_lock(){
+    static Mutex lock;
+    return lock;
+}
+std::set<VideoSession*>& session_list(){
+    static std::set<VideoSession*> list;
+    return list;
+}
+
+}
+
+VideoSnapshot latest_video_snapshot(WallClock::duration max_age){
+    LockGuard<Mutex> lg(session_list_lock());
+    const WallClock min_time = current_time() - max_age;
+    for (VideoSession* session : session_list()){
+        VideoSnapshot snapshot = session->snapshot_recent_nonblocking(min_time);
+        if (snapshot && snapshot.timestamp >= min_time){
+            return snapshot;
+        }
+    }
+    return VideoSnapshot();
+}
+
+
+void VideoSession::add_state_listener(StateListener& listener){
+    m_state_listeners.add(listener);
+}
+void VideoSession::remove_state_listener(StateListener& listener){
+    m_state_listeners.remove(listener);
+}
+
+bool VideoSession::try_remove_state_listener(StateListener& listener){
+    return m_state_listeners.try_remove(listener);
+}
+
+void VideoSession::add_frame_listener(VideoFrameListener& listener){
+    m_frame_listeners.add(listener);
+}
+void VideoSession::remove_frame_listener(VideoFrameListener& listener){
+    m_frame_listeners.remove(listener);
+}
+
+
+
+
+bool VideoSession::try_shutdown() noexcept{
+    if (m_video_source){
+        m_video_source->remove_source_frame_listener(*this);
+        m_video_source->remove_rendered_frame_listener(*this);
+    }
+    return global_watchdog().try_remove(*this);
+}
+VideoSession::~VideoSession(){
+    {
+        LockGuard<Mutex> lg(session_list_lock());
+        session_list().erase(this);
+    }
+    blocking_shutdown(
+        m_logger,
+        "VideoSession",
+        [this]{ return try_shutdown(); }
+    );
+}
+VideoSession::VideoSession(Logger& logger, VideoSourceOption& option)
+    : m_logger(logger)
+    , m_option(option)
+    , m_descriptor(std::make_unique<VideoSourceDescriptor_Null>())
+{
+    uint8_t watchdog_timeout = GlobalSettings::instance().VIDEO_PIPELINE->AUTO_RESET_SECONDS;
+    if (watchdog_timeout != 0){
+        global_watchdog().add(*this, std::chrono::seconds(watchdog_timeout));
+    }
+    set_source(option.descriptor(), option.m_resolution, option.m_format, option.m_fps);
+
+    //  Only now it is whole enough to be asked for a picture.
+    LockGuard<Mutex> lg(session_list_lock());
+    session_list().insert(this);
+}
+
+
+
+
+std::shared_ptr<const VideoSourceDescriptor> VideoSession::descriptor() const{
+    auto scope = m_sanitizer.check_scope();
+    ReadSpinLock lg(m_state_lock, PA_CURRENT_FUNCTION);
+    return m_descriptor;
+}
+void VideoSession::current_stream_format(
+    Resolution& resolution,
+    VideoFormat& format,
+    FramesPerSecond& fps
+){
+    auto scope = m_sanitizer.check_scope();
+    ReadSpinLock lg(m_state_lock, PA_CURRENT_FUNCTION);
+    if (m_video_source){
+        resolution = m_video_source->current_resolution();
+        format = m_video_source->current_format();
+        fps = m_video_source->current_fps();
+    }else{
+        resolution = Resolution();
+        format = VideoFormat::OTHER;
+        fps =0;
+    }
+}
+Resolution VideoSession::current_resolution(){
+    auto scope = m_sanitizer.check_scope();
+    ReadSpinLock lg(m_state_lock, PA_CURRENT_FUNCTION);
+    if (m_video_source){
+        return m_video_source->current_resolution();
+    }else{
+        return Resolution();
+    }
+}
+#if 0
+VideoFormat VideoSession::current_format(){
+    ReadSpinLock lg(m_state_lock, PA_CURRENT_FUNCTION);
+    if (m_video_source){
+        return m_video_source->current_format();
+    }else{
+        return VideoFormat::OTHER;
+    }
+}
+FramesPerSecond VideoSession::current_fps(){
+    ReadSpinLock lg(m_state_lock, PA_CURRENT_FUNCTION);
+    if (m_video_source){
+        return m_video_source->current_fps();
+    }else{
+        return 0;
+    }
+}
+#endif
+VideoFormatSet VideoSession::supported_formats() const{
+    auto scope = m_sanitizer.check_scope();
+    ReadSpinLock lg(m_state_lock, PA_CURRENT_FUNCTION);
+    if (m_video_source){
+        return m_video_source->supported_formats();
+    }else{
+        return {};
+    }
+}
+
+
+
+void VideoSession::save(VideoSourceOption& option) const{
+    auto scope = m_sanitizer.check_scope();
+    ReadSpinLock lg(m_state_lock, PA_CURRENT_FUNCTION);
+    option = m_option;
+}
+void VideoSession::load(const VideoSourceOption& option){
+    auto scope = m_sanitizer.check_scope();
+    set_source(
+        option.descriptor(),
+        option.m_resolution,
+        option.m_format,
+        option.m_fps
+    );
+}
+
+void VideoSession::reset(){
+    auto scope = m_sanitizer.check_scope();
+    {
+        WriteSpinLock lg(m_queue_lock, PA_CURRENT_FUNCTION);
+//        cout << "VideoSession::reset(): " << m_queued_commands.size() << endl;
+        m_queued_commands.emplace_back(
+            Command{
+                CommandType::RESET,
+                nullptr,
+                Resolution{},
+                VideoFormat::OTHER,
+                0
+            }
+        );
+    }
+    run_commands();
+}
+void VideoSession::set_source(
+    const std::shared_ptr<VideoSourceDescriptor>& device,
+    Resolution resolution,
+    VideoFormat format,
+    size_t fps
+){
+    auto scope = m_sanitizer.check_scope();
+    {
+        WriteSpinLock lg(m_queue_lock, PA_CURRENT_FUNCTION);
+//        cout << "VideoSession::set_source(): " << resolution.to_string() << endl;
+        m_queued_commands.emplace_back(
+            Command{
+                CommandType::SET_SOURCE,
+                device,
+                resolution,
+                format,
+                fps
+            }
+        );
+    }
+    run_commands();
+}
+void VideoSession::set_resolution(Resolution resolution){
+    auto scope = m_sanitizer.check_scope();
+    {
+        WriteSpinLock lg(m_queue_lock, PA_CURRENT_FUNCTION);
+//        cout << "VideoSession::set_resolution(): " << m_queued_commands.size() << endl;
+        m_queued_commands.emplace_back(
+            Command{
+                CommandType::SET_RESOLUTION,
+                nullptr,
+                resolution,
+                VideoFormat::OTHER,
+                0
+            }
+        );
+    }
+    run_commands();
+}
+void VideoSession::set_format(VideoFormat format, size_t fps){
+    auto scope = m_sanitizer.check_scope();
+    {
+        WriteSpinLock lg(m_queue_lock, PA_CURRENT_FUNCTION);
+//        cout << "VideoSession::set_resolution(): " << m_queued_commands.size() << endl;
+        m_queued_commands.emplace_back(
+            Command{
+                CommandType::SET_FORMAT,
+                nullptr,
+                {},
+                format,
+                fps
+            }
+        );
+    }
+    run_commands();
+}
+
+void VideoSession::internal_reset(){
+    auto scope = m_sanitizer.check_scope();
+    m_logger.log("Resetting the video...", COLOR_GREEN);
+    m_state_listeners.run_method(&StateListener::pre_shutdown);
+
+    Resolution resolution = m_option.m_resolution;
+    VideoFormat format = m_option.m_format;
+    FramesPerSecond fps = m_option.m_fps;
+    std::unique_ptr<VideoSource> source;
+    {
+        WriteSpinLock lg(m_state_lock, PA_CURRENT_FUNCTION);
+        source = std::move(m_video_source);
+    }
+    if (source){
+        source->remove_source_frame_listener(*this);
+        source->remove_rendered_frame_listener(*this);
+        source.reset();
+    }
+
+    source = m_descriptor->make_VideoSource(m_logger, resolution, format, fps);
+    if (source){
+        resolution = source->current_resolution();
+        format = source->current_format();
+        fps = source->current_fps();
+        source->add_source_frame_listener(*this);
+        source->add_rendered_frame_listener(*this);
+    }
+
+    {
+        WriteSpinLock lg(m_state_lock, PA_CURRENT_FUNCTION);
+        m_option.m_resolution = resolution;
+        m_option.m_format = format;
+        m_option.m_fps = fps;
+        m_video_source = std::move(source);
+    }
+
+    m_state_listeners.run_method(
+        &StateListener::post_startup,
+        m_video_source.get()
+    );
+}
+void VideoSession::internal_set_source(
+    const std::shared_ptr<VideoSourceDescriptor>& device,
+    Resolution resolution,
+    VideoFormat format,
+    FramesPerSecond fps
+){
+    auto scope = m_sanitizer.check_scope();
+    m_logger.log("Changing video...", COLOR_GREEN);
+    if (*m_descriptor == *device && !m_descriptor->should_reload() &&
+        m_option.m_resolution == resolution &&
+        m_option.m_format == format &&
+        m_option.m_fps == fps
+    ){
+        return;
+    }
+
+    m_state_listeners.run_method(&StateListener::pre_shutdown);
+
+    std::unique_ptr<VideoSource> source;
+    {
+        WriteSpinLock lg(m_state_lock, PA_CURRENT_FUNCTION);
+        source = std::move(m_video_source);
+    }
+    if (source){
+        source->remove_source_frame_listener(*this);
+        source->remove_rendered_frame_listener(*this);
+        source.reset();
+    }
+    {
+        WriteSpinLock lg(m_state_lock, PA_CURRENT_FUNCTION);
+        m_option.set_descriptor(device);
+        m_descriptor = device;
+    }
+
+    Resolution desired_resolution = resolution ? resolution : m_option.m_resolution;
+//    cout << "desired_resolution = " << desired_resolution.to_string() << endl;
+    source = device->make_VideoSource(m_logger, desired_resolution, format, fps);
+    if (source){
+        resolution = source->current_resolution();
+        format = source->current_format();
+        fps = source->current_fps();
+        source->add_source_frame_listener(*this);
+        source->add_rendered_frame_listener(*this);
+    }
+
+    {
+        WriteSpinLock lg(m_state_lock, PA_CURRENT_FUNCTION);
+        m_option.m_resolution = resolution;
+        m_option.m_format = format;
+        m_option.m_fps = fps;
+        m_video_source = std::move(source);
+    }
+
+    m_state_listeners.run_method(
+        &StateListener::post_startup,
+        m_video_source.get()
+    );
+}
+void VideoSession::internal_set_resolution(Resolution resolution){
+    auto scope = m_sanitizer.check_scope();
+    m_logger.log("Changing resolution...", COLOR_GREEN);
+    if (m_option.m_resolution == resolution){
+        return;
+    }
+
+    m_state_listeners.run_method(&StateListener::pre_shutdown);
+
+    std::unique_ptr<VideoSource> source;
+    {
+        WriteSpinLock lg(m_state_lock, PA_CURRENT_FUNCTION);
+        source = std::move(m_video_source);
+    }
+    if (source){
+        source->remove_source_frame_listener(*this);
+        source->remove_rendered_frame_listener(*this);
+        source.reset();
+    }
+
+    source = m_descriptor->make_VideoSource(
+        m_logger,
+        resolution,
+        m_option.m_format,
+        0   //  Intentionally force the default FPS.
+    );
+    VideoFormat format = VideoFormat::OTHER;
+    FramesPerSecond fps = 0;
+    if (source){
+        resolution = source->current_resolution();
+        format = source->current_format();
+        fps = source->current_fps();
+        source->add_source_frame_listener(*this);
+        source->add_rendered_frame_listener(*this);
+    }
+
+    {
+        WriteSpinLock lg(m_state_lock, PA_CURRENT_FUNCTION);
+        m_option.m_resolution = resolution;
+        m_option.m_format = format;
+        m_option.m_fps = fps;
+        m_video_source = std::move(source);
+    }
+
+    m_state_listeners.run_method(
+        &StateListener::post_startup,
+        m_video_source.get()
+    );
+}
+void VideoSession::internal_set_format(VideoFormat format, FramesPerSecond fps){
+    auto scope = m_sanitizer.check_scope();
+    m_logger.log("Changing format...", COLOR_GREEN);
+    if (m_option.m_format == format && m_option.m_fps == fps){
+        return;
+    }
+
+    m_state_listeners.run_method(&StateListener::pre_shutdown);
+
+    std::unique_ptr<VideoSource> source;
+    {
+        WriteSpinLock lg(m_state_lock, PA_CURRENT_FUNCTION);
+        source = std::move(m_video_source);
+    }
+    if (source){
+        source->remove_source_frame_listener(*this);
+        source->remove_rendered_frame_listener(*this);
+        source.reset();
+    }
+
+    source = m_descriptor->make_VideoSource(m_logger, m_option.m_resolution, format, fps);
+    if (source){
+        format = source->current_format();
+        fps = source->current_fps();
+        source->add_source_frame_listener(*this);
+        source->add_rendered_frame_listener(*this);
+    }
+
+    {
+        WriteSpinLock lg(m_state_lock, PA_CURRENT_FUNCTION);
+        m_option.m_format = format;
+        m_option.m_fps = fps;
+        m_video_source = std::move(source);
+    }
+
+    m_state_listeners.run_method(
+        &StateListener::post_startup,
+        m_video_source.get()
+    );
+}
+
+void VideoSession::run_commands(){
+    auto scope = m_sanitizer.check_scope();
+    if (!m_reset_lock.try_acquire_write()){
+        m_logger.log("Suppressing re-entrant command...", COLOR_RED);
+        return;
+    }
+
+    try{
+        while (true){
+            Command command;
+            {
+                WriteSpinLock lg1(m_queue_lock, PA_CURRENT_FUNCTION);
+//                cout << "VideoSession::run_commands(): " << m_queued_commands.size() << endl;
+                if (m_queued_commands.empty()){
+                    break;
+                }
+                command = std::move(m_queued_commands.front());
+                m_queued_commands.pop_front();
+            }
+
+            switch (command.command_type){
+            case CommandType::RESET:
+                internal_reset();
+                break;
+
+            case CommandType::SET_SOURCE:
+                internal_set_source(command.device, command.resolution, command.format, command.fps);
+                break;
+
+            case CommandType::SET_RESOLUTION:
+                internal_set_resolution(command.resolution);
+                break;
+
+            case CommandType::SET_FORMAT:
+                internal_set_format(command.format, command.fps);
+                break;
+            }
+        }
+        m_reset_lock.unlock_write();
+    }catch (...){
+        m_reset_lock.unlock_write();
+        throw;
+    }
+}
+
+
+VideoSnapshot VideoSession::snapshot_latest_blocking(){
+    ReadSpinLock lg(m_state_lock, PA_CURRENT_FUNCTION);
+    if (m_video_source){
+        return m_video_source->snapshot_latest_blocking();
+    }else{
+        return VideoSnapshot();
+    }
+}
+VideoSnapshot VideoSession::snapshot_recent_nonblocking(WallClock min_time){
+    ReadSpinLock lg(m_state_lock, PA_CURRENT_FUNCTION);
+    if (m_video_source){
+        return m_video_source->snapshot_recent_nonblocking(min_time);
+    }else{
+        return VideoSnapshot();
+    }
+}
+
+double VideoSession::fps_source() const{
+    ReadSpinLock lg(m_fps_lock, PA_CURRENT_FUNCTION);
+    return m_fps_tracker_source.events_per_second();
+}
+double VideoSession::fps_display() const{
+    ReadSpinLock lg(m_fps_lock, PA_CURRENT_FUNCTION);
+    return m_fps_tracker_rendered.events_per_second();
+}
+
+
+void VideoSession::on_watchdog_timeout(){
+    auto scope = m_sanitizer.check_scope();
+    {
+        ReadSpinLock lg(m_state_lock, PA_CURRENT_FUNCTION);
+        if (!m_video_source || !m_video_source->allow_watchdog_reset()){
+            return;
+        }
+    }
+
+    uint8_t watchdog_timeout = GlobalSettings::instance().VIDEO_PIPELINE->AUTO_RESET_SECONDS;
+    m_logger.log("No video detected for " + std::to_string(watchdog_timeout) + " seconds...", COLOR_RED);
+
+    if (watchdog_timeout == 0){
+        return;
+    }
+
+    reset();
+}
+
+
+void VideoSession::on_frame(std::shared_ptr<const VideoFrame> frame){
+    m_frame_listeners.run_method(&VideoFrameListener::on_frame, frame);
+    {
+        WriteSpinLock lg(m_fps_lock, PA_CURRENT_FUNCTION);
+        m_fps_tracker_source.push_event(frame->timestamp);
+    }
+    global_watchdog().delay(*this);
+}
+void VideoSession::on_rendered_frame(WallClock timestamp){
+    WriteSpinLock lg(m_fps_lock, PA_CURRENT_FUNCTION);
+    m_fps_tracker_rendered.push_event(timestamp);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+}

@@ -1,0 +1,454 @@
+/*  Panel Elements
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ */
+
+#include <QMessageBox>
+#include <QVBoxLayout>
+#include <QScrollArea>
+#include <QLabel>
+#include <QPushButton>
+#include "Common/Cpp/ColoredText.h"
+#include "Common/Qt/Options/ConfigWidget.h"
+#include "CommonFramework/Panels/PanelSession.h"
+#include "CommonFramework/ProgramSession.h"
+#include "GameConsole/ConsoleProgram.h"
+#include "PanelElements.h"
+
+//#include <iostream>
+//using std::cout;
+//using std::endl;
+
+namespace PokemonAutomation{
+
+
+
+CollapsibleGroupBox* make_panel_header(
+    QWidget& parent,
+    const std::string& display_name,
+    const std::string& doc_link,
+    const std::string& description
+){
+    //  The program's name is the title of the box.
+    CollapsibleGroupBox* header = new CollapsibleGroupBox(parent, QString::fromStdString(display_name));
+    header->setObjectName(QStringLiteral("backgroundProgramHeader"));
+
+    QWidget* body = new QWidget(header);
+    body->setProperty("backgroundContainer", true);
+    QVBoxLayout* vbox = new QVBoxLayout(body);
+    vbox->setContentsMargins(0, 0, 0, 0);
+
+    QLabel* description_label = new QLabel(QString::fromStdString(description), header);
+    description_label->setWordWrap(true);
+    vbox->addWidget(description_label);
+
+    //  The documentation of the programs is that of Pokemon Automation.
+    if (!doc_link.empty()){
+        std::string path = ONLINE_DOC_URL_BASE + doc_link;
+        QLabel* doc_label = new QLabel(
+            QString::fromStdString(make_text_url(path, "Documentation on the " + UPSTREAM_PROGRAM_NAME + " site")),
+            header
+        );
+        doc_label->setTextFormat(Qt::RichText);
+        doc_label->setTextInteractionFlags(Qt::TextBrowserInteraction);
+        doc_label->setOpenExternalLinks(true);
+        vbox->addWidget(doc_label);
+    }
+
+    header->set_widget(body);
+
+    return header;
+}
+#if 0
+CollapsibleGroupBox* make_panel_header(
+    QWidget& parent,
+    const std::string& display_name,
+    const std::string& doc_link,
+    const std::string& description,
+    ProgramControllerClass color_class
+){
+    CollapsibleGroupBox* header = make_panel_header(parent, display_name, doc_link, description);
+    QLayout* layout = header->widget()->layout();
+
+    std::string text;
+    switch (color_class){
+    case ProgramControllerClass::StandardController_NoRestrictions:
+        return header;
+
+    case ProgramControllerClass::StandardController_PerformanceClassSensitive:
+        text = html_color_text(
+            "(This program is sensitive to the performance of the controller. "
+            "Wired controllers are better than wireless. "
+            "And wireless is better than tick-imprecise controller.)",
+            COLOR_DARKGREEN
+        );
+        break;
+
+    case ProgramControllerClass::StandardController_RequiresPrecision:
+        text = html_color_text("(This program requires a tick-precise controller.)", COLOR_PURPLE);
+        break;
+
+    case ProgramControllerClass::StandardController_WithRestrictions:
+        text = html_color_text("(This program may require a specific controller in a specific environment.)", COLOR_RED);
+        break;
+
+    case ProgramControllerClass::SpecializedController:
+        text = html_color_text("(This program requires a specific type of controller.)", COLOR_MAGENTA);
+        break;
+
+    }
+
+    QLabel* label = new QLabel(QString::fromStdString(text), header);
+    label->setWordWrap(true);
+    layout->addWidget(label);
+
+    return header;
+}
+#endif
+CollapsibleGroupBox* make_panel_header(
+    QWidget& parent,
+    const std::string& display_name,
+    const std::string& doc_link,
+    const std::string& description,
+    PanelQualityStanding standing
+){
+    CollapsibleGroupBox* header = make_panel_header(parent, display_name, doc_link, description);
+    QLayout* layout = header->widget()->layout();
+
+    std::string text;
+    switch (standing){
+    case PanelQualityStanding::OFFICIAL:
+        return header;
+
+    case PanelQualityStanding::OFFICIAL_BETA:
+        text = "(This program is in beta and may not be fully stable.)";
+        break;
+
+    case PanelQualityStanding::OFFICIAL_BELOW_STANDARDS:
+        text = "(This program does not meet our quality standards and may be difficult to use.)";
+        break;
+
+    case PanelQualityStanding::THIRD_PARTY:
+        text = "(This is a 3rd party program that has not been fully vetted against our quality standards.)";
+        break;
+
+    case PanelQualityStanding::THIRD_PARTY_UNVETTED:
+        text = "(This is an unvetted 3rd party program. We take no responsibility for what happens.)";
+        break;
+
+    case PanelQualityStanding::UNMAINTAINED:
+        text = "(This program is no longer maintained and may no longer be stable.)";
+        break;
+
+    case PanelQualityStanding::DEPRECATED:
+        text = "(This program is deprecated and will likely be removed in the future.)";
+        break;
+
+    case PanelQualityStanding::DEVELOPER:
+        text = "(This is a developer program.)";
+        break;
+
+    case PanelQualityStanding::EXPERIMENTAL:
+        text = "(This program is experimental: it is new and has not been tested on a console yet. "
+            "Expect mistakes, watch its first runs, and save the game by hand before you start it.)";
+        break;
+
+    }
+
+    QLabel* label = new QLabel(
+        QString::fromStdString(
+            html_color_text(text, PanelDescriptor::pick_color(standing))
+        ),
+        header
+    );
+    label->setWordWrap(true);
+    layout->addWidget(label);
+
+    return header;
+}
+
+
+
+StatsBar::StatsBar(QWidget& parent)
+    : QLabel(&parent)
+{
+    this->setWordWrap(true);
+    this->setVisible(false);
+    this->setAlignment(Qt::AlignCenter);
+//    this->setText("<b>Encounters: 1,267 - Corrections: 0 - Star Shinies: 1 - Square Shinies: 0</b>");
+    QFont font = this->font();
+    font.setPointSize(10);
+    this->setFont(font);
+}
+StatsBar::StatsBar(QWidget& parent, ProgramSession& session)
+    : StatsBar(parent)
+{
+    set_stats("", session.historical_stats());
+}
+void StatsBar::set_stats(std::string current_stats, std::string historical_stats){
+    if (current_stats.empty() && historical_stats.empty()){
+        this->setText("");
+        this->setVisible(false);
+        return;
+    }
+
+    if (!current_stats.empty() && historical_stats.empty()){
+        this->setText(QString::fromStdString(current_stats));
+        this->setVisible(true);
+        return;
+    }
+
+    if (current_stats.empty() && !historical_stats.empty()){
+        this->setText(QString::fromStdString("<b>Past Runs</b> - " + historical_stats));
+        this->setVisible(true);
+        return;
+    }
+
+    std::string str;
+    str += "<b>Current Run</b> - " + current_stats;
+    str += "<br>";
+    str += "<b>Past Totals</b> - " + historical_stats;
+
+    this->setText(QString::fromStdString(str));
+    this->setVisible(true);
+}
+
+
+
+RunnablePanelActionBar::RunnablePanelActionBar(
+    QWidget& parent,
+    PanelSession& panel_session,
+    ProgramSession& program_session,
+    ProgramState initial_state
+)
+    : QGroupBox("Actions", &parent)
+{
+    QVBoxLayout* layout = new QVBoxLayout(this);
+
+//    layout->addWidget(new QPushButton("Start Raid Now!", this));
+
+    QHBoxLayout* action_layout = new QHBoxLayout();
+    layout->addLayout(action_layout);
+//    action_layout->setContentsMargins(0, 0, 0, 0);
+
+    {
+        m_start_button = new QPushButton(this);
+        //  The one button to press here: in the theme's accent color.
+        m_start_button->setObjectName(QStringLiteral("ppPrimary"));
+        QFont font = m_start_button->font();
+        font.setPointSize(16);
+        m_start_button->setFont(font);
+        action_layout->addWidget(m_start_button, 2);
+    }
+    {
+        m_default_button = new QPushButton("Restore Defaults", this);
+        QFont font = m_default_button->font();
+        font.setPointSize(16);
+        m_default_button->setFont(font);
+        action_layout->addWidget(m_default_button, 1);
+    }
+
+    set_state(initial_state);
+
+    connect(
+        m_start_button, &QPushButton::clicked,
+        this, [&](bool){
+            std::string error;
+            switch (program_session.current_state()){
+            case ProgramState::STOPPED:
+                error = program_session.start_program();
+                break;
+            case ProgramState::RUNNING:
+                error = program_session.stop_program();
+                break;
+            default:;
+            }
+            if (!error.empty()){
+                program_session.report_error(error);
+            }
+        }
+    );
+    connect(
+        m_default_button, &QPushButton::clicked,
+        this, [&](bool){
+            QMessageBox::StandardButton button = QMessageBox::question(
+                nullptr,
+                "Restore Defaults",
+                "Are you sure you wish to restore settings back to defaults? This will wipe the current settings.",
+                QMessageBox::Ok | QMessageBox::Cancel
+            );
+            if (button == QMessageBox::Ok){
+                panel_session.restore_defaults();
+            }
+        }
+    );
+}
+void RunnablePanelActionBar::set_state(ProgramState state){
+    m_last_known_state = state;
+    switch (state){
+    case ProgramState::NOT_READY:
+        m_start_button->setText("Loading...");
+        m_start_button->setEnabled(false);
+        m_default_button->setEnabled(false);
+        break;
+    case ProgramState::STOPPED:
+        m_start_button->setText("Start Program...");
+        m_start_button->setEnabled(true);
+        m_default_button->setEnabled(true);
+        break;
+    case ProgramState::RUNNING:
+        m_start_button->setText("Stop Program...");
+        m_start_button->setEnabled(true);
+        m_default_button->setEnabled(false);
+        break;
+    case ProgramState::STOPPING:
+        m_start_button->setText("Stopping Program...");
+        m_start_button->setEnabled(false);
+        m_default_button->setEnabled(false);
+        break;
+    }
+}
+
+
+
+QWidget* make_actions_bar(
+    QWidget& panel,
+    PanelSession& session
+){
+    if (!session.descriptor().restore_defaults_button()){
+        return nullptr;
+    }
+
+    QWidget* actions_widget = new QGroupBox("Actions", &panel);
+
+    QHBoxLayout* action_layout = new QHBoxLayout(actions_widget);
+//    action_layout->setContentsMargins(0, 0, 0, 0);
+    QPushButton* default_button = new QPushButton("Restore Defaults", actions_widget);
+    {
+        action_layout->addWidget(default_button, 1);
+        QFont font = default_button->font();
+        font.setPointSize(16);
+        default_button->setFont(font);
+    }
+
+    panel.connect(
+        default_button, &QPushButton::clicked,
+        &panel, [&session](bool){
+            QMessageBox::StandardButton button = QMessageBox::question(
+                nullptr,
+                "Restore Defaults",
+                "Are you sure you wish to restore settings back to defaults? This will wipe the current settings.",
+                QMessageBox::Ok | QMessageBox::Cancel
+            );
+            if (button == QMessageBox::Ok){
+                session.restore_defaults();
+            }
+        }
+    );
+
+    return actions_widget;
+}
+
+
+
+
+void populate_panel_widget(
+    QWidget& panel,
+    const PanelDescriptor& descriptor,
+    UiState<>* console_system,
+    ConfigOption& options,
+    std::vector<QWidget*> footers
+){
+    panel.setObjectName(QString::fromUtf8("backgroundPanelRoot"));
+
+    switch (descriptor.standing()){
+    case PanelQualityStanding::DEPRECATED:{
+        QMessageBox box;
+        box.warning(
+            nullptr,
+            "Deprecation Notice",
+            QString::fromStdString(
+                "The program \"" + descriptor.display_name() + "\" is deprecated "
+                "and no longer maintained. Please consider using a newer alternative."
+            )
+        );
+        break;
+    }
+    case PanelQualityStanding::UNMAINTAINED:{
+        QMessageBox box;
+        box.warning(
+            nullptr,
+            "Reliability Notice",
+            QString::fromStdString(
+                "The program \"" + descriptor.display_name() + "\" is no longer "
+                "maintained and may not meet our quality standards."
+            )
+        );
+        break;
+    }
+    default:;
+    }
+
+    QVBoxLayout* layout = new QVBoxLayout(&panel);
+    layout->setContentsMargins(0, 0, 0, 0);
+
+    CollapsibleGroupBox* header;
+    const GameConsole::ConsoleProgramDescriptor* console_descriptor =
+        dynamic_cast<const GameConsole::ConsoleProgramDescriptor*>(&descriptor);
+    if (console_descriptor != nullptr){
+        header = make_panel_header(
+            panel,
+            descriptor.display_name(),
+            descriptor.doc_link(),
+            descriptor.description(),
+            console_descriptor->standing()
+        );
+    }else{
+        header = make_panel_header(
+            panel,
+            descriptor.display_name(),
+            descriptor.doc_link(),
+            descriptor.description()
+        );
+    }
+    layout->addWidget(header);
+
+    QScrollArea* scroll_outer = new QScrollArea(&panel);
+    scroll_outer->setObjectName(QString::fromUtf8("backgroundScrollArea"));
+    scroll_outer->viewport()->setObjectName(QString::fromUtf8("backgroundScrollViewport"));
+    layout->addWidget(scroll_outer);
+    scroll_outer->setWidgetResizable(true);
+
+    QWidget* scroll_inner = new QWidget(scroll_outer);
+    scroll_inner->setObjectName(QString::fromUtf8("backgroundScrollContents"));
+    scroll_outer->setWidget(scroll_inner);
+    QVBoxLayout* scroll_layout = new QVBoxLayout(scroll_inner);
+    scroll_layout->setAlignment(Qt::AlignTop);
+
+    if (console_system){
+        scroll_layout->addWidget(
+            dynamic_cast<QWidget*>(console_system->make_ui_component(&panel).release())
+        );
+    }
+
+    ConfigWidget* options_widget = ConfigWidget::make_from_option(options, &panel);
+    scroll_layout->addWidget(&options_widget->widget());
+
+    scroll_layout->addStretch(1);
+
+    for (QWidget* footer : footers){
+        if (footer){
+            layout->addWidget(footer);
+        }
+    }
+}
+
+
+
+
+
+
+
+
+}

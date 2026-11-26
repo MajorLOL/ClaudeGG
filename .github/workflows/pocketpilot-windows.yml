@@ -1,0 +1,776 @@
+name: Claude GG - Windows build
+
+# Builds a ready-to-run Windows version of Claude GG (Qt DLLs, resources and
+# firmware included), starts it once to take pictures of its interface, and
+# publishes the zip as a pre-release of this repository (with its SHA-256);
+# the pictures stay in the workflow artifact. A build that fails that test (it
+# does not start, crashes or cannot take its pictures) is not published.
+#
+# Two jobs: "build" only reads the repository, so that what a pull request
+# changes (the changes Claude makes arrive that way) cannot use a token that
+# may write; "publish" has the right to write and does nothing but check the
+# zip against the hash the build made of it, and put it on a release. What
+# comes from outside is pinned: the actions by their commit, Packages by its
+# commit, esptool by its version and its SHA-256, the firmware by a list of
+# hashes that the program checks before it flashes.
+#
+# It runs
+#
+# - for every push to the branch pocketpilot: built, tested and published;
+# - for every pull request into pocketpilot (the changes Claude makes from
+#   inside the program arrive that way, on a branch claude/...): built and
+#   tested as it will be once merged, not published. The build is the
+#   artifact "ClaudeGG-Windows" of the run;
+# - by hand, published or not.
+#
+# The build itself follows the upstream workflow for Windows
+# (cpp-ci-serial-programs-base.yml): Ninja, and ccache to keep the compiler's
+# output between runs, so that a build only recompiles what a change affects.
+# (A pull request's build uses what the last build of pocketpilot left.)
+
+on:
+  push:
+    branches: [pocketpilot]
+  pull_request:
+    branches: [pocketpilot]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish the build as a pre-release'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-2025
+    permissions:
+      contents: read
+    outputs:
+      build_number: ${{ steps.number.outputs.build_number }}
+      publish: ${{ steps.number.outputs.publish }}
+      sha256: ${{ steps.hash.outputs.sha256 }}
+    steps:
+      #  As in the upstream workflow, for Windows with the MSVC compiler.
+      #  "Ninja Multi-Config" keeps Visual Studio's output layout
+      #  (bin/RelWithDebInfo/). ccache can't cache assembly listings or
+      #  separate debug info, so both are off: RelWithDebInfo's optimization
+      #  without its debug info. (The linker's flags are in the Build step:
+      #  they have spaces.)
+      - name: Set variables
+        shell: bash
+        run: |
+          CMAKE_ADDITIONAL_FLAGS="-DCMAKE_POLICY_DEFAULT_CMP0141=NEW -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT= -DPA_ASSEMBLY_LISTINGS=OFF"
+          CMAKE_ADDITIONAL_FLAGS="$CMAKE_ADDITIONAL_FLAGS -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl"
+          #  Without the Discord bot (D++, with OpenSSL 1.1.1k that nobody maintains any more) and the Discord
+          #  Social SDK: Claude GG uses neither. The webhooks stay.
+          CMAKE_ADDITIONAL_FLAGS="$CMAKE_ADDITIONAL_FLAGS -DPA_DISCORD_BOT=OFF"
+          CMAKE_ADDITIONAL_FLAGS="$CMAKE_ADDITIONAL_FLAGS -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+          echo "CMAKE_GENERATOR=Ninja Multi-Config" >> $GITHUB_ENV
+          echo "CMAKE_ADDITIONAL_FLAGS=$CMAKE_ADDITIONAL_FLAGS" >> $GITHUB_ENV
+          echo "BUILD_PARALLEL=$(( $(nproc) + 2 ))" >> $GITHUB_ENV
+
+      - name: Checkout Arduino-Source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          path: 'Arduino-Source'
+          submodules: 'recursive'
+
+      #  The resources, firmware and scripts (Pokemon Automation's Packages).
+      - name: Checkout Packages
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          repository: 'PokemonAutomation/Packages'
+          ref: 'c4603991d0240cfd91a92021c9957c9c6803cda9'  # master on 25 November 2026; move it on purpose
+          path: 'Arduino-Source/Packages'
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06  # v4.5.0
+        with:
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall@4c759852b1108cc801d8e24979136b895b5155d4'
+          version: '6.10.2'
+          modules: 'qtmultimedia qtserialport'
+          cache: true
+
+      #  Ninja needs the MSVC build environment (cl and link on PATH, INCLUDE,
+      #  LIB, ...). Run vcvars64.bat from the newest Visual Studio and pass
+      #  every variable it adds or changes to the later steps.
+      - name: Set up MSVC environment
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vcvars = cmd /c "`"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul && set"
+          if ($LASTEXITCODE -ne 0) {
+            throw "vcvars64.bat failed with exit code $LASTEXITCODE"
+          }
+          foreach ($line in $vcvars) {
+            # Skip anything that isn't a NAME=value line.
+            if ($line -notmatch '^([^=]+)=(.*)$') {
+              continue
+            }
+            $name = $Matches[1]
+            $value = $Matches[2]
+            if ([Environment]::GetEnvironmentVariable($name) -ne $value) {
+              "$name=$value" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+              [Environment]::SetEnvironmentVariable($name, $value)
+            }
+          }
+          if (-not (Get-Command cl -ErrorAction SilentlyContinue)) {
+            throw "cl.exe isn't on PATH after vcvars64.bat"
+          }
+          Get-Command cl, link, ninja, cmake -ErrorAction SilentlyContinue | Format-Table Name, Version, Source -AutoSize
+
+      #  The compiler's output of the last build of this branch. max-size is
+      #  only a cap: evict-old-files drops everything this build didn't use.
+      #  The action's own ccache: the runner's Strawberry Perl has an older
+      #  one on PATH. A pull request's build reads it and leaves none of its
+      #  own, which would only take the room of the branch's.
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d  # v1.2.24
+        with:
+          key: pocketpilot-windows-2025
+          max-size: 5G
+          evict-old-files: job
+          save: ${{ github.event_name != 'pull_request' }}
+          install: binary
+
+      #  The number of the build, in the window's title, the "About" window
+      #  and the programs' logs ("Claude GG build N"). A build that
+      #  is published gets the number after the last published one; a pull
+      #  request's build is named after the pull request.
+      - name: Build number
+        id: number
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISH: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
+        run: |
+          if [ "$PUBLISH" = "true" ]; then
+            LAST=$(gh api "repos/${{ github.repository }}/releases?per_page=100" --jq '[.[].tag_name | select(startswith("pocketpilot-build-")) | ltrimstr("pocketpilot-build-") | tonumber?] | max // 0')
+            if ! [[ "$LAST" =~ ^[0-9]+$ ]]; then
+              echo "::error::The number of the last published build could not be read: '$LAST'."
+              exit 1
+            fi
+            NUMBER=$((LAST + 1))
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            NUMBER="pr${{ github.event.number }}"
+          else
+            NUMBER="test${{ github.run_number }}"
+          fi
+          echo "This build: $NUMBER (published: $PUBLISH)"
+          echo "BUILD_NUMBER=$NUMBER" >> $GITHUB_ENV
+          echo "PUBLISH=$PUBLISH" >> $GITHUB_ENV
+          echo "build_number=$NUMBER" >> $GITHUB_OUTPUT
+          echo "publish=$PUBLISH" >> $GITHUB_OUTPUT
+          echo "#define POCKETPILOT_BUILD \"$NUMBER\"" > Arduino-Source/SerialPrograms/Source/PocketPilot/PocketPilot_Build.h
+          cat Arduino-Source/SerialPrograms/Source/PocketPilot/PocketPilot_Build.h
+
+      #  The linker: no incremental linking, as upstream. /DEBUG makes a
+      #  .pdb with the names of the functions (the compiler adds no debug
+      #  info, see above), so that the stack of a crash in the interface
+      #  test can be read; /OPT:REF and /OPT:ICF keep the program itself as
+      #  it is without /DEBUG. The .pdb is not in the package.
+      - name: Build
+        env:
+          #  On a cache miss, ccache takes the include files from the
+          #  compiler's own report instead of preprocessing a second time.
+          CCACHE_DEPEND: 1
+        run: |
+          cd Arduino-Source/SerialPrograms
+          mkdir bin
+          cd bin
+          cmake .. -DQT_MAJOR:STRING=6 -DPA_SDL=ON "-DCMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO=/INCREMENTAL:NO /DEBUG /OPT:REF /OPT:ICF" ${{env.CMAKE_ADDITIONAL_FLAGS}}
+          cmake --build . --config RelWithDebInfo --parallel ${{env.BUILD_PARALLEL}}
+
+      #  On GitHub Actions the CMake project skips windeployqt (it expects
+      #  the developer's Qt next to the build). Deploy the Qt DLLs here so
+      #  the folder runs on its own.
+      - name: Deploy Qt and package
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $out = "Arduino-Source/SerialPrograms/bin/RelWithDebInfo"
+          windeployqt --release --dir $out "$out/ClaudeGG.exe"
+          #  What Windows shows for the program (Task Manager, the file's
+          #  properties) comes from IconResource/IconResource.rc.
+          $info = (Get-Item "$out/ClaudeGG.exe").VersionInfo
+          Write-Host "ClaudeGG.exe: $($info.FileDescription), $($info.ProductName) $($info.ProductVersion)"
+          if ($info.FileDescription -ne "Claude GG" -or $info.ProductName -ne "Claude GG") {
+            throw "ClaudeGG.exe has not the name Claude GG in its properties."
+          }
+          #  The function names for reading a crash: kept aside, not packaged.
+          New-Item -ItemType Directory -Force -Path "symbols" | Out-Null
+          Get-ChildItem "$out/*.pdb" -ErrorAction SilentlyContinue | Move-Item -Destination "symbols"
+          Get-ChildItem "symbols" | Format-Table Name, Length
+          Remove-Item "$out/*.lib", "$out/*.exp", "$out/*.pdb", "$out/*.ilk" -ErrorAction SilentlyContinue
+          #  The program only adds to an existing stats file ("Unable to save stats." otherwise).
+          New-Item -ItemType Directory -Force -Path "$out/UserSettings" | Out-Null
+          if (-not (Test-Path "$out/UserSettings/PA-Stats.txt")) { New-Item -ItemType File -Path "$out/UserSettings/PA-Stats.txt" | Out-Null }
+          #  The OCR model the AutoStory needs. Without it, the program
+          #  downloads it at the first start, which fails on a slow or
+          #  filtered connection to raw.githubusercontent.com.
+          $res = "$out/DownloadedResources/PaddleOCRDetection"
+          New-Item -ItemType Directory -Force -Path $res | Out-Null
+          Expand-Archive -Path "Arduino-Source/Packages/DownloadedResources/PaddleOCRDetection.zip" -DestinationPath $res -Force
+          Get-ChildItem $res | Format-Table Name, Length
+          #  The licenses: of Pokemon Automation, which Claude GG is built
+          #  on, and of what Claude GG adds.
+          Copy-Item -Recurse "Arduino-Source/SerialPrograms/Source/PocketPilot/Licenses" "$out/Licenses"
+          Copy-Item "Arduino-Source/LICENSE" "$out/Licenses/PokemonAutomation-MIT-License.txt"
+          Copy-Item "Arduino-Source/SerialPrograms/Source/PocketPilot/Resources/Jersey20-OFL.txt" "$out/Licenses/Jersey20-OFL.txt"
+          Copy-Item "Arduino-Source/SerialPrograms/Source/PocketPilot/Resources/setup/Newsreader-OFL.txt" "$out/Licenses/Newsreader-OFL.txt"
+          Copy-Item "Arduino-Source/SerialPrograms/Source/PocketPilot/Resources/setup/Fredoka-OFL.txt" "$out/Licenses/Fredoka-OFL.txt"
+          $sha = git -C Arduino-Source rev-parse HEAD
+          "https://github.com/${{ github.repository }}/commit/$sha" | Out-File "$out/version.txt"
+          #  Where the firmware in the package comes from: the commit of
+          #  Packages it was taken from. The setup of the program builds the
+          #  download link of the version that is picked from it.
+          $packages = git -C Arduino-Source/Packages rev-parse HEAD
+          New-Item -ItemType Directory -Force -Path "$out/Firmware" | Out-Null
+          "https://github.com/PokemonAutomation/Packages/tree/$packages/Firmware" | Out-File "$out/Firmware/SOURCE.txt" -Encoding ascii
+          #  The hash of each firmware file that goes along: the program checks
+          #  a file against this list before it flashes it.
+          Get-ChildItem "$out/Firmware" -File | Where-Object { $_.Extension -in ".uf2", ".bin" } | Sort-Object Name | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          } | Out-File "$out/Firmware/SHA256SUMS.txt" -Encoding ascii
+          if (Test-Path "$out/Firmware/SHA256SUMS.txt") { Get-Content "$out/Firmware/SHA256SUMS.txt" }
+          Get-ChildItem "$out/Firmware" | Format-Table Name, Length
+          #  The tool that flashes the ESP32 boards from the setup: esptool of
+          #  Espressif, its stand-alone Windows build (no Python needed). It is
+          #  a separate program that Claude GG starts. If it cannot be
+          #  fetched the build goes on: the setup then looks for esptool on
+          #  the computer of the user and says what to do when it is not there.
+          #  Pinned: the version, and the SHA-256 of its Windows zip. A newer
+          #  esptool is taken by changing both here, on purpose. A zip that is
+          #  not the one pinned is not packaged.
+          $esptoolTag = "v5.7.0"
+          $esptoolSha256 = "c97911246149141eab535b3a6dd5367cd3c16ba17098bce27ac6af780708c9e9"
+          try {
+            $release = gh api "repos/espressif/esptool/releases/tags/$esptoolTag" | ConvertFrom-Json
+            $asset = $release.assets | Where-Object { $_.name -match 'windows-amd64\.zip$' } | Select-Object -First 1
+            if ($null -eq $asset) { throw "No Windows build in release $($release.tag_name)." }
+            Write-Host "esptool $($release.tag_name): $($asset.name) ($($asset.size) bytes)"
+            $zip = Join-Path $env:RUNNER_TEMP $asset.name
+            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+            $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+            Write-Host "esptool zip SHA-256: $actual (GitHub lists: $($asset.digest))"
+            if ($asset.digest -and $asset.digest -ne "sha256:$actual") {
+              throw "The zip that was downloaded is not the one GitHub lists for $($asset.name)."
+            }
+            if ($actual -ne $esptoolSha256) {
+              throw "The SHA-256 of $($asset.name) is $actual, not the pinned $esptoolSha256."
+            }
+            $tools = "$out/Tools/esptool"
+            New-Item -ItemType Directory -Force -Path $tools | Out-Null
+            Expand-Archive -Path $zip -DestinationPath $tools -Force
+            $exe = Get-ChildItem $tools -Recurse -Filter "esptool.exe" | Select-Object -First 1
+            if ($null -eq $exe) { throw "No esptool.exe in $($asset.name)." }
+            Write-Host "esptool.exe: $($exe.FullName)"
+            & $exe.FullName version
+            if ($LASTEXITCODE -ne 0) { throw "esptool.exe version failed with exit code $LASTEXITCODE." }
+            #  Its license (GPL-2.0-or-later) goes with it, with where its source is.
+            Get-ChildItem $tools -Recurse -File | Where-Object { $_.Name -match '^(LICENSE|COPYING)' } | Select-Object -First 1 | ForEach-Object {
+              Copy-Item $_.FullName "$out/Licenses/esptool-LICENSE.txt"
+            }
+            @(
+              "esptool $($release.tag_name) (Espressif Systems), stand-alone Windows build.",
+              "License: GPL-2.0-or-later. Source code: https://github.com/espressif/esptool",
+              "esptool is a separate program in the folder Tools/esptool. Claude GG starts it to flash the",
+              "firmware onto an ESP32 board; it is not part of Claude GG itself."
+            ) | Out-File "$out/Licenses/esptool-NOTICE.txt" -Encoding ascii
+          } catch {
+            Write-Host "::warning::esptool is not in this package: $_"
+            if (Test-Path "$out/Tools") { Remove-Item -Recurse -Force "$out/Tools" }
+          }
+          #  Nothing of the Discord bot may be in the package: D++ and the Social
+          #  SDK are left out of the build, and with them the OpenSSL 1.1.1k,
+          #  libsodium and opus that came with them. If one of them comes back
+          #  (a change in the CMake files, a new package), the build stops here.
+          $banned = Get-ChildItem $out -Recurse -File | Where-Object { $_.Name -match '^(libssl-1_1|libcrypto-1_1|libsodium|opus|dpp|discord_partner_sdk)' }
+          if ($banned) {
+            $banned | ForEach-Object { Write-Host "::error::In the package, but left out of the build on purpose: $($_.FullName)" }
+            throw "Files of the Discord bot are in the package."
+          }
+          New-Item -ItemType Directory -Path "package" | Out-Null
+          Copy-Item -Recurse $out "package/ClaudeGG"
+          Compress-Archive -Path "package/ClaudeGG" -DestinationPath "ClaudeGG-Windows.zip"
+          Get-Item "ClaudeGG-Windows.zip" | Format-List Name, Length
+
+      #  The hash of the zip, made here and checked again by the job that
+      #  publishes it: what goes on the release is what was built and tested.
+      - name: Hash of the zip
+        id: hash
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash "ClaudeGG-Windows.zip" -Algorithm SHA256).Hash.ToLower()
+          Write-Host "SHA-256 of ClaudeGG-Windows.zip: $hash"
+          "sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      #  Start the build once: it opens its main window, goes through its
+      #  pages and themes, saves a picture of each and exits (see
+      #  Source/PocketPilot/PocketPilot_SelfTest.h). After the package is
+      #  made, so that what the run writes is not in it. The machine is new
+      #  to the program: no settings, as on a first start after unzipping.
+      #  If the test fails, the build is not published; what the program
+      #  logged and, after a crash, where it crashed are printed here.
+      - name: Interface test
+        shell: pwsh
+        run: |
+          $dir = (Resolve-Path "Arduino-Source/SerialPrograms/bin/RelWithDebInfo").Path
+          New-Item -ItemType Directory -Force -Path "ui-screenshots", "ui-test-diagnostics", "symbols" | Out-Null
+          $shots = (Resolve-Path "ui-screenshots").Path
+          $diagnostics = (Resolve-Path "ui-test-diagnostics").Path
+          $symbols = (Resolve-Path "symbols").Path
+          $started = Get-Date
+          $process = Start-Process -FilePath "$dir/ClaudeGG.exe" -WorkingDirectory $dir -ArgumentList "--ui-screenshots", "`"$shots`"" -PassThru
+          #  Keep the handle, or the exit code is not there afterwards.
+          $handle = $process.Handle
+          if ($process.WaitForExit(300000)) {
+            $code = $process.ExitCode
+            $result = "it exited with code $code ($('0x{0:X8}' -f $code))"
+          } else {
+            $process.Kill()
+            $code = -1
+            $result = "it did not finish within 5 minutes and was stopped"
+          }
+          Write-Host "The interface test: $result."
+          Get-ChildItem $shots | Format-Table Name, Length
+          #  The window as the screens of the setup: a few small pictures, as
+          #  text in the log (base64 of a JPEG), to see them without the artifact.
+          Get-ChildItem "$shots/app/preview-*.jpg", "$shots/preview-*.jpg" -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "PP-PREVIEW-BEGIN $($_.Name)"
+            Write-Host ([Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName)))
+            Write-Host "PP-PREVIEW-END $($_.Name)"
+          }
+
+          #  What the program logged.
+          $log = "$dir/ClaudeGG.log"
+          if (Test-Path $log) {
+            Copy-Item $log $diagnostics
+            Write-Host "---- the end of ClaudeGG.log ----"
+            Get-Content $log -Tail 150
+            #  The checks of the tests that run inside the interface test: they
+            #  are logged before the end of the log.
+            Write-Host "---- the checks that the interface test ran ----"
+            Get-Content $log | Select-String -Pattern "checks passed|test: FAILED" | ForEach-Object { Write-Host $_.Line }
+          } else {
+            Write-Host "No ClaudeGG.log in $dir."
+          }
+
+          if ($code -ne 0) {
+            #  What Windows noted about a crash: the module and the offset in it.
+            Start-Sleep -Seconds 3
+            try {
+              Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000; StartTime = $started } -MaxEvents 5 -ErrorAction Stop |
+                Where-Object { $_.Message -match 'ClaudeGG' } |
+                ForEach-Object { Write-Host "---- Windows event log ----"; Write-Host $_.Message }
+            } catch {
+              Write-Host "No crash in the Windows event log."
+            }
+            #  What the program left behind when it crashed: a report and a
+            #  dump of its memory. The debugger of the Windows SDK, if this
+            #  machine has it, reads the stack of the crash from the dump.
+            $reports = "$dir/ErrorReportsLocal"
+            if (Test-Path $reports) {
+              Copy-Item -Recurse $reports $diagnostics
+              $cdb = "${env:ProgramFiles(x86)}\Windows Kits\10\Debuggers\x64\cdb.exe"
+              Get-ChildItem $reports -Recurse -File | ForEach-Object {
+                Write-Host "---- $($_.FullName) ($($_.Length) bytes) ----"
+                if ($_.Extension -eq ".json") {
+                  Get-Content $_.FullName -TotalCount 60
+                }
+                if ($_.Extension -eq ".dmp") {
+                  if (Test-Path $cdb) {
+                    #  No input for the debugger: it quits where it would ask.
+                    $null | & $cdb -z $_.FullName -y $symbols -i $dir -c ".ecxr; kn 60; q" 2>&1 | Select-Object -Last 100 | ForEach-Object { Write-Host $_ }
+                  } else {
+                    Write-Host "No cdb.exe on this machine: the dump is in the artifact 'interface-test-diagnostics'."
+                  }
+                }
+              }
+            } else {
+              Write-Host "The program left no crash report (no folder ErrorReportsLocal)."
+            }
+            throw "The interface test failed: $result."
+          }
+          if (-not (Get-ChildItem $shots -Filter "*.png")) {
+            throw "The interface test saved no pictures."
+          }
+          #  The setup ends with the choice of a game, and lists the games
+          #  before the main window exists: check that it could (the test
+          #  logs the number right before it makes the window).
+          $listed = $null
+          if (Test-Path $log) {
+            $listed = Select-String -Path $log -Pattern "Setup: the games before the window: (\d+)" | Select-Object -First 1
+          }
+          if ($null -eq $listed) {
+            throw "The interface test did not log the games of the setup."
+          }
+          $count = [int]$listed.Matches[0].Groups[1].Value
+          Write-Host "The setup can list $count games before the main window exists."
+          if ($count -lt 8) {
+            throw "The setup can list only $count games before the main window exists (at least 8 expected)."
+          }
+          #  And the programs of those games, for the screen that asks which
+          #  program to start after the game.
+          $programs = $null
+          if (Test-Path $log) {
+            $programs = Select-String -Path $log -Pattern "Setup: the programs before the window: (\d+)" | Select-Object -First 1
+          }
+          if ($null -eq $programs) {
+            throw "The interface test did not log the programs of the setup."
+          }
+          $program_count = [int]$programs.Matches[0].Groups[1].Value
+          Write-Host "The setup can list $program_count programs before the main window exists."
+          if ($program_count -lt 50) {
+            throw "The setup can list only $program_count programs before the main window exists (at least 50 expected)."
+          }
+          #  And the options of a program, as widgets (the panel next to the
+          #  list of programs): made for the first program of each game, before
+          #  the main window exists.
+          $options = $null
+          if (Test-Path $log) {
+            $options = Select-String -Path $log -Pattern "Setup: the options before the window: (\d+)" | Select-Object -First 1
+          }
+          if ($null -eq $options) {
+            throw "The interface test did not log the options of the setup."
+          }
+          $option_count = [int]$options.Matches[0].Groups[1].Value
+          Write-Host "The setup can make the options of $option_count programs before the main window exists."
+          if ($option_count -lt 1) {
+            throw "The setup could make the options of no program before the main window exists."
+          }
+          exit 0
+
+      #  The intro that plays first when the program starts (see
+      #  Source/PocketPilot/PocketPilot_Intro.h): decode the film that is in
+      #  the build, without a window and without sound output, and check
+      #  that all its pictures and its sound come through. The intro never
+      #  stops the program (if it cannot play, the program goes on), so this
+      #  step reports and does not stop the build.
+      - name: Intro test
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $dir = (Resolve-Path "Arduino-Source/SerialPrograms/bin/RelWithDebInfo").Path
+          $log = "$dir/ClaudeGG.log"
+          if (Test-Path $log) { Remove-Item $log }
+          $process = Start-Process -FilePath "$dir/ClaudeGG.exe" -WorkingDirectory $dir -ArgumentList "--intro-test" -PassThru
+          $handle = $process.Handle
+          if ($process.WaitForExit(120000)) {
+            $code = $process.ExitCode
+          } else {
+            $process.Kill()
+            $code = -1
+          }
+          $passed = $false
+          if (Test-Path $log) {
+            Get-Content $log | Select-String "Intro" | ForEach-Object { Write-Host $_.Line }
+            $passed = [bool](Select-String -Path $log -Pattern "Intro test: passed" -Quiet)
+          }
+          Write-Host "The intro test: exit code $code."
+          if (-not $passed) {
+            throw "The intro test failed (exit code $code): the film did not come through whole."
+          }
+          #  The decoder of the film sometimes crashes when the program ends, after
+          #  the film came through (seen on this machine also in builds that did
+          #  not touch the intro): the verdict is what the test logged.
+          if ($code -ne 0) {
+            Write-Host "::warning::The intro test passed, but the program ended with exit code $code."
+          }
+
+      #  The films of the video tutorials (see Source/PocketPilot/PocketPilot_Setup.h):
+      #  decode each one that is in the build, without a window and without
+      #  sound output: its picture size, its sound, its length, and that it
+      #  plays to the end. Reports and does not stop the build.
+      - name: Tutorial film test
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $dir = (Resolve-Path "Arduino-Source/SerialPrograms/bin/RelWithDebInfo").Path
+          $log = "$dir/ClaudeGG.log"
+          if (Test-Path $log) { Remove-Item $log }
+          $process = Start-Process -FilePath "$dir/ClaudeGG.exe" -WorkingDirectory $dir -ArgumentList "--tutorial-test" -PassThru
+          $handle = $process.Handle
+          if ($process.WaitForExit(240000)) {
+            $code = $process.ExitCode
+          } else {
+            $process.Kill()
+            $code = -1
+          }
+          $passed = $false
+          if (Test-Path $log) {
+            Get-Content $log | Select-String "Tutorial" | ForEach-Object { Write-Host $_.Line }
+            $passed = [bool](Select-String -Path $log -Pattern "Tutorial test: passed" -Quiet)
+          }
+          Write-Host "The tutorial film test: exit code $code."
+          if (-not $passed) {
+            throw "The tutorial film test failed (exit code $code): a film did not come through whole."
+          }
+          #  As for the intro: the verdict is what the test logged, not how the
+          #  decoder ends.
+          if ($code -ne 0) {
+            Write-Host "::warning::The tutorial film test passed, but the program ended with exit code $code."
+          }
+
+      #  The languages (see Source/PocketPilot/PocketPilot_Language.h): every
+      #  dictionary that comes with the program is read and checked (what must
+      #  not change in a translation did not change, every language has the
+      #  same texts) and a few windows are translated and brought back. Without
+      #  a window of its own on screen; reports and does not stop the build.
+      - name: Language test
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $dir = (Resolve-Path "Arduino-Source/SerialPrograms/bin/RelWithDebInfo").Path
+          $log = "$dir/ClaudeGG.log"
+          if (Test-Path $log) { Remove-Item $log }
+          $process = Start-Process -FilePath "$dir/ClaudeGG.exe" -WorkingDirectory $dir -ArgumentList "--language-test" -PassThru
+          $handle = $process.Handle
+          if ($process.WaitForExit(120000)) {
+            $code = $process.ExitCode
+          } else {
+            $process.Kill()
+            $code = -1
+          }
+          if (Test-Path $log) {
+            Get-Content $log | Select-String "Language" | ForEach-Object { Write-Host $_.Line }
+          }
+          Write-Host "The language test: exit code $code."
+          if ($code -ne 0) {
+            throw "The language test failed (exit code $code): see the lines above."
+          }
+
+      #  The setup that comes after the intro (see
+      #  Source/PocketPilot/PocketPilot_Setup.h): goes through the language, the
+      #  microcontroller, the steps and the end like a user would (clicks and
+      #  keys), saves a picture of each screen and checks what was answered.
+      #  The pictures go with the build to look at.
+      - name: Setup test
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $dir = (Resolve-Path "Arduino-Source/SerialPrograms/bin/RelWithDebInfo").Path
+          New-Item -ItemType Directory -Force -Path "setup-screenshots" | Out-Null
+          $shots = (Resolve-Path "setup-screenshots").Path
+          #  The cartridges of the game choice show the real logos of the program
+          #  (CategoryIcons of the resources that are copied next to it).
+          $logos = "$dir/Resources/CategoryIcons"
+          if (Test-Path $logos) {
+            Write-Host "The setup test shows the logos of $((Get-ChildItem $logos -Filter *.png).Count) games."
+            $env:PP_SETUP_TEST_LOGO_DIR = (Resolve-Path $logos).Path
+          } else {
+            Write-Host "::warning::No CategoryIcons next to the program: the setup test shows its own pictures."
+          }
+          $process = Start-Process -FilePath "$dir/ClaudeGG.exe" -WorkingDirectory $dir -ArgumentList "--setup-test", "`"$shots`"" -PassThru
+          $handle = $process.Handle
+          if ($process.WaitForExit(300000)) {
+            $code = $process.ExitCode
+          } else {
+            $process.Kill()
+            $code = -1
+          }
+          if (Test-Path "$shots/setup-test.txt") {
+            Get-Content "$shots/setup-test.txt" | ForEach-Object { Write-Host $_ }
+          }
+          #  Two small pictures, as text in the log (base64 of a JPEG): how the
+          #  screens look on this machine, without downloading the artifact.
+          Get-ChildItem "$shots/preview-*.jpg" -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "PP-PREVIEW-BEGIN $($_.Name)"
+            Write-Host ([Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName)))
+            Write-Host "PP-PREVIEW-END $($_.Name)"
+          }
+          Write-Host "The setup test: exit code $code."
+          if ($code -ne 0) {
+            throw "The setup test failed (exit code $code): see the lines above."
+          }
+
+      #  Several installations (see Source/PocketPilot/PocketPilot_Instances.h):
+      #  every installation is a process of its own, with a folder of its own
+      #  (its settings, its capture card, its microcontroller). Two tests: an
+      #  installation that is not the first (its folder, its lock, its status,
+      #  its miniature and its connection), and the overview that shows the
+      #  miniatures. Neither may touch the settings of installation 1.
+      - name: Installations test
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $dir = (Resolve-Path "Arduino-Source/SerialPrograms/bin/RelWithDebInfo").Path
+          New-Item -ItemType Directory -Force -Path "installations-screenshots" | Out-Null
+          $shots = (Resolve-Path "installations-screenshots").Path
+          New-Item -ItemType Directory -Force -Path "symbols" | Out-Null
+          $symbols = (Resolve-Path "symbols").Path
+          #  What a crash left behind: the reports in every folder that holds
+          #  one (the installations have their own) and the stack from the dump.
+          function Show-Crash($what) {
+            Write-Host "---- $what crashed: what it left behind ----"
+            $cdb = "${env:ProgramFiles(x86)}\Windows Kits\10\Debuggers\x64\cdb.exe"
+            Get-ChildItem $dir -Recurse -Directory -Filter "ErrorReportsLocal" -ErrorAction SilentlyContinue | ForEach-Object {
+              Get-ChildItem $_.FullName -Recurse -File | ForEach-Object {
+                Write-Host "---- $($_.FullName) ($($_.Length) bytes) ----"
+                if ($_.Extension -eq ".json") {
+                  Get-Content $_.FullName -TotalCount 60
+                }
+                if ($_.Extension -eq ".dmp" -and (Test-Path $cdb)) {
+                  $null | & $cdb -z $_.FullName -y $symbols -i $dir -c ".ecxr; kn 40; q" 2>&1 | Select-Object -Last 70 | ForEach-Object { Write-Host $_ }
+                }
+              }
+            }
+          }
+          $main_settings = "$dir/UserSettings/ClaudeGG-Settings.json"
+          $main_before = $null
+          if (Test-Path $main_settings) {
+            $main_before = (Get-FileHash $main_settings).Hash
+          }
+          $failed = $false
+
+          #  1. An installation that is not the first.
+          $process = Start-Process -FilePath "$dir/ClaudeGG.exe" -WorkingDirectory $dir -ArgumentList "--installation", "ci-test", "--installation-test" -PassThru
+          $handle = $process.Handle
+          if ($process.WaitForExit(120000)) {
+            $code = $process.ExitCode
+          } else {
+            $process.Kill()
+            $code = -1
+          }
+          Write-Host "The installation test: exit code $code."
+          $log = "$dir/Installations/ci-test/ClaudeGG.log"
+          if (Test-Path $log) {
+            Write-Host "---- the end of Installations/ci-test/ClaudeGG.log ----"
+            Get-Content $log -Tail 60
+            Get-Content $log | Select-String -Pattern "Installation test" | ForEach-Object { Write-Host $_.Line }
+          } else {
+            Write-Host "No log in Installations/ci-test."
+            $failed = $true
+          }
+          if ($code -ne 0) {
+            $failed = $true
+            Show-Crash "The installation test"
+          }
+          if (-not (Test-Path "$dir/Installations/ci-test/UserSettings/ClaudeGG-Settings.json")) {
+            Write-Host "::error::The installation wrote no settings in its own folder."
+            $failed = $true
+          }
+
+          #  2. The overview of the installations (a window of its own).
+          $process = Start-Process -FilePath "$dir/ClaudeGG.exe" -WorkingDirectory $dir -ArgumentList "--installations-hub-test", "`"$shots`"" -PassThru
+          $handle = $process.Handle
+          if ($process.WaitForExit(180000)) {
+            $code = $process.ExitCode
+          } else {
+            $process.Kill()
+            $code = -1
+          }
+          Write-Host "The test of the overview: exit code $code."
+          Get-ChildItem $shots | Format-Table Name, Length
+          Get-ChildItem "$shots/preview-*.jpg" -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "PP-PREVIEW-BEGIN $($_.Name)"
+            Write-Host ([Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName)))
+            Write-Host "PP-PREVIEW-END $($_.Name)"
+          }
+          $hub_log = "$dir/ClaudeGG-Installations.log"
+          if (Test-Path $hub_log) {
+            Write-Host "---- the end of ClaudeGG-Installations.log ----"
+            Get-Content $hub_log -Tail 40
+          }
+          if ($code -ne 0) {
+            $failed = $true
+            Show-Crash "The test of the overview"
+          }
+
+          #  3. Installation 1 is as it was.
+          if ($null -ne $main_before) {
+            $main_after = (Get-FileHash $main_settings).Hash
+            if ($main_after -ne $main_before) {
+              Write-Host "::error::The tests of the installations changed the settings of installation 1."
+              $failed = $true
+            }
+          }
+          if ($failed) {
+            throw "The installations test failed: see the lines above."
+          }
+          Write-Host "The installations test passed."
+
+      #  Also for a build that failed the interface test: to look at.
+      - name: Upload artifact
+        if: success() || failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: ClaudeGG-Windows
+          path: |
+            ClaudeGG-Windows.zip
+            ui-screenshots/*.png
+            setup-screenshots/*.png
+
+      - name: Upload what a failed interface test left behind
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: interface-test-diagnostics
+          if-no-files-found: ignore
+          path: |
+            ui-test-diagnostics/**
+            symbols/*.pdb
+
+  #  The only job that may write to the repository. It runs only for a build
+  #  that is to be published and that passed its tests ("needs"), and it does
+  #  not run what the build made: it takes the zip, checks it against the hash
+  #  the build made, and puts it on a release.
+  publish:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Fetch the zip of the build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "${{ github.run_id }}" --repo "${{ github.repository }}" --name ClaudeGG-Windows --dir artifact
+          ZIP=$(find artifact -name ClaudeGG-Windows.zip | head -n 1)
+          if [ -z "$ZIP" ]; then
+            echo "::error::The artifact of the build has no ClaudeGG-Windows.zip."
+            exit 1
+          fi
+          mv "$ZIP" ClaudeGG-Windows.zip
+          ls -l ClaudeGG-Windows.zip
+
+      - name: Check the zip against its hash
+        shell: bash
+        env:
+          EXPECTED: ${{ needs.build.outputs.sha256 }}
+        run: |
+          ACTUAL=$(sha256sum ClaudeGG-Windows.zip | cut -d' ' -f1)
+          echo "built:   $EXPECTED"
+          echo "fetched: $ACTUAL"
+          if [ -z "$EXPECTED" ] || [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::The zip is not the one the build made. It is not published."
+            exit 1
+          fi
+
+      - name: Publish pre-release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_NUMBER: ${{ needs.build.outputs.build_number }}
+          SHA256: ${{ needs.build.outputs.sha256 }}
+        run: |
+          TAG="pocketpilot-build-$BUILD_NUMBER"
+          # Only the program itself goes on the release. The pictures of the
+          # interface test stay in the workflow artifact, to look at there.
+          gh release create "$TAG" ClaudeGG-Windows.zip \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --prerelease \
+            --title "Claude GG - Windows build $BUILD_NUMBER" \
+            --notes "Claude GG, a personal fork of Pokemon Automation's SerialPrograms. Unzip, then run ClaudeGG.exe. This build passed its interface test: it started on the build machine, without settings, and took pictures of its own interface. For non-commercial use. Built from ${{ github.sha }}. The program is not signed with a certificate, so Windows may warn when you start it: compare the SHA-256 of the zip you downloaded with this one before you do. SHA-256 of ClaudeGG-Windows.zip: $SHA256"

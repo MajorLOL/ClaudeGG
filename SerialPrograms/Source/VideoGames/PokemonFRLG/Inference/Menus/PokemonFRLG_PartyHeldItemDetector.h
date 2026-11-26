@@ -1,0 +1,81 @@
+/*  Party Held Item Detector
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ */
+
+#ifndef PokemonAutomation_PokemonFRLG_PartyHeldItemDetector_H
+#define PokemonAutomation_PokemonFRLG_PartyHeldItemDetector_H
+
+#include <chrono>
+#include "Common/Cpp/TestRunners/UnitTest.h"
+#include "CommonFramework/Language.h"
+#include "CommonFramework/VideoPipeline/VideoOverlayScopes.h"
+#include "CommonTools/VisualDetector.h"
+#include "PokemonFRLG_PartySlot.h"
+
+namespace PokemonAutomation{
+namespace NintendoSwitch{
+namespace PokemonFRLG{
+
+class PartyHeldItemDetector : public StaticScreenDetector{
+public:
+    PartyHeldItemDetector(
+        Color color,
+        VideoOverlay* overlay,
+        const ImageFloatBox& box
+    );
+    PartyHeldItemDetector(
+        Color color,
+        VideoOverlay* overlay,
+        PartySlot slot,
+        Language language = Language::English
+    );
+
+    static ImageFloatBox box_for_slot(PartySlot slot, Language language = Language::English);
+
+    const ImageFloatBox& last_detected() const { return m_last_detected; }
+
+    virtual void make_overlays(VideoOverlaySet& items) const override;
+
+    // This is not const so that detectors can save/cache state.
+    virtual bool detect(const ImageViewRGB32& screen) override;
+
+private:
+    friend class PartyHeldItemWatcher;
+
+    const Color m_color;
+    VideoOverlay* m_overlay;
+    const ImageFloatBox m_box;
+
+    ImageFloatBox m_last_detected;
+    std::optional<OverlayBoxScope> m_last_detected_box;
+};
+class PartyHeldItemWatcher : public DetectorToFinder<PartyHeldItemDetector>{
+public:
+    PartyHeldItemWatcher(
+        Color color,
+        VideoOverlay* overlay,
+        const ImageFloatBox& box,
+        std::chrono::milliseconds hold_duration = std::chrono::milliseconds(250)
+    )
+        : DetectorToFinder("PartyHeldItemWatcher", hold_duration, color, overlay, box)
+    {}
+    PartyHeldItemWatcher(
+        Color color,
+        VideoOverlay* overlay,
+        PartySlot slot,
+        Language language,
+        std::chrono::milliseconds hold_duration = std::chrono::milliseconds(250)
+    )
+        : DetectorToFinder("PartyHeldItemWatcher", hold_duration, color, overlay, slot, language)
+    {}
+};
+
+
+void add_tests_PartyHeldItemDetector(UnitTestDatabase& database);
+
+}
+}
+}
+#endif

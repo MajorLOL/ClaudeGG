@@ -1,0 +1,126 @@
+/*  Condition Variable
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ */
+
+#ifndef PokemonAutomation_Concurrency_ConditionVariable_H
+#define PokemonAutomation_Concurrency_ConditionVariable_H
+
+#include "Qt6.9ThreadBugWorkaround.h"
+
+//  Note from Kuro (2026/08/15): I think it's ok to disable this workaround for
+//  mutex and conditional_variable since we're completely leaking the thread.
+//  So the parasitic adoption should dangle these sync classes.
+#if 0 //def PA_ENABLE_QT_ADOPTION_WORKAROUND
+
+#include <mutex>
+#include <QWaitCondition>
+
+//#include <iostream>
+//using std::cout;
+//using std::endl;
+
+namespace PokemonAutomation{
+
+class ConditionVariable{
+public:
+    void notify_one(){
+        m_cv.notify_one();
+    }
+    void notify_all(){
+        m_cv.notify_all();
+    }
+
+    void wait(std::unique_lock<QMutex>& lock){
+        m_cv.wait(lock.mutex());
+    }
+    template <class Predicate>
+    void wait(std::unique_lock<QMutex>& lock, Predicate pred){
+        while (!pred()){
+            m_cv.wait(lock.mutex());
+        }
+    }
+
+    template <class Rep, class Period>
+    bool wait_for(
+        std::unique_lock<QMutex>& lock,
+        const std::chrono::duration<Rep, Period>& rel_time
+    ){
+        return m_cv.wait(lock.mutex(), rel_time);
+    }
+    template <class Rep, class Period, class Predicate>
+    bool wait_for(
+        std::unique_lock<QMutex>& lock,
+        const std::chrono::duration<Rep, Period>& rel_time,
+        Predicate pred
+    ){
+        if (rel_time == std::chrono::duration<Rep, Period>::max()){
+            while (!pred()){
+                m_cv.wait(lock.mutex());
+            }
+            return true;
+        }
+        auto abs_time = std::chrono::system_clock::now() + rel_time;
+        while (true){
+            if (pred()){
+                return true;
+            }
+            if (!m_cv.wait(lock.mutex(), abs_time - std::chrono::system_clock::now())){
+                return false;
+            }
+        }
+    }
+
+    template <class Clock, class Duration>
+    std::cv_status wait_until(
+        std::unique_lock<QMutex>& lock,
+        const std::chrono::time_point<Clock, Duration>& abs_time
+    ){
+        if (abs_time == std::chrono::time_point<Clock, Duration>::max()){
+            m_cv.wait(lock.mutex());
+            return std::cv_status::no_timeout;
+        }
+        return m_cv.wait(lock.mutex(), abs_time - std::chrono::system_clock::now())
+            ? std::cv_status::no_timeout
+            : std::cv_status::timeout;
+    }
+    template <class Clock, class Duration, class Predicate>
+    bool wait_until(
+        std::unique_lock<QMutex>& lock,
+        const std::chrono::time_point<Clock, Duration>& abs_time,
+        Predicate pred
+    ){
+        if (abs_time == std::chrono::time_point<Clock, Duration>::max()){
+            while (!pred()){
+                m_cv.wait(lock.mutex());
+            }
+            return true;
+        }
+        while (true){
+            if (pred()){
+                return true;
+            }
+            if (!m_cv.wait(lock.mutex(), abs_time - std::chrono::system_clock::now())){
+                return false;
+            }
+        }
+    }
+
+
+private:
+    QWaitCondition m_cv;
+};
+
+}
+
+#else
+
+#include <condition_variable>
+namespace PokemonAutomation{
+    using ConditionVariable = std::condition_variable;
+}
+
+#endif
+
+#endif

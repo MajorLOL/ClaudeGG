@@ -1,0 +1,52 @@
+/*  Group Option
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ */
+
+#include <QWidget>
+#include "Common/Cpp/Options/GroupOption.h"
+#include "ConfigWidget.h"
+
+#ifndef PokemonAutomation_Options_GroupWidget_H
+#define PokemonAutomation_Options_GroupWidget_H
+
+class QVBoxLayout;
+class QGroupBox;
+class QPushButton;
+
+namespace PokemonAutomation{
+
+
+
+class GroupWidget : public QWidget, public ConfigWidget{
+public:
+    using ParentState = GroupOption;
+
+public:
+    ~GroupWidget();
+    GroupWidget(QWidget& parent, GroupOption& value);
+
+//    void set_options_enabled(bool enabled);
+
+    virtual void update_value() override;
+    virtual void on_config_value_changed(void* object) override;
+
+private:
+    virtual void mouseDoubleClickEvent(QMouseEvent* event) override;
+
+    void make_options();
+
+protected:
+    GroupOption& m_value;
+    QGroupBox* m_group_box;
+    QWidget* m_expand_text = nullptr;
+    QWidget* m_options_holder = nullptr;
+    std::vector<ConfigWidget*> m_options;
+    QPushButton* m_restore_defaults_button = nullptr;
+};
+
+
+
+}
+#endif

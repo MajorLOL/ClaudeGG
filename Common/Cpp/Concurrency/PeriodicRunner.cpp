@@ -1,0 +1,212 @@
+/*  Periodic Runner
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ */
+
+#include "CommonFramework/Tools/GlobalThreadPools.h"
+#include "PeriodicRunner.h"
+
+//#include <iostream>
+//using std::cout;
+//using std::endl;
+
+namespace PokemonAutomation{
+
+
+
+PeriodicRunner::PeriodicRunner()
+    : m_stopping(false)
+    , m_thread(
+        GlobalThreadPools::unlimited_normal().dispatch_now_blocking([this]{
+            thread_body();
+        })
+    )
+{}
+PeriodicRunner::~PeriodicRunner(){
+    stop();
+}
+void PeriodicRunner::stop(){
+    if (!m_thread){
+        return;
+    }
+    {
+        std::lock_guard<Mutex> lg(m_lock);
+        m_stopping = true;
+    }
+    m_cv.notify_all();
+    m_thread.wait_and_ignore_exceptions();
+}
+
+
+void PeriodicRunner::update_next(
+    std::multimap<WallClock, std::map<Runnable*, Entry>::iterator>::iterator schedule_iter,
+    WallClock next_run_time
+) noexcept{
+    //  Move the node. This should never throw.
+    auto node = m_schedule.extract(schedule_iter);
+    node.key() = next_run_time;
+    node.mapped()->second.next = next_run_time;
+    m_schedule.insert(std::move(node));
+}
+
+
+void PeriodicRunner::trigger_run_now(Runnable& runnable) noexcept{
+    {
+        WallClock next = current_time();
+        std::lock_guard<Mutex> lg(m_lock);
+
+        auto runnable_iter = m_runnables.find(&runnable);
+        if (runnable_iter == m_runnables.end()){
+            return;
+        }
+
+        //  Already running right now!
+        if (!runnable_iter->second.busy){
+            return;
+        }
+
+        //  Find the corresponding schedule entry.
+        auto schedule_iter = m_schedule.find(runnable_iter->second.next);
+        while (true){
+            if (schedule_iter == m_schedule.end()){
+                //  Should be impossible.
+                return;
+            }
+            if (schedule_iter->second->first == &runnable){
+                break;
+            }
+            ++schedule_iter;
+        }
+
+        update_next(schedule_iter, next);
+    }
+    m_cv.notify_all();
+}
+void PeriodicRunner::add_runnable(Runnable& runnable, WallDuration period){
+    {
+        std::lock_guard<Mutex> lg(m_lock);
+
+        WallClock next = current_time();
+
+        auto ret = m_runnables.emplace(
+            std::piecewise_construct,
+            std::forward_as_tuple(&runnable),
+            std::forward_as_tuple(period)
+        );
+        if (!ret.second){
+            return;
+        }
+
+        //  The entry's time must be the key of its place in the schedule: that is
+        //  how remove_runnable() finds it, until the runnable has run once.
+        ret.first->second.next = next;
+
+        try{
+            m_schedule.emplace(next, ret.first);
+        }catch (...){
+            m_runnables.erase(ret.first);
+            throw;
+        }
+    }
+    m_cv.notify_all();
+}
+void PeriodicRunner::remove_runnable(Runnable& runnable) noexcept{
+    while (true){
+        std::lock_guard<Mutex> lg(m_lock);
+
+        auto iter = m_runnables.find(&runnable);
+        if (iter == m_runnables.end()){
+            return;
+        }
+
+        if (!iter->second.busy){
+            //  Its own place in the schedule, not every place with the same time:
+            //  and one that is gone with the runnable, or the thread would run
+            //  what is not there any more.
+            auto range = m_schedule.equal_range(iter->second.next);
+            for (auto schedule_iter = range.first; schedule_iter != range.second; ++schedule_iter){
+                if (schedule_iter->second == iter){
+                    m_schedule.erase(schedule_iter);
+                    break;
+                }
+            }
+            m_runnables.erase(iter);
+            break;
+        }
+    }
+}
+void PeriodicRunner::edit_duration(Runnable& runnable, WallDuration period) noexcept{
+    {
+        WallClock next = current_time() + period;
+        std::lock_guard<Mutex> lg(m_lock);
+
+        auto runnable_iter = m_runnables.find(&runnable);
+        if (runnable_iter == m_runnables.end()){
+            return;
+        }
+
+        runnable_iter->second.period = period;
+
+        //  Already running right now!
+        if (!runnable_iter->second.busy){
+            return;
+        }
+
+        //  Find the corresponding schedule entry.
+        auto schedule_iter = m_schedule.find(runnable_iter->second.next);
+//        cout << "Edit - Next = " << std::chrono::duration_cast<Milliseconds>(runnable_iter->second.next - current_time()).count() << endl;
+        while (true){
+            if (schedule_iter == m_schedule.end()){
+                //  Should be impossible.
+                return;
+            }
+            if (schedule_iter->second->first == &runnable){
+                break;
+            }
+            ++schedule_iter;
+        }
+
+        update_next(schedule_iter, next);
+//        cout << "Edit - Next = " << std::chrono::duration_cast<Milliseconds>(runnable_iter->second.next - current_time()).count() << endl;
+    }
+    m_cv.notify_all();
+}
+
+void PeriodicRunner::thread_body(){
+    while (!m_stopping){
+        std::unique_lock<Mutex> lg(m_lock);
+        auto schedule_iter = m_schedule.begin();
+        if (schedule_iter == m_schedule.end()){
+            m_cv.wait(lg);
+            continue;
+        }
+
+        WallClock fire_time = schedule_iter->first;
+//        cout << std::chrono::duration_cast<Milliseconds>(current_time() - fire_time).count() << endl;
+        if (fire_time > current_time()){
+            m_cv.wait_until(lg, fire_time);
+            continue;
+        }
+
+        auto runnable_iter = schedule_iter->second;
+
+        WallClock next = fire_time + runnable_iter->second.period;
+//        cout << "Period = " << std::chrono::duration_cast<Milliseconds>(runnable_iter->second.period).count() << endl;
+//        cout << "Next = " << std::chrono::duration_cast<Milliseconds>(next - current_time()).count() << endl;
+        update_next(schedule_iter, next);
+
+        runnable_iter->second.busy = true;
+        m_lock.unlock();
+        runnable_iter->first->run();
+        m_lock.lock();
+        runnable_iter->second.busy = false;
+    }
+}
+
+
+
+
+
+
+}

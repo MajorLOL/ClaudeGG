@@ -1,0 +1,62 @@
+/*  Null Controller
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ */
+
+//#include "Common/Cpp/Json/JsonValue.h"
+#include "Controllers/PABotBase2/SerialPABotBase2_Descriptor.h"
+
+#include "NullController.h"
+
+//#include <iostream>
+//using std::cout;
+//using std::endl;
+
+namespace PokemonAutomation{
+
+
+
+std::unique_ptr<ControllerDescriptor> null_controller_descriptor(){
+    return std::make_unique<SerialPABotBase::SerialPABotBase2_Descriptor>();
+}
+
+
+
+
+#if 0
+template class InterfaceType_t<NullControllerDescriptor>;
+
+
+bool NullControllerDescriptor::operator==(const ControllerDescriptor& x) const{
+    return typeid(*this) == typeid(x);
+}
+std::string NullControllerDescriptor::display_name() const{
+    return "(none)";
+}
+JsonValue NullControllerDescriptor::to_json() const{
+    return JsonValue();
+}
+void NullControllerDescriptor::load_json(const JsonValue& json){
+
+}
+std::unique_ptr<ControllerConnection> NullControllerDescriptor::open_connection(Logger& logger) const{
+    return nullptr;
+}
+std::unique_ptr<AbstractController> NullControllerDescriptor::make_controller(
+    Logger& logger,
+    ControllerConnection& connection,
+    ControllerType controller_type
+) const{
+    return nullptr;
+}
+#endif
+
+
+
+const char NullController::NAME[] = "(none)";
+
+
+
+
+}

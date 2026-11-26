@@ -1,0 +1,192 @@
+/*  Global Settings Panel
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ */
+
+#ifndef PokemonAutomation_GlobalSettingsPanel_H
+#define PokemonAutomation_GlobalSettingsPanel_H
+
+#include "Common/Cpp/Containers/Pimpl.h"
+#include "Common/Cpp/Options/EnumDropdownOption.h"
+#include "Common/Cpp/Options/ConfigOption.h"
+#include "Common/Cpp/Options/StaticTextOption.h"
+#include "Common/Cpp/Options/BooleanCheckBoxOption.h"
+#include "Common/Cpp/Options/StringOption.h"
+#include "Common/Cpp/Options/ButtonOption.h"
+#include "CommonFramework/Options/WallpaperOption.h"
+#include "CommonFramework/Panels/OptionsPanel.h"
+#include "CommonFramework/ResourceDownload/SettingsResourceDownloadOptions.h"
+#include "CommonFramework/ResourceDownload/SettingsResourceDownloadTable.h"
+
+//#include <iostream>
+//using std::cout;
+//using std::endl;
+
+namespace PokemonAutomation{
+
+class CheckForUpdatesOption;
+class ThemeSelectorOption;
+class StarterColorOption;
+class ResolutionOption;
+class KeyboardLayoutOption;
+class StreamHistoryOption;
+class SleepSuppressOptions;
+class DeviceAliasOptions;
+namespace Integration{
+    class DiscordSettingsOption;
+}
+class AudioPipelineOptions;
+class VideoPipelineOptions;
+class ErrorReportOption;
+class ResourceDownload;
+
+
+enum class OcrLibrary{
+    PADDLE_OCR,
+    TESSERACT,
+};
+
+//  PocketPilot: the language of the menus, the settings and the explanations.
+//  See PocketPilot/PocketPilot_Language.h.
+enum class UiLanguage{
+    ENGLISH,
+    DUTCH,
+    GERMAN,
+    FRENCH,
+    SPANISH,
+    CUSTOM,     //  "Other": the file Languages/custom.json.
+};
+
+//  PocketPilot: the console that the program is used with, as chosen in the
+//  setup (the screen after the language).
+enum class SetupConsole{
+    NONE,       //  Not chosen yet.
+    SWITCH,     //  Nintendo Switch (Switch 1 and OLED).
+    SWITCH2,    //  Nintendo Switch 2.
+};
+
+
+class FolderInputOption : public StringOption{
+public:
+    using StringOption::StringOption;
+
+    virtual void sanitize(std::string& str) override{
+        if (!str.empty() && str.back() != '/'){
+            str += '/';
+        }
+    }
+};
+
+
+
+
+class GlobalSettings : public BatchOption, private ConfigOption::Listener, private ButtonListener{
+    ~GlobalSettings();
+    GlobalSettings();
+public:
+    static GlobalSettings& instance();
+
+    virtual JsonValue to_json() const override;
+    virtual void load_json(const JsonValue& json) override;
+
+    void connect_row_with_download(const std::string& resource_slug, std::shared_ptr<ResourceDownload>& download_ptr);
+
+private:
+    virtual void on_config_value_changed(void* object) override;
+    virtual void on_press(ButtonCell& button) override;
+
+public:
+    Pimpl<CheckForUpdatesOption> CHECK_FOR_UPDATES;
+
+    //  PocketPilot: the language, the setup (language and microcontroller),
+    //  and whether its questions still have to be asked at the next start.
+    EnumDropdownOption<UiLanguage> LANGUAGE;
+    EnumDropdownOption<SetupConsole> GAME_CONSOLE;
+    ButtonOption OPEN_SETUP_BUTTON;
+    BooleanCheckBoxOption ASK_LANGUAGE;
+    BooleanCheckBoxOption ASK_SETUP;
+    BooleanCheckBoxOption ASK_GAME;
+    BooleanCheckBoxOption ASK_PROGRAM;
+    BooleanCheckBoxOption KEEP_SCREEN_ON;
+
+    ButtonOption OPEN_BASE_FOLDER_BUTTON;
+    StringOption STATS_FILE;
+    FolderInputOption TEMP_FOLDER;
+
+    Pimpl<ThemeSelectorOption> THEME;
+    Pimpl<StarterColorOption> STARTER_COLOR;
+    WallpaperOption WALLPAPER;
+    EnumDropdownOption<OcrLibrary> OCR_LIBRARY;
+    StaticTextOption OCR_WARNING;
+    SettingsResourceDownloadTable RESOURCE_DOWNLOAD_TABLE;
+    SettingsDownloadError DOWNLOAD_ERROR;
+    Pimpl<ResolutionOption> WINDOW_SIZE;
+    Pimpl<ResolutionOption> LOG_WINDOW_SIZE;
+    BooleanCheckBoxOption LOG_WINDOW_STARTUP;
+    //  PocketPilot: the short film that plays first when the program starts.
+    BooleanCheckBoxOption PLAY_INTRO;
+
+    Pimpl<KeyboardLayoutOption> KEYBOARD_CONTROLS_LAYOUT;
+
+    Pimpl<DeviceAliasOptions> DEVICE_ALIASES;
+
+    Pimpl<StreamHistoryOption> STREAM_HISTORY;
+    Pimpl<SleepSuppressOptions> SLEEP_SUPPRESS;
+
+    SectionDividerOption m_discord_settings;
+    BooleanCheckBoxOption RICH_PRESENCE;
+    BooleanCheckBoxOption ALL_STATS;
+    Pimpl<Integration::DiscordSettingsOption> DISCORD;
+
+    SectionDividerOption m_advanced_options;
+
+    BooleanCheckBoxOption DUMP_VIDEO_FORMATS;
+    BooleanCheckBoxOption SAVE_DEBUG_IMAGES;
+    BooleanCheckBoxOption SAVE_DEBUG_VIDEOS_ON_SWITCH;
+//    BooleanCheckBoxOption NAUGHTY_MODE_OPTION;
+
+    Pimpl<AudioPipelineOptions> AUDIO_PIPELINE;
+    Pimpl<VideoPipelineOptions> VIDEO_PIPELINE;
+
+    BooleanCheckBoxOption ENABLE_LIFETIME_SANITIZER0;
+
+    Pimpl<ErrorReportOption> ERROR_REPORTS;
+
+    StringOption DEVELOPER_TOKEN;
+
+    // The mode that does not run Qt GUI, but instead runs all the unit tests.
+    // See Tests/CommandLineTests.h.
+    bool COMMAND_LINE_TEST_MODE = false;
+};
+
+
+
+
+
+class GlobalSettingsPanel;
+
+class GlobalSettings_Descriptor : public OptionsPanelDescriptor{
+public:
+    GlobalSettings_Descriptor();
+public:
+    using Wrapper = OptionsPanelWrapper<GlobalSettingsPanel>;
+    static Wrapper& instance();
+};
+
+
+class GlobalSettingsPanel : public OptionsPanelInstance{
+public:
+    using Descriptor = GlobalSettings_Descriptor;
+    GlobalSettingsPanel();
+private:
+    GlobalSettings& settings;
+};
+
+
+
+
+
+
+}
+#endif

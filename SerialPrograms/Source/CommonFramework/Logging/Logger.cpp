@@ -1,0 +1,76 @@
+/*  Logger
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ */
+
+#include <iostream>
+#include "Common/Cpp/Logging/TaggedLogger.h"
+#include "Common/Cpp/Logging/GlobalLogger.h"
+#include "Common/Cpp/Options/BooleanCheckBoxOption.h"
+#include "Logger.h"
+
+namespace PokemonAutomation{
+
+
+Logger& global_logger_tagged(){
+    static TaggedLogger logger(global_logger_raw(), "Global");
+    return logger;
+}
+
+
+// A logger that writes to both the base logger and stdout.
+// Useful for command-line tests.
+class CommandLineLogger : public Logger{
+public:
+    CommandLineLogger(Logger& logger)
+        : m_logger(logger)
+    {}
+
+    virtual void log(const std::string& msg, Color color = Color()) override{
+        printf("%s\n", msg.c_str());
+        std::cout << msg << std::endl;
+        m_logger.log(msg, color);
+    }
+    virtual void log(std::string&& msg, Color color = Color()) override{
+        printf("%s\n", msg.c_str());
+        m_logger.log(std::move(msg), color);
+    }
+    virtual void log(const char* msg, Color color = Color()) override{
+        printf("%s\n", msg);
+        m_logger.log(msg, color);
+    }
+
+private:
+    Logger& m_logger;
+};
+
+
+Logger& global_logger_command_line(){
+    static CommandLineLogger logger(global_logger_raw());
+    return logger;
+}
+
+
+
+
+
+BooleanCheckBoxOption& LOG_EVERYTHING(){
+    static BooleanCheckBoxOption option(
+        "<b>Log Everything:</b><br>Log everything to the output window and output log. Will be very spammy.",
+        LockMode::UNLOCK_WHILE_RUNNING,
+        false
+    );
+    return option;
+}
+
+
+
+
+
+
+
+
+
+
+}

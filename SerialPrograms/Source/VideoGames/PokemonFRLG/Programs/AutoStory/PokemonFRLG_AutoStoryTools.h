@@ -1,0 +1,685 @@
+/*  Pokemon FRLG Autostory Tools
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ *  Building blocks for the Autostory: walking a generated leg (with wild
+ *  and trainer battles on the way), taking warps, getting through
+ *  cutscenes and conversations, healing and saving.
+ *
+ */
+
+#ifndef PokemonAutomation_PokemonFRLG_AutoStoryTools_H
+#define PokemonAutomation_PokemonFRLG_AutoStoryTools_H
+
+#include <stdint.h>
+#include <functional>
+#include <map>
+#include <memory>
+#include <set>
+#include <string>
+#include "Common/Cpp/Color.h"
+#include "Common/Cpp/Time.h"
+#include "Common/Cpp/MemoryUtilization/MemoryUtilization.h"
+#include "CommonFramework/ImageTools/ImageBoxes.h"
+#include "NintendoSwitch/Controllers/NintendoSwitch_ControllerButtons.h"
+#include "PokemonFRLG_AutoStoryScript.h"
+#include "PokemonFRLG_AutoStoryBattle.h"
+#include "PokemonFRLG_AutoStoryScroll.h"
+#include "PokemonFRLG_AutoStoryCollection.h"
+#include "PokemonFRLG_AutoStoryPlaceList.h"
+#include "PokemonFRLG_AutoStoryBoxes.h"
+
+namespace PokemonAutomation{
+
+class ImageViewRGB32;
+template <typename Type> class ControllerContext;
+
+namespace NintendoSwitch{
+
+class ConsoleHandle;
+class ProController;
+using ProControllerContext = ControllerContext<ProController>;
+
+namespace PokemonFRLG{
+
+
+//  Laps for the POKeDEX (StepType::DEX with p2 & 8) under way: the steps of
+//  a lap (walks over water, rocks smashed) are played again and again by the
+//  segment's loop, catching what the table wants of the wild Pokemon on the
+//  way (story_laps_begin(), story_laps_again(), story_laps_end()).
+struct StoryLaps{
+    bool on = false;
+    std::string label;
+    //  The battle settings as they were before the laps.
+    StoryBattleSettings saved;
+    //  What the place is worth laps for, and what is only caught when one
+    //  comes (rare here, more common at another place).
+    std::set<std::string> looked_for;
+    std::set<std::string> in_passing;
+    int idle_limit = 0;         //  battles in a row without a catch
+    int idle = 0;
+    int battles = 0;
+    int laps = 0;
+    size_t caught = 0;
+    WallClock start = WallClock::min();
+    WallClock deadline = WallClock::max();
+    //  The counters at the start of the laps, and of the lap under way.
+    uint64_t new_before = 0;
+    uint64_t marked_before = 0;
+    uint64_t wild_before_lap = 0;
+    uint64_t catches_before_lap = 0;
+    size_t left_before_lap = 0;
+};
+
+
+//  Everything the story steps share while the program runs.
+struct StoryRuntime{
+    StoryRuntime(ConsoleHandle& p_console, ProControllerContext& p_context)
+        : console(p_console)
+        , context(p_context)
+    {}
+
+    ConsoleHandle& console;
+    ProControllerContext& context;
+
+    StoryBattleSettings battle;
+    StoryBattleMemory memory;
+
+    //  After each step on a wild-encounter tile, how long to watch for a
+    //  battle to start before taking the next step.
+    Milliseconds encounter_check = std::chrono::milliseconds(1500);
+    //  Same, in sight of a trainer who turns around (the trainer first
+    //  walks up to the player).
+    Milliseconds trainer_check = std::chrono::milliseconds(2500);
+
+    //  Check on the video how far the player really walked, and make up
+    //  for missing steps.
+    bool verify_walking = true;
+    //  Run (B held) with the Running Shoes where a leg allows it.
+    bool running = false;
+    //  No Rare Candy was found in the bag: not looked for again until one
+    //  is picked up.
+    bool no_rare_candies = false;
+    //  No REVIVE, no FULL RESTORE (or MAX POTION) was found in the bag when
+    //  healing with items: not looked for again in this segment, until
+    //  something is bought or picked up. (A look goes down the whole ITEMS
+    //  pocket, 20 seconds: the League without FULL RESTOREs looked ten times,
+    //  four of them after Lance alone.)
+    bool no_revives = false;
+    bool no_full_restores = false;
+    //  The healing items of the League: how many REVIVEs and how many that
+    //  restore all HP (FULL RESTORE, MAX POTION) the bag has, as far as the
+    //  program knows (-1: not known). Counted from what it buys and uses; a
+    //  look that finds none sets 0. A purchase "up to N" (the League again)
+    //  buys what is missing; not known, it looks in the bag first. The
+    //  count at the last save comes back with a reset.
+    int bag_revives = -1;
+    int bag_restores = -1;
+    int bag_revives_at_save = -1;
+    int bag_restores_at_save = -1;
+    //  StoryBattleMemory::team_down and team_hp at the last save (a reset
+    //  loads them).
+    std::set<int> team_down_at_save;
+    double team_hp_at_save[6] = {-1, -1, -1, -1, -1, -1};
+
+    //  Which way the player faces. DPAD_NONE if not known.
+    DpadPosition facing = DPAD_NONE;
+    //  The last leg ended with a warp, and no other step came since: the
+    //  game set which way the player faces (on a ladder, the way they
+    //  went), and the next leg's start facing has it.
+    bool arrived_by_warp = false;
+    //  The last leg walked was on a dark map (no Flash), and the trainer
+    //  battles before it.
+    bool last_leg_dark = false;
+    uint64_t trainer_battles_before_leg = 0;
+
+    //  The last walked leg ended early: the trainer it went to talk to saw
+    //  the player and came, and the battle is over.
+    bool trainer_came = false;
+    //  Moves of the APPROACH runs: in the leg, and really made.
+    uint16_t approach_total = 0;
+    uint16_t approach_made = 0;
+    //  The last run walked in this leg, and whether it may have ended one
+    //  tile off (the fog on Pokemon Tower 3F to 7F fools the video): -1 one
+    //  too far likely (a battle stopped it where the video could not tell
+    //  how far it got), +1 one short likely (a step back for "one too far",
+    //  or a last move taken as made), 0 not known to be off.
+    DpadPosition last_run_direction = DPAD_NONE;
+    int last_run_off = 0;
+
+    //  The team for the Elite Four (party slot order), by starter. Copied
+    //  into "battle.team" for the battles the whole team fights.
+    std::vector<StoryTeamMember> team;
+    //  The lead's types (the starter's), while a member trains in front.
+    AutoStoryDex::Type lead_type1 = AutoStoryDex::Type::NORMAL;
+    AutoStoryDex::Type lead_type2 = AutoStoryDex::Type::NORMAL;
+
+    //  Team members caught (species slugs): in this run, and at the last
+    //  save (a reset goes back to that).
+    std::set<std::string> caught;
+    std::set<std::string> caught_at_save;
+
+    //  For the POKeDEX (StepType::DEX): the step is in the Safari Zone; the
+    //  Safari Game ended (the PA's "Time's up!", or out of SAFARI BALLs);
+    //  no ball was left for a wanted species. Species caught that were new
+    //  to the POKeDEX.
+    bool in_safari = false;
+    bool safari_over = false;
+    int safari_balls_used = 0;      //  of the 30 SAFARI BALLs
+    bool no_balls = false;
+    //  The POKeDEX collection (chapter 20) is short of something: a Safari
+    //  Game was not joined (500, and the attendant sent the player back),
+    //  or no ball was left for a wanted species at a place outside the
+    //  Safari Zone. Until the money trip (the segment with REMATCH) has
+    //  brought prize money and balls, the places that need what is short
+    //  are skipped; while that trip can still be made ("money_trip_open",
+    //  set by the program's loop), all places are, and the trip comes
+    //  first.
+    bool short_of_money = false;
+    bool short_of_balls = false;
+    bool money_trip_open = false;
+    //  Battles won on the money trip under way (StepType::REMATCH), and at
+    //  the last save (a reset goes back to that: the prize money of the
+    //  battles since is gone with it). What the trip buys goes by them.
+    int trip_wins = 0;
+    int trip_wins_at_save = 0;
+    uint64_t dex_new = 0;
+    //  Species dropped from the list of a DEX step because the game showed
+    //  the ball mark (caught before, the program did not know).
+    uint64_t dex_owned_by_mark = 0;
+    //  Pokemon caught for the POKeDEX (a DEX step's list, extra ones to
+    //  evolve included).
+    uint64_t dex_catches = 0;
+    //  Visits of a place made for the POKeDEX (DEX steps that went on to
+    //  catch: something was wanted there).
+    uint64_t dex_visits = 0;
+    //  The POKeDEX table (the program's option): what is caught, what is
+    //  still wanted in the chosen game. Not null while the program runs.
+    StoryCollectionTable* collection = nullptr;
+    //  Its counts at the last save (a reset goes back to them).
+    std::map<std::string, StoryCollectionCount> collection_at_save;
+    //  Said once in a run: the table is far behind the game's own count.
+    bool warned_table_behind = false;
+    //  The places of the POKeDEX collection (the DEX steps that catch for
+    //  the table), in the table's game: how often each species comes, of
+    //  100 wild Pokemon, at the place where it comes most. A place is worth
+    //  staying at for a species that comes there at least half as often as
+    //  that, or 1 in 10 (story_place_wanted()).
+    std::map<std::string, int> collect_best;
+    //  The option "Shiny only" of the collection (chapter 20): only shiny
+    //  Pokemon of the species the table wants are caught, and a visit of a
+    //  place lasts "collect_shiny_minutes".
+    bool collect_shiny = false;
+    int collect_shiny_minutes = 60;
+    //  The option "Catch shiny Pokemon": shiny Pokemon of any species. (The
+    //  shiny watch also listens for "Shiny only".)
+    bool catch_shinies = true;
+    //  A DEX step catching for the table (StepType::DEX, p2 & 2).
+    bool collecting = false;
+    //  Laps for the table under way (StepType::DEX, p2 & 8).
+    StoryLaps laps;
+    //  Fishing rods (0 OLD ROD, 1 GOOD ROD, 2 SUPER ROD) the bag is known
+    //  to have: seen there by a look, or by a cast. At the last save (a
+    //  reset goes back to that: a rod got since is gone with it). And rods
+    //  a look did not find when a place wanted to fish with them: those
+    //  places are left out until the way to the rod has been gone again.
+    std::set<int> rods_in_bag;
+    std::set<int> rods_in_bag_at_save;
+    std::set<int> rods_missing;
+    //  The trip to a place of the collection (or the way to a fishing rod)
+    //  that is under way: its place (story_trip_place(); "" = none), the
+    //  last of its steps in the segment, and whether the place is fished
+    //  at. A failure with a trip under way counts for its place ("places":
+    //  failures in a row, which a trip that ends well clears; after
+    //  STORY_PLACE_FAILURES of them the place is left out for the rest of
+    //  the run).
+    std::string trip_place;
+    size_t trip_last = 0;
+    bool trip_fishing = false;
+    StoryPlaceFailures places;
+    //  The PC's boxes as the program read them last in this run
+    //  (StepType::BOXES, PokemonFRLG_AutoStoryBoxes.h), and the catches
+    //  for the POKeDEX it had made by then: with more since, the boxes are
+    //  read again when the story comes by. "boxes_read": read, every box
+    //  once (one whose round did not close is read again). "boxes_readings":
+    //  how many times a list was taken, whatever came after it.
+    AutoStoryBoxes::BoxCensus boxes;
+    bool boxes_read = false;
+    uint64_t boxes_catches = 0;
+    uint64_t boxes_readings = 0;
+    //  The list is in "boxes" (read in this run, or taken from the file of
+    //  an earlier one: what it says of a cell is read again on the screen
+    //  before anything is pressed there).
+    bool boxes_known = false;
+    //  The list as the game has it at its last save: back to it when the
+    //  game is reset (build 36).
+    AutoStoryBoxes::BoxCensus boxes_at_save;
+    //  A Pokemon of a box that is in the party's sixth place for a while
+    //  (StepType::BOX_OUT to BOX_IN, never across a save): the cell the
+    //  party's own sixth one waits in, what that one is, what was taken
+    //  out, and what the sixth place holds now (the same, or what a trade
+    //  gave for it).
+    int out_box = -1;
+    int out_cell = -1;
+    std::string out_extra;
+    std::string out_give;
+    std::string out_now;
+    //  Evolving by level (build 43): the same, but across saves (the
+    //  training heals at a nurse, which saves). What it evolves into and the
+    //  level it is trained to; the rest is in out_*. Kept in a file as well
+    //  (AutoStoryBoxes::RaiseFile), for a program started again from such a
+    //  save. out_box < 0: no training under way.
+    std::string out_becomes;
+    int out_goal = 0;
+    //  HITMONTOP by vitamins (build 57): which Pokemon of the boxes the
+    //  vitamins were used on ("box:cell"), how many of each, and whether the
+    //  aim is done for it (kept for the run only: a program started again
+    //  from a save in the middle of it aims again, from what it reads).
+    std::string aim_key;
+    int aim_protein = 0;
+    int aim_iron = 0;
+    bool aim_done = false;
+    //  The Celadon Game Corner (build 57, experimental): what the coins
+    //  window showed last (-1: not read), whether the reading was confirmed
+    //  (by a pack's size, or by the same number twice in a row) or found
+    //  wrong, and how many games with the bet of one COIN the last look at the
+    //  clerk asks for (to bring the COINS to 49 modulo 50).
+    int coins_seen = -1;
+    bool coins_reader_sure = false;
+    bool coins_reader_bad = false;
+    int coins_games = 0;
+    //  (Build 62) Pictures of the video saved by story_save_picture() in this
+    //  run: at most a few dozen, so that a loop that fails over and over does not
+    //  fill the disk.
+    int pictures_saved = 0;
+    //  (Build 62) The leg under way is on a map without wild Pokemon in the
+    //  game's data (Navel Rock, Birth Island): no battle can take the place of
+    //  a warp there.
+    bool no_wild_here = false;
+    //  Evolving by friendship (build 45): the training under way is the one
+    //  of a Pokemon that is walked with first (StepType::PACE), then trained
+    //  a level. What was walked with each species (the steps are counted in
+    //  blocks of 128), by its slug: as the game has it at its last save
+    //  ("friend_at_save": back to it when the game is reset), and as a file
+    //  of its own (AutoStoryBoxes::FriendRecords), read once in a run.
+    bool out_friend = false;
+    AutoStoryBoxes::FriendRecords friend_records;
+    AutoStoryBoxes::FriendRecords friend_at_save;
+    bool friend_known = false;
+    //  A trade may have been made before (by hand, or in a run whose list of
+    //  the boxes was not kept): while StepType::BOX_OUT looks at its cell,
+    //  "out_watch" is the species the segment's trade gives. If the cell
+    //  holds that one, "out_made_before" is set, with its level.
+    std::string out_watch;
+    bool out_made_before = false;
+    int out_made_level = -1;
+    //  An egg (build 47, experimental; StepType::EGG_ROOM to EGG_BACK, never
+    //  across a save): the Pokemon of the party's sixth place that was put
+    //  into an empty cell of the boxes to make room, the cell, and how many
+    //  Pokemon the party had then (0: nothing was put away, the party's size
+    //  is not known).
+    int egg_box = -1;
+    int egg_cell = -1;
+    std::string egg_extra;
+    int egg_party = 0;
+    //  What hatched (StepType::HATCH), for EGG_BACK.
+    std::string egg_hatched;
+    //  The Day Care (build 48, experimental; StepType::DAYCARE_OUT to
+    //  DAYCARE_END, never across a save): the species that is bred, the two
+    //  parents (the party's fifth and sixth place), the size of the party with
+    //  the parents at the Day Care (the team), whether they were given to the
+    //  woman, and whether the egg was taken.
+    std::string dc_baby;
+    std::string dc_parents[2];
+    int dc_party = 0;
+    bool dc_given = false;
+    bool dc_egg = false;
+    //  Build 54 (experimental): the baby of a team member's line (EEVEE: the
+    //  gift became the team's VAPOREON / JOLTEON / FLAREON, the only one of
+    //  its line there is): the party slot (1-4) it came from, 0 when the
+    //  parents came out of the boxes. The place was changed with the party's
+    //  fifth or sixth one before the trip, and is changed back after it.
+    int dc_team_slot = 0;
+    //  Evolution stones (build 35), by their names in the POKeDEX table
+    //  ("Moon Stone"): seen in the bag in this run (at least one), and not
+    //  to be had (not in the bag and not sold, or not there after buying).
+    std::set<std::string> stones_in_bag;
+    std::set<std::string> stones_out;
+    //  The segment that fetches one stone (build 41): only that stone counts
+    //  (story_stone_targets()), from its check to its PC step. Empty: all.
+    std::string stones_only;
+    //  The scene of a gift (CUTSCENE with p4 = 1): its texts are read, and
+    //  one of them told of a Pokemon handed over ("received", "nickname",
+    //  "transferred"), or its YES/NO box came up (the nickname).
+    bool gift_watch = false;
+    bool gift_seen = false;
+    //  The last TALK_YES whose question may not come (p0 & 1) found text
+    //  and no question: what it gives was given before.
+    bool given_before = false;
+
+    //  The POKeDEX as the game counts it: the caught species on the load
+    //  menu ("POKeDEX", read at each soft reset; -1: not read), and the
+    //  species caught since that load that were new to the POKeDEX.
+    int dex_count_at_load = -1;
+    std::set<std::string> dex_new_since_load;
+
+    //  Walks done since the program started, and the leg of the walk going
+    //  on (-1: none). The first walk failing tells that the save is
+    //  probably not where the start step expects the player.
+    uint64_t walks_done = 0;
+    int32_t walking_leg = -1;
+
+    //  A talk went to where the one talked to may stand instead, one step
+    //  aside: the step to take back before the route goes on (DPAD_NONE:
+    //  none).
+    DpadPosition talk_alt_back = DPAD_NONE;
+
+    //  Set when the lead fainted since the last heal.
+    bool lead_fainted = false;
+    //  The last battle was lost: the player whited out and is at the last
+    //  Pokemon Center, healed (set before the reload exception).
+    bool whited_out = false;
+    //  A legendary Pokemon was not caught (the step fails, the save before
+    //  it is loaded): such a failure counts against its own limit.
+    bool legendary_missed = false;
+    //  Legendary Pokemon left where they are for now (their step's label):
+    //  the bag had too few balls, or the tries ran out, and the story comes
+    //  back for them (BATTLE with p2 & 4). Those talk and battle steps are
+    //  passed over; the steps of the way back (SKIP_UNLESS_LEFT) are played,
+    //  and a catch there takes the Pokemon off the list. Written to a file
+    //  at each save (UserSettings/PokemonFRLG-AutoStory-Left.txt), read at
+    //  the start. "legendary_can_wait": the one of the step that just
+    //  failed, if the story comes back for it; "legendary_left_now": it was
+    //  put on the list by that failure.
+    std::set<std::string> legendary_left;
+    std::string legendary_can_wait;
+    bool legendary_left_now = false;
+    //  A legendary Pokemon was caught: the team is worn out from it, so
+    //  wild battles are run from until the next Pokemon Center.
+    bool flee_until_heal = false;
+
+    //  Shiny Pokemon are caught: listens for the shiny sound (null: off).
+    std::unique_ptr<StoryShinyWatch> shiny_watch;
+    bool warned_no_sound = false;
+    uint64_t shinies = 0;
+    uint64_t shinies_caught = 0;
+    //  A shiny was caught since the last save (a reset loses it).
+    bool shiny_unsaved = false;
+    //  Shinies in the party besides the team (in this run, and at the last
+    //  save). They join at the end of the party, so a team member that joins
+    //  after them is behind them: story_fix_party_order() puts the team back
+    //  in its party slots (the steps use the slots). "party_order_final":
+    //  the whole team was found in its slots, nothing changes that any more.
+    int party_extras = 0;
+    int party_extras_at_save = 0;
+    bool party_order_final = false;
+    bool party_order_final_at_save = false;
+
+    //  Save the game after every heal at a Pokemon Center.
+    bool save_after_heal = true;
+
+    //  Where the program is in the story, set for each step.
+    std::string segment_id;
+    size_t segment_steps = 0;       //  Steps of the running segment.
+    std::string next_segment_id;    //  The segment after it ("" if none).
+    bool has_dex = true;            //  The start menu has the POKeDEX entry.
+    size_t step_index = 0;          //  The running step, in its segment.
+    bool next_is_save = false;      //  The next step saves anyway.
+
+    //  Set when the game was saved in the running segment: the step (in
+    //  this segment) to continue from after a reset. SIZE_MAX if not.
+    size_t resume_at = (size_t)-1;
+    //  Called after each save with where to go on from it (the segment
+    //  and its step, counted from 1).
+    std::function<void(const std::string& segment_id, size_t step)> on_saved;
+
+    //  Experimental (the option "Progress on the video"): the main events
+    //  of the run (the step, each battle's result, a level, a heal, a save,
+    //  a retry) also go to the log shown on the video: story_note().
+    bool overlay_notes = false;
+    //  Experimental (the option "Shorter looks in the grass"): after a run
+    //  along the grass that the video saw end as asked, the look for a
+    //  battle starting ends once the screen has not changed for a moment,
+    //  instead of after "encounter_check" (story_grass_run()). How many
+    //  looks there were after such runs, how many of them ended early, and
+    //  how long those took together.
+    bool short_grass_look = false;
+    uint64_t grass_looks = 0;
+    uint64_t grass_looks_short = 0;
+    uint64_t grass_looks_short_ms = 0;
+    //  Not a run of the story (the Level Trainer): a save is just a save,
+    //  there is no segment and step to go on from.
+    bool standalone = false;
+    //  Called after each battle that took place, the counters up to date:
+    //  for statistics shown while a long step (training) runs.
+    std::function<void()> on_battle;
+
+    //  Memory use of the program, logged now and then.
+    WallClock last_memory_log = WallClock::min();
+
+    uint64_t steps = 0;
+    uint64_t wild_battles = 0;
+    uint64_t trainer_battles = 0;
+    //  The screen looked like a battle starting, but none came (a fade: a
+    //  warp, or the end of the last battle).
+    uint64_t false_battles = 0;
+};
+
+
+//  With StoryRuntime::overlay_notes: a line in the log on the video. Only
+//  for the main events; the program's own log gets everything as before.
+void story_note(StoryRuntime& rt, const std::string& text, Color color = COLOR_WHITE);
+
+//  What "Faster battles" (StoryBattleSettings::fast_end) did so far, as one
+//  line for the log: logged at each save and at the end of a run.
+std::string story_fast_end_summary(const StoryRuntime& rt);
+
+//  What "Shorter looks in the grass" (StoryRuntime::short_grass_look) did so
+//  far, likewise.
+std::string story_grass_look_summary(const StoryRuntime& rt);
+
+
+//  Run a battle that just started (or is about to start). Updates the
+//  counters. If "throw_on_loss" and the party fainted, throws an
+//  OperationFailedException so the program reloads the last save.
+StoryBattleResult story_battle(
+    StoryRuntime& rt, StoryBattleKind kind, const std::string& where,
+    bool throw_on_loss = true
+);
+
+
+//  The species of a catch step ("a,b,c"; of a place, "a:20:5,b:10:10": the
+//  names).
+std::set<std::string> story_species_list(const char* text);
+
+//  A place of the POKeDEX collection (a DEX step that catches for the
+//  table), as the table has it now (PokemonFRLG_AutoStoryPlaceList.h).
+struct StoryPlaceWanted{
+    //  What comes there in the table's game and can be caught for it, with
+    //  how often of 100.
+    std::map<std::string, int> here;
+    //  Of those, what the table still wants.
+    std::set<std::string> wanted;
+    //  Of the wanted: the ones the place is worth a visit and a wait for
+    //  (they come there 1 in 10 or more, or at least half as often as at
+    //  the best place of the collection) ...
+    std::set<std::string> looked_for;
+    //  ... and the ones that are rare there and much more common at another
+    //  place: caught when one comes, not waited for. (Route 16 on 15
+    //  November: 35 battles and 18 minutes for a RATICATE, 1 in 20 there
+    //  and 3 in 10 in the Pokemon Mansion and on Route 18.)
+    std::set<std::string> in_passing;
+};
+StoryPlaceWanted story_place_wanted(const StoryRuntime& rt, const StoryStep& step);
+
+
+//  Walk one generated leg. Handles wild battles and turning trainers on the
+//  way. Each straight run is checked on the video (verify_walking): missing
+//  steps are made again, steps too many walked back. For a warp leg,
+//  returns once the new map has faded in (and its area picture is gone).
+//  For an interact leg, returns facing the target. For a trigger leg,
+//  returns standing on the trigger (a scene starts).
+void walk_leg(StoryRuntime& rt, const StoryScript& script, int32_t leg_index);
+
+//  One step, whichever way the player faces. "surf" for 8-frame steps.
+void story_single_step(StoryRuntime& rt, DpadPosition direction, bool surf = false);
+
+//  "moves" steps straight on wild-encounter tiles as one held input (a
+//  training spot's grass line), then watch for a battle as after a single
+//  step. A battle on the way stops the player: it is run. "made": the moves
+//  made, as far as the video saw (or as timed); "sure": the video counted
+//  them and nothing stopped the run.
+StoryBattleResult story_grass_run(
+    StoryRuntime& rt, DpadPosition direction, int moves,
+    StoryBattleKind wild_kind, const std::string& where, bool throw_on_loss,
+    int& made, bool& sure, bool run = false
+);
+
+//  One step on a wild-encounter tile, then watch for a battle (and run it).
+//  Returns the battle result, or NO_BATTLE.
+//  A step the video sees not happen is taken again. With "moved": after a
+//  few tries it is given up, and "moved" says so (false); without, the
+//  program stops.
+StoryBattleResult story_checked_step(
+    StoryRuntime& rt, DpadPosition direction, bool surf, bool trainer,
+    StoryBattleKind wild_kind, const std::string& where,
+    bool throw_on_loss = true, bool* moved = nullptr
+);
+
+//  Turn to face "direction" without walking.
+void story_face(StoryRuntime& rt, DpadPosition direction);
+
+//  With the video check: a picture of the map around the player, once the
+//  screen stands still, to tell later where the player stands compared to
+//  now. False without the video check.
+bool story_take_picture(StoryRuntime& rt, AutoStoryScroll::Screen& picture);
+
+//  Where the player stands now compared to when "picture" was taken, in
+//  tiles (x to the right, y down), up to "max_tiles" away. False if the
+//  video does not tell clearly (a text box, someone in the way, too far),
+//  or without the video check. "now": the picture taken for this.
+bool story_offset_from(
+    StoryRuntime& rt, const AutoStoryScroll::Screen& picture, const std::string& where,
+    int& dx, int& dy, AutoStoryScroll::Screen& now, int max_tiles = 3
+);
+
+
+//  Get through a scene: B advances the text, YES/NO questions are answered
+//  as asked (nickname questions always NO). Ends when the player can move
+//  again (at least "min_time" after the start). Returns true if a battle
+//  started instead (the caller runs it).
+bool story_cutscene(
+    StoryRuntime& rt,
+    Milliseconds min_time, Milliseconds max_time,
+    bool answer_yes, const std::string& what
+);
+
+//  Press A to talk to whatever the player faces, until a text box (or a
+//  battle) shows up.
+//  Where the one talked to may stand instead (a TALK step with p2 = 1):
+//  without a text box, one step "move" (none: from here), turn to "face",
+//  talk again.
+struct StoryTalkAlt{
+    bool on = false;
+    DpadPosition move = DPAD_NONE;
+    DpadPosition face = DPAD_NONE;
+};
+//  "may_be_gone": an item ball on the way that the player may have picked
+//  up by hand: one A, and no text is fine (false, the player stays put).
+//  "patience": the one talked to walks around, and the player faces a tile
+//  it comes by: A there again and again, without turning (a turn toward a
+//  free tile is a step), for that many seconds at most.
+bool story_talk_start(
+    StoryRuntime& rt, const std::string& what, const StoryTalkAlt& alt = StoryTalkAlt(),
+    bool may_be_gone = false, int patience = 0
+);
+
+//  Press A to talk, read until the YES/NO box and answer it.
+//  "may_be_given": the question may not come (what it gives was given
+//  before, and a line of text says so): that text is closed, false.
+bool story_talk_answer(
+    StoryRuntime& rt, bool yes, const std::string& what, const StoryTalkAlt& alt = StoryTalkAlt(),
+    bool may_be_given = false, int patience = 0
+);
+
+//  Talk to the nurse in front of the player (across the counter) and heal.
+//  Then save (unless the next step saves anyway). "mid_step": the running
+//  step goes on afterwards and starts from here again after a reset
+//  (training); otherwise a reset continues with the next step.
+void story_heal(StoryRuntime& rt, const std::string& where, bool mid_step = false);
+
+//  The game was just saved: after a reset the story continues from step
+//  "resume_at" of the running segment. Logs where to start the program to
+//  go on from this save, and stops the program here if it uses so much
+//  memory that it could crash soon.
+void story_saved(StoryRuntime& rt, size_t resume_at);
+
+//  Pokemon Automation's memory use is high enough to crash before long (it
+//  grows over hours). At the start of a run: stop at once if it is already.
+bool story_memory_too_high(const MemoryUsage& memory);
+void story_check_memory_at_start(StoryRuntime& rt);
+
+//  Log the memory the program uses (every few minutes, or now if "force").
+void story_log_memory(StoryRuntime& rt, bool force = false);
+
+//  The memory test (the option, PokemonFRLG_AutoStoryMemoryTest.cpp): no
+//  buttons, "minutes" for each part, the memory growth of each. The memory
+//  grows only while the program runs, with the pictures of the video; each
+//  part turns the video frames into pictures in another way, to find the
+//  one that grows it.
+void story_memory_test(ConsoleHandle& console, ProControllerContext& context, uint16_t minutes);
+
+//  Save from the overworld. "has_pokedex" picks the start menu layout.
+//  has_pokemon: false only before the first Pokemon (the start menu then
+//  has no POKeMON entry either).
+void story_save(StoryRuntime& rt, bool has_pokedex, bool has_pokemon = true);
+
+//  Soft reset to the last save. On the load menu, the number of species
+//  caught ("POKeDEX") is read into rt.dex_count_at_load.
+void story_soft_reset(StoryRuntime& rt);
+
+//  The "POKeDEX" number of the load menu (the species caught: Kanto, or
+//  National once the National POKeDEX is on). -1 if it does not show (no
+//  POKeDEX yet, not the load menu) or is not read for sure.
+int read_load_menu_dex_count(const ImageViewRGB32& screen);
+
+//  The first rival battle (Oak explains the battle, so most detectors are
+//  confused): use the first move until someone faints.
+bool story_scripted_battle(StoryRuntime& rt, const std::string& opponent);
+
+
+//  The text of the overworld text box (bottom of the screen), lower case.
+std::string story_read_dialog(StoryRuntime& rt);
+
+//  The same for what someone says there (blue or red text, which
+//  story_read_dialog() does not see). For the log.
+std::string story_read_people(StoryRuntime& rt);
+
+//  A text box on the way that is "REPEL's effect wore off...": closed, and
+//  true (the walk goes on). False for anything else (a trainer...).
+//  (Rarely seen: the game itself closes that box on the next press of the
+//  d-pad in another direction than the last talk's, WaitForAorBPress() in
+//  scrcmd.c, and the walk goes on. No run of the story ever logged it. So
+//  where a REPEL ends is counted by the generator, story.py: repel_plan().)
+bool story_close_repel_text(StoryRuntime& rt);
+
+//  Close menus and text boxes until the player can move.
+void story_back_to_overworld(StoryRuntime& rt, const std::string& where);
+
+//  (Build 62) Save the picture on the video now as a PNG in the folder of the
+//  error pictures (ERROR_PATH()), named after the time and "label", and say where
+//  in the log (orange). For what the program cannot see by itself: where a
+//  failure comes from can be read on the picture, not in the log. Nothing
+//  happens beyond 40 pictures in a run, or without a picture.
+void story_save_picture(StoryRuntime& rt, const std::string& label);
+
+//  After a scene that takes the player out of a small building (the Safari
+//  Zone's desk): is the player still in it? (Black at both sides of the
+//  game's picture: PokemonFRLG_AutoStorySmallRoom.h.)
+bool story_still_in_small_room(StoryRuntime& rt, const std::string& what);
+
+
+}
+}
+}
+#endif

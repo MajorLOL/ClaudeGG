@@ -1,0 +1,64 @@
+/*  Group Option
+ *
+ *  From: https://github.com/PokemonAutomation/
+ *
+ */
+
+#ifndef PokemonAutomation_Options_GroupOption_H
+#define PokemonAutomation_Options_GroupOption_H
+
+#include "Common/Cpp/Containers/Pimpl.h"
+#include "BatchOption.h"
+
+namespace PokemonAutomation{
+
+
+class GroupOption : public UiState<GroupOption, BatchOption>{
+public:
+    enum class EnableMode{
+        ALWAYS_ENABLED,
+        DEFAULT_DISABLED,
+        DEFAULT_ENABLED,
+    };
+
+    ~GroupOption();
+    GroupOption(
+        std::string label,
+        LockMode lock_while_program_is_running,
+        EnableMode enable_mode = EnableMode::ALWAYS_ENABLED,
+        bool show_restore_defaults_button = false,
+        bool default_expanded = true
+    );
+
+    const std::string label() const;
+
+    bool toggleable() const;
+    bool default_expanded() const;
+
+    bool enabled() const;
+    void set_enabled(bool enabled);
+
+    bool restore_defaults_button_enabled() const;
+
+
+public:
+    virtual void restore_defaults() override;
+    virtual JsonValue to_json() const override;
+    virtual void load_json(const JsonValue& json) override;
+
+
+public:
+    //  Callbacks
+    virtual void on_set_enabled(bool enabled);
+
+
+private:
+    struct Data;
+    Pimpl<Data> m_data;
+};
+
+
+
+
+}
+#endif
