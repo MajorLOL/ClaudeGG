@@ -705,6 +705,43 @@ jobs:
           }
           Write-Host "The installations test passed."
 
+      #  Pokemon Automation's own tests (its repository CommandLineTests, pinned
+      #  by its commit), run by the program itself with --command-line-test-mode,
+      #  as its own workflow does. For now they may fail without failing the
+      #  build (continue-on-error): this fork's changes have not been through
+      #  them before, so the first runs show what they say. The program finds
+      #  the test repository by walking up from its folder, so it is checked
+      #  out next to Arduino-Source, and the OCR model goes where the program
+      #  looks for downloadable resources: bin/DownloadedResources.
+      - name: Checkout CommandLineTests
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          repository: 'PokemonAutomation/CommandLineTests'
+          ref: 'dd7363a71b3293f2acbe4962013f5f71bd717cde'  # master on 26 November 2026; move it on purpose
+          path: 'CommandLineTests'
+
+      - name: Pokemon Automation's tests
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $bin = (Resolve-Path "Arduino-Source/SerialPrograms/bin").Path
+          $res = "$bin/DownloadedResources/PaddleOCRDetection"
+          New-Item -ItemType Directory -Force -Path $res | Out-Null
+          Expand-Archive -Path "Arduino-Source/Packages/DownloadedResources/PaddleOCRDetection.zip" -DestinationPath $res -Force
+          $process = Start-Process -FilePath "$bin/RelWithDebInfo/ClaudeGG.exe" -WorkingDirectory $bin -ArgumentList "--command-line-test-mode" -NoNewWindow -PassThru
+          $handle = $process.Handle
+          if ($process.WaitForExit(1200000)) {
+            $code = $process.ExitCode
+          } else {
+            $process.Kill()
+            $code = -1
+            Write-Host "The tests did not finish within 20 minutes and were stopped."
+          }
+          Write-Host "Pokemon Automation's tests: exit code $code."
+          if ($code -ne 0) {
+            throw "Pokemon Automation's tests failed (exit code $code): see the lines above."
+          }
+
       #  Also for a build that failed the interface test: to look at.
       - name: Upload artifact
         if: success() || failure()
