@@ -22,10 +22,15 @@ do is the list of the endpoints below, and the arguments are checked before an `
     POST /v1/text    {text: "..."}      letters, digits and . , _ @ : / + - and spaces
     POST /v1/wake                       wakes the screen
     GET  /v1/bot?lines=40               the Pokemon GO bot (gamebot.py, installed in the home folder as the service
-                                        spin-stop): installed, running, its options, the end of its log
-    POST /v1/bot/start {options, throw_target, daily_time, daily_max_min, daily_now}
+                                        spin-stop): installed, running, its options, the end of its log, the
+                                        GO Battle League matches of today, and the test that runs or ran last
+    POST /v1/bot/start {options, throw_target, daily_time, daily_max_min, daily_now,
+                        battle_app, battle_league, battle_count}
                                         sets what is asked in the bot's control file and starts it
     POST /v1/bot/stop                   stops it
+    GET  /v1/bot/tests                  the parts of the bot that can be run on their own (its chapters.py)
+    POST /v1/bot/test {key, options...} stops the bot and runs one part of it, as /v1/bot/start sets it
+    POST /v1/bot/test/stop              ends that test
 
 Only the standard library is used, so it runs on the Pi as it is. Part of Claude GG
 (https://github.com/MajorLOL/ClaudeGG); MIT license like the rest of this folder.
@@ -33,6 +38,7 @@ Only the standard library is used, so it runs on the Pi as it is. Part of Claude
 
 import argparse
 import hmac
+import importlib.util
 import json
 import os
 import re
@@ -68,9 +74,19 @@ BOT_SERVICE = "spin-stop"
 BOT_SWITCHES = (
     "spin", "catch", "gifts_open", "gifts_send", "daily_cycle", "curveball", "fast_catch",
     "spin_only_when_full", "close_when_full", "rocket_fight", "quests", "bag_clean", "buddy",
-    "fast_look", "heat_pause", "live_look",
+    "fast_look", "heat_pause", "live_look", "battle", "battle_give_up", "teams_weekly",
 )
-BOT_SWITCHES_OFF = ("curveball", "buddy", "fast_catch")      #  the ones that start unticked in the bot's web interface
+#  The ones that start unticked (as the bot itself reads a switch that was never set).
+BOT_SWITCHES_OFF = ("curveball", "buddy", "fast_catch", "battle", "teams_weekly")
+#  GO Battle League: the app (empty: the Play Store one), the league as the game names it, battles per run.
+BOT_BATTLE_APP = re.compile(r"^(|com\.nianticlabs\.pokemongo[A-Za-z0-9._]{0,60})$")
+BOT_BATTLE_LEAGUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 '\-]{0,39}$")
+BOT_BATTLE_COUNT = (1, 50)
+BOT_CHAPTER_KEY = re.compile(r"^[a-z][a-z_]{0,29}$")
+BOT_TEST_STOP_WAIT = 20          #  seconds the service has to stop before a test begins
+BOT_BATTLE_DONE = re.compile(r"battle: battle \d+ done: (win|loss)( \(given up\))?")
+BOT_BATTLE_SET = re.compile(r"battle: \d+ battle\(s\) in '([^']*)'")
+BOT_TEST_DONE = r"TEST %s: (done|failed) - (.*)$"
 BOT_THROW_TARGETS = ("realistic", "off", "nice", "great", "excellent")
 BOT_LOG_LINES = (1, 200, 40)
 BOT_DAILY_TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
@@ -423,11 +439,15 @@ class Bot:
     reads its switches from ~/gamebot_control.json. `home` is where its files are (the home folder of the
     user of the agent), `systemctl` the command that starts and stops services."""
 
-    def __init__(self, home=None, systemctl=("sudo", "-n", "/usr/bin/systemctl"), status=("systemctl",)):
+    def __init__(self, home=None, systemctl=("sudo", "-n", "/usr/bin/systemctl"), status=("systemctl",), python=None):
         self.home = home or os.path.expanduser("~")
         self.systemctl = list(systemctl)
         self.status = list(status)
+        #  The python that runs a test of the bot: the one of its environment (a test puts another here).
+        self.python = list(python) if python else None
         self.lock = threading.Lock()
+        self.test = {"key": "", "title": "", "proc": None, "t0": 0.0, "end": 0.0, "ok": None, "result": ""}
+        self._chapters = (None, [])
 
     def _path(self, name):
         return os.path.join(self.home, name)
@@ -469,8 +489,79 @@ class Bot:
             "throw_target": control.get("throw_target", "realistic"),
             "daily_time": control.get("daily_time", "08:00"),
             "daily_max_min": control.get("daily_max_min", 480),
+            "battle_app": control.get("battle_app", ""),
+            "battle_league": control.get("battle_league", "Great League"),
+            "battle_count": control.get("battle_count", 5),
+            "battles": self.battles(),
+            "test": self.test_state(),
             "log": self.log_lines(lines),
         }
+
+    def battles(self):
+        """The GO Battle League matches of today, as the bot's log tells them: how many were won and lost, and
+        the last twenty (time, league, result, whether it was given up). 'Reset' of the bot's web interface
+        counts from that moment on, here too."""
+        today = time.strftime("%Y-%m-%d")
+        since = ""
+        try:
+            with open(self._path("battle_count_reset.json"), "r", encoding="utf-8") as handle:
+                since = str(json.load(handle).get("at", ""))
+        except (OSError, ValueError, AttributeError):
+            pass
+        won = lost = 0
+        done = []
+        league = ""
+        try:
+            with open(self._path("spin.log"), "rb") as handle:
+                handle.seek(0, 2)
+                handle.seek(max(handle.tell() - 2000000, 0))
+                lines = handle.read().decode("utf-8", errors="ignore").splitlines()
+        except OSError:
+            lines = []
+        for line in lines:
+            if not line.startswith(today):
+                continue
+            found = BOT_BATTLE_SET.search(line)
+            if found:
+                league = found.group(1)
+            found = BOT_BATTLE_DONE.search(line)
+            if found and (not since or line[:19] > since):
+                if found.group(1) == "win":
+                    won += 1
+                else:
+                    lost += 1
+                done.append({"time": line[11:16], "league": league, "result": found.group(1), "gave_up": bool(found.group(2))})
+        return {"won": won, "lost": lost, "list": done[-20:]}
+
+    def chapters(self):
+        """The parts of the bot that can be run on their own, [{key, group, title, start, what}], from the
+        bot's own chapters.py (read again when that file changes)."""
+        path = self._path("chapters.py")
+        try:
+            stamp = os.stat(path).st_mtime
+        except OSError:
+            return []
+        if self._chapters[0] != stamp:
+            try:
+                spec = importlib.util.spec_from_file_location("claudegg_bot_chapters", path)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                found = [dict(c) for c in module.as_list()]
+            except Exception:  # noqa: BLE001 - a file that cannot be read gives no tests
+                found = []
+            self._chapters = (stamp, found)
+        return self._chapters[1]
+
+    def _test_running(self):
+        #  Until what the test said of itself is read (end is set last), it has not ended for the caller.
+        return self.test["proc"] is not None and self.test["end"] == 0.0
+
+    def test_state(self):
+        running = self._test_running()
+        began = self.test["t0"]
+        seconds = int((time.time() if running else (self.test["end"] or time.time())) - began) if began else 0
+        return {"key": self.test["key"], "title": self.test["title"], "running": running,
+                "ok": None if running else self.test["ok"], "result": self.test["result"], "seconds": seconds}
 
     @staticmethod
     def _checked(body):
@@ -496,6 +587,16 @@ class Bot:
             wanted["daily_time"] = body["daily_time"]
         if "daily_max_min" in body:
             wanted["daily_max_min"] = Phone._int(body["daily_max_min"], "daily_max_min", 5, 1440)
+        if "battle_app" in body:
+            if not isinstance(body["battle_app"], str) or not BOT_BATTLE_APP.match(body["battle_app"]):
+                raise AgentError(400, "battle_app must be empty (the Play Store app) or a Pokemon GO package")
+            wanted["battle_app"] = body["battle_app"]
+        if "battle_league" in body:
+            if not isinstance(body["battle_league"], str) or not BOT_BATTLE_LEAGUE.match(body["battle_league"].strip()):
+                raise AgentError(400, "battle_league must be the name of a league, like Great League")
+            wanted["battle_league"] = body["battle_league"].strip()
+        if "battle_count" in body:
+            wanted["battle_count"] = Phone._int(body["battle_count"], "battle_count", BOT_BATTLE_COUNT[0], BOT_BATTLE_COUNT[1])
         return wanted
 
     def _write_control(self, wanted):
@@ -524,6 +625,8 @@ class Bot:
         if not self.installed():
             raise AgentError(409, "the Pokemon GO bot is not installed on this Raspberry Pi (Mobile/install.sh)")
         with self.lock:
+            if self._test_running():
+                raise AgentError(409, "a test of the bot runs (%s): stop it first" % self.test["title"])
             self._write_control(wanted)
             if body.get("daily_now") is True:
                 #  What the Start button of the bot's web interface does: the daily run begins at once.
@@ -534,7 +637,93 @@ class Bot:
 
     def stop(self):
         with self.lock:
+            self._stop_test()
             self._service("stop")
+
+    def _stop_test(self):
+        proc = self.test["proc"]
+        if proc is None or proc.poll() is not None:
+            return
+        proc.terminate()            #  (the test says 'stopped' and goes back to the map: that takes a while)
+        try:
+            proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=10)
+
+    def stop_test(self):
+        with self.lock:
+            self._stop_test()
+
+    def run_test(self, body):
+        """One part of the bot on its own (`gamebot.py chapter <key>`, what the Test of the bot's web interface
+        does): the bot's service is stopped, the settings asked for are written, the test runs, and what it
+        says of itself ('TEST <key>: done - ...') is its result. The game is left on the screen it is on."""
+        key = body.get("key")
+        if not isinstance(key, str) or not BOT_CHAPTER_KEY.match(key):
+            raise AgentError(400, "key must be the name of a test")
+        wanted = self._checked(body)
+        if not self.installed():
+            raise AgentError(409, "the Pokemon GO bot is not installed on this Raspberry Pi (Mobile/install.sh)")
+        titles = {chapter["key"]: chapter["title"] for chapter in self.chapters()}
+        if not titles:
+            raise AgentError(409, "the bot on this Raspberry Pi has no tests (chapters.py is missing: update it)")
+        if key not in titles:
+            raise AgentError(400, "%s is not a test of the bot" % key)
+        with self.lock:
+            if self._test_running():
+                raise AgentError(409, "a test is running already (%s)" % self.test["title"])
+            if self.running():
+                self._service("stop")
+                until = time.time() + BOT_TEST_STOP_WAIT
+                while self.running() and time.time() < until:
+                    time.sleep(0.25)
+                if self.running():
+                    raise AgentError(502, "the bot did not stop")
+            self._write_control(wanted)
+            os.makedirs(self._path("debug"), exist_ok=True)
+            try:
+                offset = os.path.getsize(self._path("spin.log"))
+            except OSError:
+                offset = 0
+            python = self.python
+            if python is None:
+                venv = self._path(os.path.join("gbvenv", "bin", "python"))
+                python = [venv] if os.path.exists(venv) else [sys.executable]
+            with open(self._path(os.path.join("debug", "test_stderr.txt")), "wb") as errors:
+                try:
+                    proc = subprocess.Popen(python + [self._path("gamebot.py"), "chapter", key], cwd=self.home,
+                                            stdout=subprocess.DEVNULL, stderr=errors, start_new_session=True)
+                except OSError as error:
+                    raise AgentError(502, "the test could not be started: %s" % error)
+            self.test.update(key=key, title=titles[key], proc=proc, t0=time.time(), end=0.0, ok=None, result="")
+            threading.Thread(target=self._watch_test, args=(proc, key, offset), daemon=True, name="bot-test").start()
+
+    def _watch_test(self, proc, key, offset):
+        proc.wait()
+        found = re.compile(BOT_TEST_DONE % re.escape(key))
+        ok, text = None, ""
+        try:
+            with open(self._path("spin.log"), "rb") as handle:
+                size = handle.seek(0, 2)
+                handle.seek(offset if offset <= size else 0)
+                lines = handle.read().decode("utf-8", errors="ignore").splitlines()
+        except OSError:
+            lines = []
+        for line in reversed(lines):
+            match = found.search(line)
+            if match:
+                ok, text = match.group(1) == "done", match.group(2)
+                break
+        if ok is None:           #  it never got to its last line: a crash at the start
+            said = ""
+            try:
+                with open(self._path(os.path.join("debug", "test_stderr.txt")), "r", encoding="utf-8", errors="ignore") as handle:
+                    said = " | ".join(handle.read().strip().splitlines()[-3:])
+            except OSError:
+                pass
+            ok, text = False, "ended without a result (exit code %s)%s" % (proc.returncode, ": " + said if said else "")
+        self.test.update(ok=ok, result=text, end=time.time())
 
 
 def read_or_make_token(path):
@@ -676,6 +865,15 @@ def make_handler(phone, token, quiet=True):
                     self._body()
                     phone.bot.stop()
                     return self._send(200, {"ok": True})
+                if method == "GET" and path == "/v1/bot/tests":
+                    return self._send(200, {"tests": phone.bot.chapters()})
+                if method == "POST" and path == "/v1/bot/test":
+                    phone.bot.run_test(self._body())
+                    return self._send(200, {"ok": True})
+                if method == "POST" and path == "/v1/bot/test/stop":
+                    self._body()
+                    phone.bot.stop_test()
+                    return self._send(200, {"ok": True})
                 if method == "POST" and path == "/v1/wake":
                     self._body()
                     phone.wake()
@@ -720,6 +918,7 @@ def main(argv=None):
     parser.add_argument("--video-arg", action="append", default=[], help="an argument of --video-cmd")
     parser.add_argument("--bot-home", default=None, help="where the Pokemon GO bot's files are (default: the home folder; for tests)")
     parser.add_argument("--systemctl", action="append", default=None, help="the command that starts and stops the bot's service, one argument at a time (for tests)")
+    parser.add_argument("--bot-python", action="append", default=None, help="the python that runs a test of the bot, one argument at a time (for tests)")
     parser.add_argument("--token-file", default=os.path.expanduser("~/.claudegg-agent/token"))
     parser.add_argument("--print-token", action="store_true", help="print the token and end")
     parser.add_argument("--verbose", action="store_true", help="log every request")
@@ -731,7 +930,8 @@ def main(argv=None):
         return 0
     adb = Adb([args.adb] + args.adb_arg, args.serial)
     video = VideoPipeline(adb, args.display, [args.video_cmd] + args.video_arg if args.video_cmd else None, args.ffmpeg)
-    bot = Bot(args.bot_home, tuple(args.systemctl), tuple(args.systemctl)) if args.systemctl else Bot(args.bot_home)
+    python = tuple(args.bot_python) if args.bot_python else None
+    bot = Bot(args.bot_home, tuple(args.systemctl), tuple(args.systemctl), python) if args.systemctl else Bot(args.bot_home, python=python)
     phone = Phone(adb, args.display, video, bot)
     server = make_server(phone, token, args.host, args.port, quiet=not args.verbose)
     print("Claude GG agent %s listening on port %d" % (VERSION, server.server_address[1]), flush=True)

@@ -145,10 +145,11 @@ jobs:
           install: binary
 
       #  The version of the build, in the window's title, the "About" window
-      #  and the programs' logs ("Claude GG build 0.1.0.N"). A build that is
+      #  and the programs' logs ("Claude GG build 0.2.0.N"). A build that is
       #  published counts up: it gets the N after the highest N of the
-      #  published releases "v0.1.0.N" (the first one is 0.1.0.0; the series
-      #  0.1.0 is changed here, on purpose, when a new one starts). A pull
+      #  published releases "v0.2.0.N" (the first one is 0.2.0.0; the series
+      #  0.2.0 is changed here, on purpose, when a new one starts: 0.1.0.0 to
+      #  0.1.0.10 came before it). A pull
       #  request's build is named after the pull request.
       - name: Build number
         id: number
@@ -158,7 +159,7 @@ jobs:
           PUBLISH: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
         run: |
           if [ "$PUBLISH" = "true" ]; then
-            SERIES="0.1.0"
+            SERIES="0.2.0"
             LAST=$(gh api "repos/${{ github.repository }}/releases?per_page=100" --jq "[.[].tag_name | select(startswith(\"v$SERIES.\")) | ltrimstr(\"v$SERIES.\") | tonumber?] | max // -1")
             if ! [[ "$LAST" =~ ^-?[0-9]+$ ]]; then
               echo "::error::The number of the last published build could not be read: '$LAST'."
@@ -167,7 +168,7 @@ jobs:
             #  The builds before the versions (build 102 and lower in
             #  MajorLOL/arduino-source, builds 103 and 104 here, tagged
             #  pocketpilot-build-103 and claudegg-build-104) do not count: the
-            #  versions start at 0.1.0.0.
+            #  versions start at 0.1.0.0 (and the series 0.2.0 at 0.2.0.0).
             NUMBER="$SERIES.$((LAST + 1))"
           elif [ "${{ github.event_name }}" = "pull_request" ]; then
             NUMBER="pr${{ github.event.number }}"

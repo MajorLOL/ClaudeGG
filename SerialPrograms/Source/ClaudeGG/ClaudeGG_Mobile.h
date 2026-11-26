@@ -55,10 +55,35 @@ struct MobileStroke{
 
 //  The Pokémon GO bot that runs on the Raspberry Pi (Mobile/gamebot.py, started
 //  and stopped by the agent: /v1/bot).
+//  One part of the bot that runs on its own (its "test": a GO Battle League set, the
+//  scan of the Pokémon, one throw, ...), as the bot's chapters.py names them.
+struct MobileBotChapter{
+    QString key;
+    QString group;
+    QString title;
+    QString start;              //  the screen the game has to be on
+    QString what;
+};
+//  The test that runs, or the one that ran last.
+struct MobileBotTest{
+    QString key;                //  empty: none yet since the agent started
+    QString title;
+    bool running = false;
+    bool finished = false;      //  it ended, and "ok" and "result" say how
+    bool ok = false;
+    QString result;
+    int seconds = 0;
+};
 struct MobileBotState{
     bool installed = false;
     bool running = false;
     QStringList log;            //  the end of its log, the oldest line first
+    QString battle_app;         //  GO Battle League: the app ("" is the Play Store one), the league, battles per run
+    QString battle_league;
+    int battle_count = 0;
+    int battles_won = 0;        //  of today
+    int battles_lost = 0;
+    MobileBotTest test;
 };
 struct MobileBotStart{
     //  Switches of the bot by name ("spin", "catch", ...): see BOT_SWITCHES in the agent.
@@ -67,6 +92,10 @@ struct MobileBotStart{
     QString daily_time;         //  HH:MM; empty: as it is
     int daily_max_min = 0;      //  minutes; 0: as it is
     bool daily_now = false;     //  the daily run begins at once
+    bool battle_app_given = false;  //  false: the app stays as it is
+    QString battle_app;         //  the package; empty is the Play Store one ("com.nianticlabs.pokemongo")
+    QString battle_league;      //  empty: as it is
+    int battle_count = 0;       //  battles per run (1 to 50); 0: as it is
 };
 
 class MobileAgent{
@@ -95,6 +124,11 @@ public:
     //  Sets what is asked in the bot's control file and starts it (afresh when it runs).
     bool bot_start(const MobileBotStart& settings, QString* error = nullptr) const;
     bool bot_stop(QString* error = nullptr) const;
+    //  The parts of the bot that can be run on their own.
+    bool bot_tests(std::vector<MobileBotChapter>& chapters, QString* error = nullptr) const;
+    //  Stops the bot, sets what is asked and runs one part of it (what "state.test" then follows).
+    bool bot_test(const QString& key, const MobileBotStart& settings, QString* error = nullptr) const;
+    bool bot_test_stop(QString* error = nullptr) const;
 
 private:
     struct Reply{

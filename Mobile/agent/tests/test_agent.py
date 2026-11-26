@@ -20,6 +20,30 @@ FAKE = os.path.join(os.path.dirname(HERE), "fake_adb.py")
 FAKE_VIDEO = os.path.join(os.path.dirname(HERE), "fake_video.py")
 FAKE_SYSTEMCTL = os.path.join(os.path.dirname(HERE), "fake_systemctl.py")
 
+#  A gamebot.py for the tests: `gamebot.py chapter <key>` writes the line a real test ends with.
+FAKE_GAMEBOT = r"""
+import os, signal, sys, time
+home = os.path.dirname(os.path.abspath(__file__))
+key = sys.argv[2] if len(sys.argv) > 2 and sys.argv[1] == "chapter" else ""
+def say(text):
+    with open(os.path.join(home, "spin.log"), "a", encoding="utf-8") as handle:
+        handle.write(time.strftime("%Y-%m-%d %H:%M:%S") + "  " + text + "\n")
+with open(os.path.join(home, "test-calls"), "a", encoding="utf-8") as handle:
+    handle.write(" ".join(sys.argv[1:]) + "\n")
+if os.environ.get("FAKE_TEST_CRASH"):
+    sys.stderr.write("Traceback: no module named cv2\n")
+    sys.exit(3)
+if os.environ.get("FAKE_TEST_HANG"):
+    def stopped(*_):
+        say("TEST " + key + ": done - stopped")
+        sys.exit(0)
+    signal.signal(signal.SIGTERM, stopped)
+    say("TEST " + key + ": begins")
+    while True:
+        time.sleep(0.05)
+say("TEST " + key + ": done - all fine")
+"""
+
 
 class Running:
     """The agent on a free port, with the fake adb; `calls()` is what the fake adb was asked."""
@@ -321,8 +345,10 @@ class BotTest(unittest.TestCase):
         os.environ.pop("FAKE_SYSTEMCTL_FAIL", None)
         self.addCleanup(lambda: [os.environ.pop(name, None) for name in ("FAKE_SYSTEMCTL_STATE", "FAKE_SYSTEMCTL_LOG", "FAKE_SYSTEMCTL_FAIL")])
         command = (sys.executable, FAKE_SYSTEMCTL)
-        self.agent = Running(bot=agent.Bot(self.home, command, command))
+        self.bot = agent.Bot(self.home, command, command, (sys.executable,))
+        self.agent = Running(bot=self.bot)
         self.addCleanup(self.agent.close)
+        self.addCleanup(self.bot.stop_test)
 
     def json(self, method, path, body=None, **kwargs):
         status, data, _ = self.agent.ask(method, path, body, **kwargs)
@@ -331,6 +357,14 @@ class BotTest(unittest.TestCase):
     def install(self):
         with open(os.path.join(self.home, "gamebot.py"), "w", encoding="utf-8") as handle:
             handle.write("# the bot\n")
+
+    def install_with_tests(self):
+        """The bot with its real chapters.py, and a gamebot.py that does what a test of the real one does: it
+        says how it ended in the log (FAKE_TEST_HANG: it waits to be stopped; FAKE_TEST_CRASH: it ends without
+        a word)."""
+        shutil.copy(os.path.join(os.path.dirname(os.path.abspath(agent.__file__)), "..", "chapters.py"), self.home)
+        with open(os.path.join(self.home, "gamebot.py"), "w", encoding="utf-8") as handle:
+            handle.write(FAKE_GAMEBOT)
 
     def control(self):
         with open(os.path.join(self.home, "gamebot_control.json"), encoding="utf-8") as handle:
@@ -368,7 +402,12 @@ class BotTest(unittest.TestCase):
         self.assertFalse(state["options"]["spin"])
         self.assertTrue(state["options"]["catch"], "a switch that was never touched is on, as the bot reads it")
         self.assertFalse(state["options"]["curveball"], "but the ones that start unticked are off")
-        self.assertNotIn("battle", state["options"], "the battles of GO Battle League are not an option of Claude GG")
+        self.assertTrue(state["options"]["battle"], "the battles of GO Battle League are an option")
+        self.assertTrue(state["options"]["battle_give_up"], "giving up a lost battle is on until it is switched off")
+        self.assertFalse(state["options"]["teams_weekly"], "the weekly round of the teams is off until it is switched on")
+        self.assertEqual((state["battle_app"], state["battle_league"], state["battle_count"]), ("", "Great League", 5))
+        self.assertEqual(state["battles"], {"won": 0, "lost": 0, "list": []})
+        self.assertFalse(state["test"]["running"])
         self.assertEqual((state["daily_time"], state["throw_target"], state["daily_max_min"]), ("06:45", "great", 480))
         self.assertEqual([line.split("  ")[1] for line in state["log"]], ["line 97", "line 98", "line 99"])
         self.assertEqual(self.json("GET", "/v1/bot?lines=0")[0], 400)
@@ -406,7 +445,16 @@ class BotTest(unittest.TestCase):
     def test_what_is_asked_is_checked_before_anything_is_written(self):
         self.install()
         for body in (
-            {"options": {"battle": True}},                       #  not an option of Claude GG
+            {"options": {"battle": "yes"}},
+            {"options": {"tea_party": True}},                    #  not an option of the bot
+            {"battle_app": "com.example.other"},
+            {"battle_app": 5},
+            {"battle_league": ""},
+            {"battle_league": "Great League; rm -rf /"},
+            {"battle_league": "x" * 41},
+            {"battle_count": 0},
+            {"battle_count": 51},
+            {"battle_count": "5"},
             {"options": {"spin": "yes"}},
             {"options": {"spin": 1}},
             {"options": ["spin"]},
@@ -423,6 +471,139 @@ class BotTest(unittest.TestCase):
             self.assertIn("error", answer)
         self.assertFalse(os.path.exists(os.path.join(self.home, "gamebot_control.json")))
         self.assertEqual(self.service_calls(), [])
+
+    def test_the_battles_of_today_are_counted_from_the_log(self):
+        self.install()
+        today = time.strftime("%Y-%m-%d")
+        yesterday = time.strftime("%Y-%m-%d", time.localtime(time.time() - 86400))
+        with open(os.path.join(self.home, "spin.log"), "w", encoding="utf-8") as handle:
+            handle.write(yesterday + " 21:00:00  battle: battle 1 done: win\n")
+            handle.write(today + " 09:00:00  battle: 3 battle(s) in 'Great League' with A, B, C\n")
+            handle.write(today + " 09:05:10  battle: battle 1 done: win\n")
+            handle.write(today + " 09:11:40  battle: battle 2 done: loss (given up)\n")
+            handle.write(today + " 09:19:02  battle: battle 3 done: loss\n")
+            handle.write(today + " 09:20:00  nothing to do with it\n")
+        battles = self.json("GET", "/v1/bot")[1]["battles"]
+        self.assertEqual((battles["won"], battles["lost"]), (1, 2))
+        self.assertEqual([(b["time"], b["league"], b["result"], b["gave_up"]) for b in battles["list"]],
+                         [("09:05", "Great League", "win", False), ("09:11", "Great League", "loss", True),
+                          ("09:19", "Great League", "loss", False)])
+        #  'Reset' in the bot's web interface: counted from that moment on.
+        with open(os.path.join(self.home, "battle_count_reset.json"), "w", encoding="utf-8") as handle:
+            json.dump({"at": today + " 09:10:00"}, handle)
+        battles = self.json("GET", "/v1/bot")[1]["battles"]
+        self.assertEqual((battles["won"], battles["lost"]), (0, 2))
+
+    def test_the_battle_settings_are_written(self):
+        self.install()
+        status, _ = self.json("POST", "/v1/bot/start", {
+            "options": {"battle": True, "battle_give_up": False, "teams_weekly": True},
+            "battle_app": "com.nianticlabs.pokemongo.ares", "battle_league": " Ultra League ", "battle_count": 12,
+        })
+        self.assertEqual(status, 200)
+        control = self.control()
+        self.assertEqual((control["battle"], control["battle_give_up"], control["teams_weekly"]), (True, False, True))
+        self.assertEqual((control["battle_app"], control["battle_league"], control["battle_count"]),
+                         ("com.nianticlabs.pokemongo.ares", "Ultra League", 12))
+        state = self.json("GET", "/v1/bot")[1]
+        self.assertEqual((state["battle_league"], state["battle_count"]), ("Ultra League", 12))
+
+    def test_the_tests_of_the_bot_are_listed(self):
+        self.assertEqual(self.json("GET", "/v1/bot/tests")[1]["tests"], [], "no chapters.py: no tests")
+        self.install_with_tests()
+        tests = self.json("GET", "/v1/bot/tests")[1]["tests"]
+        keys = [test["key"] for test in tests]
+        for key in ("screen", "battle_set", "battle_one", "refresh", "scan_new", "rocket", "bag", "storage"):
+            self.assertIn(key, keys)
+        self.assertTrue(all(test["title"] and test["group"] for test in tests))
+
+    def wait_for_test(self, running):
+        until = time.time() + 15
+        while time.time() < until:
+            test = self.json("GET", "/v1/bot")[1]["test"]
+            if test["running"] == running:
+                return test
+            time.sleep(0.05)
+        self.fail("the test did not %s" % ("start" if running else "end"))
+
+    def test_a_part_of_the_bot_runs_on_its_own(self):
+        self.install_with_tests()
+        os.environ["FAKE_SYSTEMCTL_STATE"] = os.path.join(self.home, "service-state")
+        self.assertEqual(self.json("POST", "/v1/bot/start", {})[0], 200)        #  the bot runs...
+        self.assertTrue(self.json("GET", "/v1/bot")[1]["running"])
+        status, _ = self.json("POST", "/v1/bot/test", {
+            "key": "battle_set", "options": {"battle": True, "spin": False}, "battle_league": "Great League", "battle_count": 3,
+        })
+        self.assertEqual(status, 200)
+        test = self.wait_for_test(False)
+        self.assertEqual((test["key"], test["ok"], test["result"]), ("battle_set", True, "all fine"))
+        self.assertTrue(test["title"])
+        self.assertEqual(self.service_calls()[-1], "stop spin-stop", "...and is stopped for the test")
+        self.assertFalse(self.json("GET", "/v1/bot")[1]["running"])
+        control = self.control()
+        self.assertEqual((control["battle"], control["spin"], control["battle_count"]), (True, False, 3))
+        with open(os.path.join(self.home, "test-calls"), encoding="utf-8") as handle:
+            self.assertEqual(handle.read().split("\n")[:-1], ["chapter battle_set"])
+
+    def test_a_test_that_dies_says_what_it_said(self):
+        self.install_with_tests()
+        os.environ["FAKE_TEST_CRASH"] = "1"
+        self.addCleanup(lambda: os.environ.pop("FAKE_TEST_CRASH", None))
+        self.assertEqual(self.json("POST", "/v1/bot/test", {"key": "screen"})[0], 200)
+        test = self.wait_for_test(False)
+        self.assertFalse(test["ok"])
+        self.assertIn("ended without a result (exit code 3)", test["result"])
+        self.assertIn("no module named cv2", test["result"])
+
+    def test_a_test_can_be_stopped_and_keeps_the_bot_off(self):
+        self.install_with_tests()
+        os.environ["FAKE_TEST_HANG"] = "1"
+        self.addCleanup(lambda: os.environ.pop("FAKE_TEST_HANG", None))
+        self.assertEqual(self.json("POST", "/v1/bot/test", {"key": "scan"})[0], 200)
+        self.assertTrue(self.wait_for_test(True)["running"])
+        #  While it runs, no second one and no bot: they would fight over the phone.
+        status, answer = self.json("POST", "/v1/bot/test", {"key": "screen"})
+        self.assertEqual(status, 409)
+        self.assertIn("running already", answer["error"])
+        status, answer = self.json("POST", "/v1/bot/start", {})
+        self.assertEqual(status, 409)
+        self.assertIn("stop it first", answer["error"])
+        self.assertEqual(self.json("POST", "/v1/bot/test/stop")[0], 200)
+        test = self.wait_for_test(False)
+        self.assertEqual(test["key"], "scan")
+        if os.name == "posix":
+            self.assertEqual((test["ok"], test["result"]), (True, "stopped"), "it says so before it goes")
+        else:
+            self.assertFalse(test["ok"], "on Windows it is ended at once, without a word")
+        self.assertEqual(self.json("POST", "/v1/bot/start", {})[0], 200)
+
+    def test_stop_also_ends_a_test(self):
+        self.install_with_tests()
+        os.environ["FAKE_TEST_HANG"] = "1"
+        self.addCleanup(lambda: os.environ.pop("FAKE_TEST_HANG", None))
+        self.json("POST", "/v1/bot/test", {"key": "scan_new"})
+        self.wait_for_test(True)
+        self.assertEqual(self.json("POST", "/v1/bot/stop")[0], 200)
+        self.assertFalse(self.json("GET", "/v1/bot")[1]["test"]["running"])
+
+    def test_a_test_is_checked_before_anything_happens(self):
+        self.install_with_tests()
+        for body in ({}, {"key": 5}, {"key": "Screen"}, {"key": "screen; ls"}, {"key": "no_such_test"},
+                     {"key": "screen", "battle_count": 99}, {"key": "screen", "options": {"nope": True}}):
+            status, answer = self.json("POST", "/v1/bot/test", body)
+            self.assertEqual(status, 400, body)
+            self.assertIn("error", answer)
+        self.assertFalse(os.path.exists(os.path.join(self.home, "test-calls")))
+        self.assertFalse(os.path.exists(os.path.join(self.home, "gamebot_control.json")))
+        self.assertEqual(self.service_calls(), [])
+        #  Not installed, or an old bot without chapters.py.
+        self.assertEqual(self.json("POST", "/v1/bot/test", {"key": "screen"}, token="wrong")[0], 401)
+        os.remove(os.path.join(self.home, "chapters.py"))
+        status, answer = self.json("POST", "/v1/bot/test", {"key": "screen"})
+        self.assertEqual(status, 409)
+        self.assertIn("chapters.py", answer["error"])
+        os.remove(os.path.join(self.home, "gamebot.py"))
+        self.assertEqual(self.json("POST", "/v1/bot/test", {"key": "screen"})[0], 409)
 
     def test_stop(self):
         self.install()

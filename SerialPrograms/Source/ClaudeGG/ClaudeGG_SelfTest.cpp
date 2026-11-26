@@ -322,7 +322,7 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
             for (const HomeGame& listed_game : listed){
                 const bool go = listed_game.name.endsWith(" GO");
                 if (go){
-                    go_ok = listed_game.programs == 7 && game_is_for_console(listed_game, "mobile") &&
+                    go_ok = listed_game.programs == 10 && game_is_for_console(listed_game, "mobile") &&
                         !game_is_for_console(listed_game, "switch") && !game_is_for_console(listed_game, "switch2");
                 }else if (game_is_for_console(listed_game, "mobile") || !game_is_for_console(listed_game, "switch")){
                     switch_ok = false;

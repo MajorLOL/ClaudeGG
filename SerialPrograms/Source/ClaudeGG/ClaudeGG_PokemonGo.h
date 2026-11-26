@@ -7,14 +7,14 @@
  *  ClaudeGG_Mobile.h): the phone is plugged into a Raspberry Pi, and that
  *  Pi runs the Pokémon GO bot that was made before Claude GG (Mobile/gamebot.py:
  *  it spins the PokéStops, catches, opens and sends gifts, battles Team GO
- *  Rocket and plays the daily run). The programs here do not play by
- *  themselves. Each is a preset of that bot: it says what the bot is to do
- *  (the switches of the bot), starts it on the Pi through the agent (/v1/bot),
- *  shows what the bot writes in the output log of the program, and stops it
- *  when the program is stopped.
- *
- *  The Go Battle League (online PvP) is left out on purpose: it is not
- *  automated in Claude GG, it stays with the bot's own web page.
+ *  Rocket, fights GO Battle League battles, keeps the teams of the leagues
+ *  and plays the daily run). The programs here do not play by themselves.
+ *  Each is a preset of that bot: it says what the bot is to do (the switches
+ *  of the bot), starts it on the Pi through the agent (/v1/bot), shows what
+ *  the bot writes in the output log of the program, and stops it when the
+ *  program is stopped. Some do not start the bot's service but run one part
+ *  of it (the "tests" of its chapters.py: a set of battles, a step of the
+ *  scan of the Pokémon, one throw, ...) and end with that part.
  *
  *  Pokémon GO's Terms of Service do not allow automation: use a spare account.
  *
@@ -48,6 +48,10 @@ size_t pokemon_go_program_count();
 //  What a program asks of the bot, as the bot's switches by name (for the test):
 //  the program by its name in the list; empty when there is no such program.
 std::vector<std::pair<std::string, bool>> pokemon_go_switches(const std::string& program);
+
+//  The parts of the bot that the programs can run on their own, by their key (for the test:
+//  the bot must know every one of them).
+std::vector<std::string> pokemon_go_part_keys();
 
 
 }
