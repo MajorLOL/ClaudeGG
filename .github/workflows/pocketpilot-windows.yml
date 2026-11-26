@@ -157,6 +157,14 @@ jobs:
               echo "::error::The number of the last published build could not be read: '$LAST'."
               exit 1
             fi
+            #  The builds before this repository were published in
+            #  MajorLOL/arduino-source, up to number 102: the numbers go on from
+            #  there, whatever the releases here say (and a tag of an earlier
+            #  build can never be taken again).
+            FLOOR=102
+            if [ "$LAST" -lt "$FLOOR" ]; then
+              LAST=$FLOOR
+            fi
             NUMBER=$((LAST + 1))
           elif [ "${{ github.event_name }}" = "pull_request" ]; then
             NUMBER="pr${{ github.event.number }}"

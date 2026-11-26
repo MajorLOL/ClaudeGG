@@ -86,13 +86,8 @@ The repository holds Pokémon Automation's own workflows: `cpp-ci-serial-program
 ## 6. Releases and build numbers
 
 - Every push to `pocketpilot` that passes its tests makes a **pre-release** named `pocketpilot-build-N`, "Claude GG - Windows build N", with `ClaudeGG-Windows.zip` and its SHA-256 in the text. The pictures of the interface test stay in the run's artifact.
-- **The number N is the highest `pocketpilot-build-*` release in the repository, plus one.** A new repository starts at build 1. To continue the numbers of the old repository (the last one there is 100, then 101), make an empty pre-release with the tag of the last number before the first build:
-
-  ```
-  gh release create pocketpilot-build-<last> --repo <owner>/<repo> --prerelease --title "Numbering" --notes "Continues the numbers of the earlier repository."
-  ```
-
-  Never delete the newest release: the next build would take its number again. (And in a repository that was **imported**, the tags `pocketpilot-build-N` came along but not the releases: the number is taken from the releases, so a build would get a number whose tag exists already, and its release would be tied to the old commit. Make the release of the last number first, on its tag.)
+- **The number N is the highest `pocketpilot-build-*` release in the repository, plus one, and at least `FLOOR` plus one:** `FLOOR` is a line of the step "Build number" in the workflow (102 here: the builds up to that number were published in MajorLOL/arduino-source, so the first build of this repository is 103). In a repository that starts at build 1, set `FLOOR=0`.
+  Never delete the newest release: the next build would take its number again. (In a repository that was **imported**, the tags `pocketpilot-build-N` come along but not the releases: without the floor a build would get a number whose tag exists already, and its release would be tied to the old commit. That is what happened to build 100 of MajorLOL/arduino-source on 26 November 2026, after its release had been deleted.)
 - A release made by `publish` is a pre-release on purpose: no build is "the latest" until you say so. The update check of the About window reads the list of releases and says whether a higher number exists.
 - A pull request's build is named after the pull request (`pr<number>`) and is not published.
 - The program is not signed with a certificate, so Windows warns when it starts. The release's text says to compare the SHA-256 first; that is the only guard.
