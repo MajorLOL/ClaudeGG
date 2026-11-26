@@ -34,6 +34,15 @@ def main(argv):
     if args[:2] == ["exec-out", "screencap"]:
         #  Some noise before the picture, as a real adb can give.
         sys.stdout.buffer.write(b"noise\n" + png(48, 96, (200, 30, 30)))
+    elif args[:2] == ["exec-out", "screenrecord"]:
+        #  A moving test picture as H.264, when ffmpeg can make one (a test of the whole live pipeline).
+        import subprocess
+        try:
+            return subprocess.call(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=270x480:rate=30",
+                                    "-t", "20", "-pix_fmt", "yuv420p", "-f", "h264", "-"])
+        except FileNotFoundError:
+            sys.stderr.write("error: no ffmpeg to make a picture with\n")
+            return 1
     elif args[:2] == ["shell", "wm"]:
         sys.stdout.write("Physical size: 1080x2340\nOverride size: 1000x2200\n")
     elif args[:3] == ["shell", "getprop", "ro.product.model"]:

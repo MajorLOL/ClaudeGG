@@ -24,12 +24,13 @@ well as a 4, and the program that decides is one for all consoles. (The older bo
 On the Pi (Raspberry Pi OS, 64-bit is not needed for the agent):
 
 ```bash
-git clone https://github.com/MajorLOL/ClaudeGG.git
+git clone --depth 1 https://github.com/MajorLOL/ClaudeGG.git
 cd ClaudeGG/Mobile/agent
 bash install-agent.sh
 ```
 
-It installs `adb` and Python 3, copies the agent to `~/claudegg-agent`, starts it as a service on port 8765
+(Run the installer as yourself, not with `sudo`: it asks for `sudo` where it needs it, and the service runs as you.)
+It installs `adb`, Python 3 and `ffmpeg` (for the live picture), copies the agent to `~/claudegg-agent`, starts it as a service on port 8765
 and prints the address and the token to enter in Claude GG (under the setup of a Raspberry Pi). The token is
 made the first time and kept in `~/.claudegg-agent/token`; `claudegg_agent.py --print-token` shows it again.
 
@@ -48,6 +49,7 @@ HTTP with JSON on the local network. Everything but `/v1/ping` needs the header
 | `GET /v1/ping` | `{"ok": true}`: is it there (no token) |
 | `GET /v1/info` | `{model, android, width, height, display}`: the phone (`Override size` of `wm size` when set) |
 | `GET /v1/screen` | the screen as a PNG (`X-Screen-Width`, `X-Screen-Height`) |
+| `GET /v1/video?fps=10&width=540` | the screen live, about ten pictures a second (a screenshot takes one to three seconds): JPEG pictures in a `multipart/x-mixed-replace` stream (boundary `frame`, each part with its `Content-Length`). `screenrecord` (H.264) goes through `ffmpeg` on the Pi; one pipeline serves all who look, starts with the first and stops five seconds after the last, and is started again every 170 seconds (`screenrecord` ends after 180) without the viewer noticing. A screen that does not change gives the last picture again once a second. `fps` 1 to 30, `width` 100 to 2000 (a pipeline that is running keeps the values it started with) |
 | `POST /v1/tap` `{x, y, ms}` | a press of `ms` milliseconds (120): a very short tap is missed by Unity games |
 | `POST /v1/swipe` `{x1, y1, x2, y2, ms}` | a swipe (300 ms) |
 | `POST /v1/swipes` `{strokes: [[x1, y1, x2, y2, ms], ...]}` | up to 50 swipes one after the other in ONE `adb` command: the phone starts the next the moment one is done |

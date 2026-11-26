@@ -7,7 +7,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 TARGET="$HOME/claudegg-agent"
 
 echo "== Packages =="
-sudo apt-get install -y adb python3
+sudo apt-get install -y adb python3 ffmpeg
 
 echo "== The agent =="
 mkdir -p "$TARGET"

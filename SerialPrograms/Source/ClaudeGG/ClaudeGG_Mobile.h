@@ -17,6 +17,11 @@
 #ifndef PokemonAutomation_ClaudeGG_Mobile_H
 #define PokemonAutomation_ClaudeGG_Mobile_H
 
+#include <atomic>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <thread>
 #include <vector>
 #include <QImage>
 #include <QString>
@@ -79,6 +84,53 @@ private:
     int m_port;
     QString m_token;
     int m_timeout;
+};
+
+//  The live picture of the phone, in place of one screenshot at a time (a
+//  screenshot takes one to three seconds; this is about ten pictures a second).
+//  A thread of its own holds one connection to the agent (/v1/video), keeps the
+//  newest picture and connects again when the stream drops. The agent has one
+//  pipeline for all who look; a screen that does not change gives the last
+//  picture again about once a second.
+class MobileVideo{
+public:
+    //  "fps" and "width" are asked of the agent when it starts the pipeline: a
+    //  pipeline that is running already keeps the ones it started with.
+    MobileVideo(const QString& host, int port, const QString& token, int fps = 10, int width = 540);
+    ~MobileVideo();
+    MobileVideo(const MobileVideo&) = delete;
+    MobileVideo& operator=(const MobileVideo&) = delete;
+
+    void start();
+    //  Ends the thread (it does not take longer than a second).
+    void stop();
+
+    //  The newest picture; "serial" counts up with each one that came (0 before the
+    //  first). False: none yet.
+    bool latest(QImage& picture, quint64* serial = nullptr) const;
+    //  Waits up to "msec" milliseconds for a picture newer than "after". False: none came.
+    bool wait_newer(QImage& picture, quint64 after, int msec, quint64* serial = nullptr) const;
+    //  What went wrong the last time, in plain words; empty when the stream is fine.
+    QString error() const;
+
+private:
+    void run();
+    //  One connection, until it ends; the reason it ended.
+    QString read_stream();
+
+    QString m_host;
+    int m_port;
+    QString m_token;
+    int m_fps;
+    int m_width;
+
+    mutable std::mutex m_lock;
+    mutable std::condition_variable m_changed;
+    QImage m_picture;
+    quint64 m_serial = 0;
+    QString m_error;
+    std::atomic<bool> m_stop{false};
+    std::thread m_thread;
 };
 
 //  The token of the agent, kept apart from the settings, like the keys of the

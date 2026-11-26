@@ -399,6 +399,6 @@
  "On the Raspberry Pi": "Op de Raspberry Pi",
  "Plug the phone into the Raspberry Pi with its USB cable. On the phone, turn on Developer options and USB debugging, and allow the Pi when the phone asks.": "Steek de telefoon met de USB-kabel in de Raspberry Pi. Zet op de telefoon de ontwikkelaarsopties en USB-foutopsporing aan en sta de Pi toe als de telefoon erom vraagt.",
  "On the Raspberry Pi, open a terminal and download Claude GG:": "Open op de Raspberry Pi een terminal en download Claude GG:",
- "Then install the agent:": "Installeer daarna de agent:",
+ "Then install the agent (as yourself, not with sudo):": "Installeer daarna de agent (als jezelf, niet met sudo):",
  "It prints the address and the token. Type them here and test the connection.": "Het toont het adres en het token. Typ ze hier in en test de verbinding."
 }

@@ -5,6 +5,7 @@
  *
  */
 
+#include <chrono>
 #include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
@@ -32,6 +33,202 @@ namespace ClaudeGG{
 
 
 const char* const MOBILE_TEST_OPTION = "--mobile-test";
+
+
+MobileVideo::MobileVideo(const QString& host, int port, const QString& token, int fps, int width)
+    : m_host(host)
+    , m_port(port)
+    , m_token(token)
+    , m_fps(fps)
+    , m_width(width)
+{}
+
+MobileVideo::~MobileVideo(){
+    stop();
+}
+
+void MobileVideo::start(){
+    if (m_thread.joinable()){
+        return;
+    }
+    m_stop = false;
+    m_thread = std::thread([this]{
+        run();
+    });
+}
+
+void MobileVideo::stop(){
+    m_stop = true;
+    m_changed.notify_all();
+    if (m_thread.joinable()){
+        m_thread.join();
+    }
+}
+
+bool MobileVideo::latest(QImage& picture, quint64* serial) const{
+    std::lock_guard<std::mutex> lock(m_lock);
+    if (serial != nullptr){
+        *serial = m_serial;
+    }
+    if (m_serial == 0){
+        return false;
+    }
+    picture = m_picture;
+    return true;
+}
+
+bool MobileVideo::wait_newer(QImage& picture, quint64 after, int msec, quint64* serial) const{
+    std::unique_lock<std::mutex> lock(m_lock);
+    const bool came = m_changed.wait_for(lock, std::chrono::milliseconds(msec), [&]{
+        return m_serial > after || m_stop.load();
+    });
+    if (!came || m_serial <= after){
+        return false;
+    }
+    picture = m_picture;
+    if (serial != nullptr){
+        *serial = m_serial;
+    }
+    return true;
+}
+
+QString MobileVideo::error() const{
+    std::lock_guard<std::mutex> lock(m_lock);
+    return m_error;
+}
+
+void MobileVideo::run(){
+    while (!m_stop){
+        const QString why = read_stream();
+        if (m_stop){
+            break;
+        }
+        {
+            std::lock_guard<std::mutex> lock(m_lock);
+            m_error = why;
+        }
+        //  Connect again in a moment (a phone that was unplugged, an agent that was restarted).
+        for (int c = 0; c < 20 && !m_stop; c++){
+            QThread::msleep(50);
+        }
+    }
+}
+
+QString MobileVideo::read_stream(){
+    constexpr int STALL_MSEC = 10000;
+    constexpr qsizetype MAX_PICTURE = 8 * 1024 * 1024;
+
+    QTcpSocket socket;
+    socket.connectToHost(m_host, (quint16)m_port);
+    if (!socket.waitForConnected(5000)){
+        return QString("cannot reach the Raspberry Pi at %1:%2 (%3)").arg(m_host).arg(m_port).arg(socket.errorString());
+    }
+    QByteArray head = "GET /v1/video?fps=" + QByteArray::number(m_fps) + "&width=" + QByteArray::number(m_width) + " HTTP/1.1\r\n";
+    head += "Host: " + m_host.toUtf8() + ":" + QByteArray::number(m_port) + "\r\n";
+    head += "Authorization: Bearer " + m_token.toUtf8() + "\r\n";
+    head += "Connection: close\r\n\r\n";
+    socket.write(head);
+    if (!socket.waitForBytesWritten(5000)){
+        return "the request could not be sent to the Raspberry Pi";
+    }
+
+    QByteArray buffer;
+    bool answered = false;
+    QElapsedTimer quiet;
+    quiet.start();
+    while (!m_stop){
+        if (socket.bytesAvailable() > 0 || socket.waitForReadyRead(200)){
+            buffer += socket.readAll();
+            quiet.restart();
+        }else if (socket.state() != QAbstractSocket::ConnectedState){
+            buffer += socket.readAll();
+            if (!answered){
+                //  The agent said something and closed: an error (JSON), or nothing.
+                const qsizetype split = buffer.indexOf("\r\n\r\n");
+                if (split >= 0){
+                    const QJsonObject object = QJsonDocument::fromJson(buffer.mid(split + 4)).object();
+                    if (object.contains("error")){
+                        return object.value("error").toString();
+                    }
+                }
+                return "the agent gave no picture (is it the Claude GG agent on that port?)";
+            }
+            return "the stream of the picture ended";
+        }else if (quiet.elapsed() > STALL_MSEC){
+            return "no picture for ten seconds";
+        }
+
+        if (!answered){
+            const qsizetype split = buffer.indexOf("\r\n\r\n");
+            if (split < 0){
+                continue;
+            }
+            const QList<QByteArray> status = buffer.left(buffer.indexOf("\r\n")).split(' ');
+            if (status.size() < 2 || !status[0].startsWith("HTTP/")){
+                return "the answer is not HTTP (is it the Claude GG agent on that port?)";
+            }
+            if (status[1].toInt() != 200){
+                //  An error: its JSON follows, until the agent closes.
+                QByteArray rest = buffer.mid(split + 4);
+                QElapsedTimer wait;
+                wait.start();
+                while (socket.state() == QAbstractSocket::ConnectedState && wait.elapsed() < 3000){
+                    socket.waitForReadyRead(200);
+                    rest += socket.readAll();
+                }
+                rest += socket.readAll();
+                const QJsonObject object = QJsonDocument::fromJson(rest).object();
+                return object.contains("error") ? object.value("error").toString() : QString("the agent says %1").arg(status[1].toInt());
+            }
+            buffer.remove(0, split + 4);
+            answered = true;
+            {
+                std::lock_guard<std::mutex> lock(m_lock);
+                m_error.clear();
+            }
+        }
+
+        //  The pictures that are complete in what came.
+        for (;;){
+            const qsizetype boundary = buffer.indexOf("--frame\r\n");
+            if (boundary < 0){
+                if (buffer.size() > 1024){
+                    buffer = buffer.right(16);
+                }
+                break;
+            }
+            const qsizetype head_end = buffer.indexOf("\r\n\r\n", boundary);
+            if (head_end < 0){
+                break;
+            }
+            qsizetype length = -1;
+            for (const QByteArray& line : buffer.mid(boundary, head_end - boundary).split('\n')){
+                const QByteArray lower = line.trimmed().toLower();
+                if (lower.startsWith("content-length:")){
+                    length = lower.mid(QByteArray("content-length:").size()).trimmed().toLongLong();
+                }
+            }
+            if (length <= 0 || length > MAX_PICTURE){
+                return "the stream of the picture is not what the agent makes";
+            }
+            const qsizetype body = head_end + 4;
+            if (buffer.size() < body + length){
+                break;
+            }
+            const QImage picture = QImage::fromData(buffer.mid(body, length), "JPEG");
+            buffer.remove(0, body + length);
+            if (!picture.isNull()){
+                {
+                    std::lock_guard<std::mutex> lock(m_lock);
+                    m_picture = picture;
+                    m_serial++;
+                }
+                m_changed.notify_all();
+            }
+        }
+    }
+    return QString();
+}
 
 
 namespace{
@@ -331,6 +528,15 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
     const QString token_file = scratch.path() + "/token";
     const QString adb_log = scratch.path() + "/adb.log";
     const QString off_file = scratch.path() + "/off";
+    //  The live picture of the test: this file, again and again (see fake_video.py).
+    const QString video_file = scratch.path() + "/picture.jpg";
+    const QString fake_video = agent_folder + "/fake_video.py";
+    {
+        QImage red(48, 96, QImage::Format_RGB32);
+        red.fill(QColor(200, 30, 30));
+        check(red.save(video_file, "JPG", 95), "a picture for the live video is made");
+        check(QFile::exists(fake_video), "the fake live picture is in " + agent_folder);
+    }
 
     QProcess agent;
     QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
@@ -341,6 +547,7 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
     agent.start(python, QStringList{
         script, "--host", "127.0.0.1", "--port", "0",
         "--adb", python, "--adb-arg", fake, "--token-file", token_file,
+        "--video-cmd", python, "--video-arg", fake_video, "--video-arg", video_file,
     });
     check(agent.waitForStarted(15000), "the agent starts");
 
@@ -446,6 +653,38 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         error.clear();
         check(!phone.text("x; reboot", &error) && !error.isEmpty(), "a text that could be a command is refused (" + error + ")");
         check(read_lines(adb_log).size() == count, "none of them reached the phone");
+    }
+
+    //  The live picture.
+    {
+        MobileVideo video("127.0.0.1", port, token, 10, 300);
+        video.start();
+        QImage first;
+        quint64 serial = 0;
+        check(video.wait_newer(first, 0, 10000, &serial), "the live picture gives a first picture: " + video.error());
+        check(first.size() == QSize(48, 96), "it is the picture of the phone (" + QString::number(first.width()) + "x" + QString::number(first.height()) + ")");
+        const QColor color = first.isNull() ? QColor() : first.pixelColor(24, 48);
+        check(std::abs(color.red() - 200) < 40 && std::abs(color.green() - 30) < 40 && std::abs(color.blue() - 30) < 40,
+            "with its colors (" + color.name() + ")");
+        QImage next;
+        quint64 later = serial;
+        check(video.wait_newer(next, serial, 5000, &later) && later > serial, "and more pictures come");
+        QImage newest;
+        quint64 count = 0;
+        check(video.latest(newest, &count) && count >= later, "the newest picture can be asked for at any time");
+        check(video.error().isEmpty(), "with nothing wrong");
+        QElapsedTimer stopping;
+        stopping.start();
+        video.stop();
+        check(stopping.elapsed() < 3000, "it stops at once");
+
+        //  A wrong token: no pictures, and it says why.
+        MobileVideo stranger("127.0.0.1", port, "not-the-token", 10, 300);
+        stranger.start();
+        QImage none;
+        check(!stranger.wait_newer(none, 0, 1500), "a wrong token gets no picture");
+        check(stranger.error().contains("token"), "and is told why (" + stranger.error() + ")");
+        stranger.stop();
     }
 
     //  A phone that is switched off, and that comes back.

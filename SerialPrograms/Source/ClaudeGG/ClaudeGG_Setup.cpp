@@ -7446,8 +7446,8 @@ private:
         };
         static const Step STEPS[4] = {
             {"Plug the phone into the Raspberry Pi with its USB cable. On the phone, turn on Developer options and USB debugging, and allow the Pi when the phone asks.", nullptr},
-            {"On the Raspberry Pi, open a terminal and download Claude GG:", "git clone https://github.com/MajorLOL/ClaudeGG"},
-            {"Then install the agent:", "sudo bash ClaudeGG/Mobile/agent/install-agent.sh"},
+            {"On the Raspberry Pi, open a terminal and download Claude GG:", "git clone --depth 1 https://github.com/MajorLOL/ClaudeGG"},
+            {"Then install the agent (as yourself, not with sudo):", "bash ClaudeGG/Mobile/agent/install-agent.sh"},
             {"It prints the address and the token. Type them here and test the connection.", nullptr},
         };
         const double left = place_rect.left();
@@ -7485,7 +7485,13 @@ private:
                 y += 8;
                 const QRectF code(text_x, y, text_w, command_h);
                 panel(painter, code, 10, with_alpha(Qt::black, 0.55 * shown), white(0.14 * shown), 1.2);
-                draw_text_cy(painter, QString::fromLatin1(STEPS[c].command), code.left() + 14, code.center().y() + 1, mono, with_alpha(YELLOW, 0.95 * shown));
+                //  A longer command gets a smaller type before it runs out of its box.
+                const QString command = QString::fromLatin1(STEPS[c].command);
+                QFont fitted = mono;
+                for (int px = 21; px > 14 && text_width(fitted, command) > code.width() - 28; px--){
+                    fitted.setPixelSize(px - 1);
+                }
+                draw_text_cy(painter, command, code.left() + 14, code.center().y() + 1, fitted, with_alpha(YELLOW, 0.95 * shown));
                 y += command_h;
             }
             y += 18;
