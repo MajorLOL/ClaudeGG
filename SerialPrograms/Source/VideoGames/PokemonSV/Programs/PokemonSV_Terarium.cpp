@@ -98,6 +98,8 @@ void return_to_plaza(const ProgramInfo& info, VideoStream& stream, ProController
                     NormalBattleMenuWatcher battle_menu(COLOR_YELLOW);
                     battle_menu.move_to_slot(stream, context, 3);
                     pbf_press_button(context, BUTTON_A, 80ms, 400ms);
+                }catch (OperationCancelledException&){
+                    throw;
                 }catch (...){
                     stream.log("Unable to flee.");
                     OperationFailedExceptionWithScreenshot::fire(

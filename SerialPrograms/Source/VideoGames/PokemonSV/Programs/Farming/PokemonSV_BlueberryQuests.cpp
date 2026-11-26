@@ -1190,6 +1190,8 @@ void quest_tera_raid(
                     pbf_press_button(context, BUTTON_A, 80ms, 400ms);
                     press_Bs_to_back_to_overworld(env.program_info(), console, context);
                     return_to_plaza(env.program_info(), console, context);
+                }catch (OperationCancelledException&){
+                    throw;
                 }catch (...){
                     console.log("Unable to flee.");
                     OperationFailedExceptionWithScreenshot::fire(

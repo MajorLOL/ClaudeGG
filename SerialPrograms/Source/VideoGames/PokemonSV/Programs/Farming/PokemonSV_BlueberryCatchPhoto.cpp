@@ -361,6 +361,8 @@ void quest_photo(
                     pbf_press_button(context, BUTTON_A, 80ms, 400ms);
                     press_Bs_to_back_to_overworld(info, console, context);
                     return_to_plaza(info, console, context);
+                }catch (OperationCancelledException&){
+                    throw;
                 }catch (...){
                     console.log("Unable to flee.");
                     OperationFailedExceptionWithScreenshot::fire(
