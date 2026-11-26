@@ -14,6 +14,20 @@ mkdir -p "$TARGET"
 cp "$HERE/claudegg_agent.py" "$TARGET/"
 chmod 755 "$TARGET/claudegg_agent.py"
 
+echo "== Permission to start and stop the bot (for these three commands only) =="
+#  Claude GG starts the Pokemon GO bot (the service spin-stop) through this agent. The agent runs as
+#  you, so it needs sudo for exactly these three commands, without a password; nothing else.
+RULE="$USER ALL=(root) NOPASSWD: /usr/bin/systemctl start spin-stop, /usr/bin/systemctl stop spin-stop, /usr/bin/systemctl restart spin-stop"
+RULE_FILE="$(mktemp)"
+echo "$RULE" > "$RULE_FILE"
+if sudo visudo -cf "$RULE_FILE" >/dev/null; then
+  sudo install -m 0440 -o root -g root "$RULE_FILE" /etc/sudoers.d/claudegg-agent
+  echo "Written: /etc/sudoers.d/claudegg-agent"
+else
+  echo "visudo did not accept the rule, so nothing was written: add the rule of the Installation page of the bot yourself."
+fi
+rm -f "$RULE_FILE"
+
 echo "== The service (starts by itself, restarts when it stops) =="
 sudo tee /etc/systemd/system/claudegg-agent.service >/dev/null <<UNIT
 [Unit]

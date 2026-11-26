@@ -66,8 +66,10 @@ HTTP with JSON on the local network. Everything but `/v1/ping` needs the header
 Errors are `{"error": "..."}` with 400 (an argument is wrong), 401 (the token), 413, 502 (`adb` says no: the phone is
 off, not authorised, or not there) or 504 (`adb` does not answer).
 
-The bot is started and stopped with `sudo -n /usr/bin/systemctl`: the user of the agent needs the same sudoers rule as the
-bot's web interface (the page *Installation* of the wiki); without it the answer is a 502 that says so.
+The bot is started and stopped with `sudo -n /usr/bin/systemctl`: the user of the agent needs a sudoers rule for
+`start`, `stop` and `restart` of `spin-stop`, and nothing else. `install-agent.sh` checks one with `visudo` and writes it
+to `/etc/sudoers.d/claudegg-agent` (the bot's web interface needs the same rule, see the page *Installation* of the wiki);
+without it the answer is a 502 that says so.
 
 What it will not do: open a shell, run a program or write a file on the phone. Every argument is checked and
 `adb` is called with a list of arguments, never a line for a shell.

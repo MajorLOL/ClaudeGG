@@ -638,6 +638,30 @@ class AgentFailTest(unittest.TestCase):
         self.assertEqual(status, 502)
 
 
+class InstallerTest(unittest.TestCase):
+    """install-agent.sh: the rule for sudo must be for what the agent runs, and nothing else."""
+
+    def script(self):
+        with open(os.path.join(os.path.dirname(HERE), "install-agent.sh"), encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_the_sudo_rule_is_what_the_agent_runs(self):
+        text = self.script()
+        rule = [line for line in text.splitlines() if line.startswith("RULE=")]
+        self.assertEqual(len(rule), 1)
+        for action in ("start", "stop", "restart"):
+            self.assertIn("/usr/bin/systemctl %s %s" % (action, agent.BOT_SERVICE), rule[0])
+        self.assertEqual(rule[0].count("/usr/bin/systemctl"), 3, "no other command")
+        self.assertEqual(agent.Bot().systemctl[:3], ["sudo", "-n", "/usr/bin/systemctl"], "that is how the agent calls it")
+        self.assertIn("visudo -cf", text, "the rule is checked before it is installed")
+
+    @unittest.skipUnless(os.name == "posix", "needs a shell")
+    def test_the_script_is_a_script(self):
+        import subprocess
+        done = subprocess.run(["bash", "-n", os.path.join(os.path.dirname(HERE), "install-agent.sh")], capture_output=True)
+        self.assertEqual(done.returncode, 0, done.stderr.decode())
+
+
 class TokenTest(unittest.TestCase):
     def test_the_token_is_made_once_and_kept(self):
         with tempfile.TemporaryDirectory() as folder:
