@@ -46,7 +46,7 @@ void PersistentSettings::write() const{
 
     root["99-Panels"] = panels.clone();
 
-    //  PocketPilot: written beside the settings file and put in its place in
+    //  ClaudeGG: written beside the settings file and put in its place in
     //  one step. The settings are written at each save of a game now, not
     //  only when the window closes: a second window that starts at that
     //  moment never reads half a file, and a write that does not go through

@@ -2,7 +2,7 @@
  *
  *  From: https://github.com/PokemonAutomation/
  *
- *  Experimental (PocketPilot build 34: not run on a console when written).
+ *  Experimental (build 34: not run on a console when written).
  *  The PC's boxes, read: which Pokemon is in which cell, and its level. The
  *  first step toward evolving and trading what the story caught. Nothing in
  *  the boxes is changed by it.

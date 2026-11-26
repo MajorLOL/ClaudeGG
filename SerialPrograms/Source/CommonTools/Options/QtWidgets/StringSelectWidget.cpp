@@ -27,7 +27,7 @@ template class RegisterUiStateQtWidget<StringSelectOptionWidget>;
 
 //  Shows the selected entry's text in its own color. An entry with no color
 //  keeps the theme's text color: Color() is 0, which Qt draws as black.
-//  (PocketPilot: the entry's color in a shade that can be read in the theme.)
+//  (ClaudeGG: the entry's color in a shade that can be read in the theme.)
 static void set_selected_text_color(Color color, QLineEdit& line_edit){
     QPalette palette;
     if (color){

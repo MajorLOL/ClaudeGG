@@ -9,12 +9,12 @@
 
 #include "Common/Cpp/ColoredText.h"
 #include "Common/Cpp/Options/EnumDropdownOption.h"
-#include "PocketPilot/PocketPilot_Theme.h"
+#include "ClaudeGG/ClaudeGG_Theme.h"
 
 namespace PokemonAutomation{
 
 
-//  The look of the program: PocketPilot's Night or Day, or one of the two
+//  The look of the program: ClaudeGG's Night or Day, or one of the two
 //  classic looks of Pokemon Automation.
 class ThemeSelectorOption : public EnumDropdownOption<UiThemeMode>{
 public:
@@ -24,8 +24,8 @@ public:
     virtual void load_json(const JsonValue& json) override;
 };
 
-//  The color of the PocketPilot themes: that of a starter.
-class StarterColorOption : public EnumDropdownOption<PocketPilot::Starter>{
+//  The color of the ClaudeGG themes: that of a starter.
+class StarterColorOption : public EnumDropdownOption<ClaudeGG::Starter>{
 public:
     StarterColorOption();
 

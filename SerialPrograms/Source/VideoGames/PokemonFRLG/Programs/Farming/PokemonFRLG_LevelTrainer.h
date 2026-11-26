@@ -1,6 +1,6 @@
 /*  Pokemon FRLG Level Trainer
  *
- *  PocketPilot's own program (experimental: not tested on a console yet).
+ *  ClaudeGG's own program (experimental: not tested on a console yet).
  *
  *  Trains the first Pokemon of the party to a level, with the training of
  *  the AutoStory: its battles, its grass lines, and at the story's training

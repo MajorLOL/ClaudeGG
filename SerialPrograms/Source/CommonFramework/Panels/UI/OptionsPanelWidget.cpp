@@ -5,7 +5,7 @@
  */
 
 #include "CommonFramework/Panels/UI/PanelElements.h"
-#include "PocketPilot/PocketPilot_SettingsSearch.h"
+#include "ClaudeGG/ClaudeGG_SettingsSearch.h"
 #include "OptionsPanelWidget.h"
 
 namespace PokemonAutomation{
@@ -28,8 +28,8 @@ OptionsPanelWidget::OptionsPanelWidget(
         session.options(),
         {make_actions_bar(*this, session)}
     );
-    //  PocketPilot: a search field above the options.
-    PocketPilot::add_options_search(*this);
+    //  ClaudeGG: a search field above the options.
+    ClaudeGG::add_options_search(*this);
 }
 
 

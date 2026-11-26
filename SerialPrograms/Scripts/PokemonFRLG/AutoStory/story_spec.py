@@ -2466,7 +2466,7 @@ CHAPTER19 = [
 #  Tanoby Chambers (UNOWN only once the Tanoby Key puzzle is solved).
 #
 #
-#  Three Isle Port (PocketPilot build 34, experimental): DUNSPARCE, the only
+#  Three Isle Port (build 34, experimental): DUNSPARCE, the only
 #  wild Pokemon of its grass, which lies behind the Dunsparce Tunnel. The
 #  tunnel is dug through once the National POKeDEX is on
 #  (ThreeIsland_DunsparceTunnel_OnTransition: its other layout), and has no
@@ -2840,7 +2840,7 @@ CHAPTER20 = [
 
 
 # --------------------------------------------- chapter 20, the next steps
-#  EXPERIMENTAL (PocketPilot build 32, not run on a console when written).
+#  EXPERIMENTAL (build 32, not run on a console when written).
 #  What the grass, the caves and the Safari Zone do not have: fishing, the
 #  water, Rock Smash, and Pokemon that are given or stand on the map once.
 #  All as segments of their own after the towns (a save in a town's segment
@@ -3021,7 +3021,7 @@ def revive(fossil, species, label):
     ]
 
 
-#  DRATINI by fishing in the Safari Zone (PocketPilot build 52, experimental,
+#  DRATINI by fishing in the Safari Zone (build 52, experimental,
 #  not run on a console when written).
 #  The four areas of the Safari Zone have water, and the SUPER ROD brings
 #  (wild_encounters.json, the same in all four, both games) GOLDEEN 40,
@@ -3174,7 +3174,7 @@ CHAPTER20 += [
 
 
 # ---------------------------------------------- chapter 20, the PC's boxes
-#  EXPERIMENTAL (PocketPilot build 34, not run on a console when written).
+#  EXPERIMENTAL (build 34, not run on a console when written).
 #  What the story caught lies in the PC's boxes. Evolving it (41 species of
 #  the FireRed table with Charmander only come that way: 23 by level, 14 by
 #  a stone, 3 by friendship, HITMONTOP by level and stats) and giving it away
@@ -3212,7 +3212,7 @@ CHAPTER20 += [
 
 
 # ------------------------------------------- chapter 20, evolution stones
-#  EXPERIMENTAL (PocketPilot build 35, not run on a console when written).
+#  EXPERIMENTAL (build 35, not run on a console when written).
 #  The boxes were read on 17 November 2026 (build 34: 134 Pokemon). Eleven
 #  of them evolve with a stone into a species the table does not have:
 #  ARCANINE (FIRE STONE), VILEPLUME and EXEGGUTOR (LEAF STONE), RAICHU
@@ -3282,7 +3282,7 @@ CHAPTER20 += [
 
 
 # ------------------------------------------- chapter 20, the game's trades
-#  EXPERIMENTAL (PocketPilot build 36, not run on a console when written).
+#  EXPERIMENTAL (build 36, not run on a console when written).
 #  Four species of the FireRed table come only from someone in the game who
 #  trades (data/maps/*/scripts.inc, EventScript_GetInGameTradeSpeciesInfo):
 #      FARFETCH'D   for a SPEAROW    Vermilion City, the house of Elyssa
@@ -3329,7 +3329,7 @@ CHAPTER20 += [trade_segment(*trade) for trade in TRADES]
 
 
 # ------------------------------------- chapter 20, the stones that are not sold
-#  EXPERIMENTAL (PocketPilot build 41). Ran on a console on 18 November
+#  EXPERIMENTAL (build 41). Ran on a console on 18 November
 #  (Mansion, Mt. Moon 1F and Ruin Valley: Clefable, Wigglytuff and
 #  Bellossom evolved; the Hideout place was gone, see below).
 #  The Celadon Department Store sells no MOON STONE and no SUN STONE, and
@@ -3439,7 +3439,7 @@ CHAPTER20 += [
 
 
 # ------------------------------------------------ chapter 20, evolving by level
-#  EXPERIMENTAL (PocketPilot build 43, not run on a console when written).
+#  EXPERIMENTAL (build 43, not run on a console when written).
 #  The table of the FireRed game with Charmander has 23 species that only
 #  come by evolving by a level (the same table, as the stones and the
 #  trades: PokemonFRLG_AutoStoryDexCollection.h). Where the one that
@@ -3499,7 +3499,7 @@ def level_segment(seg_id):
 
 
 # ------------------------------------------------ chapter 20, the Elite Four for experience
-#  EXPERIMENTAL (PocketPilot build 46, not run on a console when written).
+#  EXPERIMENTAL (build 46, not run on a console when written).
 #  A Pokemon of the PC that evolves by a level and has a lot of experience to
 #  go (PUPITAR from level 43 to 55 is 108585 points: at Victory Road, some 20000
 #  an hour, five hours) rides through the League again in the party's sixth
@@ -3579,7 +3579,7 @@ CHAPTER20 += [exp_segment("C20_EXP_%02d_ELITE_FOUR" % (EXP_ROUNDS + k + 1)) for 
 
 
 # ------------------------------------------------ chapter 20, evolving by friendship
-#  EXPERIMENTAL (PocketPilot build 45, not run on a console when written).
+#  EXPERIMENTAL (build 45, not run on a console when written).
 #  The table of the FireRed game with Charmander has three species that
 #  only come by a level up with a friendship of 220 or more: CROBAT (of
 #  GOLBAT), BLISSEY (of CHANSEY) and TOGETIC (of TOGEPI, which comes of an
@@ -3628,7 +3628,7 @@ CHAPTER20 += [friend_segment("C20_%d_FRIEND_%02d" % (35 + LEVEL_SEGMENTS + k, k 
 
 
 # ------------------------------------------------ chapter 20, eggs
-#  EXPERIMENTAL (PocketPilot build 47, not run on a console when written).
+#  EXPERIMENTAL (build 47, not run on a console when written).
 #  The POKeDEX table has species that only come of an egg. The first one is
 #  the gift of Five Island: the Gentleman in the Water Labyrinth (the channel
 #  between Five Island and Resort Gorgeous, on a patch of land at (14, 11))
@@ -3690,7 +3690,7 @@ CHAPTER20 += [friend_segment("C20_%d_FRIEND_%02d" % (63 + k, FRIEND_SEGMENTS + k
 
 
 # ------------------------------------------------ chapter 20, the Day Care
-#  EXPERIMENTAL (PocketPilot build 48, not run on a console when written).
+#  EXPERIMENTAL (build 48, not run on a console when written).
 #  The POKeDEX table's other species that only come of an egg: PICHU, CLEFFA,
 #  IGGLYBUFF, SMOOCHUM, ELEKID, the second TOGEPI and TYROGUE (three copies
 #  of it are wanted). They are bred at the Day Care of Four Island with a
@@ -3873,7 +3873,7 @@ CHAPTER20 += [daycare_segment("C20_%d_DAYCARE_%02d_WYNAUT" % (66 + len(DAYCARE_B
 
 
 # ------------------------------------------------ chapter 20, vitamins for HITMONTOP
-#  EXPERIMENTAL (PocketPilot build 57, not run on a console when written).
+#  EXPERIMENTAL (build 57, not run on a console when written).
 #  TYROGUE becomes HITMONTOP at level 20 when its Attack and its Defense are
 #  the same (one try in nine left to itself). A PROTEIN adds 10 EVs to the Attack,
 #  an IRON 10 to the Defense, and the stats are made again at once: the program
@@ -3934,7 +3934,7 @@ CHAPTER20 += [daycare_segment("C20_79C_DAYCARE_15_TYROGUE", "TYROGUE (for the HI
 
 
 # ------------------------------------------------ chapter 20, what the Day Care hatched, by level
-#  EXPERIMENTAL (PocketPilot build 51, not run on a console when written).
+#  EXPERIMENTAL (build 51, not run on a console when written).
 #  The level segments of build 43 (C20_35 and on) come before the Day Care in
 #  the route: what it hatched (TYROGUE and its HITMONCHAN / HITMONTOP, the
 #  SMOOCHUM that becomes JYNX and the ELEKID that becomes ELECTABUZZ at level
@@ -3968,7 +3968,7 @@ CHAPTER20 += [stones_segment("C20_85_STONES_2")]
 
 
 # ------------------------------------------------ chapter 20, the legendary Pokemon of the tickets
-#  EXPERIMENTAL (PocketPilot build 54, not run on a console when written).
+#  EXPERIMENTAL (build 54, not run on a console when written).
 #  The Switch version gives the MYSTIC TICKET and the AURORA TICKET after the
 #  Hall of Fame; the Vermilion sailor's tickets menu takes the Seagallop to
 #  NAVEL ROCK (HO-OH on the summit, LUGIA at the base) and BIRTH ISLAND
@@ -4095,7 +4095,7 @@ CHAPTER20 += [
 
 
 # ------------------------------------------------ chapter 20, UNOWN (Tanoby Ruins)
-#  EXPERIMENTAL (PocketPilot build 55, not run on a console when written).
+#  EXPERIMENTAL (build 55, not run on a console when written).
 #  UNOWN lives in the seven Tanoby Chambers (level 25, the only Pokemon there,
 #  every step of the floor), but the game keeps them out of reach until the
 #  Tanoby Key's puzzle is solved: wild_encounter.c (UnlockedTanobyOrAreNotInTanoby)
@@ -4168,7 +4168,7 @@ CHAPTER20 += [unown_segment("C20_89_UNOWN")]
 
 
 # ------------------------------------------------ chapter 20, PORYGON (the Celadon Game Corner)
-#  EXPERIMENTAL (PocketPilot build 56, not run on a console when written).
+#  EXPERIMENTAL (build 56, not run on a console when written).
 #  PORYGON is a prize of the Celadon Game Corner for 9999 COINS (FireRed;
 #  CeladonCity_GameCorner_PrizeRoom_EventScript_Porygon). The COIN CASE is the
 #  gift of the man in the Celadon restaurant (FLAG_GOT_COIN_CASE), the case

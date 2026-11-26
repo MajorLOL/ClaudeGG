@@ -103,7 +103,7 @@ void NuggetBridgeFarmer::program(SingleSwitchProgramEnvironment& env, ProControl
     NuggetBridgeFarmer_Descriptor::Stats& stats = env.current_stats<NuggetBridgeFarmer_Descriptor::Stats>();
     DeferredStopButtonOption::ResetOnExit reset_on_exit(STOP_AFTER_CURRENT);
 
-    //  PocketPilot: every wait below was a loop without an end. The walk to
+    //  ClaudeGG: every wait below was a loop without an end. The walk to
     //  the Rocket goes by timings alone. Its first leg may come out a tile
     //  short or long, and four others end at a wall or at the Rocket's own
     //  trigger: there some time more or less does not matter. The fifth
@@ -192,7 +192,7 @@ void NuggetBridgeFarmer::program(SingleSwitchProgramEnvironment& env, ProControl
         env.console.log("Navigating to Team Rocket member...");
 
         if (WALK_ALONG_WALLS){
-            //  PocketPilot (experimental): the same walk up to the street in
+            //  ClaudeGG (experimental): the same walk up to the street in
             //  the north of the city. Then right to anywhere below the bay
             //  under the bridge (6 tiles wide), a little up into it, left to
             //  its wall (the bridge's left column), one step right (its

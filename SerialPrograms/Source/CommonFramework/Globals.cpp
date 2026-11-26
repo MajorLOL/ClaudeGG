@@ -54,27 +54,27 @@ const std::string PROGRAM_VERSION = PROGRAM_VERSION_BASE + "-user";
 
 
 
-//  PocketPilot is a fork of Pokemon Automation's SerialPrograms. The version
+//  ClaudeGG is a fork of Pokemon Automation's SerialPrograms. The version
 //  numbers above stay those of Pokemon Automation: they say which of its
 //  versions this fork is built on. The fork's own number is its build.
 
 //  The number of the build, written by the workflow that makes the builds
-//  (.github/workflows/pocketpilot-windows.yml). "local" for a build made
+//  (.github/workflows/claudegg-windows.yml). "local" for a build made
 //  by hand.
-#if __has_include("PocketPilot/PocketPilot_Build.h")
-#include "PocketPilot/PocketPilot_Build.h"
+#if __has_include("ClaudeGG/ClaudeGG_Build.h")
+#include "ClaudeGG/ClaudeGG_Build.h"
 #endif
-#ifndef POCKETPILOT_BUILD
-#define POCKETPILOT_BUILD "local"
+#ifndef CLAUDEGG_BUILD
+#define CLAUDEGG_BUILD "local"
 #endif
-const std::string PROGRAM_BUILD = POCKETPILOT_BUILD;
+const std::string PROGRAM_BUILD = CLAUDEGG_BUILD;
 
 //  Before build 98: "PocketPilot Studio" (and "PocketPilot" before build 12).
 const std::string PROGRAM_NAME = "Claude GG";
 const std::string UPSTREAM_PROGRAM_NAME = "Pok\u00e9mon Automation";
 
 //  Where this fork lives: its source, its builds and its questions.
-const std::string PROJECT_HOME_URL = "https://github.com/MajorLOL/ClaudeGG/tree/pocketpilot";
+const std::string PROJECT_HOME_URL = "https://github.com/MajorLOL/ClaudeGG/tree/main";
 const std::string PROJECT_HOME_TEXT = "github.com/MajorLOL/ClaudeGG";
 
 //  The documentation of the programs is Pokemon Automation's.

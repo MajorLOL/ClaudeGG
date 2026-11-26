@@ -19,7 +19,7 @@ class TurboMacro_Descriptor : public SingleSwitchProgramDescriptor{
 public:
     TurboMacro_Descriptor();
 
-    //  PocketPilot (experimental): the loops done, under the video.
+    //  ClaudeGG (experimental): the loops done, under the video.
     struct Stats;
     virtual std::unique_ptr<StatsTracker> make_stats() const override;
 };

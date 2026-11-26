@@ -8,7 +8,7 @@
 #include "CommonFramework/GlobalAutoPaths.h"
 #include "Pokemon/Pokemon_Strings.h"
 #include "PokemonHome_Panels.h"
-#include "PocketPilot/ClaudePlays/ClaudePlays_Program.h"
+#include "ClaudeGG/ClaudePlays/ClaudePlays_Program.h"
 
 #include "Programs/PokemonHome_PageSwap.h"
 #include "Programs/PokemonHome_BoxSorter.h"
@@ -36,9 +36,9 @@ std::vector<PanelEntry> PanelListFactory::make_panels() const{
 
 //    ret.emplace_back("---- Settings ----");
 //    ret.emplace_back(make_settings<GameSettings_Descriptor, GameSettingsPanel>());
-    //  PocketPilot: Claude plays toward a goal the user writes down.
+    //  ClaudeGG: Claude plays toward a goal the user writes down.
     ret.emplace_back("---- Claude ----");
-    ret.emplace_back(PocketPilot::ClaudePlays::make_claude_plays(PocketPilot::ClaudePlays::GameId::POKEMON_HOME));
+    ret.emplace_back(ClaudeGG::ClaudePlays::make_claude_plays(ClaudeGG::ClaudePlays::GameId::POKEMON_HOME));
 
     ret.emplace_back("---- General ----");
     ret.emplace_back(make_SingleSwitchProgram<PokemonHome::PageSwap>());

@@ -36,8 +36,8 @@
 #include "VideoGames/PokemonLZA/PokemonLZA_Panels.h"
 #include "VideoGames/PokemonPokopia/PokemonPokopia_Panels.h"
 #include "VideoGames/ZeldaTotK/ZeldaTotK_Panels.h"
-#include "PocketPilot/ClaudePlays/ClaudePlays_Program.h"
-#include "PocketPilot/PocketPilot_ProgramList.h"
+#include "ClaudeGG/ClaudePlays/ClaudePlays_Program.h"
+#include "ClaudeGG/ClaudeGG_ProgramList.h"
 #include "PanelLists.h"
 
 //#include <iostream>
@@ -69,17 +69,17 @@ std::vector<std::unique_ptr<PanelListDescriptor>> make_all_lists(){
 
     lists.emplace_back(std::make_unique<NintendoSwitch::ZeldaTotK::PanelListFactory>());
 
-    //  PocketPilot: games with no program of their own yet, for Claude Plays.
+    //  ClaudeGG: games with no program of their own yet, for Claude Plays.
     //  A new game goes in here (a GameId and its profile, see
-    //  PocketPilot/ClaudePlays/ClaudePlays_Games.h) until it has programs.
-    for (PocketPilot::ClaudePlays::GameId game : PocketPilot::ClaudePlays::all_games()){
-        if (PocketPilot::ClaudePlays::has_only_claude_plays(game)){
-            lists.emplace_back(std::make_unique<PocketPilot::ClaudePlays::GameOnlyList>(game));
+    //  ClaudeGG/ClaudePlays/ClaudePlays_Games.h) until it has programs.
+    for (ClaudeGG::ClaudePlays::GameId game : ClaudeGG::ClaudePlays::all_games()){
+        if (ClaudeGG::ClaudePlays::has_only_claude_plays(game)){
+            lists.emplace_back(std::make_unique<ClaudeGG::ClaudePlays::GameOnlyList>(game));
         }
     }
 
-    //  PocketPilot: whatever game is on the screen, played by Claude.
-    lists.emplace_back(std::make_unique<PocketPilot::ClaudePlays::OtherGamesList>());
+    //  ClaudeGG: whatever game is on the screen, played by Claude.
+    lists.emplace_back(std::make_unique<ClaudeGG::ClaudePlays::OtherGamesList>());
 
     if (STATIC_GLOBALS.DEVELOPER_MODE){
         lists.emplace_back(std::make_unique<ML::PanelListFactory>());
@@ -88,8 +88,8 @@ std::vector<std::unique_ptr<PanelListDescriptor>> make_all_lists(){
 }
 
 //  What the page with the games shows of one list.
-PocketPilot::HomeGame describe_list(const PanelListDescriptor& list){
-    PocketPilot::HomeGame game;
+ClaudeGG::HomeGame describe_list(const PanelListDescriptor& list){
+    ClaudeGG::HomeGame game;
     game.name = QString::fromStdString(list.name());
     const ImageViewRGB32& icon = list.icon();
     if (icon){
@@ -109,7 +109,7 @@ namespace{
 //  is made, but never shown, and its console is not loaded: only the options
 //  are, from the settings of the page, and they are kept there again, next to
 //  the console setup (which stays as it is).
-class SetupOptionsHolder final : public PocketPilot::SetupProgramOptions, private ConfigOption::Listener{
+class SetupOptionsHolder final : public ClaudeGG::SetupProgramOptions, private ConfigOption::Listener{
     //  Where the page keeps its console; not the options.
     static constexpr const char* CONSOLE_KEY = "ConsoleSetup";
 
@@ -204,7 +204,7 @@ private:
 }
 
 
-std::unique_ptr<PocketPilot::SetupProgramOptions> make_setup_options(
+std::unique_ptr<ClaudeGG::SetupProgramOptions> make_setup_options(
     QWidget* parent, int game, const QString& program
 ){
     //  The lists are made once: their pictures are loaded then.
@@ -232,9 +232,9 @@ std::unique_ptr<PocketPilot::SetupProgramOptions> make_setup_options(
 
 
 void describe_all_games(
-    std::vector<PocketPilot::HomeGame>& games,
+    std::vector<ClaudeGG::HomeGame>& games,
     std::string* error,
-    std::vector<PocketPilot::HomeProgram>* programs
+    std::vector<ClaudeGG::HomeProgram>* programs
 ){
     games.clear();
     if (programs != nullptr){
@@ -242,20 +242,20 @@ void describe_all_games(
     }
     try{
         for (const std::unique_ptr<PanelListDescriptor>& list : make_all_lists()){
-            PocketPilot::HomeGame game = describe_list(*list);
+            ClaudeGG::HomeGame game = describe_list(*list);
             //  The list of the Nintendo Switch has its settings, its virtual
             //  consoles and its tests in it too: of these only the programs
             //  are what the setup asks to start.
             const bool only_programs = list->name() == "Nintendo Switch";
             game.programs = 0;
             for (const PanelListDescriptor::ProgramSummary& summary : list->program_summaries()){
-                const QString section = PocketPilot::section_title(QString::fromStdString(summary.section));
+                const QString section = ClaudeGG::section_title(QString::fromStdString(summary.section));
                 if (only_programs && section != "Programs"){
                     continue;
                 }
                 game.programs++;
                 if (programs != nullptr){
-                    PocketPilot::HomeProgram program;
+                    ClaudeGG::HomeProgram program;
                     program.game = (int)games.size();
                     program.section = only_programs ? QString() : section;
                     program.name = QString::fromStdString(summary.name);
@@ -357,7 +357,7 @@ ProgramSelect::ProgramSelect(QWidget& parent, PanelHolder& holder)
     );
 }
 
-//  PocketPilot: the list is locked, not disabled. A disabled list does not
+//  ClaudeGG: the list is locked, not disabled. A disabled list does not
 //  scroll: while a program ran, the wheel did nothing and the bar did not
 //  move.
 void ProgramSelect::lock(){
@@ -373,7 +373,7 @@ void ProgramSelect::add(std::unique_ptr<PanelListDescriptor> list){
     int index = m_dropdown->count();
     const ImageViewRGB32& icon = list->icon();
     //  Without the series' name in front: the box is narrow.
-    const QString short_name = PocketPilot::short_game_name(QString::fromStdString(list->name()));
+    const QString short_name = ClaudeGG::short_game_name(QString::fromStdString(list->name()));
     if (icon){
         m_dropdown->addItem(
             QIcon(QPixmap::fromImage(to_QImage_ref(icon))),
@@ -465,16 +465,16 @@ void ProgramSelect::persistent_panel(std::string& game, std::string& program) co
 }
 
 void ProgramSelect::describe(
-    std::vector<PocketPilot::HomeGame>& games,
-    std::vector<PocketPilot::HomeProgram>& programs
+    std::vector<ClaudeGG::HomeGame>& games,
+    std::vector<ClaudeGG::HomeProgram>& programs
 ) const{
     games.clear();
     programs.clear();
     for (size_t index = 0; index < m_lists.size(); index++){
         const PanelListDescriptor& list = *m_lists[index];
-        PocketPilot::HomeGame game = describe_list(list);
+        ClaudeGG::HomeGame game = describe_list(list);
         for (PanelListDescriptor::ProgramSummary& summary : list.program_summaries()){
-            PocketPilot::HomeProgram program;
+            ClaudeGG::HomeProgram program;
             program.game = (int)index;
             program.section = QString::fromStdString(summary.section);
             program.name = QString::fromStdString(summary.name);

@@ -12,24 +12,22 @@ Claude GG is not made, endorsed or supported by Nintendo, Game Freak, Creatures 
 
 ## Getting it
 
-Every push to the branch `pocketpilot` makes a Windows build and tests that it starts. A build that passes is published under [releases](https://github.com/MajorLOL/ClaudeGG/releases). Unzip `ClaudeGG-Windows.zip` and run `ClaudeGG.exe`.
+Every push to the branch `main` makes a Windows build and tests that it starts. A build that passes is published under [releases](https://github.com/MajorLOL/ClaudeGG/releases). Unzip `ClaudeGG-Windows.zip` and run `ClaudeGG.exe`.
 
 To keep the settings of an older build, close it and copy its `UserSettings` folder into the new folder. The hardware and its setup are the same as for Pokémon Automation: see [its documentation](https://pokemonautomation.github.io/).
-
-The branch `pocketpilot`, the tags of the builds (`pocketpilot-build-N`) and the source folder `PocketPilot` keep an older name of the program.
 
 ## What is different from Pokémon Automation
 
 | | |
 |---|---|
 | **Interface** | A new window made of the screens of the setup: the games, the programs of a game (with the live picture, the checks, the log and the options) and the program itself. Two themes of its own, Night and Day, in the color of a starter; the old looks are still there as "Classic". |
-| **Claude** | A panel where you talk to Anthropic's Claude, on an API key of your own. It answers questions about the programs and builds or fixes them: every change goes to a `claude/...` branch and a pull request that is built and tested before you merge it. The program **Claude Plays**, in the list of every game, lets Claude play toward a goal you write down. See [ASSISTANT.md](SerialPrograms/Source/PocketPilot/ASSISTANT.md). |
+| **Claude** | A panel where you talk to Anthropic's Claude, on an API key of your own. It answers questions about the programs and builds or fixes them: every change goes to a `claude/...` branch and a pull request that is built and tested before you merge it. The program **Claude Plays**, in the list of every game, lets Claude play toward a goal you write down. See [ASSISTANT.md](SerialPrograms/Source/ClaudeGG/ASSISTANT.md). |
 | **Intro** | A short film at startup. Settings or `--no-intro` turns it off. |
 | **Installations** | Several installations run side by side, each in its own window and process, with its own settings, capture card and microcontroller. An overview shows a miniature of each. |
 | **FRLG AutoStory** | Plays FireRed or LeafGreen from a new game to the Hall of Fame and on, up to a Pokédex collection. See [the program's folder](SerialPrograms/Source/VideoGames/PokemonFRLG/Programs/AutoStory). |
 | **Experimental programs** | New programs and options that have not run on a console yet carry the tag "experimental". What each is for and how far it was tested: [ROADMAP.md](ROADMAP.md), sections 6 and 7. |
 | **Search** | The games and the programs of a game have a search field; just start typing. |
-| **Fixes** | Fixes for bugs found in a review of the whole code: [FIXES.md](SerialPrograms/Source/PocketPilot/FIXES.md). Pokémon Automation's open issues and where this fork stands on each: [ISSUES.md](SerialPrograms/Source/PocketPilot/ISSUES.md), [OTHERS.md](SerialPrograms/Source/PocketPilot/OTHERS.md). |
+| **Fixes** | Fixes for bugs found in a review of the whole code: [FIXES.md](SerialPrograms/Source/ClaudeGG/FIXES.md). Pokémon Automation's open issues and where this fork stands on each: [ISSUES.md](SerialPrograms/Source/ClaudeGG/ISSUES.md), [OTHERS.md](SerialPrograms/Source/ClaudeGG/OTHERS.md). |
 | **Video frames** | Pictures of the screen are made without Qt's `QVideoFrame::toImage()`, which on some computers grows the memory by up to 1.6 GB an hour. |
 | **Builds** | Each build starts once on the build machine, as on a computer that never ran it, goes through its pages and saves a picture of each. A build that fails is not published. |
 | **Left out** | The check for a new version (it is for Pokémon Automation's releases), Discord Rich Presence by default, and the Discord bot and Social SDK in the Windows build. |
@@ -38,7 +36,7 @@ Everything that differs from Pokémon Automation, with the reason for each chang
 
 ## Building
 
-Claude GG builds like Pokémon Automation's SerialPrograms: see [SerialPrograms/BuildInstructions](SerialPrograms/BuildInstructions). The Windows builds are made by [this workflow](.github/workflows/pocketpilot-windows.yml) with Qt 6.10.2.
+Claude GG builds like Pokémon Automation's SerialPrograms: see [SerialPrograms/BuildInstructions](SerialPrograms/BuildInstructions). The Windows builds are made by [this workflow](.github/workflows/claudegg-windows.yml) with Qt 6.10.2.
 
 `SerialPrograms --ui-screenshots <folder>` starts the program, saves a picture of each page and exits; nothing is pressed on a console and no setting is saved. Its exit code is 0 when every picture was taken and every check passed. The other tests are `--language-test`, `--setup-test <folder>`, `--tutorial-test`, `--installation <name> --installation-test` and `--installations-hub-test <folder>`; the Windows workflow runs them all.
 
@@ -56,13 +54,13 @@ The first start goes through a setup in the style of the intro: the **language**
 
 ## Where the code is
 
-Claude GG's own code is in [SerialPrograms/Source/PocketPilot](SerialPrograms/Source/PocketPilot): the themes, the frame of the main window, the Games page, the setup, the installations and the tests of the interface. Claude is in its folder [Assistant](SerialPrograms/Source/PocketPilot/Assistant). The rest of the tree is Pokémon Automation's, with the changes this fork needs. The branch follows Pokémon Automation's `main` by merging it.
+Claude GG's own code is in [SerialPrograms/Source/ClaudeGG](SerialPrograms/Source/ClaudeGG): the themes, the frame of the main window, the Games page, the setup, the installations and the tests of the interface. Claude is in its folder [Assistant](SerialPrograms/Source/ClaudeGG/Assistant). The rest of the tree is Pokémon Automation's, with the changes this fork needs. The branch follows Pokémon Automation's `main` by merging it.
 
 ## Licenses
 
 - The source code is under the MIT license, like Pokémon Automation's: see [LICENSE](LICENSE) (Copyright (c) 2021 Alexander J. Yee). Claude GG's own changes and additions are under the same license.
 - The builds bring along precompiled libraries and the resources of Pokémon Automation ([Packages](https://github.com/PokemonAutomation/Packages)), which that project gives for non-commercial use only. Use the builds for non-commercial purposes.
-- The typeface of the name and the headings is Jersey 20 by Sarah Cadigan-Fried, under the [SIL Open Font License 1.1](SerialPrograms/Source/PocketPilot/Resources/Jersey20-OFL.txt). The setup uses Newsreader and Fredoka, also under the SIL Open Font License 1.1: [Newsreader](SerialPrograms/Source/PocketPilot/Resources/setup/Newsreader-OFL.txt), [Fredoka](SerialPrograms/Source/PocketPilot/Resources/setup/Fredoka-OFL.txt).
+- The typeface of the name and the headings is Jersey 20 by Sarah Cadigan-Fried, under the [SIL Open Font License 1.1](SerialPrograms/Source/ClaudeGG/Resources/Jersey20-OFL.txt). The setup uses Newsreader and Fredoka, also under the SIL Open Font License 1.1: [Newsreader](SerialPrograms/Source/ClaudeGG/Resources/setup/Newsreader-OFL.txt), [Fredoka](SerialPrograms/Source/ClaudeGG/Resources/setup/Fredoka-OFL.txt).
 - The Windows builds also bring along [esptool](https://github.com/espressif/esptool) of Espressif Systems (GPL-2.0-or-later) in the folder `Tools/esptool`, as a separate program that the setup starts to flash the ESP32 boards; its license and where its source is are in the `Licenses` folder of the build. The firmware in the `Firmware` folder is Pokémon Automation's, for non-commercial use.
 - The Claude wordmark in the intro is Anthropic's: see the notice above. The names of the games belong to their owners and are used only to say which game a program is for.
 

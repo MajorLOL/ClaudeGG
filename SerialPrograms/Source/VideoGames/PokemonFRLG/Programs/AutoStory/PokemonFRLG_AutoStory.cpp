@@ -69,7 +69,7 @@ AutoStory_Descriptor::AutoStory_Descriptor()
         "Sapphire, the roaming legendary with the Master Ball, Mewtwo, then the Pokedex collection: "
         "what the chosen game can still register in the grass, caves and Safari Zone), "
         "on routes generated from the game's map data.",
-        //  PocketPilot's own program, still being tested: it shows as "beta".
+        //  ClaudeGG's own program, still being tested: it shows as "beta".
         PanelQualityStanding::OFFICIAL_BETA,
         ProgramControllerClass::StandardController_RequiresPrecision,
         FeedbackType::REQUIRED,

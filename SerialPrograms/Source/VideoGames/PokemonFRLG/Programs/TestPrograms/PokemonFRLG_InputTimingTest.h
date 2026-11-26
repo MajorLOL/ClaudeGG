@@ -1,6 +1,6 @@
 /*  Pokemon FRLG Input Timing Test
  *
- *  PocketPilot's own program (experimental: not tested on a console yet).
+ *  ClaudeGG's own program (experimental: not tested on a console yet).
  *
  *  Measures how long the game takes to show its reaction to a button press,
  *  and how much that differs from press to press: what playing by the clock

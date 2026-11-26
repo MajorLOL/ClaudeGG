@@ -1,6 +1,6 @@
 /*  Pokemon FRLG Claude Plays
  *
- *  PocketPilot's own program (experimental: not tested on a console yet,
+ *  ClaudeGG's own program (experimental: not tested on a console yet,
  *  and not against the real Claude API).
  *
  *  Claude, the AI model of Anthropic, plays toward a goal the user writes
@@ -22,8 +22,8 @@
 #include "CommonFramework/Notifications/EventNotificationsTable.h"
 #include "NintendoSwitch/NintendoSwitch_SingleSwitchProgram.h"
 #include "NintendoSwitch/Options/NintendoSwitch_GoHomeWhenDoneOption.h"
-#include "PocketPilot/Assistant/Assistant_Play.h"
-#include "PocketPilot/ClaudePlays/ClaudePlays_Engine.h"
+#include "ClaudeGG/Assistant/Assistant_Play.h"
+#include "ClaudeGG/ClaudePlays/ClaudePlays_Engine.h"
 
 namespace PokemonAutomation{
 namespace NintendoSwitch{
@@ -34,7 +34,7 @@ namespace PokemonFRLG{
 //  "note" and "done") and its instructions. "allow_save": the user lets
 //  Claude save the game. (Here for the test of the interface as well, which
 //  checks that they are what the API takes.)
-std::vector<PocketPilot::Assistant::PlayTool> claude_plays_tools(bool allow_save);
+std::vector<ClaudeGG::Assistant::PlayTool> claude_plays_tools(bool allow_save);
 std::string claude_plays_instructions(bool allow_save);
 
 
@@ -56,7 +56,7 @@ public:
         FeedbackType feedback_type
     ) override{}
 
-    using Model = PocketPilot::ClaudePlays::Model;
+    using Model = ClaudeGG::ClaudePlays::Model;
 
     //  How large the pictures are that go to Claude.
     enum class Picture{

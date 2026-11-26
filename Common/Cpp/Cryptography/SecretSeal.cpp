@@ -1,6 +1,6 @@
 /*  Secret Seal
  *
- *  Part of PocketPilot, which is based on Pokemon Automation
+ *  Part of ClaudeGG, which is based on Pokemon Automation
  *  (https://github.com/PokemonAutomation/).
  *
  */

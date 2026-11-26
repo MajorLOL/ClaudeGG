@@ -7,7 +7,7 @@
 #include "CommonFramework/StaticGlobals.h"
 #include "CommonFramework/GlobalAutoPaths.h"
 #include "PokemonSwSh_Panels.h"
-#include "PocketPilot/ClaudePlays/ClaudePlays_Program.h"
+#include "ClaudeGG/ClaudePlays/ClaudePlays_Program.h"
 
 #include "PokemonSwSh_Settings.h"
 
@@ -103,9 +103,9 @@ std::vector<PanelEntry> PanelListFactory::make_panels() const{
     ret.emplace_back("---- Settings ----");
     ret.emplace_back(make_OptionsPanel<GameSettingsPanel>());
 
-    //  PocketPilot: Claude plays toward a goal the user writes down.
+    //  ClaudeGG: Claude plays toward a goal the user writes down.
     ret.emplace_back("---- Claude ----");
-    ret.emplace_back(PocketPilot::ClaudePlays::make_claude_plays(PocketPilot::ClaudePlays::GameId::SWORD_SHIELD));
+    ret.emplace_back(ClaudeGG::ClaudePlays::make_claude_plays(ClaudeGG::ClaudePlays::GameId::SWORD_SHIELD));
 
     ret.emplace_back("---- QoL Macros ----");
     ret.emplace_back(make_SingleSwitchProgram<FastCodeEntry>());

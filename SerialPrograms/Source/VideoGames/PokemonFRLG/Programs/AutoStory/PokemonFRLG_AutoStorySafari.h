@@ -4,7 +4,7 @@
  *
  *  Bait, rocks and balls in a Safari Zone battle.
  *
- *  Up to PocketPilot build 30 the AutoStory threw SAFARI BALLs at a species
+ *  Up to build 30 the AutoStory threw SAFARI BALLs at a species
  *  it wanted and nothing else. The run of 16 November 2026 played two
  *  Safari Games in the north area for the second CHANSEY: six came, and
  *  each fled after one to four balls (12 in all). That is how the game has

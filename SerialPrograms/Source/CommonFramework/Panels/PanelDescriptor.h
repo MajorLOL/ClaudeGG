@@ -25,12 +25,12 @@ enum class PanelQualityStanding{
     UNMAINTAINED,
     DEPRECATED,
     DEVELOPER,
-    //  PocketPilot: new, and not tested on a console yet.
+    //  ClaudeGG: new, and not tested on a console yet.
     EXPERIMENTAL,
 //    UNCATEGORIZED,
 };
 
-//  PocketPilot: the small tag behind a program's name ("beta", "rough", "dev",
+//  ClaudeGG: the small tag behind a program's name ("beta", "rough", "dev",
 //  ...; empty for a regular program) and, in "meaning", what it says. The side
 //  bar and the choice of a program in the setup show the same tags.
 std::string panel_standing_tag(PanelQualityStanding standing, std::string* meaning = nullptr);

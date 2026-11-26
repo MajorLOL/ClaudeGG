@@ -413,7 +413,7 @@ if (WIN32)
     # The Discord bot (D++) and the rich presence (the Discord Social SDK) are
     # optional on Windows too, as they are on the other platforms: the code is
     # behind PA_DPP and PA_SOCIAL_SDK. On by default, as upstream has it.
-    # PocketPilot's workflow turns it off: nothing in PocketPilot uses the
+    # ClaudeGG's workflow turns it off: nothing in ClaudeGG uses the
     # bot (a remote control through Discord), and D++ brings OpenSSL 1.1.1k,
     # which is no longer maintained. The webhooks (a message to Discord) are
     # not part of it.

@@ -34,7 +34,7 @@ public:
 public:
     JsonObject panels;
 
-    //  PocketPilot: how the file was written so far (write()): replaced in
+    //  ClaudeGG: how the file was written so far (write()): replaced in
     //  one step, or the old way after that did not go through. For the
     //  test of the build.
     mutable size_t writes_in_one_step = 0;
@@ -44,7 +44,7 @@ public:
 // Return the singleton PersistentSettings.
 PersistentSettings& PERSISTENT_SETTINGS();
 
-//  PocketPilot: the options of the panel that is open, written to the
+//  ClaudeGG: the options of the panel that is open, written to the
 //  settings file now and not only when the window closes. From any thread:
 //  the main window does it on the interface's thread, a moment later.
 //  Nothing happens while there is no main window. (The AutoStory asks for

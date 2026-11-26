@@ -14,7 +14,7 @@
 #include "NintendoSwitch/Commands/NintendoSwitch_Commands_Superscalar.h"
 #include "Pokemon/Pokemon_Strings.h"
 #include "VideoGames/PokemonFRLG/Inference/Dialogs/PokemonFRLG_DialogDetector.h"
-#include "PocketPilot/PocketPilot_ShinyClip.h"
+#include "ClaudeGG/ClaudeGG_ShinyClip.h"
 #include "VideoGames/PokemonFRLG/PokemonFRLG_Navigation.h"
 #include "PokemonFRLG_LegendaryRunAway.h"
 
@@ -312,8 +312,8 @@ void LegendaryRunAway::program(SingleSwitchProgramEnvironment& env, ProControlle
             if (TAKE_VIDEO){
                 pbf_press_button(context, BUTTON_CAPTURE, 2000ms, 0ms);
             }
-            //  PocketPilot: a clip of the last seconds, in Screenshots/ShinyClips and in a message.
-            PocketPilot::send_shiny_clip(env, env.console, NOTIFICATION_SHINY, "LegendaryRunAway");
+            //  ClaudeGG: a clip of the last seconds, in Screenshots/ShinyClips and in a message.
+            ClaudeGG::send_shiny_clip(env, env.console, NOTIFICATION_SHINY, "LegendaryRunAway");
             break;
         }
         env.log("No shiny found.");

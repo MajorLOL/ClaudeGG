@@ -1,6 +1,6 @@
 /*  Pokemon FRLG Input Timing Test
  *
- *  PocketPilot's own program (experimental: not tested on a console yet).
+ *  ClaudeGG's own program (experimental: not tested on a console yet).
  *
  *  One measurement: the player stands in the overworld, the program presses
  *  + and looks at every frame of the video for the start menu. The time

@@ -47,8 +47,8 @@ enum class OcrLibrary{
     TESSERACT,
 };
 
-//  PocketPilot: the language of the menus, the settings and the explanations.
-//  See PocketPilot/PocketPilot_Language.h.
+//  ClaudeGG: the language of the menus, the settings and the explanations.
+//  See ClaudeGG/ClaudeGG_Language.h.
 enum class UiLanguage{
     ENGLISH,
     DUTCH,
@@ -58,7 +58,7 @@ enum class UiLanguage{
     CUSTOM,     //  "Other": the file Languages/custom.json.
 };
 
-//  PocketPilot: the console that the program is used with, as chosen in the
+//  ClaudeGG: the console that the program is used with, as chosen in the
 //  setup (the screen after the language).
 enum class SetupConsole{
     NONE,       //  Not chosen yet.
@@ -99,7 +99,7 @@ private:
 public:
     Pimpl<CheckForUpdatesOption> CHECK_FOR_UPDATES;
 
-    //  PocketPilot: the language, the setup (language and microcontroller),
+    //  ClaudeGG: the language, the setup (language and microcontroller),
     //  and whether its questions still have to be asked at the next start.
     EnumDropdownOption<UiLanguage> LANGUAGE;
     EnumDropdownOption<SetupConsole> GAME_CONSOLE;
@@ -124,7 +124,7 @@ public:
     Pimpl<ResolutionOption> WINDOW_SIZE;
     Pimpl<ResolutionOption> LOG_WINDOW_SIZE;
     BooleanCheckBoxOption LOG_WINDOW_STARTUP;
-    //  PocketPilot: the short film that plays first when the program starts.
+    //  ClaudeGG: the short film that plays first when the program starts.
     BooleanCheckBoxOption PLAY_INTRO;
 
     Pimpl<KeyboardLayoutOption> KEYBOARD_CONTROLS_LAYOUT;

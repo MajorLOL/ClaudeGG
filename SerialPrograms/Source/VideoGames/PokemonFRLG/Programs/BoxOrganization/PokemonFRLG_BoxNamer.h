@@ -1,6 +1,6 @@
 /*  Pokemon FRLG Box Namer
  *
- *  PocketPilot's own program (experimental: not tested on a console yet).
+ *  ClaudeGG's own program (experimental: not tested on a console yet).
  *
  *  Gives the PC's boxes the names of a list, one after the other: what an
  *  ACE code asks for, where the names of the boxes are the code and one

@@ -9,7 +9,7 @@
 #include "CommonFramework/PersistentSettings.h"
 //#include "CommonFramework/GlobalSettingsPanel.h"
 #include "CommonFramework/Panels/PanelSession.h"
-#include "PocketPilot/PocketPilot_ProgramList.h"
+#include "ClaudeGG/ClaudeGG_ProgramList.h"
 #include "PanelListWidget.h"
 
 namespace PokemonAutomation{
@@ -32,7 +32,7 @@ PanelListWidget::PanelListWidget(
     QWidget& parent, PanelHolder& holder,
     std::vector<PanelEntry> list
 )
-    : PocketPilot::ProgramList(&parent)     //  With the looks of the side bar.
+    : ClaudeGG::ProgramList(&parent)     //  With the looks of the side bar.
     , m_panel_holder(holder)
 {
     for (PanelEntry& item : list){
@@ -44,7 +44,7 @@ PanelListWidget::PanelListWidget(
 
         //  Label/divider: the title of a section. Not to be selected.
         if (descriptor == nullptr){
-            list_item->setData(PocketPilot::PROGRAM_LIST_SECTION, true);
+            list_item->setData(ClaudeGG::PROGRAM_LIST_SECTION, true);
             list_item->setFlags(Qt::ItemIsEnabled);
             continue;
         }
@@ -58,7 +58,7 @@ PanelListWidget::PanelListWidget(
         //  (it used to be the color of the name).
         std::string tag_meaning;
         const std::string tag = panel_standing_tag(descriptor->standing(), &tag_meaning);
-        list_item->setData(PocketPilot::PROGRAM_LIST_TAG, QString::fromStdString(tag));
+        list_item->setData(ClaudeGG::PROGRAM_LIST_TAG, QString::fromStdString(tag));
 
         std::string tip = descriptor->description();
         if (!tag_meaning.empty()){
@@ -70,7 +70,7 @@ PanelListWidget::PanelListWidget(
     connect(
         this, &QListWidget::itemClicked,
         this, [this](QListWidgetItem* item){
-            if (item->data(PocketPilot::PROGRAM_LIST_SECTION).toBool()){
+            if (item->data(ClaudeGG::PROGRAM_LIST_SECTION).toBool()){
                 return;
             }
             if (refuse_while_locked(*item)){
@@ -83,7 +83,7 @@ PanelListWidget::PanelListWidget(
     connect(
         this, &QListWidget::itemActivated,
         this, [this](QListWidgetItem* item){
-            if (item->data(PocketPilot::PROGRAM_LIST_SECTION).toBool()){
+            if (item->data(ClaudeGG::PROGRAM_LIST_SECTION).toBool()){
                 return;
             }
             if (refuse_while_locked(*item)){
@@ -151,7 +151,7 @@ void PanelListWidget::clear_current(){
 }
 
 int PanelListWidget::filter(const QString& words){
-    return PocketPilot::filter_program_list(*this, words);
+    return ClaudeGG::filter_program_list(*this, words);
 }
 
 

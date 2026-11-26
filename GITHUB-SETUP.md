@@ -1,6 +1,6 @@
 # Setting up Claude GG on GitHub
 
-How the repository has to be set up for the build, the releases and Claude's panel to work. The workflow ([`.github/workflows/pocketpilot-windows.yml`](.github/workflows/pocketpilot-windows.yml)) needs no secrets and no token of yours: it uses the `GITHUB_TOKEN` that GitHub gives every run. What it needs are the settings below.
+How the repository has to be set up for the build, the releases and Claude's panel to work. The workflow ([`.github/workflows/claudegg-windows.yml`](.github/workflows/claudegg-windows.yml)) needs no secrets and no token of yours: it uses the `GITHUB_TOKEN` that GitHub gives every run. What it needs are the settings below.
 
 Written on 26 November 2026. GitHub moves its settings around; where a name below is not where you find it, the setting is the same one.
 
@@ -16,21 +16,21 @@ Written on 26 November 2026. GitHub moves its settings around; where a name belo
      ```
      git checkout --orphan snapshot
      git add -A && git commit -m "Claude GG, a snapshot of <old repository> at build <N>"
-     git push https://github.com/<owner>/<repo>.git snapshot:pocketpilot
+     git push https://github.com/<owner>/<repo>.git snapshot:main
      ```
 
    Do not push the branches `claude/...` that exist now; they are finished pull requests of the old repository. Releases do not move with a push: see section 6.
-4. **The default branch is `pocketpilot`** (Settings → General → Default branch). The builds, the pull requests of Claude and the update check all look at it.
+4. **The default branch is `main`** (Settings → General → Default branch). The builds, the pull requests of Claude and the update check all look at it.
 
 ## 2. Tell the program where it lives
 
 The program has the address of its repository in one place: `PROJECT_HOME_URL` in [`SerialPrograms/Source/CommonFramework/Globals.cpp`](SerialPrograms/Source/CommonFramework/Globals.cpp), as `https://github.com/<owner>/<repo>/tree/<branch>`. The About window, the button "Check for updates" and Claude's panel (which repository it reads, and which branch is the base of its pull requests) take their owner, name and branch from it. Change it, and the links in the texts:
 
 ```
-sed -i 's#MajorLOL/[Aa]rduino-[Ss]ource#<owner>/<repo>#g' SerialPrograms/Source/CommonFramework/Globals.cpp README.md SECURITY.md
+sed -i 's#MajorLOL/\(ClaudeGG\|[Aa]rduino-[Ss]ource\)#<owner>/<repo>#g' SerialPrograms/Source/CommonFramework/Globals.cpp SerialPrograms/Source/ClaudeGG/Assistant/Assistant_SelfTest.cpp SerialPrograms/Source/ClaudeGG/ClaudeGG_SelfTest.cpp README.md SECURITY.md
 ```
 
-Check `Globals.cpp` afterwards: `PROJECT_HOME_URL` ends in `/tree/pocketpilot` and `PROJECT_HOME_TEXT` is `github.com/<owner>/<repo>`. The self-tests have the old name in their made-up data; that is on purpose and needs no change.
+Check `Globals.cpp` afterwards: `PROJECT_HOME_URL` ends in `/tree/main` and `PROJECT_HOME_TEXT` is `github.com/<owner>/<repo>`. The self-tests have the repository's name in their made-up data as well (`TEST_REPOSITORY` in `Assistant_SelfTest.cpp`, `PROJECT_URL` in `ClaudeGG_SelfTest.cpp`): change it there too, or the interface test fails, because Claude's panel does not find its repository in the made-up GitHub.
 
 ## 3. Settings of the repository
 
@@ -48,14 +48,14 @@ If your account or organization limits what a workflow may write to **read-only,
 
 ### Branches (Settings → Rules → Rulesets, or Branches → Branch protection)
 
-For `pocketpilot`:
+For `main`:
 
 - Require a pull request before merging (Claude's changes arrive that way, from `claude/...`).
 - Require status checks to pass: **`build`** (the job of the workflow "Claude GG - Windows build"; it can be picked only after it has run once). This is what keeps a change that does not compile or does not start from reaching the branch the releases are made from.
 - Block force pushes and deletion.
 - Do not require an approving review if you are the only one who works on it (you cannot approve your own pull request); add it when there are two of you.
 
-Do not add a rule that stops the workflow from pushing tags: `publish` makes the tag of the release (`pocketpilot-build-N`) with its `GITHUB_TOKEN`.
+Do not add a rule that stops the workflow from pushing tags: `publish` makes the tag of the release (`claudegg-build-N`) with its `GITHUB_TOKEN`.
 
 ### General (Settings → General)
 
@@ -71,23 +71,22 @@ Do not add a rule that stops the workflow from pushing tags: `publish` makes the
 
 ## 4. The token that Claude's panel uses
 
-The panel needs two things from you, and neither is stored in the repository: your own **Claude API key**, and a **fine-grained personal access token** for this one repository (github.com/settings/personal-access-tokens/new): "Only select repositories" → this repository; permissions **Contents: Read and write** and **Actions: Read-only**; nothing else; an expiry (90 days). The program keeps both encrypted with your Windows account. The full explanation is in [ASSISTANT.md](SerialPrograms/Source/PocketPilot/ASSISTANT.md).
+The panel needs two things from you, and neither is stored in the repository: your own **Claude API key**, and a **fine-grained personal access token** for this one repository (github.com/settings/personal-access-tokens/new): "Only select repositories" → this repository; permissions **Contents: Read and write** and **Actions: Read-only**; nothing else; an expiry (90 days). The program keeps both encrypted with your Windows account. The full explanation is in [ASSISTANT.md](SerialPrograms/Source/ClaudeGG/ASSISTANT.md).
 
-The token can write to every branch the repository's rules let it; the rule of section 3 (pull request, status check) is what keeps a change of Claude's off `pocketpilot` until you merge it. The program itself only commits to branches named `claude/...`.
+The token can write to every branch the repository's rules let it; the rule of section 3 (pull request, status check) is what keeps a change of Claude's off `main` until you merge it. The program itself only commits to branches named `claude/...`.
 
 ## 5. The workflows of Pokémon Automation
 
-The repository holds Pokémon Automation's own workflows: `cpp-ci-serial-programs-*` (builds on Windows, Linux and macOS, with tests that need the `CommandLineTests` repository) and `tabs.yml` (no tab characters in source). They run on pushes to **`main`** and on every pull request. In this repository:
+Pokémon Automation's repository has workflows of its own: `cpp-ci-serial-programs-*` and `cpp-ci-python-bindings.yml` (builds on Windows, Linux and macOS, with tests that need the `CommandLineTests` repository) and `tabs.yml` (no tab characters in source). They run on pushes to **`main`** and on every pull request, which here is the branch of Claude GG itself. So in this repository:
 
-- `tabs.yml` is cheap and useful: **keep it**.
-- The `cpp-ci-serial-programs-*` builds on pull requests take 20 to 40 minutes each on three systems. Claude GG's own workflow already builds and tests every pull request into `pocketpilot`. **Disable the others** (Actions → the workflow → "…" → Disable workflow), or delete their files in a commit of their own. Their one change in this fork (the program is `ClaudeGG.exe`) is kept either way.
-- If you keep `main` as a mirror of Pokémon Automation's, that is where their workflows would run; if you do not, do not push `main`.
+- `tabs.yml` is cheap and useful: it stays.
+- The `cpp-ci-*` files are **removed**: each would start 20 to 40 minutes of builds on three systems at every push and pull request, and Claude GG's own workflow already builds and tests all of them. (If a merge of Pokémon Automation's `main`, section 9, brings a change to one of them, delete the file again.)
 
 ## 6. Releases and build numbers
 
-- Every push to `pocketpilot` that passes its tests makes a **pre-release** named `pocketpilot-build-N`, "Claude GG - Windows build N", with `ClaudeGG-Windows.zip` and its SHA-256 in the text. The pictures of the interface test stay in the run's artifact.
-- **The number N is the highest `pocketpilot-build-*` release in the repository, plus one, and at least `FLOOR` plus one:** `FLOOR` is a line of the step "Build number" in the workflow (102 here: the builds up to that number were published in MajorLOL/arduino-source, so the first build of this repository is 103). In a repository that starts at build 1, set `FLOOR=0`.
-  Never delete the newest release: the next build would take its number again. (In a repository that was **imported**, the tags `pocketpilot-build-N` come along but not the releases: without the floor a build would get a number whose tag exists already, and its release would be tied to the old commit. That is what happened to build 100 of MajorLOL/arduino-source on 26 November 2026, after its release had been deleted.)
+- Every push to `main` that passes its tests makes a **pre-release** named `claudegg-build-N`, "Claude GG - Windows build N", with `ClaudeGG-Windows.zip` and its SHA-256 in the text. The pictures of the interface test stay in the run's artifact.
+- **The number N is the highest `claudegg-build-*` release in the repository, plus one, and at least `FLOOR` plus one:** `FLOOR` is a line of the step "Build number" in the workflow (103 here: the builds up to 102 were published in MajorLOL/arduino-source and build 103 in this repository, under its old tag `pocketpilot-build-103`; the first build with the new tags is 104). In a repository that starts at build 1, set `FLOOR=0`.
+  Never delete the newest release: the next build would take its number again. (In a repository that was **imported**, the tags `claudegg-build-N` come along but not the releases: without the floor a build would get a number whose tag exists already, and its release would be tied to the old commit. That is what happened to build 100 of MajorLOL/arduino-source on 26 November 2026, after its release had been deleted.)
 - A release made by `publish` is a pre-release on purpose: no build is "the latest" until you say so. The update check of the About window reads the list of releases and says whether a higher number exists.
 - A pull request's build is named after the pull request (`pr<number>`) and is not published.
 - The program is not signed with a certificate, so Windows warns when it starts. The release's text says to compare the SHA-256 first; that is the only guard.
@@ -101,13 +100,13 @@ All of it public; none of it needs a secret:
 | Resources, firmware and scripts | `PokemonAutomation/Packages` | A commit (in the workflow: "move it on purpose"). Also fetched at runtime by the program for firmware and OCR models. |
 | Qt 6.10.2 | `jurplel/install-qt-action`, with `aqtinstall` | The commit of both. |
 | esptool | Espressif's release | Its version and SHA-256. |
-| The compiler's cache | The repository's Actions cache (`pocketpilot-windows-2025`, 5 GB) | Written by pushes, read by pull requests. |
+| The compiler's cache | The repository's Actions cache (`claudegg-windows-2025`, 5 GB) | Written by pushes, read by pull requests. |
 
 The first build in a new repository has an empty cache and takes about 35 minutes; after that, 4 to 12 minutes. The Actions cache of a repository is 10 GB in total and old entries are removed by GitHub after 7 days without use: a pause of more than a week means a slow build again.
 
 ## 8. The first run, as a list
 
-1. Push `pocketpilot` (section 1). The workflow starts by itself.
+1. Push `main` (section 1). The workflow starts by itself.
 2. Open Actions → "Claude GG - Windows build". The steps "Build", "Interface test", "Intro test", "Tutorial film test", "Language test", "Setup test" and "Installations test" must be green. In the log of the setup test and the interface test, the pictures are in the log as text between `PP-PREVIEW-BEGIN` and `PP-PREVIEW-END` (base64 of a JPEG), to look at without downloading the artifact.
 3. Releases: a pre-release "Claude GG - Windows build 1" (or the next number) with the zip.
 4. Set the branch rule of section 3 now that the check `build` exists.
@@ -119,14 +118,14 @@ The first build in a new repository has an empty cache and takes about 35 minute
 ```
 git remote add upstream https://github.com/PokemonAutomation/Arduino-Source.git
 git fetch upstream
-git checkout -b merge-upstream pocketpilot
+git checkout -b merge-upstream main
 git merge upstream/main
 ```
 
-Resolve the conflicts (they are in the few files of [CHANGES.md](CHANGES.md), section 9), push `merge-upstream`, and open a pull request into `pocketpilot`: its build and tests say whether the merge works before it is on the branch. Look at the pictures of the interface test. New source files of the merge are in their `SourceFiles.cmake`; new programs get a line in the panel list that the new interface reads.
+Resolve the conflicts (they are in the few files of [CHANGES.md](CHANGES.md), section 9), push `merge-upstream`, and open a pull request into `main`: its build and tests say whether the merge works before it is on the branch. Look at the pictures of the interface test. New source files of the merge are in their `SourceFiles.cmake`; new programs get a line in the panel list that the new interface reads.
 
 ## 10. Licenses and what to say
 
-- The source is MIT (Pokémon Automation's license file stays, with its Copyright line; add yours below it, not instead). [`SerialPrograms/Source/PocketPilot/Licenses/README.txt`](SerialPrograms/Source/PocketPilot/Licenses/README.txt) lists the typefaces and the other licenses that come along.
+- The source is MIT (Pokémon Automation's license file stays, with its Copyright line; add yours below it, not instead). [`SerialPrograms/Source/ClaudeGG/Licenses/README.txt`](SerialPrograms/Source/ClaudeGG/Licenses/README.txt) lists the typefaces and the other licenses that come along.
 - The builds bring Pokémon Automation's precompiled libraries and resources (`Packages`), which that project gives **for non-commercial use only**: the readme and every release say to use the builds for non-commercial purposes. Keep that sentence.
 - The readme says that this is not made, endorsed or supported by Nintendo, Game Freak, Creatures, The Pokémon Company, Anthropic or the Pokémon Automation project, and that questions go to this repository's issues, not to theirs. Keep that too.

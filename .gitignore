@@ -78,5 +78,5 @@ build_*/
 Packages/*
 
 
-# PocketPilot: the number of the build, written by the workflow that makes the builds
-SerialPrograms/Source/PocketPilot/PocketPilot_Build.h
+# ClaudeGG: the number of the build, written by the workflow that makes the builds
+SerialPrograms/Source/ClaudeGG/ClaudeGG_Build.h

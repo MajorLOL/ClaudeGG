@@ -3,7 +3,7 @@
 behind while a stream runs, and do the frames keep coming?
 
 Two things other controller programs' users run into (see
-Source/PocketPilot/OTHERS.md): a picture that gets later the longer the
+Source/ClaudeGG/OTHERS.md): a picture that gets later the longer the
 program runs, and a capture card that drops frames. Both can be read from
 the log (SerialPrograms.log) afterwards.
 

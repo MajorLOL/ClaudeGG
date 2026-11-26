@@ -5,9 +5,9 @@
 # PA_CORE_ONLY: cmake option to only build the GUI-free core lib
 if(NOT PA_CORE_ONLY)
     qt_add_resources(DARK_STYLE_RES "../3rdParty/qdarkstyle/dark/darkstyle.qrc")
-    # PocketPilot's own look: its style sheets, its typeface and a few small pictures
-    qt_add_resources(POCKETPILOT_RES "Source/PocketPilot/Resources/pocketpilot.qrc")
-    set(EXECUTABLE_SOURCES "Source/CommonFramework/Main.cpp" ${DARK_STYLE_RES} ${POCKETPILOT_RES})
+    # ClaudeGG's own look: its style sheets, its typeface and a few small pictures
+    qt_add_resources(CLAUDEGG_RES "Source/ClaudeGG/Resources/claudegg.qrc")
+    set(EXECUTABLE_SOURCES "Source/CommonFramework/Main.cpp" ${DARK_STYLE_RES} ${CLAUDEGG_RES})
 endif()
 
 # Note: Command-line executable sources are defined in Source/CommandLine/CommandLineExecutable.cmake
@@ -358,8 +358,8 @@ file(GLOB CORE_LIBRARY_SOURCES
     Source/NintendoSwitch/Options/NintendoSwitch_CodeEntrySettingsOption.h
     Source/NintendoSwitch/Programs/FastCodeEntry/NintendoSwitch_KeyboardEntryMappings.cpp
     Source/NintendoSwitch/Programs/FastCodeEntry/NintendoSwitch_KeyboardEntryMappings.h
-    Source/PocketPilot/PocketPilot_InstancePaths.cpp
-    Source/PocketPilot/PocketPilot_InstancePaths.h
+    Source/ClaudeGG/ClaudeGG_InstancePaths.cpp
+    Source/ClaudeGG/ClaudeGG_InstancePaths.h
 )
 
 file(GLOB LIBRARY_SOURCES
@@ -1456,71 +1456,71 @@ file(GLOB LIBRARY_SOURCES
     Source/NintendoSwitch/Programs/Typewriter/NintendoSwitch_TypewriterTextMapping.h
     Source/PanelLists.cpp
     Source/PanelLists.h
-    Source/PocketPilot/Assistant/Assistant_Agent.cpp
-    Source/PocketPilot/Assistant/Assistant_Agent.h
-    Source/PocketPilot/Assistant/Assistant_ChatTools.cpp
-    Source/PocketPilot/Assistant/Assistant_Claude.cpp
-    Source/PocketPilot/Assistant/Assistant_Claude.h
-    Source/PocketPilot/Assistant/Assistant_GitHub.cpp
-    Source/PocketPilot/Assistant/Assistant_GitHub.h
-    Source/PocketPilot/Assistant/Assistant_Http.cpp
-    Source/PocketPilot/Assistant/Assistant_Http.h
-    Source/PocketPilot/Assistant/Assistant_Panel.cpp
-    Source/PocketPilot/Assistant/Assistant_Panel.h
-    Source/PocketPilot/Assistant/Assistant_Play.cpp
-    Source/PocketPilot/Assistant/Assistant_Play.h
-    Source/PocketPilot/Assistant/Assistant_SelfTest.cpp
-    Source/PocketPilot/Assistant/Assistant_SelfTest.h
-    Source/PocketPilot/Assistant/Assistant_Service.cpp
-    Source/PocketPilot/Assistant/Assistant_Service.h
-    Source/PocketPilot/Assistant/Assistant_Settings.cpp
-    Source/PocketPilot/Assistant/Assistant_Settings.h
-    Source/PocketPilot/Assistant/Assistant_Tools.cpp
-    Source/PocketPilot/Assistant/Assistant_Tools.h
-    Source/PocketPilot/Assistant/Assistant_Workspace.cpp
-    Source/PocketPilot/Assistant/Assistant_Workspace.h
-    Source/PocketPilot/ClaudePlays/ClaudePlays_AnyGame.cpp
-    Source/PocketPilot/ClaudePlays/ClaudePlays_AnyGame.h
-    Source/PocketPilot/ClaudePlays/ClaudePlays_Engine.cpp
-    Source/PocketPilot/ClaudePlays/ClaudePlays_Engine.h
-    Source/PocketPilot/ClaudePlays/ClaudePlays_GameCard.cpp
-    Source/PocketPilot/ClaudePlays/ClaudePlays_GameCard.h
-    Source/PocketPilot/ClaudePlays/ClaudePlays_Games.cpp
-    Source/PocketPilot/ClaudePlays/ClaudePlays_Games.h
-    Source/PocketPilot/ClaudePlays/ClaudePlays_Program.cpp
-    Source/PocketPilot/ClaudePlays/ClaudePlays_Program.h
-    Source/PocketPilot/PocketPilot_About.cpp
-    Source/PocketPilot/PocketPilot_About.h
-    Source/PocketPilot/PocketPilot_Home.cpp
-    Source/PocketPilot/PocketPilot_Home.h
-    Source/PocketPilot/PocketPilot_Intro.cpp
-    Source/PocketPilot/PocketPilot_Intro.h
-    Source/PocketPilot/PocketPilot_Firmware.cpp
-    Source/PocketPilot/PocketPilot_Firmware.h
-    Source/PocketPilot/PocketPilot_Instances.cpp
-    Source/PocketPilot/PocketPilot_Instances.h
-    Source/PocketPilot/PocketPilot_Language.cpp
-    Source/PocketPilot/PocketPilot_Language.h
-    Source/PocketPilot/PocketPilot_SettingsSearch.cpp
-    Source/PocketPilot/PocketPilot_SettingsSearch.h
-    Source/PocketPilot/PocketPilot_OldSettings.cpp
-    Source/PocketPilot/PocketPilot_OldSettings.h
-    Source/PocketPilot/PocketPilot_ShinyClip.cpp
-    Source/PocketPilot/PocketPilot_ShinyClip.h
-    Source/PocketPilot/PocketPilot_Setup.cpp
-    Source/PocketPilot/PocketPilot_Setup.h
-    Source/PocketPilot/PocketPilot_Logo.cpp
-    Source/PocketPilot/PocketPilot_Logo.h
-    Source/PocketPilot/PocketPilot_ProgramList.cpp
-    Source/PocketPilot/PocketPilot_ProgramList.h
-    Source/PocketPilot/PocketPilot_Scrub.cpp
-    Source/PocketPilot/PocketPilot_Scrub.h
-    Source/PocketPilot/PocketPilot_SelfTest.cpp
-    Source/PocketPilot/PocketPilot_SelfTest.h
-    Source/PocketPilot/PocketPilot_Theme.cpp
-    Source/PocketPilot/PocketPilot_Theme.h
-    Source/PocketPilot/PocketPilot_Update.cpp
-    Source/PocketPilot/PocketPilot_Update.h
+    Source/ClaudeGG/Assistant/Assistant_Agent.cpp
+    Source/ClaudeGG/Assistant/Assistant_Agent.h
+    Source/ClaudeGG/Assistant/Assistant_ChatTools.cpp
+    Source/ClaudeGG/Assistant/Assistant_Claude.cpp
+    Source/ClaudeGG/Assistant/Assistant_Claude.h
+    Source/ClaudeGG/Assistant/Assistant_GitHub.cpp
+    Source/ClaudeGG/Assistant/Assistant_GitHub.h
+    Source/ClaudeGG/Assistant/Assistant_Http.cpp
+    Source/ClaudeGG/Assistant/Assistant_Http.h
+    Source/ClaudeGG/Assistant/Assistant_Panel.cpp
+    Source/ClaudeGG/Assistant/Assistant_Panel.h
+    Source/ClaudeGG/Assistant/Assistant_Play.cpp
+    Source/ClaudeGG/Assistant/Assistant_Play.h
+    Source/ClaudeGG/Assistant/Assistant_SelfTest.cpp
+    Source/ClaudeGG/Assistant/Assistant_SelfTest.h
+    Source/ClaudeGG/Assistant/Assistant_Service.cpp
+    Source/ClaudeGG/Assistant/Assistant_Service.h
+    Source/ClaudeGG/Assistant/Assistant_Settings.cpp
+    Source/ClaudeGG/Assistant/Assistant_Settings.h
+    Source/ClaudeGG/Assistant/Assistant_Tools.cpp
+    Source/ClaudeGG/Assistant/Assistant_Tools.h
+    Source/ClaudeGG/Assistant/Assistant_Workspace.cpp
+    Source/ClaudeGG/Assistant/Assistant_Workspace.h
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_AnyGame.cpp
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_AnyGame.h
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_Engine.cpp
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_Engine.h
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_GameCard.cpp
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_GameCard.h
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_Games.cpp
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_Games.h
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_Program.cpp
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_Program.h
+    Source/ClaudeGG/ClaudeGG_About.cpp
+    Source/ClaudeGG/ClaudeGG_About.h
+    Source/ClaudeGG/ClaudeGG_Home.cpp
+    Source/ClaudeGG/ClaudeGG_Home.h
+    Source/ClaudeGG/ClaudeGG_Intro.cpp
+    Source/ClaudeGG/ClaudeGG_Intro.h
+    Source/ClaudeGG/ClaudeGG_Firmware.cpp
+    Source/ClaudeGG/ClaudeGG_Firmware.h
+    Source/ClaudeGG/ClaudeGG_Instances.cpp
+    Source/ClaudeGG/ClaudeGG_Instances.h
+    Source/ClaudeGG/ClaudeGG_Language.cpp
+    Source/ClaudeGG/ClaudeGG_Language.h
+    Source/ClaudeGG/ClaudeGG_SettingsSearch.cpp
+    Source/ClaudeGG/ClaudeGG_SettingsSearch.h
+    Source/ClaudeGG/ClaudeGG_OldSettings.cpp
+    Source/ClaudeGG/ClaudeGG_OldSettings.h
+    Source/ClaudeGG/ClaudeGG_ShinyClip.cpp
+    Source/ClaudeGG/ClaudeGG_ShinyClip.h
+    Source/ClaudeGG/ClaudeGG_Setup.cpp
+    Source/ClaudeGG/ClaudeGG_Setup.h
+    Source/ClaudeGG/ClaudeGG_Logo.cpp
+    Source/ClaudeGG/ClaudeGG_Logo.h
+    Source/ClaudeGG/ClaudeGG_ProgramList.cpp
+    Source/ClaudeGG/ClaudeGG_ProgramList.h
+    Source/ClaudeGG/ClaudeGG_Scrub.cpp
+    Source/ClaudeGG/ClaudeGG_Scrub.h
+    Source/ClaudeGG/ClaudeGG_SelfTest.cpp
+    Source/ClaudeGG/ClaudeGG_SelfTest.h
+    Source/ClaudeGG/ClaudeGG_Theme.cpp
+    Source/ClaudeGG/ClaudeGG_Theme.h
+    Source/ClaudeGG/ClaudeGG_Update.cpp
+    Source/ClaudeGG/ClaudeGG_Update.h
     Source/Pokemon/Inference/Pokemon_AbilityReader.cpp
     Source/Pokemon/Inference/Pokemon_AbilityReader.h
     Source/Pokemon/Inference/Pokemon_BerryNameReader.cpp

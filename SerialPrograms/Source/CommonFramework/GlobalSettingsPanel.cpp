@@ -33,7 +33,7 @@
 #include "CommonFramework/VideoPipeline/VideoPipelineOptions.h"
 #include "CommonFramework/ErrorReports/ErrorReports.h"
 #include "Controllers/ControllerSettings.h"
-#include "PocketPilot/PocketPilot_Language.h"
+#include "ClaudeGG/ClaudeGG_Language.h"
 //#include "CommonFramework/Environment/Environment.h"
 #include "Integrations/DiscordSettingsOption.h"
 #include "CommonFramework/Options/DeviceDropdownAliases.h"
@@ -419,7 +419,7 @@ void GlobalSettings::on_press(ButtonCell& button){
         //  Later, not inside the button: the setup runs its own window.
         if (qApp != nullptr){
             QMetaObject::invokeMethod(qApp, []{
-                PocketPilot::open_setup();
+                ClaudeGG::open_setup();
             }, Qt::QueuedConnection);
         }
         return;

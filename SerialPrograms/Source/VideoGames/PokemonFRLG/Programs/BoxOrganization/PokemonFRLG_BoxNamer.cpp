@@ -1,6 +1,6 @@
 /*  Pokemon FRLG Box Namer
  *
- *  PocketPilot's own program (experimental: not tested on a console yet).
+ *  ClaudeGG's own program (experimental: not tested on a console yet).
  *
  *  For each name of the list, in the PC's box view with the hand on the
  *  box's name (pokemon_storage_system: the box title):

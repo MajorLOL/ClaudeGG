@@ -5,7 +5,7 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 | Where | Added | Changed | Removed |
 |---|---|---|---|
 | `(top folder)` | 4 | 2 | 0 |
-| `.github/workflows` | 1 | 1 | 0 |
+| `.github/workflows` | 1 | 0 | 8 |
 | `Common/Cpp` | 2 | 8 | 0 |
 | `Common/Qt` | 0 | 2 | 0 |
 | `IconResource` | 3 | 6 | 0 |
@@ -21,7 +21,7 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 | `SerialPrograms/Source/NintendoSwitch` | 0 | 2 | 0 |
 | `SerialPrograms/Source/PanelLists.cpp` | 0 | 1 | 0 |
 | `SerialPrograms/Source/PanelLists.h` | 0 | 1 | 0 |
-| `SerialPrograms/Source/PocketPilot` | 118 | 0 | 0 |
+| `SerialPrograms/Source/ClaudeGG` | 118 | 0 | 0 |
 | `SerialPrograms/Source/PokemonBDSP` | 0 | 2 | 0 |
 | `SerialPrograms/Source/Tests` | 0 | 1 | 0 |
 | `SerialPrograms/Source/VideoGames/PokemonFRLG` | 64 | 23 | 0 |
@@ -47,8 +47,15 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 
 ## `.github/workflows`
 
-- M `.github/workflows/cpp-ci-serial-programs-base.yml`
-- A `.github/workflows/pocketpilot-windows.yml`
+- D `.github/workflows/cpp-ci-python-bindings.yml`
+- D `.github/workflows/cpp-ci-serial-programs-base.yml`
+- D `.github/workflows/cpp-ci-serial-programs-mac-intel.yml`
+- D `.github/workflows/cpp-ci-serial-programs-mac.yml`
+- D `.github/workflows/cpp-ci-serial-programs-ubuntu-clang.yml`
+- D `.github/workflows/cpp-ci-serial-programs-ubuntu-default.yml`
+- D `.github/workflows/cpp-ci-serial-programs-windows-clang.yml`
+- D `.github/workflows/cpp-ci-serial-programs-windows-default.yml`
+- A `.github/workflows/claudegg-windows.yml`
 
 ## `Common/Cpp`
 
@@ -249,126 +256,126 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 
 - M `SerialPrograms/Source/PanelLists.h`
 
-## `SerialPrograms/Source/PocketPilot`
+## `SerialPrograms/Source/ClaudeGG`
 
-- A `SerialPrograms/Source/PocketPilot/ASSISTANT.md`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_Agent.cpp`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_Agent.h`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_ChatTools.cpp`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_Claude.cpp`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_Claude.h`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_GitHub.cpp`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_GitHub.h`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_Http.cpp`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_Http.h`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_Panel.cpp`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_Panel.h`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_Play.cpp`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_Play.h`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_SelfTest.cpp`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_SelfTest.h`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_Service.cpp`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_Service.h`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_Settings.cpp`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_Settings.h`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_Tools.cpp`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_Tools.h`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_Workspace.cpp`
-- A `SerialPrograms/Source/PocketPilot/Assistant/Assistant_Workspace.h`
-- A `SerialPrograms/Source/PocketPilot/ClaudePlays/ClaudePlays_AnyGame.cpp`
-- A `SerialPrograms/Source/PocketPilot/ClaudePlays/ClaudePlays_AnyGame.h`
-- A `SerialPrograms/Source/PocketPilot/ClaudePlays/ClaudePlays_Engine.cpp`
-- A `SerialPrograms/Source/PocketPilot/ClaudePlays/ClaudePlays_Engine.h`
-- A `SerialPrograms/Source/PocketPilot/ClaudePlays/ClaudePlays_GameCard.cpp`
-- A `SerialPrograms/Source/PocketPilot/ClaudePlays/ClaudePlays_GameCard.h`
-- A `SerialPrograms/Source/PocketPilot/ClaudePlays/ClaudePlays_Games.cpp`
-- A `SerialPrograms/Source/PocketPilot/ClaudePlays/ClaudePlays_Games.h`
-- A `SerialPrograms/Source/PocketPilot/ClaudePlays/ClaudePlays_Program.cpp`
-- A `SerialPrograms/Source/PocketPilot/ClaudePlays/ClaudePlays_Program.h`
-- A `SerialPrograms/Source/PocketPilot/FIXES.md`
-- A `SerialPrograms/Source/PocketPilot/ISSUES.md`
-- A `SerialPrograms/Source/PocketPilot/Licenses/README.txt`
-- A `SerialPrograms/Source/PocketPilot/OTHERS.md`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_About.cpp`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_About.h`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Firmware.cpp`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Firmware.h`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Home.cpp`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Home.h`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_InstancePaths.cpp`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_InstancePaths.h`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Instances.cpp`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Instances.h`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Intro.cpp`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Intro.h`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Language.cpp`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Language.h`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Logo.cpp`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Logo.h`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_OldSettings.cpp`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_OldSettings.h`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_ProgramList.cpp`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_ProgramList.h`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Scrub.cpp`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Scrub.h`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_SelfTest.cpp`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_SelfTest.h`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_SettingsSearch.cpp`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_SettingsSearch.h`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Setup.cpp`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Setup.h`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_ShinyClip.cpp`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_ShinyClip.h`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Theme.cpp`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Theme.h`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Update.cpp`
-- A `SerialPrograms/Source/PocketPilot/PocketPilot_Update.h`
-- A `SerialPrograms/Source/PocketPilot/Resources/Jersey20-OFL.txt`
-- A `SerialPrograms/Source/PocketPilot/Resources/Jersey20-Regular.ttf`
-- A `SerialPrograms/Source/PocketPilot/Resources/arrow-dark.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/arrow-dark@2x.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/arrow-gray.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/arrow-gray@2x.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/arrow-light.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/arrow-light@2x.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/check-dark.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/check-dark@2x.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/check-light.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/check-light@2x.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/intro.mp4`
-- A `SerialPrograms/Source/PocketPilot/Resources/lang/de.json`
-- A `SerialPrograms/Source/PocketPilot/Resources/lang/es.json`
-- A `SerialPrograms/Source/PocketPilot/Resources/lang/fr.json`
-- A `SerialPrograms/Source/PocketPilot/Resources/lang/nl.json`
-- A `SerialPrograms/Source/PocketPilot/Resources/pocketpilot.qrc`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/Fredoka-Bold.ttf`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/Fredoka-Medium.ttf`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/Fredoka-OFL.txt`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/Fredoka-SemiBold.ttf`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/Newsreader-OFL.txt`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/Newsreader16pt-Regular.ttf`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/computer.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/esp32-big.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/esp32s3-big.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/glyph-esp32.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/glyph-esp32s3.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/glyph-leonardo.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/glyph-pico.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/glyph-pico2.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/glyph-promicro.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/glyph-teensy.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/glyph-uno.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/pico-big.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/setup-bg.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/switch-gg.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/setup/switch.png`
-- A `SerialPrograms/Source/PocketPilot/Resources/shell.qss`
-- A `SerialPrograms/Source/PocketPilot/Resources/tutorial-esp32.mp4`
-- A `SerialPrograms/Source/PocketPilot/Resources/tutorial-esp32s3.mp4`
-- A `SerialPrograms/Source/PocketPilot/Resources/tutorial-pico.mp4`
-- A `SerialPrograms/Source/PocketPilot/Resources/widgets.qss`
-- A `SerialPrograms/Source/PocketPilot/Tools/TutorialFilms.cpp`
-- A `SerialPrograms/Source/PocketPilot/Tools/tutorial_audio.py`
+- A `SerialPrograms/Source/ClaudeGG/ASSISTANT.md`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Agent.cpp`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Agent.h`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_ChatTools.cpp`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Claude.cpp`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Claude.h`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_GitHub.cpp`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_GitHub.h`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Http.cpp`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Http.h`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Panel.cpp`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Panel.h`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Play.cpp`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Play.h`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_SelfTest.cpp`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_SelfTest.h`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Service.cpp`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Service.h`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Settings.cpp`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Settings.h`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Tools.cpp`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Tools.h`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Workspace.cpp`
+- A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Workspace.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_AnyGame.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_AnyGame.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Engine.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Engine.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_GameCard.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_GameCard.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Games.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Games.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Program.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Program.h`
+- A `SerialPrograms/Source/ClaudeGG/FIXES.md`
+- A `SerialPrograms/Source/ClaudeGG/ISSUES.md`
+- A `SerialPrograms/Source/ClaudeGG/Licenses/README.txt`
+- A `SerialPrograms/Source/ClaudeGG/OTHERS.md`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_About.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_About.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Firmware.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Firmware.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Home.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Home.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_InstancePaths.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_InstancePaths.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Instances.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Instances.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Intro.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Intro.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Language.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Language.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Logo.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Logo.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_OldSettings.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_OldSettings.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_ProgramList.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_ProgramList.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Scrub.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Scrub.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_SelfTest.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_SelfTest.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_SettingsSearch.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_SettingsSearch.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Setup.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Setup.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_ShinyClip.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_ShinyClip.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Theme.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Theme.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Update.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Update.h`
+- A `SerialPrograms/Source/ClaudeGG/Resources/Jersey20-OFL.txt`
+- A `SerialPrograms/Source/ClaudeGG/Resources/Jersey20-Regular.ttf`
+- A `SerialPrograms/Source/ClaudeGG/Resources/arrow-dark.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/arrow-dark@2x.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/arrow-gray.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/arrow-gray@2x.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/arrow-light.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/arrow-light@2x.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/check-dark.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/check-dark@2x.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/check-light.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/check-light@2x.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/intro.mp4`
+- A `SerialPrograms/Source/ClaudeGG/Resources/lang/de.json`
+- A `SerialPrograms/Source/ClaudeGG/Resources/lang/es.json`
+- A `SerialPrograms/Source/ClaudeGG/Resources/lang/fr.json`
+- A `SerialPrograms/Source/ClaudeGG/Resources/lang/nl.json`
+- A `SerialPrograms/Source/ClaudeGG/Resources/claudegg.qrc`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/Fredoka-Bold.ttf`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/Fredoka-Medium.ttf`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/Fredoka-OFL.txt`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/Fredoka-SemiBold.ttf`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/Newsreader-OFL.txt`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/Newsreader16pt-Regular.ttf`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/computer.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/esp32-big.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/esp32s3-big.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/glyph-esp32.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/glyph-esp32s3.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/glyph-leonardo.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/glyph-pico.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/glyph-pico2.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/glyph-promicro.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/glyph-teensy.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/glyph-uno.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/pico-big.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/setup-bg.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/switch-gg.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/setup/switch.png`
+- A `SerialPrograms/Source/ClaudeGG/Resources/shell.qss`
+- A `SerialPrograms/Source/ClaudeGG/Resources/tutorial-esp32.mp4`
+- A `SerialPrograms/Source/ClaudeGG/Resources/tutorial-esp32s3.mp4`
+- A `SerialPrograms/Source/ClaudeGG/Resources/tutorial-pico.mp4`
+- A `SerialPrograms/Source/ClaudeGG/Resources/widgets.qss`
+- A `SerialPrograms/Source/ClaudeGG/Tools/TutorialFilms.cpp`
+- A `SerialPrograms/Source/ClaudeGG/Tools/tutorial_audio.py`
 
 ## `SerialPrograms/Source/PokemonBDSP`
 

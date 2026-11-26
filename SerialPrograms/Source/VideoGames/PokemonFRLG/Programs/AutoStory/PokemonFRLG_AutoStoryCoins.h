@@ -2,7 +2,7 @@
  *
  *  From: https://github.com/PokemonAutomation/
  *
- *  The number in the coins window of the Celadon Game Corner (PocketPilot
+ *  The number in the coins window of the Celadon Game Corner (ClaudeGG
  *  build 57, experimental, not run on a console when written).
  *
  *  The coins' clerk (and the prizes' clerk) shows a window while it talks:

@@ -5,8 +5,8 @@
  */
 
 #include "Common/Cpp/Filesystem/Filesystem.h"
-#include "PocketPilot/PocketPilot_InstancePaths.h"
-#include "PocketPilot/PocketPilot_OldSettings.h"
+#include "ClaudeGG/ClaudeGG_InstancePaths.h"
+#include "ClaudeGG/ClaudeGG_OldSettings.h"
 #include "GlobalAutoPaths.h"
 
 //#include <iostream>
@@ -97,8 +97,8 @@ std::string get_user_file_path(){
 
 const std::string& RUNTIME_BASE_PATH(){
     //  The folder that the program was started in; for an installation that is
-    //  not the first, its folder in Installations/ (see PocketPilot_Instances.h).
-    static std::string path = PocketPilot::runtime_base_path(Filesystem::application_scratch_path().string());
+    //  not the first, its folder in Installations/ (see ClaudeGG_Instances.h).
+    static std::string path = ClaudeGG::runtime_base_path(Filesystem::application_scratch_path().string());
     return path;
 }
 
@@ -115,7 +115,7 @@ const std::string& PROGRAM_SETTING_JSON_PATH(){
         const std::string file = Filesystem::application_binary_name().replace_extension().string() + "-Settings.json";
         //  The program was called SerialPrograms before build 98: its first
         //  start under the new name takes the old settings over.
-        settings_taken_over_flag() = PocketPilot::take_over_old_settings(SETTINGS_PATH(), file);
+        settings_taken_over_flag() = ClaudeGG::take_over_old_settings(SETTINGS_PATH(), file);
         return SETTINGS_PATH() + file;
     }();
     return path;
@@ -146,7 +146,7 @@ const std::string& RESOURCE_PATH(){
 }
 const std::string& DOWNLOADED_RESOURCE_PATH(){
     //  One folder for all the installations: it holds what the program downloaded.
-    static std::string path = PocketPilot::shared_base_path() + "DownloadedResources/";
+    static std::string path = ClaudeGG::shared_base_path() + "DownloadedResources/";
     return path;
 }
 const std::string& UNIT_TEST_RESOURCE_PATH(){

@@ -24,7 +24,7 @@ namespace PokemonAutomation{
 class ButtonDiagram;
 class LoggerWindow;
 class WallpaperWidget;
-namespace PocketPilot{
+namespace ClaudeGG{
     class AppView;
     struct AboutInfo;
     namespace Assistant{
@@ -43,17 +43,17 @@ class MainWindow
 {
 public:
     //  The window's screen is the one of the setup: the games, the programs,
-    //  the program itself (see PocketPilot_Setup.h).
+    //  the program itself (see ClaudeGG_Setup.h).
     //  "app_test": the screens have no clock of their own and nothing opens
     //  outside the window (the test of the interface drives them).
     explicit MainWindow(QWidget* parent = nullptr, bool app_test = false);
     ~MainWindow();
 
     //  The screens.
-    PocketPilot::AppView* app_view(){ return m_app; }
+    ClaudeGG::AppView* app_view(){ return m_app; }
 
     //  What the buttons along the top do. Also for the test of the interface
-    //  (PocketPilot_SelfTest.cpp).
+    //  (ClaudeGG_SelfTest.cpp).
     void show_games();
     void show_settings();
     //  Opens a program by the name of its game and its own name. False if
@@ -66,18 +66,18 @@ public:
     //  cartridge does. False if a program runs or there is no such game.
     bool open_game(const QString& game);
 
-    PocketPilot::AboutInfo about_info() const;
+    ClaudeGG::AboutInfo about_info() const;
     LoggerWindow& output_window(){ return *m_output_window; }
 
     //  The panel with Claude at the right: shown or hidden.
     void show_assistant(bool show);
-    PocketPilot::Assistant::Service& assistant(){ return *m_assistant; }
-    PocketPilot::Assistant::Panel& assistant_panel(){ return *m_assistant_panel; }
+    ClaudeGG::Assistant::Service& assistant(){ return *m_assistant; }
+    ClaudeGG::Assistant::Panel& assistant_panel(){ return *m_assistant_panel; }
     //  Makes the assistant anew with another connection than the network
     //  and its files in another folder: for the test of the interface,
     //  which answers for Claude and GitHub itself and has no keys.
     void remake_assistant(
-        std::unique_ptr<PocketPilot::Assistant::HttpTransport> transport,
+        std::unique_ptr<ClaudeGG::Assistant::HttpTransport> transport,
         const std::string& settings_folder
     );
 
@@ -115,7 +115,7 @@ private:
     void update_resume();
     void set_sleep_label(const QString& text);
     void make_assistant(
-        std::unique_ptr<PocketPilot::Assistant::HttpTransport> transport,
+        std::unique_ptr<ClaudeGG::Assistant::HttpTransport> transport,
         const std::string& settings_folder
     );
 
@@ -125,11 +125,11 @@ private:
 
     //  The window's own screen (a child of the central widget), and the games
     //  it shows (the same order as the list of programs has).
-    PocketPilot::AppView* m_app = nullptr;
-    std::vector<PocketPilot::HomeGame> m_game_list;
+    ClaudeGG::AppView* m_app = nullptr;
+    std::vector<ClaudeGG::HomeGame> m_game_list;
     //  Claude: what it needs to work, and its panel at the right.
-    std::unique_ptr<PocketPilot::Assistant::Service> m_assistant;
-    PocketPilot::Assistant::Panel* m_assistant_panel = nullptr;
+    std::unique_ptr<ClaudeGG::Assistant::Service> m_assistant;
+    ClaudeGG::Assistant::Panel* m_assistant_panel = nullptr;
 
     //  The programs and the panel of each, kept out of sight: the screens show
     //  them.

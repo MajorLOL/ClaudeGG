@@ -1,6 +1,6 @@
 /*  Pokemon FRLG Level Trainer
  *
- *  PocketPilot's own program (experimental: not tested on a console yet).
+ *  ClaudeGG's own program (experimental: not tested on a console yet).
  *
  *  The training is the AutoStory's (PokemonFRLG_AutoStoryActions.cpp):
  *

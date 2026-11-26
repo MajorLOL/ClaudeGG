@@ -3201,7 +3201,7 @@ void story_save_picture(StoryRuntime& rt, const std::string& label){
             break;
         }
     }
-    const std::string name = ERROR_PATH() + now_to_filestring() + "-PocketPilot-" + clean + ".png";
+    const std::string name = ERROR_PATH() + now_to_filestring() + "-ClaudeGG-" + clean + ".png";
     if (screen->save(name)){
         rt.pictures_saved++;
         rt.console.log("Picture of the video saved: " + name, COLOR_ORANGE);

@@ -29,14 +29,14 @@
 #include "CommonFramework/Options/Environment/ThemeSelectorOption.h"
 #include "CommonFramework/Options/QtWidget/WallpaperWidget.h"
 #include "CommonFramework/Windows/DpiScaler.h"
-#include "PocketPilot/PocketPilot_About.h"
-#include "PocketPilot/PocketPilot_Home.h"
-#include "PocketPilot/PocketPilot_Instances.h"
-#include "PocketPilot/PocketPilot_Language.h"
-#include "PocketPilot/PocketPilot_Logo.h"
-#include "PocketPilot/PocketPilot_Setup.h"
-#include "PocketPilot/Assistant/Assistant_Panel.h"
-#include "PocketPilot/Assistant/Assistant_Service.h"
+#include "ClaudeGG/ClaudeGG_About.h"
+#include "ClaudeGG/ClaudeGG_Home.h"
+#include "ClaudeGG/ClaudeGG_Instances.h"
+#include "ClaudeGG/ClaudeGG_Language.h"
+#include "ClaudeGG/ClaudeGG_Logo.h"
+#include "ClaudeGG/ClaudeGG_Setup.h"
+#include "ClaudeGG/Assistant/Assistant_Panel.h"
+#include "ClaudeGG/Assistant/Assistant_Service.h"
 #include "WindowTracker.h"
 #include "ButtonDiagram.h"
 #include "MainWindow.h"
@@ -59,10 +59,10 @@ MainWindow::MainWindow(QWidget* parent, bool app_test)
     if (objectName().isEmpty()){
         setObjectName(QString::fromUtf8("MainWindow"));
     }
-    this->setWindowIcon(PocketPilot::app_icon());
+    this->setWindowIcon(ClaudeGG::app_icon());
     //  The overview of the installations brings this window forward, and makes
     //  its miniature from it.
-    PocketPilot::mark_instance_window(this);
+    ClaudeGG::mark_instance_window(this);
 //    QSize window_size = PERSISTENT_SETTINGS().window_size;
     resize(
         GlobalSettings::instance().WINDOW_SIZE->WIDTH,
@@ -157,21 +157,21 @@ MainWindow::MainWindow(QWidget* parent, bool app_test)
     //  window is up (at the first start there was no window to show it in).
     //  And the setup that is opened from the settings later shows it at once.
     {
-        const QString chosen = PocketPilot::take_chosen_game();
-        const QString chosen_program = PocketPilot::take_chosen_program();
+        const QString chosen = ClaudeGG::take_chosen_game();
+        const QString chosen_program = ClaudeGG::take_chosen_program();
         if (!chosen.isEmpty()){
             QMetaObject::invokeMethod(this, [this, chosen, chosen_program]{
                 open_game(chosen, chosen_program);
             }, Qt::QueuedConnection);
         }
-        PocketPilot::set_game_opener([this](const QString& game, const QString& program){
+        ClaudeGG::set_game_opener([this](const QString& game, const QString& program){
             open_game(game, program);
         });
     }
 //    cout << "Done constructing" << endl;
 }
 MainWindow::~MainWindow(){
-    PocketPilot::set_game_opener(nullptr);
+    ClaudeGG::set_game_opener(nullptr);
     set_panel_settings_saver(nullptr);
     //  The panel before what it shows.
     delete m_assistant_panel;
@@ -190,8 +190,8 @@ MainWindow::~MainWindow(){
     }
 }
 
-PocketPilot::AboutInfo MainWindow::about_info() const{
-    PocketPilot::AboutInfo info;
+ClaudeGG::AboutInfo MainWindow::about_info() const{
+    ClaudeGG::AboutInfo info;
     info.name = QString::fromStdString(PROGRAM_NAME);
     info.build = QString::fromStdString(PROGRAM_BUILD);
     info.upstream_name = QString::fromStdString(UPSTREAM_PROGRAM_NAME);
@@ -264,10 +264,10 @@ bool MainWindow::open_game(const QString& game, const QString& program){
 //  Claude: the service with what the tools may look at in this program, and
 //  the panel that shows it.
 void MainWindow::make_assistant(
-    std::unique_ptr<PocketPilot::Assistant::HttpTransport> transport,
+    std::unique_ptr<ClaudeGG::Assistant::HttpTransport> transport,
     const std::string& settings_folder
 ){
-    namespace Assistant = PocketPilot::Assistant;
+    namespace Assistant = ClaudeGG::Assistant;
     delete m_assistant_panel;
     m_assistant_panel = nullptr;
     m_assistant.reset();
@@ -289,11 +289,11 @@ void MainWindow::make_assistant(
     }
     //  The programs, as the page with the games lists them.
     {
-        std::vector<PocketPilot::HomeGame> games;
-        std::vector<PocketPilot::HomeProgram> programs;
+        std::vector<ClaudeGG::HomeGame> games;
+        std::vector<ClaudeGG::HomeProgram> programs;
         m_program_list->describe(games, programs);
         std::vector<Assistant::ProgramInfo> list;
-        for (const PocketPilot::HomeProgram& program : programs){
+        for (const ClaudeGG::HomeProgram& program : programs){
             if (program.game < 0 || program.game >= (int)games.size()){
                 continue;
             }
@@ -349,7 +349,7 @@ void MainWindow::make_assistant(
 }
 
 void MainWindow::remake_assistant(
-    std::unique_ptr<PocketPilot::Assistant::HttpTransport> transport,
+    std::unique_ptr<ClaudeGG::Assistant::HttpTransport> transport,
     const std::string& settings_folder
 ){
     m_app->show_claude(false);
@@ -386,7 +386,7 @@ int32_t move_y_within_screen_bounds(int32_t y_pos){
 
 
 void MainWindow::closeEvent(QCloseEvent* event){
-    //  PocketPilot: the options of the panel that is open are written here,
+    //  ClaudeGG: the options of the panel that is open are written here,
     //  before anything is taken down. They were written only when the window
     //  was destroyed, after the assistant's panel: a close that did not get
     //  that far kept the settings of days before (the AutoStory's start and
@@ -498,7 +498,7 @@ void MainWindow::load_panel(
                     game = (int)c;
                 }
             }
-            game_name = PocketPilot::short_game_name(name);
+            game_name = ClaudeGG::short_game_name(name);
         }
         m_app->host(m_current_panel_widget, game, game_name, title);
         update_resume();
@@ -653,11 +653,11 @@ void MainWindow::set_sleep_label(const QString& text){
 //  do is what the buttons of the old top bar did.
 void MainWindow::make_app_view(bool test){
     //  The games and their programs, as the list makes them.
-    std::vector<PocketPilot::HomeProgram> programs;
+    std::vector<ClaudeGG::HomeProgram> programs;
     m_game_list.clear();
     m_program_list->describe(m_game_list, programs);
 
-    PocketPilot::AppActions actions;
+    ClaudeGG::AppActions actions;
     actions.open_program = [this](int game, const QString& program){
         if (m_busy || m_panel_transition || game < 0 || game >= (int)m_game_list.size()){
             return false;
@@ -681,7 +681,7 @@ void MainWindow::make_app_view(bool test){
         show_settings();
     };
     actions.about = [this]{
-        PocketPilot::show_about(this, about_info());
+        ClaudeGG::show_about(this, about_info());
     };
     actions.output = [this]{
         m_output_window->show();
@@ -698,7 +698,7 @@ void MainWindow::make_app_view(bool test){
     };
     //  The overview of the installations (the screen puts this window away).
     actions.installations = []{
-        PocketPilot::show_instances_overview();
+        ClaudeGG::show_instances_overview();
     };
     actions.keep_screen_on = [this, test](bool on){
         if (on){
@@ -717,7 +717,7 @@ void MainWindow::make_app_view(bool test){
         }
     };
 
-    m_app = PocketPilot::make_main_view(centralwidget, m_game_list, std::move(programs), std::move(actions), test);
+    m_app = ClaudeGG::make_main_view(centralwidget, m_game_list, std::move(programs), std::move(actions), test);
     QVBoxLayout* layout = new QVBoxLayout(centralwidget);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);

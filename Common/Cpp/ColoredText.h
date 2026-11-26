@@ -12,7 +12,7 @@
 
 namespace PokemonAutomation{
 
-//  The PocketPilot themes (Night and Day) come first: Night is the default.
+//  The ClaudeGG themes (Night and Day) come first: Night is the default.
 //  DEFAULT_MODE and DARK_MODE are the two classic looks.
 enum class UiThemeMode{
     POCKET_NIGHT,
@@ -25,14 +25,14 @@ enum class UiThemeMode{
 //  application has no style sheet.
 inline UiThemeMode CURRENT_THEME = UiThemeMode::DEFAULT_MODE;
 
-//  The background color (0xRRGGBB) that text is shown on in the PocketPilot
+//  The background color (0xRRGGBB) that text is shown on in the ClaudeGG
 //  themes.
 inline uint32_t CURRENT_THEME_SURFACE = 0xffffff;
 
 bool theme_is_dark();
 bool theme_is_pocket();
 
-//  A color changed just enough to read on the background of a PocketPilot
+//  A color changed just enough to read on the background of a ClaudeGG
 //  theme (a contrast of 4.5 to 1). The classic themes leave it as it is.
 Color theme_readable(Color color);
 

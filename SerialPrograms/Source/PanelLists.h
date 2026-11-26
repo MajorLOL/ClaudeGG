@@ -10,8 +10,8 @@
 #include <map>
 #include <QWidget>
 #include "CommonFramework/Panels/PanelList.h"
-#include "PocketPilot/PocketPilot_Home.h"
-#include "PocketPilot/PocketPilot_Setup.h"
+#include "ClaudeGG/ClaudeGG_Home.h"
+#include "ClaudeGG/ClaudeGG_Setup.h"
 
 class QComboBox;
 class QLabel;
@@ -28,9 +28,9 @@ namespace PokemonAutomation{
 // lists (HomeProgram::game is the index into "games"), with their sections,
 // descriptions and tags: the setup asks which program to start with them.
 void describe_all_games(
-    std::vector<PocketPilot::HomeGame>& games,
+    std::vector<ClaudeGG::HomeGame>& games,
     std::string* error = nullptr,
-    std::vector<PocketPilot::HomeProgram>* programs = nullptr
+    std::vector<ClaudeGG::HomeProgram>* programs = nullptr
 );
 
 
@@ -41,7 +41,7 @@ void describe_all_games(
 // loaded from and kept in the settings of the program's page, and only the
 // options: the console of the page is left alone (no camera or serial port is
 // opened). Null when there is no such program or it has no options.
-std::unique_ptr<PocketPilot::SetupProgramOptions> make_setup_options(
+std::unique_ptr<ClaudeGG::SetupProgramOptions> make_setup_options(
     QWidget* parent, int game, const QString& program
 );
 
@@ -67,8 +67,8 @@ public:
 
     // The games and all their programs, for the page that shows them.
     void describe(
-        std::vector<PocketPilot::HomeGame>& games,
-        std::vector<PocketPilot::HomeProgram>& programs
+        std::vector<ClaudeGG::HomeGame>& games,
+        std::vector<ClaudeGG::HomeProgram>& programs
     ) const;
 
     // The name of the game whose list is shown.

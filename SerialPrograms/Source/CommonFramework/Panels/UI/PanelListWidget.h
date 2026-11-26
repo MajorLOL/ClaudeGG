@@ -9,16 +9,16 @@
 
 #include <QListWidget>
 #include "CommonFramework/Panels/PanelList.h"
-#include "PocketPilot/PocketPilot_ProgramList.h"
+#include "ClaudeGG/ClaudeGG_ProgramList.h"
 
 namespace PokemonAutomation{
 
 
 
-//  PocketPilot: on a list that can be locked while a program runs and
-//  still scrolls then (PocketPilot::ProgramList), in place of one that is
+//  ClaudeGG: on a list that can be locked while a program runs and
+//  still scrolls then (ClaudeGG::ProgramList), in place of one that is
 //  disabled.
-class PanelListWidget : public PocketPilot::ProgramList{
+class PanelListWidget : public ClaudeGG::ProgramList{
 public:
     static const std::string JSON_PROGRAM_PANEL;
 

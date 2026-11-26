@@ -46,12 +46,12 @@
 #include "Options/Environment/ThemeSelectorOption.h"
 #include "Startup/SetupSettings.h"
 #include "Windows/MainWindow.h"
-#include "PocketPilot/PocketPilot_Instances.h"
-#include "PocketPilot/PocketPilot_Intro.h"
-#include "PocketPilot/PocketPilot_Language.h"
-#include "PocketPilot/PocketPilot_OldSettings.h"
-#include "PocketPilot/PocketPilot_Setup.h"
-#include "PocketPilot/PocketPilot_SelfTest.h"
+#include "ClaudeGG/ClaudeGG_Instances.h"
+#include "ClaudeGG/ClaudeGG_Intro.h"
+#include "ClaudeGG/ClaudeGG_Language.h"
+#include "ClaudeGG/ClaudeGG_OldSettings.h"
+#include "ClaudeGG/ClaudeGG_Setup.h"
+#include "ClaudeGG/ClaudeGG_SelfTest.h"
 #include "GlobalSettingsPanel.h"
 #include "GlobalServices.h"
 #include "PersistentSettings.h"
@@ -86,7 +86,7 @@ FileLogger& global_file_logger(){
             //  The overview of the installations has a log of its own: it runs at the
             //  same time as the installation whose folder it was started in.
             .file_path = USER_FILE_PATH() + Filesystem::application_binary_name().stem().string() +
-                (PocketPilot::is_overview_process() ? "-Installations" : "") + ".log",
+                (ClaudeGG::is_overview_process() ? "-Installations" : "") + ".log",
         }
     );
     return logger;
@@ -111,19 +111,19 @@ int run_program(int argc, char *argv[]){
     {
         bool test_run = false;
         for (int i = 1; i < argc; i++){
-            if (strcmp(argv[i], PocketPilot::UI_SCREENSHOTS_OPTION) == 0 ||
-                strcmp(argv[i], PocketPilot::SETUP_TEST_OPTION) == 0 ||
-                strcmp(argv[i], PocketPilot::LANGUAGE_TEST_OPTION) == 0 ||
-                strcmp(argv[i], PocketPilot::INTRO_TEST_OPTION) == 0 ||
-                strcmp(argv[i], PocketPilot::TUTORIAL_TEST_OPTION) == 0 ||
-                strcmp(argv[i], PocketPilot::INSTANCE_TEST_OPTION) == 0 ||
-                strcmp(argv[i], PocketPilot::INSTANCES_HUB_TEST_OPTION) == 0 ||
+            if (strcmp(argv[i], ClaudeGG::UI_SCREENSHOTS_OPTION) == 0 ||
+                strcmp(argv[i], ClaudeGG::SETUP_TEST_OPTION) == 0 ||
+                strcmp(argv[i], ClaudeGG::LANGUAGE_TEST_OPTION) == 0 ||
+                strcmp(argv[i], ClaudeGG::INTRO_TEST_OPTION) == 0 ||
+                strcmp(argv[i], ClaudeGG::TUTORIAL_TEST_OPTION) == 0 ||
+                strcmp(argv[i], ClaudeGG::INSTANCE_TEST_OPTION) == 0 ||
+                strcmp(argv[i], ClaudeGG::INSTANCES_HUB_TEST_OPTION) == 0 ||
                 strcmp(argv[i], "--command-line-test-mode") == 0
             ){
                 test_run = true;
             }
         }
-        PocketPilot::set_test_run(test_run);
+        ClaudeGG::set_test_run(test_run);
     }
 
     //  The folder of an installation that is not the first is made before the
@@ -194,7 +194,7 @@ int run_program(int argc, char *argv[]){
     logger.log("Starting Program...");
     logger.log("Current path: " + Filesystem::current_path().string_slash_normalized());
     logger.log("Executable path: " + Filesystem::application_binary_directory().string_slash_normalized());
-    logger.log("Installation: " + PocketPilot::current_instance() + (PocketPilot::is_overview_process() ? " (the overview of the installations)" : ""));
+    logger.log("Installation: " + ClaudeGG::current_instance() + (ClaudeGG::is_overview_process() ? " (the overview of the installations)" : ""));
     logger.log("Program setting folder: " + SETTINGS_PATH());
     logger.log("Program resources folder: " + RESOURCE_PATH());
 #ifdef PA_DPP
@@ -240,27 +240,27 @@ int run_program(int argc, char *argv[]){
     //  overview of the installations instead (where it can be opened, and a new
     //  one made). Nothing of it is read or written first. Not for the tests, and
     //  not for the overview itself, which has its own way of being once.
-    std::unique_ptr<PocketPilot::InstanceGuard> instance_guard;
-    std::unique_ptr<PocketPilot::InstanceLink> instance_link;
-    if (!PocketPilot::is_test_run() && !PocketPilot::is_overview_process()){
-        const std::string scratch = PocketPilot::shared_base_path();
-        instance_guard = std::make_unique<PocketPilot::InstanceGuard>(
-            QString::fromStdString(PocketPilot::instance_meta_path(scratch, PocketPilot::current_instance()))
+    std::unique_ptr<ClaudeGG::InstanceGuard> instance_guard;
+    std::unique_ptr<ClaudeGG::InstanceLink> instance_link;
+    if (!ClaudeGG::is_test_run() && !ClaudeGG::is_overview_process()){
+        const std::string scratch = ClaudeGG::shared_base_path();
+        instance_guard = std::make_unique<ClaudeGG::InstanceGuard>(
+            QString::fromStdString(ClaudeGG::instance_meta_path(scratch, ClaudeGG::current_instance()))
         );
         if (!instance_guard->acquired()){
             logger.log(
-                "Installation " + PocketPilot::current_instance() + " runs already: showing the overview of the installations.",
+                "Installation " + ClaudeGG::current_instance() + " runs already: showing the overview of the installations.",
                 COLOR_BLUE
             );
-            PocketPilot::show_instances_overview();
+            ClaudeGG::show_instances_overview();
             return 0;
         }
         //  The overview asks it to come forward on this connection.
-        instance_link = std::make_unique<PocketPilot::InstanceLink>(
-            PocketPilot::instance_link_name(scratch, QString::fromStdString("i" + PocketPilot::current_instance())),
+        instance_link = std::make_unique<ClaudeGG::InstanceLink>(
+            ClaudeGG::instance_link_name(scratch, QString::fromStdString("i" + ClaudeGG::current_instance())),
             [](const QString& command){
                 if (command == "show"){
-                    PocketPilot::bring_instance_forward();
+                    ClaudeGG::bring_instance_forward();
                 }
             }
         );
@@ -271,7 +271,7 @@ int run_program(int argc, char *argv[]){
     //  settings are taken over at the first start under the new name).
     if (settings_taken_over_from_old_name()){
         logger.log(
-            std::string("Settings: taken over from ") + PocketPilot::OLD_SETTINGS_FILE_NAME +
+            std::string("Settings: taken over from ") + ClaudeGG::OLD_SETTINGS_FILE_NAME +
             " (the program was called SerialPrograms before). The old file is still there.",
             COLOR_BLUE
         );
@@ -298,31 +298,31 @@ int run_program(int argc, char *argv[]){
     //  without a window.
     //  (Not for an installation that is not the first: the film was seen. It
     //  starts at once with the setup.)
-    bool play_intro = GlobalSettings::instance().PLAY_INTRO && PocketPilot::is_main_instance();
+    bool play_intro = GlobalSettings::instance().PLAY_INTRO && ClaudeGG::is_main_instance();
     {
         bool intro_test = false;
         bool tutorial_test = false;
         for (int i = 1; i < argc; i++){
-            if (strcmp(argv[i], PocketPilot::NO_INTRO_OPTION) == 0 ||
-                strcmp(argv[i], PocketPilot::UI_SCREENSHOTS_OPTION) == 0 ||
+            if (strcmp(argv[i], ClaudeGG::NO_INTRO_OPTION) == 0 ||
+                strcmp(argv[i], ClaudeGG::UI_SCREENSHOTS_OPTION) == 0 ||
                 strcmp(argv[i], "--command-line-test-mode") == 0
             ){
                 play_intro = false;
             }
-            if (strcmp(argv[i], PocketPilot::INTRO_TEST_OPTION) == 0){
+            if (strcmp(argv[i], ClaudeGG::INTRO_TEST_OPTION) == 0){
                 intro_test = true;
             }
-            if (strcmp(argv[i], PocketPilot::TUTORIAL_TEST_OPTION) == 0){
+            if (strcmp(argv[i], ClaudeGG::TUTORIAL_TEST_OPTION) == 0){
                 tutorial_test = true;
             }
         }
         if (intro_test){
-            return PocketPilot::run_intro_test(application);
+            return ClaudeGG::run_intro_test(application);
         }
         if (tutorial_test){
             //  What it found goes in the log, where the workflow reads it.
             QStringList report;
-            const int code = PocketPilot::run_tutorial_test(application, report);
+            const int code = ClaudeGG::run_tutorial_test(application, report);
             Logger& test_logger = global_logger_tagged();
             for (const QString& line : report){
                 test_logger.log(line.toStdString(), Color());
@@ -343,26 +343,26 @@ int run_program(int argc, char *argv[]){
         QString setup_folder;
         QString hub_folder;
         for (int i = 1; i < argc; i++){
-            if (strcmp(argv[i], PocketPilot::INSTANCE_TEST_OPTION) == 0){
+            if (strcmp(argv[i], ClaudeGG::INSTANCE_TEST_OPTION) == 0){
                 instance_test = true;
             }
-            if (strcmp(argv[i], PocketPilot::INSTANCES_HUB_TEST_OPTION) == 0){
+            if (strcmp(argv[i], ClaudeGG::INSTANCES_HUB_TEST_OPTION) == 0){
                 hub_test = true;
                 if (i + 1 < argc){
                     hub_folder = QString::fromLocal8Bit(argv[i + 1]);
                 }
             }
-            if (strcmp(argv[i], PocketPilot::NO_LANGUAGE_PROMPT_OPTION) == 0 ||
-                strcmp(argv[i], PocketPilot::UI_SCREENSHOTS_OPTION) == 0 ||
-                strcmp(argv[i], PocketPilot::INTRO_TEST_OPTION) == 0 ||
+            if (strcmp(argv[i], ClaudeGG::NO_LANGUAGE_PROMPT_OPTION) == 0 ||
+                strcmp(argv[i], ClaudeGG::UI_SCREENSHOTS_OPTION) == 0 ||
+                strcmp(argv[i], ClaudeGG::INTRO_TEST_OPTION) == 0 ||
                 strcmp(argv[i], "--command-line-test-mode") == 0
             ){
                 ask_setup = false;
             }
-            if (strcmp(argv[i], PocketPilot::LANGUAGE_TEST_OPTION) == 0){
+            if (strcmp(argv[i], ClaudeGG::LANGUAGE_TEST_OPTION) == 0){
                 language_test = true;
             }
-            if (strcmp(argv[i], PocketPilot::SETUP_TEST_OPTION) == 0){
+            if (strcmp(argv[i], ClaudeGG::SETUP_TEST_OPTION) == 0){
                 setup_test = true;
                 if (i + 1 < argc){
                     setup_folder = QString::fromLocal8Bit(argv[i + 1]);
@@ -370,25 +370,25 @@ int run_program(int argc, char *argv[]){
             }
         }
         if (language_test){
-            return PocketPilot::run_language_test(application);
+            return ClaudeGG::run_language_test(application);
         }
-        PocketPilot::install_language_support(application);
+        ClaudeGG::install_language_support(application);
         if (setup_test){
-            return PocketPilot::run_setup_test(application, setup_folder);
+            return ClaudeGG::run_setup_test(application, setup_folder);
         }
         //  The tests of the installations, and the overview of them: a process
-        //  of its own that shows the miniatures (see PocketPilot_Instances.h).
+        //  of its own that shows the miniatures (see ClaudeGG_Instances.h).
         if (instance_test){
-            return PocketPilot::run_instance_test(application);
+            return ClaudeGG::run_instance_test(application);
         }
         if (hub_test){
-            return PocketPilot::run_instances_hub(application, hub_folder);
+            return ClaudeGG::run_instances_hub(application, hub_folder);
         }
-        if (PocketPilot::is_overview_process()){
-            return PocketPilot::run_instances_hub(application, QString());
+        if (ClaudeGG::is_overview_process()){
+            return ClaudeGG::run_instances_hub(application, QString());
         }
         //  The setup ends with the choice of a game: these are the games.
-        PocketPilot::set_game_lister([](std::vector<PocketPilot::HomeGame>& games, std::vector<PocketPilot::HomeProgram>& programs){
+        ClaudeGG::set_game_lister([](std::vector<ClaudeGG::HomeGame>& games, std::vector<ClaudeGG::HomeProgram>& programs){
             std::string error;
             describe_all_games(games, &error, &programs);
             if (!error.empty()){
@@ -397,27 +397,27 @@ int run_program(int argc, char *argv[]){
         });
         //  The options of a program, as the widgets that its page has, for the
         //  panel next to the list of programs.
-        PocketPilot::set_options_maker([](QWidget* parent, int game, const QString& program){
+        ClaudeGG::set_options_maker([](QWidget* parent, int game, const QString& program){
             return make_setup_options(parent, game, program);
         });
         //  The test of the interface also checks that the games can be listed
         //  now, before the main window is made, as the setup needs.
         for (int i = 1; i < argc; i++){
-            if (strcmp(argv[i], PocketPilot::UI_SCREENSHOTS_OPTION) == 0){
+            if (strcmp(argv[i], ClaudeGG::UI_SCREENSHOTS_OPTION) == 0){
                 global_logger_tagged().log(
-                    "Setup: the games before the window: " + std::to_string(PocketPilot::count_games_for_setup()) + "."
+                    "Setup: the games before the window: " + std::to_string(ClaudeGG::count_games_for_setup()) + "."
                 );
                 global_logger_tagged().log(
-                    "Setup: the programs before the window: " + std::to_string(PocketPilot::count_programs_for_setup()) + "."
+                    "Setup: the programs before the window: " + std::to_string(ClaudeGG::count_programs_for_setup()) + "."
                 );
                 global_logger_tagged().log(
-                    "Setup: the options before the window: " + std::to_string(PocketPilot::count_options_for_setup()) + "."
+                    "Setup: the options before the window: " + std::to_string(ClaudeGG::count_options_for_setup()) + "."
                 );
             }
         }
         //  The intro and the setup: one screen. It stays up until the main
         //  window is shown (see below).
-        PocketPilot::show_start_screens(play_intro, ask_setup);
+        ClaudeGG::show_start_screens(play_intro, ask_setup);
     }
 
     //  Load the Switch framework settings now, not only when their panel is opened.
@@ -442,7 +442,7 @@ int run_program(int argc, char *argv[]){
         constexpr const char* distort_test_images = "--augment-color-distortions";
         constexpr const char* filter_tests_substring = "--test-substring";
 
-        if (strcmp(argv[i], PocketPilot::UI_SCREENSHOTS_OPTION) == 0){
+        if (strcmp(argv[i], ClaudeGG::UI_SCREENSHOTS_OPTION) == 0){
             if (i + 1 < (size_t)argc){
                 ui_screenshots_folder = argv[++i];
                 continue;
@@ -470,7 +470,7 @@ int run_program(int argc, char *argv[]){
         return 1;
     }
     if (ui_screenshots_missing_value){
-        global_logger_command_line().log(std::string(PocketPilot::UI_SCREENSHOTS_OPTION) + " requires a folder", COLOR_RED);
+        global_logger_command_line().log(std::string(ClaudeGG::UI_SCREENSHOTS_OPTION) + " requires a folder", COLOR_RED);
         return 1;
     }
 
@@ -528,21 +528,21 @@ int run_program(int argc, char *argv[]){
     w.raise(); // bring the window to front on macOS
     set_permissions(w);
     //  The screen of the intro and the setup goes now, over the window.
-    PocketPilot::release_setup_curtain();
+    ClaudeGG::release_setup_curtain();
 
     //  The test of the interface: pictures of every page, then exit. The
     //  settings are not written, since the test changes the theme.
     if (!ui_screenshots_folder.empty()){
-        const int window_code = PocketPilot::run_ui_screenshots(application, w, ui_screenshots_folder);
+        const int window_code = ClaudeGG::run_ui_screenshots(application, w, ui_screenshots_folder);
         window.reset();
-        const int app_code = PocketPilot::run_app_screenshots(application, ui_screenshots_folder + "/app");
+        const int app_code = ClaudeGG::run_app_screenshots(application, ui_screenshots_folder + "/app");
         return window_code != 0 ? window_code : app_code;
     }
 
     int ret = application.exec();
 
     //  The overview sees that it does not run any more.
-    PocketPilot::clear_instance_report();
+    ClaudeGG::clear_instance_report();
 
     //  Write program settings back to the json file.
     std::cout << "Saving Settings..." << std::endl;
@@ -561,7 +561,7 @@ int main(int argc, char *argv[]){
     //  Which installation this is: before any folder of the program is asked for.
     {
         QString error;
-        if (!PocketPilot::read_instance_options(argc, argv, &error)){
+        if (!ClaudeGG::read_instance_options(argc, argv, &error)){
             std::cerr << error.toStdString() << std::endl;
             return 1;
         }

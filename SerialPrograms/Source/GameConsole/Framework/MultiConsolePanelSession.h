@@ -29,7 +29,7 @@ public:
     Logger& logger(){ return m_system.logger(); }
     MultiConsoleSystemSession& system(){ return m_system; }
     ConfigOption& options();
-    //  PocketPilot: the options without the panel (see PanelSession).
+    //  ClaudeGG: the options without the panel (see PanelSession).
     virtual ConfigOption* config_options() override{ return &options(); }
 
 

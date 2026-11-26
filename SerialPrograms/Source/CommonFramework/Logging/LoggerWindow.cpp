@@ -24,7 +24,7 @@
 #include "CommonFramework/Windows/WindowTracker.h"
 #include "CommonFramework/Windows/MainWindow.h"
 #include "CommonFramework/Options/ResolutionOption.h"
-#include "PocketPilot/PocketPilot_Language.h"
+#include "ClaudeGG/ClaudeGG_Language.h"
 #include "LoggerWindow.h"
 
 namespace PokemonAutomation{
@@ -242,9 +242,9 @@ void LoggerWindow::update_search(){
     if (text.isEmpty()){
         m_matches->clear();
     }else if (count == 0){
-        m_matches->setText(PocketPilot::tr_ui("No matches"));
+        m_matches->setText(ClaudeGG::tr_ui("No matches"));
     }else{
-        m_matches->setText(PocketPilot::tr_ui("Matches: %1").arg(count));
+        m_matches->setText(ClaudeGG::tr_ui("Matches: %1").arg(count));
     }
 }
 

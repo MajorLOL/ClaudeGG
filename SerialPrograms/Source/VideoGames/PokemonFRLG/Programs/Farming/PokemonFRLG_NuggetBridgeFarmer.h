@@ -45,7 +45,7 @@ private:
 
     SimpleIntegerOption<uint32_t> PERIODIC_SAVE;
 
-    //  PocketPilot (experimental): see program().
+    //  ClaudeGG (experimental): see program().
     BooleanCheckBoxOption WALK_ALONG_WALLS;
 
     EventNotificationOption NOTIFICATION_STATUS_UPDATE;

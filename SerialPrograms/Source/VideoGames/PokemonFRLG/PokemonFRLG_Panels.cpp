@@ -70,13 +70,13 @@ std::vector<PanelEntry> PanelListFactory::make_panels() const{
     ret.emplace_back("---- Story ----");
     ret.emplace_back(make_SingleSwitchProgram<AutoStory>());
 
-    //  PocketPilot: Claude plays toward a goal the user writes down. Here
+    //  ClaudeGG: Claude plays toward a goal the user writes down. Here
     //  with the routines of the AutoStory; the other lists have the one of
-    //  PocketPilot/ClaudePlays.
+    //  ClaudeGG/ClaudePlays.
     ret.emplace_back("---- Claude ----");
     ret.emplace_back(make_SingleSwitchProgram<ClaudePlays>());
 
-    //  PocketPilot's own programs that have not been tested on a console
+    //  ClaudeGG's own programs that have not been tested on a console
     //  yet (PanelQualityStanding::EXPERIMENTAL).
     ret.emplace_back("---- Experimental ----");
     ret.emplace_back(make_SingleSwitchProgram<LevelTrainer>());

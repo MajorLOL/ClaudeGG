@@ -2,7 +2,7 @@
  *
  *  From: https://github.com/PokemonAutomation/
  *
- *  StepType::BOXES (PocketPilot build 34; it ran on a console on 17 November
+ *  StepType::BOXES (build 34; it ran on a console on 17 November
  *  2026: 134 Pokemon in 14 boxes read in 4 min 44 s, the hand seen every
  *  time): the player faces the PC of a Pokemon Center. Into BILL's PC and
  *  MOVE POKeMON, every cell of every box looked at, out again. What the

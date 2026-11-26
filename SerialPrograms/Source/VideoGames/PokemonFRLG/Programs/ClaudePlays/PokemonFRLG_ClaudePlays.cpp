@@ -1,6 +1,6 @@
 /*  Pokemon FRLG Claude Plays
  *
- *  PocketPilot's own program (experimental: not tested on a console yet,
+ *  ClaudeGG's own program (experimental: not tested on a console yet,
  *  and not against the real Claude API).
  *
  *  The user writes down a goal. Claude gets it with a list of tools, calls
@@ -17,7 +17,7 @@
  *      for one call, without a token in between.
  *
  *  The session itself is the one of every game's Claude Plays
- *  (PocketPilot/ClaudePlays/ClaudePlays_Engine.h): the conversation with
+ *  (ClaudeGG/ClaudePlays/ClaudePlays_Engine.h): the conversation with
  *  the key of the panel "Claude", Claude's notes, the limits. When the
  *  conversation gets long it is started over with the notes and the last
  *  actions, so that a long session does not send its whole past with every
@@ -49,7 +49,7 @@
 #include "NintendoSwitch/Commands/NintendoSwitch_Commands_PushButtons.h"
 #include "NintendoSwitch/Controllers/Procon/NintendoSwitch_ProController.h"
 #include "NintendoSwitch/NintendoSwitch_ConsoleHandle.h"
-#include "PocketPilot/Assistant/Assistant_Play.h"
+#include "ClaudeGG/Assistant/Assistant_Play.h"
 #include "Pokemon/Pokemon_Strings.h"
 #include "VideoGames/PokemonFRLG/Inference/Dialogs/PokemonFRLG_BattleDialogs.h"
 #include "VideoGames/PokemonFRLG/Inference/Dialogs/PokemonFRLG_DialogDetector.h"
@@ -67,15 +67,15 @@ namespace PokemonFRLG{
 
 using namespace std::chrono_literals;
 
-using PocketPilot::Assistant::PlayCall;
-using PocketPilot::Assistant::PlayResult;
-using PocketPilot::Assistant::PlaySession;
-using PocketPilot::Assistant::PlayTool;
-using PocketPilot::Assistant::PlayUsage;
+using ClaudeGG::Assistant::PlayCall;
+using ClaudeGG::Assistant::PlayResult;
+using ClaudeGG::Assistant::PlaySession;
+using ClaudeGG::Assistant::PlayTool;
+using ClaudeGG::Assistant::PlayUsage;
 
 //  The session that every game's Claude Plays has: the class of this
 //  program has the name of its namespace.
-namespace Plays = PocketPilot::ClaudePlays;
+namespace Plays = ClaudeGG::ClaudePlays;
 using Plays::money;
 using Plays::one_line;
 using Plays::trimmed;
@@ -204,7 +204,7 @@ std::string take_picture(StoryRuntime& rt, int enlarge){
     const ImageViewRGB32& frame = *snapshot.frame;
     const ImageFloatBox game_box = GameSettings::instance().GAME_BOX;
     const ImageViewRGB32 game = extract_box_reference(frame, game_box);
-    return PocketPilot::Assistant::play_picture(game, GAME_WIDTH, GAME_HEIGHT, enlarge);
+    return ClaudeGG::Assistant::play_picture(game, GAME_WIDTH, GAME_HEIGHT, enlarge);
 }
 
 
