@@ -29,6 +29,7 @@
 #include "Assistant/Assistant_Settings.h"
 #include "ClaudeGG_Mobile.h"
 #include "ClaudeGG_PokemonGo.h"
+#include "ClaudeGG_PokemonGoBattle.h"
 #include "ClaudeGG_PokemonGoNav.h"
 
 namespace PokemonAutomation{
@@ -650,6 +651,21 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             }
         }
         check(differ == 0, nav.isEmpty() ? QString("the screen readers answer as battle_nav.py does") : nav.last());
+    }
+    //  The brain of the fights, ported to C++ (issue #30): held to the answers of the Python one.
+    {
+        QStringList engine;
+        const int differ = PokemonGo::Battle::run_engine_checks(
+            agent_folder + "/../tests/fixtures/engine_golden.json",
+            agent_folder + "/../models/battle_data.json",
+            engine
+        );
+        for (const QString& line : engine){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, engine.isEmpty() ? QString("the brain of the fights answers as battle_engine.py does") : engine.last());
     }
     if (wrong != 0){
         return finish();
