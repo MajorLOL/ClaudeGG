@@ -5354,8 +5354,9 @@ public:
             ";range=" + (m_selection ? QString::number((int)std::lround(std::fabs(m_sel_a - m_sel_b))) : QString("0")) +
             ";rows=" + QString::number(m_view.size()) + ";options=" + options_state_name() +
             ";host=" + (m_host != nullptr && !m_host->isHidden() ? "shown" : "hidden") +
-            ";full=" + (m_video_full ? "yes" : "no") + ";wide=" + (m_wide.target > 0.5 ? "yes" : "no") + ";saved=" + m_saved_path +
-            ";source=" + (m_input.phone() ? "phone" : "card") + ";badge=" + QString::number((int)std::lround(m_badge_right));
+            ";full=" + (m_video_full ? "yes" : "no") + ";wide=" + (m_wide.target > 0.5 ? "yes" : "no") +
+            ";source=" + (m_input.phone() ? "phone" : "card") + ";badge=" + QString::number((int)std::lround(m_badge_right)) +
+            ";saved=" + m_saved_path;   //  Last: the tests read everything after "saved=".
     }
 
 private:
@@ -11792,7 +11793,7 @@ int run_setup_test(QApplication& application, const QString& folder){
         {
             const QString state = wide.page_state();
             const qsizetype at = state.indexOf(";badge=");
-            const int badge_right = at < 0 ? 100000 : state.mid(at + 7).toInt();
+            const int badge_right = at < 0 ? 100000 : state.mid(at + 7).section(';', 0, 0).toInt();
             checker.check(wide.has_hit("minimize") && badge_right <= (int)wide.buttons_left() - 20,
                 "the badge with the game's name is left of the buttons in the corner (" + QString::number(badge_right) + " and " + QString::number((int)wide.buttons_left()) + ")");
         }
