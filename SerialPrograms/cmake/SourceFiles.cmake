@@ -1501,6 +1501,8 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_Embed.h
     Source/ClaudeGG/ClaudeGG_Host.cpp
     Source/ClaudeGG/ClaudeGG_Host.h
+    Source/ClaudeGG/ClaudeGG_Mobile.cpp
+    Source/ClaudeGG/ClaudeGG_Mobile.h
     Source/ClaudeGG/ClaudeGG_Instances.cpp
     Source/ClaudeGG/ClaudeGG_Instances.h
     Source/ClaudeGG/ClaudeGG_Language.cpp

@@ -49,6 +49,7 @@
 #include "Windows/MainWindow.h"
 #include "ClaudeGG/ClaudeGG_Embed.h"
 #include "ClaudeGG/ClaudeGG_Host.h"
+#include "ClaudeGG/ClaudeGG_Mobile.h"
 #include "ClaudeGG/ClaudeGG_Instances.h"
 #include "ClaudeGG/ClaudeGG_Intro.h"
 #include "ClaudeGG/ClaudeGG_Language.h"
@@ -123,6 +124,7 @@ int run_program(int argc, char *argv[]){
                 strcmp(argv[i], ClaudeGG::INSTANCES_HUB_TEST_OPTION) == 0 ||
                 strcmp(argv[i], ClaudeGG::EMBED_TEST_OPTION) == 0 ||
                 strcmp(argv[i], ClaudeGG::EMBED_PROBE_OPTION) == 0 ||
+                strcmp(argv[i], ClaudeGG::MOBILE_TEST_OPTION) == 0 ||
                 strcmp(argv[i], "--command-line-test-mode") == 0
             ){
                 test_run = true;
@@ -355,6 +357,8 @@ int run_program(int argc, char *argv[]){
         bool embed_test = false;
         bool embed_probe = false;
         bool host_test = false;
+        bool mobile_test = false;
+        QString mobile_folder;
         QString setup_folder;
         QString hub_folder;
         QString embed_folder;
@@ -365,6 +369,13 @@ int run_program(int argc, char *argv[]){
             }
             if (strcmp(argv[i], ClaudeGG::EMBED_PROBE_OPTION) == 0){
                 embed_probe = true;
+            }
+            if (strcmp(argv[i], ClaudeGG::MOBILE_TEST_OPTION) == 0){
+                mobile_test = true;
+                ask_setup = false;
+                if (i + 1 < argc){
+                    mobile_folder = QString::fromLocal8Bit(argv[i + 1]);
+                }
             }
             if (strcmp(argv[i], ClaudeGG::HOST_TEST_OPTION) == 0){
                 host_test = true;
@@ -416,6 +427,11 @@ int run_program(int argc, char *argv[]){
         }
         if (hub_test){
             return ClaudeGG::run_instances_hub(application, hub_folder);
+        }
+        //  The connection to a phone through a Raspberry Pi, against the agent
+        //  of Mobile/agent with a phone that is not there.
+        if (mobile_test){
+            return ClaudeGG::run_mobile_test(application, mobile_folder);
         }
         //  The proof of the embedding: a window in a window of another process.
         if (embed_probe){

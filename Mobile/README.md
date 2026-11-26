@@ -1,5 +1,7 @@
 # Pokémon GO Automation
 
+> **In Claude GG.** This folder is the repository [pokemon-go-automation](https://github.com/MajorLOL/pokemon-go-automation), joined to Claude GG with its history. The way on is in [agent](agent): a small program on the Raspberry Pi that only gives Claude GG the picture of the phone and takes its taps, so that the thinking is done in Claude GG for every console. What is below is the bot as it was: it does everything on the Pi, in Python, and stays until Claude GG does what it does.
+
 Automates Pokémon GO on an Android phone from a headless Raspberry Pi. The Pi controls the phone over ADB (USB), recognises what is on the screen with small neural networks, and plays: it spins PokéStops, catches wild Pokémon, opens and sends gifts, and runs a daily routine across two Pokémon GO installs. A password-protected web interface lets you watch the phone live and change options from any device on your network.
 
 > **Read this first.** Automating Pokémon GO is against Niantic's Terms of Service. Accounts that use it can be warned, suspended or banned. Use it at your own risk, preferably on an account you can afford to lose. This project is not affiliated with, endorsed by or connected to Niantic, Nintendo, The Pokémon Company or Google. See the [Disclaimer](../../wiki/Disclaimer) wiki page.

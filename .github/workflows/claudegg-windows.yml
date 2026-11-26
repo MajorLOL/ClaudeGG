@@ -801,6 +801,40 @@ jobs:
           }
           Write-Host "The host test passed."
 
+      #  A phone through a Raspberry Pi (Mobile/agent, Source/ClaudeGG/ClaudeGG_Mobile.h):
+      #  first the tests of the agent itself (Python, with a phone that is not
+      #  there), then the program's side of the connection against that agent.
+      - name: Mobile test
+        id: mobile_test
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $agent = (Resolve-Path "Arduino-Source/Mobile/agent").Path
+          python -m unittest discover -s "$agent/tests" -v
+          if ($LASTEXITCODE -ne 0) {
+            throw "The tests of the agent failed: see the lines above."
+          }
+          $dir = (Resolve-Path "Arduino-Source/SerialPrograms/bin/RelWithDebInfo").Path
+          $process = Start-Process -FilePath "$dir/ClaudeGG.exe" -WorkingDirectory $dir -ArgumentList "--mobile-test", "`"$agent`"" -PassThru
+          $handle = $process.Handle
+          if ($process.WaitForExit(240000)) {
+            $code = $process.ExitCode
+          } else {
+            $process.Kill()
+            $code = -1
+          }
+          Write-Host "The mobile test: exit code $code."
+          if (Test-Path "$agent/mobile-test.txt") {
+            Get-Content "$agent/mobile-test.txt" | ForEach-Object { Write-Host $_ }
+          } else {
+            Write-Host "The test wrote no report."
+          }
+          Get-Process python -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "Still running: python $($_.Id)" }
+          if ($code -ne 0) {
+            throw "The mobile test failed (exit code $code): see the lines above."
+          }
+          Write-Host "The mobile test passed."
+
       #  Pokemon Automation's own tests (its repository CommandLineTests, pinned
       #  by its commit), run by the program itself with --command-line-test-mode,
       #  as its own workflow does. For now they may fail without failing the
@@ -855,15 +889,16 @@ jobs:
           INSTALLATIONS: ${{ steps.installations_test.outcome }}
           EMBEDDING: ${{ steps.embedding_test.outcome }}
           HOST: ${{ steps.host_test.outcome }}
+          MOBILE: ${{ steps.mobile_test.outcome }}
           POKEMON: ${{ steps.pokemon_tests.outcome }}
         run: |
-          for pair in "Intro test=$INTRO" "Tutorial film test=$TUTORIAL" "Language test=$LANGUAGE" "Setup test=$SETUP" "Installations test=$INSTALLATIONS" "Embedding test=$EMBEDDING" "Host test=$HOST" "Pokemon Automation's tests=$POKEMON"; do
+          for pair in "Intro test=$INTRO" "Tutorial film test=$TUTORIAL" "Language test=$LANGUAGE" "Setup test=$SETUP" "Installations test=$INSTALLATIONS" "Embedding test=$EMBEDDING" "Host test=$HOST" "Mobile test=$MOBILE" "Pokemon Automation's tests=$POKEMON"; do
             if [ "${pair#*=}" = "failure" ]; then
               echo "::warning::${pair%%=*} failed: see its step."
             fi
           done
-          if [ "$SETUP" = "failure" ] || [ "$INSTALLATIONS" = "failure" ] || [ "$HOST" = "failure" ]; then
-            echo "::error::The test of the setup, of the installations or of the main window failed: the build is not published."
+          if [ "$SETUP" = "failure" ] || [ "$INSTALLATIONS" = "failure" ] || [ "$HOST" = "failure" ] || [ "$MOBILE" = "failure" ]; then
+            echo "::error::The test of the setup, of the installations, of the main window or of the phone failed: the build is not published."
             exit 1
           fi
 
