@@ -730,6 +730,9 @@ int run_host_test(QApplication& application, const QString& folder){
         check(has_content(picture), what + ": there is something to see in it");
 
         if (must_close){
+            //  Close is a button of the overview: back to it, as a person goes.
+            window.show_overview();
+            wait_for(1500);
             bool can_close = false;
             for (int tries = 0; tries < 120 && !can_close; tries++){
                 wait_for(250);
