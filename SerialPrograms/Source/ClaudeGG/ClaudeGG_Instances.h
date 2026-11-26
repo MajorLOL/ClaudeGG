@@ -262,6 +262,9 @@ bool send_instance_command(const QString& name, const QString& command, int time
 //  The windows of this installation (the setup, the main window) to the front,
 //  also when they were minimized.
 void bring_instance_forward();
+//  Closes the windows of this installation (what its user would do with the
+//  close button of the window), which ends the process.
+void close_instance_windows();
 //  A window of the installation that the overview may bring forward and a
 //  miniature may be made of: the setup's, the main window.
 void mark_instance_window(QWidget* window);
@@ -282,6 +285,10 @@ bool start_overview_process();
 //  The overview to the front: it is started when it is not there. What an
 //  installation's button "Installations" does (the caller puts its own windows away).
 bool show_instances_overview();
+
+//  Asks an installation that runs to close its windows (the overview's
+//  "Close"). False: nobody answered.
+bool close_instance(const QString& id);
 
 //  The command line of the processes that are started.
 QStringList instance_arguments(const QString& id);

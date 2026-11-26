@@ -373,7 +373,7 @@
  "Installations": "Installations",
  "Installation %1": "Installation %1",
  "New installation": "Nouvelle installation",
- "It starts with the setup.": "Commence par la configuration.",
+ "A new window opens, with the setup.": "Une nouvelle fenêtre s'ouvre, avec la configuration.",
  "Starting...": "Démarrage...",
  "Not running": "À l'arrêt",
  "A program runs": "Un programme tourne",
@@ -381,5 +381,6 @@
  "Setup": "Configuration",
  "Remove": "Supprimer",
  "Really remove?": "Vraiment supprimer ?",
+ "Really close?": "Vraiment fermer ?",
  "Each installation has its own settings: its own capture card and its own microcontroller. Closing this window does not stop them.": "Chaque installation a ses propres réglages : sa propre carte de capture et son propre microcontrôleur. Fermer cette fenêtre ne les arrête pas."
 }

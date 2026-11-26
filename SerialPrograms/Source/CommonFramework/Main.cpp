@@ -261,6 +261,8 @@ int run_program(int argc, char *argv[]){
             [](const QString& command){
                 if (command == "show"){
                     ClaudeGG::bring_instance_forward();
+                }else if (command == "close"){
+                    ClaudeGG::close_instance_windows();
                 }
             }
         );

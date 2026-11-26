@@ -571,6 +571,17 @@ void bring_instance_forward(){
     }
 }
 
+void close_instance_windows(){
+    for (QWidget* window : QApplication::topLevelWidgets()){
+        if (!window->property(WINDOW_PROPERTY).toBool()){
+            continue;
+        }
+        //  Later, not inside the answer to the command: closing a window may
+        //  end the process, and the overview waits for that answer.
+        QMetaObject::invokeMethod(window, "close", Qt::QueuedConnection);
+    }
+}
+
 
 //  ---------------------------------------------------------------------
 //  Starting installations and the overview
@@ -613,6 +624,13 @@ bool open_instance(const QString& id){
         return true;
     }
     return start_instance_process(id);
+}
+
+bool close_instance(const QString& id){
+    if (!valid_instance_id(id) || g_test_run){
+        return false;
+    }
+    return send_instance_command(instance_link_name(shared_base_path(), "i" + id), "close");
 }
 
 bool start_overview_process(){
@@ -665,6 +683,11 @@ int run_instances_hub(QApplication& application, const QString& test_folder){
     };
     request.instance_remove = [registry](const QString& id){
         return registry->remove(id, QDateTime::currentMSecsSinceEpoch());
+    };
+    request.instance_close = [](const QString& id){
+        if (!close_instance(id)){
+            global_logger_tagged().log("Installations: installation " + id.toStdString() + " did not answer a request to close.", COLOR_RED);
+        }
     };
 
     //  There is one overview: a second one asks the first to come forward. (The

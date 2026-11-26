@@ -7263,6 +7263,12 @@ public:
                 m_confirm.clear();
             }
         }
+        if (!m_close_confirm.isEmpty()){
+            m_close_confirm_time -= dt;
+            if (m_close_confirm_time <= 0){
+                m_close_confirm.clear();
+            }
+        }
         if (!m_waiting.isEmpty()){
             m_waiting_time -= dt;
             if (m_waiting_time <= 0){
@@ -7301,6 +7307,18 @@ public:
                 //  when it is up.
                 m_waiting = made;
                 m_waiting_time = 30;
+                refresh();
+            }
+        }else if (id.startsWith("inst-close:")){
+            const QString target = id.mid(QString("inst-close:").size());
+            if (m_close_confirm != target){
+                m_close_confirm = target;
+                m_close_confirm_time = 4.0;
+            }else{
+                m_close_confirm.clear();
+                if (request.instance_close){
+                    request.instance_close(target);
+                }
                 refresh();
             }
         }else if (id.startsWith("inst-remove:")){
@@ -7365,6 +7383,17 @@ private:
             }
             if (!still){
                 m_confirm.clear();
+            }
+        }
+        if (!m_close_confirm.isEmpty()){
+            bool still = false;
+            for (const InstanceInfo& info : m_infos){
+                if (info.id == m_close_confirm && info.running){
+                    still = true;
+                }
+            }
+            if (!still){
+                m_close_confirm.clear();
             }
         }
     }
@@ -7433,8 +7462,12 @@ private:
         const bool removable = !info.main && !info.running && !info.starting;
         const QString remove_text = m_confirm == info.id ? T("Really remove?") : T("Remove");
         const double remove_w = removable ? button_width(remove_text, ButtonKind::LINK) : 0;
+        //  An installation that runs can be closed (from here, as from its own window).
+        const bool closable = info.running;
+        const QString close_text = m_close_confirm == info.id ? T("Really close?") : T("Close");
+        const double close_w = closable ? button_width(close_text, ButtonKind::LINK) : 0;
         draw_elided(
-            painter, instance_name_text(info), x, name_y, grid.width - 8 - remove_w - 10,
+            painter, instance_name_text(info), x, name_y, grid.width - 8 - std::max(remove_w, close_w) - 10,
             ui_font(30, 600), white(a)
         );
         const QString line = info.running && !info.title.isEmpty() ? info.title : instance_state_text(info);
@@ -7452,6 +7485,16 @@ private:
                 canvas.add_hit(remove_id, area, true);
             }else{
                 draw_button(canvas, painter, remove_id, remove_text, area.left(), area.top(), ButtonKind::LINK, 1.0);
+            }
+        }
+        if (closable && reveal > 0.9){
+            const QString close_id = "inst-close:" + info.id;
+            const QRectF area(picture.right() - close_w, picture.bottom() + 6, close_w, 44);
+            if (m_close_confirm == info.id){
+                draw_text_cy(painter, close_text, area.center().x(), area.center().y(), ui_font(24, 600), with_alpha(ORANGE, 0.95), Qt::AlignHCenter);
+                canvas.add_hit(close_id, area, true);
+            }else{
+                draw_button(canvas, painter, close_id, close_text, area.left(), area.top(), ButtonKind::LINK, 1.0);
             }
         }
     }
@@ -7474,7 +7517,7 @@ private:
         const double x = picture.left() + 4;
         const double name_y = picture.bottom() + 28;
         draw_elided(painter, T("New installation"), x, name_y, grid.width - 8, ui_font(30, 600), white(a));
-        draw_elided(painter, T("It starts with the setup."), x, name_y + 40, grid.width - 8, ui_font(22, 500), white(0.62 * a));
+        draw_elided(painter, T("A new window opens, with the setup."), x, name_y + 40, grid.width - 8, ui_font(22, 500), white(0.62 * a));
         painter.restore();
         canvas.add_hit(id, QRectF(tile.left(), tile.top(), tile.width(), grid.picture_height + 56), reveal > 0.9);
     }
@@ -7487,6 +7530,9 @@ private:
     //  "Remove" was pressed once on this one: it must be pressed again.
     QString m_confirm;
     double m_confirm_time = 0;
+    //  "Close" was pressed once on this one: it must be pressed again.
+    QString m_close_confirm;
+    double m_close_confirm_time = 0;
     //  An installation that was started: this window steps aside when it runs.
     QString m_waiting;
     double m_waiting_time = 0;
@@ -9135,6 +9181,7 @@ void check_overview(Checker& checker, const QString& folder){
         std::vector<InstanceInfo> list;
         QStringList opened;
         QStringList removed;
+        QStringList closed;
         int created = 0;
     };
     const auto fake = std::make_shared<Fake>();
@@ -9187,6 +9234,9 @@ void check_overview(Checker& checker, const QString& folder){
         info.starting = true;
         fake->list.push_back(info);
         return id;
+    };
+    request.instance_close = [fake](const QString& id){
+        fake->closed << id;
     };
     request.instance_remove = [fake](const QString& id){
         fake->removed << id;
@@ -9255,6 +9305,17 @@ void check_overview(Checker& checker, const QString& folder){
     hub.click("inst-remove:3");
     hub.click("inst-remove:4");
     checker.check(fake->removed == QStringList({"6"}), "a press on another Remove starts again");
+
+    //  Closing: only what runs, and it takes two presses as removing does.
+    checker.check(
+        hub.has_hit("inst-close:1") && hub.has_hit("inst-close:2") && !hub.has_hit("inst-close:3") && !hub.has_hit("inst-close:4"),
+        "an installation that runs can be closed, one that does not run has nothing to close"
+    );
+    hub.click("inst-close:2");
+    checker.check(fake->closed.isEmpty(), "one press on Close closes nothing");
+    hub.click("inst-close:2");
+    hub.wait(0.2);
+    checker.check(fake->closed == QStringList({"2"}), "two presses close it");
 
     //  A new installation: it is made and started, and it is on the screen.
     hub.click("inst-new");

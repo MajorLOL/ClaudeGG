@@ -373,7 +373,7 @@
  "Installations": "Installaties",
  "Installation %1": "Installatie %1",
  "New installation": "Nieuwe installatie",
- "It starts with the setup.": "Begint met de setup.",
+ "A new window opens, with the setup.": "Er opent een nieuw venster, met de setup.",
  "Starting...": "Wordt gestart...",
  "Not running": "Draait niet",
  "A program runs": "Een programma draait",
@@ -381,5 +381,6 @@
  "Setup": "Setup",
  "Remove": "Verwijderen",
  "Really remove?": "Echt verwijderen?",
+ "Really close?": "Echt sluiten?",
  "Each installation has its own settings: its own capture card and its own microcontroller. Closing this window does not stop them.": "Elke installatie heeft eigen instellingen: een eigen capture card en een eigen microcontroller. Als je dit venster sluit, blijven ze draaien."
 }

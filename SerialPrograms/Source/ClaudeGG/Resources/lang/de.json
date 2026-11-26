@@ -373,7 +373,7 @@
  "Installations": "Installationen",
  "Installation %1": "Installation %1",
  "New installation": "Neue Installation",
- "It starts with the setup.": "Beginnt mit der Einrichtung.",
+ "A new window opens, with the setup.": "Ein neues Fenster öffnet sich, mit der Einrichtung.",
  "Starting...": "Wird gestartet...",
  "Not running": "Läuft nicht",
  "A program runs": "Ein Programm läuft",
@@ -381,5 +381,6 @@
  "Setup": "Einrichtung",
  "Remove": "Entfernen",
  "Really remove?": "Wirklich entfernen?",
+ "Really close?": "Wirklich schließen?",
  "Each installation has its own settings: its own capture card and its own microcontroller. Closing this window does not stop them.": "Jede Installation hat ihre eigenen Einstellungen: eine eigene Capture-Karte und einen eigenen Mikrocontroller. Wenn du dieses Fenster schließt, laufen sie weiter."
 }
