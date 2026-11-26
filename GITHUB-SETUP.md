@@ -61,7 +61,7 @@ Do not add a rule that stops the workflow from pushing tags: `publish` makes the
 
 - Features: Issues on. Wikis, Projects and Discussions off unless you use them. (There is no GitHub Pages site.)
 - Pull requests: allow squash merging (a tidy history for Claude's pull requests) and **Automatically delete head branches** (the `claude/...` branches go away after a merge).
-- About (the gear at the right of the repository's front page): a description ("Automation programs for Switch games: run them, and build or fix them with Claude"), the topics (`pokemon`, `nintendo-switch`, `automation`, `qt`), no website.
+- About (the gear at the right of the repository's front page): a description ("Game automation for any console, starting with the Nintendo Switch. Run programs, or build and fix them with Claude."), the topics (`game-automation`, `automation`, `consoles`, `nintendo-switch`, `pokemon`, `qt`), no website.
 
 ### Code security (Settings → Advanced Security, or Code security and analysis)
 

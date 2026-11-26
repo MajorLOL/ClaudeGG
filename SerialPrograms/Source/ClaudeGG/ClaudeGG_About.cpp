@@ -78,7 +78,7 @@ std::unique_ptr<QDialog> make_about(QWidget* parent, const AboutInfo& info, Assi
     name->setFont(display_font(42));
     names->addWidget(name);
     QLabel* tagline = new QLabel(
-        tr_ui("Automation programs for Switch games: run them, and build or fix them with Claude."),
+        tr_ui("Game automation for any console, starting with the Nintendo Switch. Run programs, or build and fix them with Claude."),
         &dialog
     );
     tagline->setWordWrap(true);

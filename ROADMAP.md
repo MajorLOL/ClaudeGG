@@ -1,6 +1,6 @@
 # Claude GG: roadmap
 
-What Claude GG has, what could make the FRLG AutoStory faster, what could be added and what could be modernized.
+What Claude GG has, what could make the FRLG AutoStory faster, what could be added and what could be modernized. The aim: games on every console that a program can watch and press the buttons of, starting with the Nintendo Switch.
 
 ## 1. What Claude GG has
 

@@ -2,9 +2,9 @@
 
 <img src="IconResource/claudegg-logo.png" width="420" alt="Claude GG: a handheld Nintendo Switch with orange Joy-Cons and a chat bubble that says GG on its screen">
 
-Automation programs for Switch games: run them, and build or fix them with Claude.
+Game automation for any console, starting with the Nintendo Switch. Run programs, or build and fix them with Claude.
 
-A program of Claude GG plays a Pokémon game on a Nintendo Switch by itself. It watches the game through a capture card and presses the buttons through a controller board (for example an ESP32). Claude, in a panel of the main window, answers questions about the programs and can change their source, on a branch of its own that becomes a pull request.
+A program of Claude GG plays a game by itself. It watches the game through a capture card and presses the buttons through a controller board (for example an ESP32). For now that is the Nintendo Switch, and most programs are for Pokémon games; the aim is every console a program can watch and press the buttons of (see [ROADMAP.md](ROADMAP.md)). Claude, in a panel of the main window, answers questions about the programs and can change their source, on a branch of its own that becomes a pull request.
 
 It is a personal fork of [Pokémon Automation](https://github.com/PokemonAutomation/Arduino-Source)'s "SerialPrograms", with a new interface, a program that plays the whole story of FireRed and LeafGreen, Claude built in, and fixes of its own. The programs for the other games are those of Pokémon Automation.
 
