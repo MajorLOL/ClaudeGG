@@ -10,7 +10,8 @@
  *      nothing leaves the computer at the start or in the background.
  *  -   One request to the list of releases of this fork on github.com (no
  *      key, no token, nothing of the user's), answered with the numbers of
- *      the builds. A build is a release named "claudegg-build-<number>".
+ *      the builds. A build is a release named "v<version>", with a
+ *      version of four numbers ("v0.1.0.3").
  *  -   The program does not update itself. When there is a newer build the
  *      window shows the page of that release, where the download is, and
  *      the user opens it.
@@ -45,17 +46,27 @@ struct ReleaseLocation{
 ReleaseLocation release_location(const QString& project_url);
 
 
-//  The number in the name of a release ("claudegg-build-88": 88), or 0
-//  when the name is not one of a build.
+//  A version of four numbers ("0.1.0.3") as one number that puts versions in
+//  their order: ((a * 100 + b) * 100 + c) * 10000 + d, where a is one digit,
+//  b and c have two at most and d four. 0 when the text is not such a
+//  version (and for 0.0.0.0).
+int version_number(const QString& version);
+
+//  And back: "0.1.0.3".
+QString version_text(int number);
+
+//  The version in the name of a release ("v0.1.0.3"), as a number of
+//  version_number(), or 0 when the name is not one of a build.
 int build_of_tag(const QString& tag);
 
-//  The number of the build that runs, from PROGRAM_BUILD: 0 for "local" and
-//  anything else that is not a number.
+//  The version of the build that runs, from PROGRAM_BUILD ("0.1.0.3"), as a
+//  number of version_number(): 0 for "local" and anything else that is not a
+//  version.
 int build_of_this_program(const QString& build);
 
 
 struct LatestBuild{
-    int build = 0;          //  0: no build is published.
+    int build = 0;          //  A version_number(); 0: no build is published.
     QString date;           //  "2026-11-25", or empty.
 };
 
@@ -76,7 +87,7 @@ enum class UpdateState{
 
 struct UpdateResult{
     UpdateState state = UpdateState::FAILED;
-    int current = 0;
+    int current = 0;        //  A version_number(); 0: a local build.
     LatestBuild latest;
     QString error;
     //  The page of the newest build (or of the releases when there is none).

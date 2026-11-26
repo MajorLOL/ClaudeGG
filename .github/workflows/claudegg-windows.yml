@@ -140,9 +140,11 @@ jobs:
           save: ${{ github.event_name != 'pull_request' }}
           install: binary
 
-      #  The number of the build, in the window's title, the "About" window
-      #  and the programs' logs ("Claude GG build N"). A build that
-      #  is published gets the number after the last published one; a pull
+      #  The version of the build, in the window's title, the "About" window
+      #  and the programs' logs ("Claude GG build 0.1.0.N"). A build that is
+      #  published counts up: it gets the N after the highest N of the
+      #  published releases "v0.1.0.N" (the first one is 0.1.0.0; the series
+      #  0.1.0 is changed here, on purpose, when a new one starts). A pull
       #  request's build is named after the pull request.
       - name: Build number
         id: number
@@ -152,21 +154,17 @@ jobs:
           PUBLISH: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
         run: |
           if [ "$PUBLISH" = "true" ]; then
-            LAST=$(gh api "repos/${{ github.repository }}/releases?per_page=100" --jq '[.[].tag_name | select(startswith("claudegg-build-")) | ltrimstr("claudegg-build-") | tonumber?] | max // 0')
-            if ! [[ "$LAST" =~ ^[0-9]+$ ]]; then
+            SERIES="0.1.0"
+            LAST=$(gh api "repos/${{ github.repository }}/releases?per_page=100" --jq "[.[].tag_name | select(startswith(\"v$SERIES.\")) | ltrimstr(\"v$SERIES.\") | tonumber?] | max // -1")
+            if ! [[ "$LAST" =~ ^-?[0-9]+$ ]]; then
               echo "::error::The number of the last published build could not be read: '$LAST'."
               exit 1
             fi
-            #  The builds before the program's tags were renamed: up to number
-            #  102 in MajorLOL/arduino-source, and build 103 here (its tag is
-            #  still the old one, pocketpilot-build-103). The numbers go on from
-            #  there, whatever the releases here say (and a tag of an earlier
-            #  build can never be taken again).
-            FLOOR=103
-            if [ "$LAST" -lt "$FLOOR" ]; then
-              LAST=$FLOOR
-            fi
-            NUMBER=$((LAST + 1))
+            #  The builds before the versions (build 102 and lower in
+            #  MajorLOL/arduino-source, builds 103 and 104 here, tagged
+            #  pocketpilot-build-103 and claudegg-build-104) do not count: the
+            #  versions start at 0.1.0.0.
+            NUMBER="$SERIES.$((LAST + 1))"
           elif [ "${{ github.event_name }}" = "pull_request" ]; then
             NUMBER="pr${{ github.event.number }}"
           else
@@ -774,12 +772,12 @@ jobs:
           BUILD_NUMBER: ${{ needs.build.outputs.build_number }}
           SHA256: ${{ needs.build.outputs.sha256 }}
         run: |
-          TAG="claudegg-build-$BUILD_NUMBER"
+          TAG="v$BUILD_NUMBER"
           # Only the program itself goes on the release. The pictures of the
           # interface test stay in the workflow artifact, to look at there.
           gh release create "$TAG" ClaudeGG-Windows.zip \
             --repo "${{ github.repository }}" \
             --target "${{ github.sha }}" \
             --prerelease \
-            --title "Claude GG - Windows build $BUILD_NUMBER" \
+            --title "Claude GG - V $BUILD_NUMBER" \
             --notes "Claude GG, a personal fork of Pokemon Automation's SerialPrograms. Unzip, then run ClaudeGG.exe. This build passed its interface test: it started on the build machine, without settings, and took pictures of its own interface. For non-commercial use. Built from ${{ github.sha }}. The program is not signed with a certificate, so Windows may warn when you start it: compare the SHA-256 of the zip you downloaded with this one before you do. SHA-256 of ClaudeGG-Windows.zip: $SHA256"

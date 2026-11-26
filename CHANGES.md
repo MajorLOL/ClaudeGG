@@ -133,7 +133,7 @@ Besides the fixes (section 6), the changes in files that the original has are th
 
 ## 10. The build, and the workflow that makes it
 
-[`.github/workflows/claudegg-windows.yml`](.github/workflows/claudegg-windows.yml) (new). Every push to the branch `main` makes a Windows build, tests it and publishes it as a pre-release `claudegg-build-N` with its SHA-256. A pull request into `main` is built and tested but not published. It follows the original's workflow for Windows (Ninja and ccache, Qt 6.10.2), with two additions: the tests of section 3 and the two-job split of section 8. A build takes about 4 minutes when little changed, 35 minutes from nothing (an empty cache). The original's workflows are still in the repository and still work for the original's own checks (see [GITHUB-SETUP.md](GITHUB-SETUP.md), section 5, on whether to keep them running).
+[`.github/workflows/claudegg-windows.yml`](.github/workflows/claudegg-windows.yml) (new). Every push to the branch `main` makes a Windows build, tests it and publishes it as a pre-release "Claude GG - V 0.1.0.N" (tag `v0.1.0.N`, counting up from 0.1.0.0) with its SHA-256. A pull request into `main` is built and tested but not published. It follows the original's workflow for Windows (Ninja and ccache, Qt 6.10.2), with two additions: the tests of section 3 and the two-job split of section 8. A build takes about 4 minutes when little changed, 35 minutes from nothing (an empty cache). The original's `cpp-ci-*` workflows are removed (section 9); `tabs.yml` stays.
 
 ## 11. Keeping up with Pokémon Automation
 

@@ -178,10 +178,10 @@ Assistant::HttpResponse releases_answer(int status, const QByteArray& body){
 }
 
 const char RELEASES_JSON[] =
-    "[{\"tag_name\":\"claudegg-build-99\",\"draft\":true,\"prerelease\":true,\"published_at\":\"2026-11-26T08:00:00Z\"},"
-    "{\"tag_name\":\"claudegg-build-88\",\"draft\":false,\"prerelease\":true,\"published_at\":\"2026-11-25T20:13:48Z\","
-    "\"html_url\":\"https://evil.example/claudegg-build-88\"},"
-    "{\"tag_name\":\"claudegg-build-9\",\"draft\":false,\"prerelease\":true,\"published_at\":\"2026-10-01T08:00:00Z\"},"
+    "[{\"tag_name\":\"v0.1.0.99\",\"draft\":true,\"prerelease\":true,\"published_at\":\"2026-11-26T08:00:00Z\"},"
+    "{\"tag_name\":\"v0.1.0.88\",\"draft\":false,\"prerelease\":true,\"published_at\":\"2026-11-25T20:13:48Z\","
+    "\"html_url\":\"https://evil.example/v0.1.0.88\"},"
+    "{\"tag_name\":\"v0.1.0.9\",\"draft\":false,\"prerelease\":true,\"published_at\":\"2026-10-01T08:00:00Z\"},"
     "{\"tag_name\":\"v1.2.3\",\"draft\":false,\"prerelease\":false,\"published_at\":\"2026-12-01T08:00:00Z\"}]";
 
 const char PROJECT_URL[] = "https://github.com/MajorLOL/ClaudeGG/tree/main";
@@ -340,7 +340,7 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
         //  One that is newer than this build, to show the link as well.
         ScriptedTransport transport;
         transport.answer = releases_answer(
-            200, "[{\"tag_name\":\"claudegg-build-99999\",\"draft\":false,\"published_at\":\"2026-11-25T20:13:48Z\"}]"
+            200, "[{\"tag_name\":\"v0.1.0.9999\",\"draft\":false,\"published_at\":\"2026-11-25T20:13:48Z\"}]"
         );
         std::unique_ptr<QDialog> about = make_about(&window, window.about_info(), &transport);
         about->setAttribute(Qt::WA_DontShowOnScreen, true);
@@ -1925,21 +1925,42 @@ int check_updates(Logger& logger){
     check(!release_location(QString()).valid(), "no address");
 
     //  The numbers.
-    check(build_of_tag("claudegg-build-88") == 88, "the number in a name of a build");
-    check(build_of_tag("claudegg-build-") == 0, "a name without a number");
-    check(build_of_tag("claudegg-build-8x") == 0, "a name with something after the number");
-    check(build_of_tag("claudegg-build-0") == 0, "build 0 is none");
-    check(build_of_tag("claudegg-build-1234567890") == 0, "a number that is too long");
+    const auto V = [](int last){
+        return version_number(QString("0.1.0.%1").arg(last));
+    };
+    check(V(88) > 0 && build_of_tag("v0.1.0.88") == V(88), "the version in a name of a build");
+    check(build_of_tag("v0.1.0.") == 0 && build_of_tag("v0.1.0") == 0, "a name without a last number");
+    check(build_of_tag("v0.1.0.8x") == 0 && build_of_tag("v0.1.0.8.1") == 0, "a name with something after the number");
+    check(build_of_tag("v0.0.0.0") == 0 && version_number("0.0.0.0") == 0, "version 0.0.0.0 is none");
+    check(build_of_tag("v0.1.0.12345") == 0 && build_of_tag("v10.1.0.1") == 0, "a number that is too long");
+    check(build_of_tag("0.1.0.88") == 0 && build_of_tag("claudegg-build-88") == 0, "a name without the v, or of the old numbering");
     check(build_of_tag("v1.2.3") == 0, "a release that is not a build");
-    check(build_of_this_program("88") == 88 && build_of_this_program(" 12 ") == 12, "the number of this program");
-    check(build_of_this_program("local") == 0 && build_of_this_program(QString()) == 0, "a local build has no number");
+    check(
+        V(9) < V(10) && V(9999) < version_number("0.1.1.0") && version_number("0.1.99.9999") < version_number("0.2.0.0") &&
+        version_number("0.9.9.9") < version_number("1.0.0.0") && version_number("9.99.99.9999") > 0,
+        "versions are in their order, 9 before 10"
+    );
+    check(
+        version_text(V(88)) == "0.1.0.88" && version_text(version_number("1.20.3.4567")) == "1.20.3.4567" &&
+        version_text(V(0)) == "0.1.0.0" && version_text(0) == "0",
+        "a version as text, and back"
+    );
+    check(
+        build_of_this_program("0.1.0.88") == V(88) && build_of_this_program(" 0.1.0.12 ") == V(12),
+        "the version of this program"
+    );
+    check(
+        build_of_this_program("local") == 0 && build_of_this_program(QString()) == 0 &&
+        build_of_this_program("104") == 0 && build_of_this_program("pr7") == 0,
+        "a local build, a test build or an old number has no version"
+    );
 
     //  The newest build: by number (9 is before 88), no draft, no other release.
     {
         LatestBuild latest;
         QString error;
         check(newest_build(RELEASES_JSON, latest, error), "the list of releases was read");
-        check(latest.build == 88 && latest.date == "2026-11-25", "the newest build is 88, from the 25th");
+        check(latest.build == V(88) && latest.date == "2026-11-25", "the newest build is 0.1.0.88, from the 25th");
         check(newest_build("[]", latest, error) && latest.build == 0, "an empty list has no build");
         check(newest_build("[{\"tag_name\":\"v1\"},5,\"x\",null]", latest, error) && latest.build == 0, "odd entries are passed over");
         error.clear();
@@ -1953,33 +1974,33 @@ int check_updates(Logger& logger){
         const auto verdict = [&](int status, const QByteArray& body, int current){
             return update_result(releases_answer(status, body), location, current);
         };
-        UpdateResult result = verdict(200, RELEASES_JSON, 80);
-        check(result.state == UpdateState::NEWER_AVAILABLE && result.latest.build == 88, "build 80 is told that 88 is out");
+        UpdateResult result = verdict(200, RELEASES_JSON, V(80));
+        check(result.state == UpdateState::NEWER_AVAILABLE && result.latest.build == V(88), "build 80 is told that 88 is out");
         check(
-            result.page_url == "https://github.com/MajorLOL/ClaudeGG/releases/tag/claudegg-build-88",
+            result.page_url == "https://github.com/MajorLOL/ClaudeGG/releases/tag/v0.1.0.88",
             "the page is made from the number, not taken from the answer"
         );
         const QString text = update_text(result, "#123456");
         check(
             text.contains("href=\"" + result.page_url + "\"") && !text.contains("evil.example") &&
-            text.contains("88") && text.contains("80") && text.contains("2026-11-25"),
+            text.contains("0.1.0.88") && text.contains("0.1.0.80") && text.contains("2026-11-25"),
             "the text of a newer build: both numbers, the date and the link"
         );
-        check(verdict(200, RELEASES_JSON, 88).state == UpdateState::UP_TO_DATE, "build 88 is up to date");
-        check(!update_text(verdict(200, RELEASES_JSON, 88), "#123456").contains("href"), "no link when it is up to date");
-        check(verdict(200, RELEASES_JSON, 90).state == UpdateState::NEWER_THAN_PUBLISHED, "build 90 is newer than what is published");
+        check(verdict(200, RELEASES_JSON, V(88)).state == UpdateState::UP_TO_DATE, "build 88 is up to date");
+        check(!update_text(verdict(200, RELEASES_JSON, V(88)), "#123456").contains("href"), "no link when it is up to date");
+        check(verdict(200, RELEASES_JSON, V(90)).state == UpdateState::NEWER_THAN_PUBLISHED, "build 90 is newer than what is published");
         result = verdict(200, RELEASES_JSON, 0);
-        check(result.state == UpdateState::LOCAL_BUILD && result.latest.build == 88, "a local build is told the newest one, with no verdict");
-        result = verdict(200, "[]", 80);
+        check(result.state == UpdateState::LOCAL_BUILD && result.latest.build == V(88), "a local build is told the newest one, with no verdict");
+        result = verdict(200, "[]", V(80));
         check(result.state == UpdateState::NO_BUILDS && result.page_url == location.page_url, "no builds are published");
         for (int status : {403, 404, 429, 500, 301}){
-            result = verdict(status, "{}", 80);
+            result = verdict(status, "{}", V(80));
             check(result.state == UpdateState::FAILED && !result.error.isEmpty(), "a status that is not an answer");
         }
-        check(verdict(200, "not json", 80).state == UpdateState::FAILED, "an answer that cannot be read");
+        check(verdict(200, "not json", V(80)).state == UpdateState::FAILED, "an answer that cannot be read");
         Assistant::HttpResponse broken;
         broken.error = "Host not found <b>";
-        result = update_result(broken, location, 80);
+        result = update_result(broken, location, V(80));
         const QString failed_text = update_text(result, "#123456");
         check(
             result.state == UpdateState::FAILED && failed_text.contains("Host not found") &&
@@ -1992,7 +2013,7 @@ int check_updates(Logger& logger){
     {
         ScriptedTransport transport;
         transport.answer = releases_answer(200, RELEASES_JSON);
-        UpdateCheck update(transport, PROJECT_URL, "80");
+        UpdateCheck update(transport, PROJECT_URL, "0.1.0.80");
         check(transport.requests.empty() && !update.running(), "nothing is asked before start");
         int done_calls = 0;
         UpdateResult got;
@@ -2037,7 +2058,7 @@ int check_updates(Logger& logger){
         transport.answer = releases_answer(200, RELEASES_JSON);
         int done_calls = 0;
         {
-            UpdateCheck update(transport, PROJECT_URL, "80");
+            UpdateCheck update(transport, PROJECT_URL, "0.1.0.80");
             update.start([&](const UpdateResult&){
                 done_calls++;
             });
@@ -2048,7 +2069,7 @@ int check_updates(Logger& logger){
     {
         //  A fork without an address on github.com.
         ScriptedTransport transport;
-        UpdateCheck update(transport, "https://example.com/x/y/tree/z", "80");
+        UpdateCheck update(transport, "https://example.com/x/y/tree/z", "0.1.0.80");
         UpdateResult got;
         int done_calls = 0;
         update.start([&](const UpdateResult& result){
@@ -2066,7 +2087,7 @@ int check_updates(Logger& logger){
     {
         AboutInfo info;
         info.name = "ClaudeGG";
-        info.build = "80";
+        info.build = "0.1.0.80";
         info.upstream_name = "Pokemon Automation";
         info.upstream_version = "1";
         info.architecture = "x86_64";
@@ -2095,7 +2116,7 @@ int check_updates(Logger& logger){
             check(transport.requests.size() == 1, "pressed again while it waits: nothing more");
             let_run(50);
             check(
-                button->isEnabled() && label->text().contains("88") && label->text().contains("releases/tag/claudegg-build-88"),
+                button->isEnabled() && label->text().contains("0.1.0.88") && label->text().contains("releases/tag/v0.1.0.88"),
                 "the answer is in the window, with the link"
             );
             check(label->openExternalLinks(), "the link opens in the browser");

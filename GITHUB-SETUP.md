@@ -55,7 +55,7 @@ For `main`:
 - Block force pushes and deletion.
 - Do not require an approving review if you are the only one who works on it (you cannot approve your own pull request); add it when there are two of you.
 
-Do not add a rule that stops the workflow from pushing tags: `publish` makes the tag of the release (`claudegg-build-N`) with its `GITHUB_TOKEN`.
+Do not add a rule that stops the workflow from pushing tags: `publish` makes the tag of the release (`v0.1.0.N`) with its `GITHUB_TOKEN`.
 
 ### General (Settings → General)
 
@@ -82,12 +82,13 @@ Pokémon Automation's repository has workflows of its own: `cpp-ci-serial-progra
 - `tabs.yml` is cheap and useful: it stays.
 - The `cpp-ci-*` files are **removed**: each would start 20 to 40 minutes of builds on three systems at every push and pull request, and Claude GG's own workflow already builds and tests all of them. (If a merge of Pokémon Automation's `main`, section 9, brings a change to one of them, delete the file again.)
 
-## 6. Releases and build numbers
+## 6. Releases and versions
 
-- Every push to `main` that passes its tests makes a **pre-release** named `claudegg-build-N`, "Claude GG - Windows build N", with `ClaudeGG-Windows.zip` and its SHA-256 in the text. The pictures of the interface test stay in the run's artifact.
-- **The number N is the highest `claudegg-build-*` release in the repository, plus one, and at least `FLOOR` plus one:** `FLOOR` is a line of the step "Build number" in the workflow (103 here: the builds up to 102 were published in MajorLOL/arduino-source and build 103 in this repository, under its old tag `pocketpilot-build-103`; the first build with the new tags is 104). In a repository that starts at build 1, set `FLOOR=0`.
-  Never delete the newest release: the next build would take its number again. (In a repository that was **imported**, the tags `claudegg-build-N` come along but not the releases: without the floor a build would get a number whose tag exists already, and its release would be tied to the old commit. That is what happened to build 100 of MajorLOL/arduino-source on 26 November 2026, after its release had been deleted.)
-- A release made by `publish` is a pre-release on purpose: no build is "the latest" until you say so. The update check of the About window reads the list of releases and says whether a higher number exists.
+- Every push to `main` that passes its tests makes a **pre-release** with the tag `v0.1.0.N`, named "Claude GG - V 0.1.0.N", with `ClaudeGG-Windows.zip` and its SHA-256 in the text. The pictures of the interface test stay in the run's artifact.
+- **The version counts up.** The first build is `0.1.0.0`, the next `0.1.0.1`, and so on: N is the highest N of the releases `v0.1.0.N` in the repository, plus one. `SERIES` (`0.1.0`) is a line of the step "Build number" in the workflow; change it there, on purpose, when a new series starts (`0.2.0` starts again at `0.2.0.0`). The program shows it as its build ("Claude GG (build 0.1.0.3)") and compares versions by their four numbers.
+  Never delete the newest release: the next build would take its number again. (In a repository that was **imported**, the tags come along but not the releases: a build would get a number whose tag exists already, and its release would be tied to the old commit. That is what happened to build 100 of MajorLOL/arduino-source on 26 November 2026, after its release had been deleted.)
+- The builds before the versions are numbered: up to 102 in MajorLOL/arduino-source, and 103 and 104 here (tagged `pocketpilot-build-103` and `claudegg-build-104`). They do not count for the version; delete their releases when you no longer need them.
+- A release made by `publish` is a pre-release on purpose: no build is "the latest" until you say so. The update check of the About window reads the list of releases and says whether a higher version exists.
 - A pull request's build is named after the pull request (`pr<number>`) and is not published.
 - The program is not signed with a certificate, so Windows warns when it starts. The release's text says to compare the SHA-256 first; that is the only guard.
 
@@ -108,7 +109,7 @@ The first build in a new repository has an empty cache and takes about 35 minute
 
 1. Push `main` (section 1). The workflow starts by itself.
 2. Open Actions → "Claude GG - Windows build". The steps "Build", "Interface test", "Intro test", "Tutorial film test", "Language test", "Setup test" and "Installations test" must be green. In the log of the setup test and the interface test, the pictures are in the log as text between `PP-PREVIEW-BEGIN` and `PP-PREVIEW-END` (base64 of a JPEG), to look at without downloading the artifact.
-3. Releases: a pre-release "Claude GG - Windows build 1" (or the next number) with the zip.
+3. Releases: a pre-release "Claude GG - V 0.1.0.0" (or the next version) with the zip.
 4. Set the branch rule of section 3 now that the check `build` exists.
 5. Download the zip, compare its SHA-256 with the text of the release, unzip, run `ClaudeGG.exe`.
 6. Open Settings → Claude in the program, enter the key and the token (section 4), and ask a question about a program.

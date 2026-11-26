@@ -23,21 +23,10 @@ using namespace Assistant;
 
 namespace{
 
-const char TAG_PREFIX[] = "claudegg-build-";
-
 //  A name of an owner or a repository on GitHub.
 bool is_github_name(const QString& name){
     static const QRegularExpression pattern("^[A-Za-z0-9_.-]{1,100}$");
     return pattern.match(name).hasMatch() && name != "." && name != "..";
-}
-
-//  A number of at most nine digits, or 0.
-int small_number(const QString& text){
-    static const QRegularExpression pattern("^[0-9]{1,9}$");
-    if (!pattern.match(text).hasMatch()){
-        return 0;
-    }
-    return text.toInt();
 }
 
 QString link(const QString& url, const QString& text, const QString& color){
@@ -66,16 +55,41 @@ ReleaseLocation release_location(const QString& project_url){
 }
 
 
-int build_of_tag(const QString& tag){
-    const QString prefix = QString::fromLatin1(TAG_PREFIX);
-    if (!tag.startsWith(prefix)){
+int version_number(const QString& version){
+    static const QRegularExpression pattern("^([0-9])\\.([0-9]{1,2})\\.([0-9]{1,2})\\.([0-9]{1,4})$");
+    const QRegularExpressionMatch match = pattern.match(version);
+    if (!match.hasMatch()){
         return 0;
     }
-    return small_number(tag.mid(prefix.size()));
+    const int a = match.captured(1).toInt();
+    const int b = match.captured(2).toInt();
+    const int c = match.captured(3).toInt();
+    const int d = match.captured(4).toInt();
+    return ((a * 100 + b) * 100 + c) * 10000 + d;
+}
+
+QString version_text(int number){
+    if (number <= 0){
+        return "0";
+    }
+    const int d = number % 10000;
+    number /= 10000;
+    const int c = number % 100;
+    number /= 100;
+    const int b = number % 100;
+    const int a = number / 100;
+    return QString("%1.%2.%3.%4").arg(a).arg(b).arg(c).arg(d);
+}
+
+int build_of_tag(const QString& tag){
+    if (!tag.startsWith('v')){
+        return 0;
+    }
+    return version_number(tag.mid(1));
 }
 
 int build_of_this_program(const QString& build){
-    return small_number(build.trimmed());
+    return version_number(build.trimmed());
 }
 
 
@@ -135,7 +149,7 @@ UpdateResult update_result(const HttpResponse& response, const ReleaseLocation& 
         result.state = UpdateState::NO_BUILDS;
         return result;
     }
-    result.page_url = location.tag_page_url + QString::fromLatin1(TAG_PREFIX) + QString::number(result.latest.build);
+    result.page_url = location.tag_page_url + "v" + version_text(result.latest.build);
     if (current_build == 0){
         result.state = UpdateState::LOCAL_BUILD;
     }else if (current_build < result.latest.build){
@@ -150,8 +164,8 @@ UpdateResult update_result(const HttpResponse& response, const ReleaseLocation& 
 
 
 QString update_text(const UpdateResult& result, const QString& link_color){
-    const QString latest = QString::number(result.latest.build);
-    const QString current = QString::number(result.current);
+    const QString latest = version_text(result.latest.build);
+    const QString current = version_text(result.current);
     switch (result.state){
     case UpdateState::FAILED:
         return tr_ui("Could not check for updates: %1").arg(result.error.toHtmlEscaped());
