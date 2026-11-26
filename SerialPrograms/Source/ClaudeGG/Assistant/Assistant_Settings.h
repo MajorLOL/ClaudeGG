@@ -28,7 +28,11 @@ namespace Assistant{
 enum class Secret{
     CLAUDE_API_KEY,
     GITHUB_TOKEN,
+    //  The token of the agent on the Raspberry Pi of a phone (ClaudeGG_Mobile.h):
+    //  kept in a file of its own, by a store that holds nothing else.
+    MOBILE_TOKEN,
 };
+constexpr int SECRET_COUNT = 3;
 
 class SecretStore{
 public:
@@ -65,8 +69,8 @@ private:
 
 private:
     QString m_path;
-    QString m_values[2];
-    bool m_unreadable[2] = {false, false};
+    QString m_values[SECRET_COUNT];
+    bool m_unreadable[SECRET_COUNT] = {false, false, false};
     bool m_remember = true;
 };
 

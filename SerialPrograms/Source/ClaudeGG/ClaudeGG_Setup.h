@@ -7,7 +7,9 @@
  *  opened again from the settings: the language, then the console (one of the
  *  consoles that the program supports now), then the question which
  *  microcontroller is used, then the steps of its setup. Only the intro is a
- *  film; these are screens that wait for the user.
+ *  film; these are screens that wait for the user. With a phone as the console
+ *  (Mobile/) the Raspberry Pi is the microcontroller: a page for its address and
+ *  token (with a test of the connection) comes in place of the boards.
  *
  *  The intro and the menus are one screen: the film plays on the window of
  *  the setup, its last picture stays and fades into the first menu, and when
@@ -141,9 +143,21 @@ struct SetupRequest{
     //  now. It belongs to the setup, so it goes with ask_board.
     bool ask_console = false;
 
-    //  The console that was chosen before ("switch" or "switch2"), shown as
-    //  picked; empty: none yet.
+    //  The console that was chosen before ("switch", "switch2" or "mobile"),
+    //  shown as picked; empty: none yet.
     QString console_code;
+
+    //  ---- the phone (the console "mobile", see ClaudeGG_Mobile.h): instead of
+    //  the board comes a page for the Raspberry Pi that the phone is plugged
+    //  into, with what was kept of it filled in.
+    QString mobile_host;
+    int mobile_port = 8765;
+    QString mobile_token;
+    //  "Test the connection" was pressed: asks the agent with what was typed,
+    //  and says in one line what it found or why not (see check_mobile()). It is
+    //  called on a thread of its own and may take a few seconds. True: it works.
+    //  Empty: the button is not offered.
+    std::function<bool(const QString& host, int port, const QString& token, QString& message)> mobile_check;
 
     //  The language that is in use now ("en", "nl", ...).
     QString language_code = "en";
@@ -227,9 +241,16 @@ struct SetupResult{
     bool language_chosen = false;
     QString language_code = "en";
 
-    //  The console was chosen: its code ("switch" or "switch2").
+    //  The console was chosen: its code ("switch", "switch2" or "mobile").
     bool console_chosen = false;
     QString console_code;
+
+    //  The page of the Raspberry Pi was answered (the console is a phone): what
+    //  was typed there.
+    bool mobile_done = false;
+    QString mobile_host;
+    int mobile_port = 8765;
+    QString mobile_token;
 
     //  The board question was answered or skipped.
     bool board_done = false;
@@ -273,6 +294,10 @@ struct AppActions{
 
     //  Another console was picked on the screen with the consoles.
     std::function<void(const QString& code)> console_chosen;
+
+    //  The phone was picked there, and the page of its Raspberry Pi was
+    //  answered: what was typed.
+    std::function<void(const QString& host, int port, const QString& token)> mobile_kept;
 
     //  "Keep the screen on" was switched.
     std::function<void(bool on)> keep_screen_on;

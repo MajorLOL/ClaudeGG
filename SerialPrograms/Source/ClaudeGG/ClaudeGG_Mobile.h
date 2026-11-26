@@ -81,6 +81,21 @@ private:
     int m_timeout;
 };
 
+//  The token of the agent, kept apart from the settings, like the keys of the
+//  assistant (encrypted for the Windows account, never in the settings file or
+//  the log). The address and the port are in the settings (MOBILE_HOST and
+//  MOBILE_PORT of GlobalSettings).
+QString mobile_token();
+//  False if it could not be saved ("error" says why); it is then kept until
+//  the program closes. An empty token forgets it.
+bool set_mobile_token(const QString& token, QString& error);
+
+//  "Test the connection" of the setup: asks the agent, in a few seconds at
+//  most, and says in one line what it found ("Connected to Pixel 8, Android
+//  14, 1080 x 2400.") or why not, in plain words. True when it works. Does
+//  not touch the phone.
+bool check_mobile(const QString& host, int port, const QString& token, QString& message);
+
 //  The test of the build: starts the agent of Mobile/agent with a phone that is
 //  not there (fake_adb.py) and goes through the whole protocol with the code above.
 int run_mobile_test(QApplication& application, const QString& agent_folder);

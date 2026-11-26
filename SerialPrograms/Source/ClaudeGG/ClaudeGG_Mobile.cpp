@@ -23,6 +23,8 @@
 #include "Common/Cpp/Logging/AbstractLogger.h"
 #include "Common/Cpp/Logging/GlobalLogger.h"
 #include "CommonFramework/Logging/Logger.h"
+#include "CommonFramework/GlobalAutoPaths.h"
+#include "Assistant/Assistant_Settings.h"
 #include "ClaudeGG_Mobile.h"
 
 namespace PokemonAutomation{
@@ -30,6 +32,63 @@ namespace ClaudeGG{
 
 
 const char* const MOBILE_TEST_OPTION = "--mobile-test";
+
+
+namespace{
+
+const char* const TOKEN_FILE = "ClaudeGG-Mobile-Token.json";
+
+//  The store of the token: the one file, one key. Made when it is needed, so
+//  what another installation saved is read, not what was there at the start.
+Assistant::SecretStore make_token_store(){
+    return Assistant::SecretStore(QString::fromStdString(SETTINGS_PATH()) + TOKEN_FILE);
+}
+
+}
+
+QString mobile_token(){
+    return make_token_store().get(Assistant::Secret::MOBILE_TOKEN);
+}
+bool set_mobile_token(const QString& token, QString& error){
+    Assistant::SecretStore store = make_token_store();
+    return store.set(Assistant::Secret::MOBILE_TOKEN, token, error);
+}
+
+bool check_mobile(const QString& host, int port, const QString& token, QString& message){
+    if (host.trimmed().isEmpty()){
+        message = "Type the address of the Raspberry Pi first.";
+        return false;
+    }
+    if (port < 1 || port > 65535){
+        message = "The port is a number from 1 to 65535.";
+        return false;
+    }
+    //  Short: the page of the setup waits for this.
+    const MobileAgent agent(host.trimmed(), port, token.trimmed(), 4000);
+    QString error;
+    if (!agent.ping(&error)){
+        message = "No answer: " + error + ".";
+        return false;
+    }
+    if (token.trimmed().isEmpty()){
+        message = "The agent is there. Type its token (the installer printed it) to go on.";
+        return false;
+    }
+    MobileInfo info;
+    if (!agent.info(info, &error)){
+        message = "The agent is there, but " + error + ".";
+        return false;
+    }
+    QString phone = info.model.isEmpty() ? QString("a phone") : info.model;
+    if (!info.android.isEmpty()){
+        phone += ", Android " + info.android;
+    }
+    if (info.width > 0 && info.height > 0){
+        phone += QString(", %1 x %2").arg(info.width).arg(info.height);
+    }
+    message = "Connected to " + phone + ".";
+    return true;
+}
 
 
 MobileAgent::MobileAgent(const QString& host, int port, const QString& token, int timeout_msec)

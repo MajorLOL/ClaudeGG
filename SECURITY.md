@@ -23,6 +23,7 @@ The program does not listen on any port. The Discord bot and the Discord Social 
 ## What is kept, and how
 
 - **The Claude key and the GitHub token** are in `UserSettings/ClaudeGG-Assistant-Keys.json`, encrypted with your Windows account. Claude never sees them.
+- **The token of the Raspberry Pi of a phone** (the agent in [Mobile/agent](Mobile/agent)) is in `UserSettings/ClaudeGG-Mobile-Token.json`, encrypted the same way. The agent listens on the local network with plain HTTP and that token: use it on a network you trust, and do not forward its port to the internet. It opens no shell and only does what its README lists (taps, swipes, keys, text, a picture).
 - **Discord webhook addresses, the Discord token and the developer token** are in the settings file, sealed in the same way (`dpapi1:...`). A settings file from before is read as it is and sealed at the next save. A file copied to another account or computer cannot be opened: the secret has to be entered again.
 - This protects against another Windows account and against a copied folder. It does not protect against a program that runs as you (see the next part).
 - **Text that leaves the program** (what Claude reads from the log and the options, "Copy for Claude", the saved report) is cleaned: the name of the account in a path (`C:\Users\<user>\...`), Discord webhook addresses and bot tokens, Claude keys, GitHub tokens, and the value after `token`, `password`, `secret`, `api key` or `authorization`. It goes by the form of the text, so a line of the log that holds one is cleaned too.

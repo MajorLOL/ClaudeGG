@@ -385,5 +385,20 @@
  "Really remove?": "Wirklich entfernen?",
  "Really close?": "Wirklich schließen?",
  "Rename": "Umbenennen",
- "Each installation has its own settings: its own capture card and its own microcontroller. Closing this window does not stop them.": "Jede Installation hat ihre eigenen Einstellungen: eine eigene Capture-Karte und einen eigenen Mikrocontroller. Wenn du dieses Fenster schließt, laufen sie weiter."
+ "Each installation has its own settings: its own capture card and its own microcontroller. Closing this window does not stop them.": "Jede Installation hat ihre eigenen Einstellungen: eine eigene Capture-Karte und einen eigenen Mikrocontroller. Wenn du dieses Fenster schließt, laufen sie weiter.",
+ "On a Raspberry Pi, over USB": "An einem Raspberry Pi, per USB",
+ "The token that the installer printed": "Das Token, das das Installationsprogramm angezeigt hat",
+ "Connect the Raspberry Pi": "Raspberry Pi verbinden",
+ "The phone is plugged into a Raspberry Pi that runs the Claude GG agent. Claude GG sees the screen of the phone and taps it through the Pi.": "Das Telefon ist an einen Raspberry Pi angeschlossen, auf dem der Claude-GG-Agent läuft. Claude GG sieht den Bildschirm des Telefons und tippt darauf über den Pi.",
+ "Address of the Raspberry Pi": "Adresse des Raspberry Pi",
+ "Token": "Token",
+ "Testing...": "Teste...",
+ "Test the connection": "Verbindung testen",
+ "Asking the Raspberry Pi...": "Der Raspberry Pi wird gefragt...",
+ "Automating Pokémon GO is against Niantic's Terms of Service and can get the account banned. Use a spare account and do it at your own risk.": "Pokémon GO zu automatisieren verstößt gegen die Nutzungsbedingungen von Niantic und kann zur Sperrung des Kontos führen. Verwenden Sie ein Zweitkonto und handeln Sie auf eigenes Risiko.",
+ "On the Raspberry Pi": "Auf dem Raspberry Pi",
+ "Plug the phone into the Raspberry Pi with its USB cable. On the phone, turn on Developer options and USB debugging, and allow the Pi when the phone asks.": "Schließen Sie das Telefon mit dem USB-Kabel an den Raspberry Pi an. Aktivieren Sie auf dem Telefon die Entwickleroptionen und das USB-Debugging und erlauben Sie den Pi, wenn das Telefon danach fragt.",
+ "On the Raspberry Pi, open a terminal and download Claude GG:": "Öffnen Sie auf dem Raspberry Pi ein Terminal und laden Sie Claude GG herunter:",
+ "Then install the agent:": "Installieren Sie danach den Agent:",
+ "It prints the address and the token. Type them here and test the connection.": "Es zeigt die Adresse und das Token an. Geben Sie sie hier ein und testen Sie die Verbindung."
 }

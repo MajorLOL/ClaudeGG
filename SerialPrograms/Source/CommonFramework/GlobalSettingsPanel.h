@@ -13,6 +13,7 @@
 #include "Common/Cpp/Options/StaticTextOption.h"
 #include "Common/Cpp/Options/BooleanCheckBoxOption.h"
 #include "Common/Cpp/Options/StringOption.h"
+#include "Common/Cpp/Options/SimpleIntegerOption.h"
 #include "Common/Cpp/Options/ButtonOption.h"
 #include "CommonFramework/Options/WallpaperOption.h"
 #include "CommonFramework/Panels/OptionsPanel.h"
@@ -64,6 +65,7 @@ enum class SetupConsole{
     NONE,       //  Not chosen yet.
     SWITCH,     //  Nintendo Switch (Switch 1 and OLED).
     SWITCH2,    //  Nintendo Switch 2.
+    MOBILE,     //  An Android phone, on a Raspberry Pi (Mobile/agent).
 };
 
 
@@ -103,6 +105,11 @@ public:
     //  and whether its questions still have to be asked at the next start.
     EnumDropdownOption<UiLanguage> LANGUAGE;
     EnumDropdownOption<SetupConsole> GAME_CONSOLE;
+    //  The Raspberry Pi of a phone (the console "mobile"): where its agent is.
+    //  The token of the agent is not here: it is kept apart, like the keys of
+    //  the assistant (see ClaudeGG_Mobile.h).
+    StringOption MOBILE_HOST;
+    SimpleIntegerOption<uint16_t> MOBILE_PORT;
     ButtonOption OPEN_SETUP_BUTTON;
     BooleanCheckBoxOption ASK_LANGUAGE;
     BooleanCheckBoxOption ASK_SETUP;

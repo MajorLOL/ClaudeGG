@@ -84,9 +84,23 @@ GlobalSettings::GlobalSettings()
             {SetupConsole::NONE,    "none",    "Not chosen yet"},
             {SetupConsole::SWITCH,  "switch",  "Nintendo Switch"},
             {SetupConsole::SWITCH2, "switch2", "Nintendo Switch 2"},
+            {SetupConsole::MOBILE,  "mobile",  "Phone (on a Raspberry Pi)"},
         },
         LockMode::UNLOCK_WHILE_RUNNING,
         SetupConsole::NONE
+    )
+    , MOBILE_HOST(
+        false,
+        "<b>Phone, address of the Raspberry Pi:</b><br>"
+        "The name or the address of the Raspberry Pi that the phone is plugged into, for example 192.168.1.50. "
+        "It is asked in the setup, when the console is a phone.",
+        LockMode::UNLOCK_WHILE_RUNNING,
+        "", "192.168.1.50"
+    )
+    , MOBILE_PORT(
+        "<b>Phone, port of the agent:</b><br>The port that the agent on the Raspberry Pi listens on.",
+        LockMode::UNLOCK_WHILE_RUNNING,
+        8765, 1, 65535
     )
     , OPEN_SETUP_BUTTON(
         "<b>Setup:</b><br>"
@@ -271,6 +285,8 @@ GlobalSettings::GlobalSettings()
 {
     PA_ADD_OPTION(LANGUAGE);
     PA_ADD_OPTION(GAME_CONSOLE);
+    PA_ADD_OPTION(MOBILE_HOST);
+    PA_ADD_OPTION(MOBILE_PORT);
     PA_ADD_OPTION(OPEN_SETUP_BUTTON);
     PA_ADD_OPTION(ASK_LANGUAGE);
     PA_ADD_OPTION(ASK_SETUP);

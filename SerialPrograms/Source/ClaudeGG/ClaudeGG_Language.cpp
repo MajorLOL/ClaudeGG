@@ -58,6 +58,7 @@
 #include "ClaudeGG_Instances.h"
 #include "CommonFramework/Logging/Logger.h"
 #include "ClaudeGG_Language.h"
+#include "ClaudeGG_Mobile.h"
 #include "ClaudeGG_Setup.h"
 
 namespace PokemonAutomation{
@@ -113,6 +114,7 @@ QString console_code_of(SetupConsole console){
     switch (console){
     case SetupConsole::SWITCH:   return "switch";
     case SetupConsole::SWITCH2:  return "switch2";
+    case SetupConsole::MOBILE:   return "mobile";
     case SetupConsole::NONE:     break;
     }
     return QString();
@@ -120,6 +122,7 @@ QString console_code_of(SetupConsole console){
 SetupConsole console_of(const QString& code){
     if (code == "switch") return SetupConsole::SWITCH;
     if (code == "switch2") return SetupConsole::SWITCH2;
+    if (code == "mobile") return SetupConsole::MOBILE;
     return SetupConsole::NONE;
 }
 
@@ -741,6 +744,35 @@ void keep_console(const QString& code){
     GlobalSettings::instance().GAME_CONSOLE.set(console_of(code));
 }
 
+//  What the page of the Raspberry Pi asks for, as it was kept, and the test of
+//  the connection that the page can make.
+void fill_mobile(SetupRequest& request){
+    GlobalSettings& settings = GlobalSettings::instance();
+    request.mobile_host = QString::fromStdString(std::string(settings.MOBILE_HOST));
+    request.mobile_port = (int)settings.MOBILE_PORT.current_value();
+    request.mobile_token = mobile_token();
+    request.mobile_check = [](const QString& host, int port, const QString& token, QString& message){
+        return check_mobile(host, port, token, message);
+    };
+}
+
+//  Keeps what was typed on that page: the address and the port in the settings,
+//  the token apart from them (it is a key).
+void keep_mobile(const QString& host, int port, const QString& token){
+    GlobalSettings& settings = GlobalSettings::instance();
+    (void)settings.MOBILE_HOST.set(host.trimmed().toStdString());
+    if (port >= 1 && port <= 65535){
+        (void)settings.MOBILE_PORT.set((uint16_t)port);
+    }
+    QString error;
+    if (!set_mobile_token(token, error)){
+        global_logger_tagged().log("Setup: " + error.toStdString(), COLOR_RED);
+    }
+    global_logger_tagged().log(
+        "Setup: the Raspberry Pi of the phone is " + host.trimmed().toStdString() + ":" + std::to_string(port) + "."
+    );
+}
+
 //  The lines that the program writes, kept for the log panel on the screen
 //  with the programs (what "Copy for Claude" copies). It starts listening the
 //  first time the setup is asked, with the lines that the program kept until
@@ -838,6 +870,7 @@ void run_and_keep(bool ask_language, bool ask_board, bool play_intro = false, bo
     //  The console is a screen of the setup: asked where the board is asked.
     request.ask_console = ask_board;
     request.console_code = console_code_of(settings.GAME_CONSOLE.get());
+    fill_mobile(request);
     request.language_code = setting_code();
     request.play_intro = play_intro;
     //  The output log on the screen with the programs, and the build for the
@@ -890,6 +923,9 @@ void run_and_keep(bool ask_language, bool ask_board, bool play_intro = false, bo
         keep_console(result.console_code);
         global_logger_tagged().log("Setup: the console is " + result.console_code.toStdString() + ".");
     }
+    if (result.mobile_done){
+        keep_mobile(result.mobile_host, result.mobile_port, result.mobile_token);
+    }
     try{
         PERSISTENT_SETTINGS().write();
     }catch (...){
@@ -936,6 +972,7 @@ AppView* make_main_view(
     GlobalSettings& settings = GlobalSettings::instance();
     SetupRequest request;
     request.console_code = console_code_of(settings.GAME_CONSOLE.get());
+    fill_mobile(request);
     request.language_code = setting_code();
     request.games = std::move(games);
     request.programs = std::move(programs);
@@ -959,6 +996,19 @@ AppView* make_main_view(
         }
         if (after){
             after(code);
+        }
+    };
+    //  The same for what was typed on the page of the Raspberry Pi.
+    std::function<void(const QString&, int, const QString&)> after_mobile = std::move(actions.mobile_kept);
+    actions.mobile_kept = [after_mobile](const QString& host, int port, const QString& token){
+        keep_mobile(host, port, token);
+        try{
+            PERSISTENT_SETTINGS().write();
+        }catch (...){
+            global_logger_tagged().log("Setup: the Raspberry Pi could not be written to the settings file.", COLOR_RED);
+        }
+        if (after_mobile){
+            after_mobile(host, port, token);
         }
     };
     return make_app_view(parent, request, std::move(actions), test);

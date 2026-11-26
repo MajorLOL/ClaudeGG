@@ -7,6 +7,7 @@
 
 #include "Common/Compiler.h"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <deque>
@@ -14,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <thread>
 #include <vector>
 #include <QApplication>
 #include <QAudioDevice>
@@ -40,6 +42,7 @@
 #include <QFontMetricsF>
 #include <QHash>
 #include <QImage>
+#include <QIntValidator>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
@@ -426,6 +429,13 @@ public:
         (void)at;
         (void)phase;
     }
+    //  For the tests: puts this text in the field of the page that has this
+    //  name. False when there is no such field.
+    virtual bool set_field(const QString& id, const QString& text){
+        (void)id;
+        (void)text;
+        return false;
+    }
     //  What the page is doing, in words (for the tests).
     virtual QString state() const{
         return QString();
@@ -586,6 +596,11 @@ public:
     void app_console_chosen(const QString& code){
         if (m_app_mode && m_app.console_chosen){
             m_app.console_chosen(code);
+        }
+    }
+    void app_mobile_kept(const QString& host, int port, const QString& token){
+        if (m_app_mode && m_app.mobile_kept){
+            m_app.mobile_kept(host, port, token);
         }
     }
     //  Where Claude's panel begins, in the places of the 1920 x 1080 screen
@@ -783,6 +798,8 @@ public:
     void go_console_again(int games_selected);
     void leave_console_again();
     void go_board();
+    //  The phone: the page of its Raspberry Pi, in place of the board.
+    void go_pi();
     void go_steps(const QString& board);
     void go_guide();
     void go_other();
@@ -868,9 +885,12 @@ public:
         }
     }
     //  The console is chosen: the question of the board follows (or, when it
-    //  is not asked, what comes after the installation).
+    //  is not asked, what comes after the installation). A phone has no board:
+    //  its Raspberry Pi comes instead.
     void end_console(){
-        if (m_console_again){
+        if (m_result.console_chosen && m_result.console_code == "mobile"){
+            go_pi();
+        }else if (m_console_again){
             m_console_again = false;
             go_games(m_games_back);
         }else if (m_request.ask_board){
@@ -878,6 +898,20 @@ public:
         }else{
             end_installation();
         }
+    }
+    //  The page of the Raspberry Pi is over: what comes after the installation
+    //  (or the games, when the console was picked again from them).
+    void end_pi(){
+        if (m_console_again){
+            m_console_again = false;
+            go_games(m_games_back);
+        }else{
+            end_installation();
+        }
+    }
+    //  For the test: the text of a field of the page (empty id: none).
+    bool set_field(const QString& id, const QString& text){
+        return m_page != nullptr && m_page->set_field(id, text);
     }
     //  Presses it as a click on its middle would; false when it is not there.
     virtual bool click(const QString& id) override;
@@ -6704,6 +6738,82 @@ QPixmap switch2_picture(){
     return cache;
 }
 
+//  A phone with its USB cable to a Raspberry Pi: the picture of the console
+//  "mobile". Drawn here, as the picture of the Switch 2 is.
+QPixmap phone_picture(){
+    static QPixmap cache;
+    if (!cache.isNull()){
+        return cache;
+    }
+    constexpr int W = 440;
+    constexpr int H = 560;
+    QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter p(&image);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(Qt::NoPen);
+
+    //  The Raspberry Pi, with its chip and its ports, at the bottom right.
+    const QRectF board(226, 392, 206, 148);
+    p.setBrush(QColor(38, 128, 78));
+    p.drawRoundedRect(board, 14, 14);
+    p.setBrush(QColor(22, 82, 50));
+    p.drawRoundedRect(board.adjusted(8, 8, -8, -8), 10, 10);
+    p.setBrush(QColor(24, 26, 30));
+    p.drawRoundedRect(QRectF(board.left() + 34, board.top() + 40, 66, 66), 7, 7);
+    p.setBrush(QColor(206, 210, 218));
+    p.drawRoundedRect(QRectF(board.right() - 52, board.top() + 18, 56, 44), 5, 5);
+    p.drawRoundedRect(QRectF(board.right() - 52, board.top() + 78, 56, 44), 5, 5);
+    p.setBrush(QColor(60, 64, 74));
+    p.drawRect(QRectF(board.right() - 40, board.top() + 28, 38, 14));
+    p.drawRect(QRectF(board.right() - 40, board.top() + 88, 38, 14));
+
+    //  The cable, from the phone to the board.
+    QPainterPath cable;
+    cable.moveTo(138, 512);
+    cable.cubicTo(138, 560, 190, 552, 238, 506);
+    QPen wire(QColor(204, 208, 216), 9);
+    wire.setCapStyle(Qt::RoundCap);
+    p.setPen(wire);
+    p.setBrush(Qt::NoBrush);
+    p.drawPath(cable);
+    p.setPen(Qt::NoPen);
+
+    //  The phone: a body, a screen with its apps, a camera.
+    const QRectF body(10, 6, 256, 508);
+    QLinearGradient shade(0, body.top(), 0, body.bottom());
+    shade.setColorAt(0, QColor(70, 76, 88));
+    shade.setColorAt(1, QColor(34, 38, 46));
+    p.setBrush(shade);
+    p.drawRoundedRect(body, 46, 46);
+    p.setPen(QPen(QColor(120, 128, 142), 2));
+    p.setBrush(Qt::NoBrush);
+    p.drawRoundedRect(body.adjusted(1, 1, -1, -1), 45, 45);
+    p.setPen(Qt::NoPen);
+    const QRectF screen(26, 30, 224, 464);
+    p.setBrush(QColor(8, 10, 14));
+    p.drawRoundedRect(screen, 30, 30);
+    p.save();
+    QPainterPath clip;
+    clip.addRoundedRect(screen, 30, 30);
+    p.setClipPath(clip);
+    const QColor apps[4] = {QColor(217, 119, 87), QColor(84, 184, 214), QColor(255, 224, 102), QColor(120, 200, 140)};
+    for (int row = 0; row < 5; row++){
+        for (int column = 0; column < 4; column++){
+            p.setBrush(with_alpha(apps[(row + column) % 4], 0.82));
+            p.drawRoundedRect(QRectF(screen.left() + 22 + column * 50, screen.top() + 60 + row * 58, 38, 38), 10, 10);
+        }
+    }
+    p.setBrush(QColor(255, 255, 255, 14));
+    p.drawPolygon(QPolygonF({QPointF(170, 30), QPointF(250, 30), QPointF(110, 494), QPointF(26, 494)}));
+    p.restore();
+    p.setBrush(QColor(30, 32, 38));
+    p.drawEllipse(QPointF(138, 52), 7, 7);
+    p.end();
+    cache = QPixmap::fromImage(image);
+    return cache;
+}
+
 struct ConsoleInfo{
     //  The value of the setting "console" (GlobalSettings::GAME_CONSOLE).
     const char* code;
@@ -6727,6 +6837,9 @@ struct ConsoleInfo{
 constexpr ConsoleInfo CONSOLES[] = {
     {"switch",      "Nintendo Switch",      "Switch 1 and the OLED model",          true},
     {"switch2",     "Nintendo Switch 2",    "International and Japan-only models",  true},
+    //  An Android phone on a Raspberry Pi (Mobile/): no board, no capture
+    //  card; the Raspberry Pi is both.
+    {"mobile",      "Android phone",        "On a Raspberry Pi, over USB",          true},
     //  What the gamepad adapters of the community already speak (the
     //  platforms of OGX-Mini) and what the commercial ones list.
     {"ps5",         "PlayStation 5",        nullptr,    false},
@@ -6751,7 +6864,9 @@ public:
     explicit ConsolePage(Canvas& canvas){
         m_again = canvas.console_again();
         QString kept = canvas.request().console_code;
-        if (m_again && canvas.result().console_chosen){
+        //  What was picked a moment ago (the way back from the next page) wins
+        //  over what was kept from the last time.
+        if (canvas.result().console_chosen){
             kept = canvas.result().console_code;
         }
         for (int c = 0; c < CONSOLE_COUNT; c++){
@@ -6956,32 +7071,42 @@ private:
         );
 
         //  The console on the left, as large as the tile lets it be; its name
-        //  and what it covers on the right.
-        const QPixmap picture = index == 0 ? plain_picture("switch") : switch2_picture();
-        const QRectF room(box.left() + 36, box.top() + 30, 360, box.height() - 60);
+        //  and what it covers on the right. With three tiles side by side
+        //  they are narrower: the picture, and the type, are smaller.
+        const bool narrow = supported_count() >= 3;
+        const QString code = QString::fromLatin1(info.code);
+        const QPixmap picture = code == "switch" ? plain_picture("switch") : code == "switch2" ? switch2_picture() : phone_picture();
+        const QRectF room(box.left() + (narrow ? 26 : 36), box.top() + 30, narrow ? 200 : 360, box.height() - 60);
         if (!picture.isNull()){
             const double scale = std::min(room.width() / picture.width(), room.height() / picture.height());
             const double w = picture.width() * scale;
             const double h = picture.height() * scale;
             draw_picture(painter, picture, QRectF(room.center().x() - w / 2.0, room.center().y() - h / 2.0, w, h), a);
         }
-        const double text_x = room.right() + 36;
+        const double text_x = room.right() + (narrow ? 22 : 36);
         const double text_w = box.right() - 28 - text_x;
-        const QFont name_font = ui_font(36, 600);
+        const QFont name_font = ui_font(narrow ? 28 : 36, 600);
+        const QStringList name_lines = wrap_text(name_font, QString::fromLatin1(info.name), text_w);
+        const double name_line = narrow ? 34 : 44;
         const QString note = T(info.note);
-        const QFont note_font = ui_font(23, 500);
+        const QFont note_font = ui_font(narrow ? 21 : 23, 500);
         const QStringList note_lines = wrap_text(note_font, note, text_w);
-        const double note_line = 23 * 1.35;
-        const double block = 44 + 14 + (double)note_lines.size() * note_line;
+        const double note_line = (narrow ? 21 : 23) * 1.35;
+        const double block = (double)name_lines.size() * name_line + 14 + (double)note_lines.size() * note_line;
         double y = box.center().y() - block / 2.0;
-        draw_text(painter, QString::fromLatin1(info.name), text_x, y, name_font, white(a));
-        y += 44 + 14;
+        for (const QString& line : name_lines){
+            draw_text(painter, line, text_x, y, name_font, white(a));
+            y += name_line;
+        }
+        y += 14;
         for (const QString& line : note_lines){
             draw_text(painter, line, text_x, y, note_font, white(0.55 * a));
             y += note_line;
         }
         if (selected){
-            const QRectF badge(box.right() - 24 - 40, box.top() + 22, 40, 40);
+            //  Narrow tiles have the text up to the right edge: the mark goes
+            //  at the top left, over the empty corner of the picture.
+            const QRectF badge = narrow ? QRectF(box.left() + 16, box.top() + 16, 40, 40) : QRectF(box.right() - 24 - 40, box.top() + 22, 40, 40);
             painter.setPen(Qt::NoPen);
             painter.setBrush(with_alpha(ORANGE, a));
             painter.drawEllipse(badge);
@@ -7026,6 +7151,357 @@ private:
 
 private:
     int m_selected = -1;
+};
+
+
+//  ---------------------------------------------------------------------
+//  The phone: the Raspberry Pi that it is plugged into. It comes in place of
+//  the board (the Raspberry Pi is the microcontroller of a phone).
+//  ---------------------------------------------------------------------
+
+//  A line of text over the screen, in the look of the setup: one of the fields
+//  of the page of the Raspberry Pi. Enter asks for the test of the connection.
+class PiField : public QLineEdit{
+public:
+    explicit PiField(QWidget* parent)
+        : QLineEdit(parent)
+    {
+        setFrame(false);
+        setStyleSheet(QString(
+            "QLineEdit{background: rgba(255,255,255,22); color: white; border: 2px solid rgba(255,255,255,80);"
+            " border-radius: 14px; padding: 0 16px; selection-background-color: %1;}"
+            "QLineEdit:focus{border-color: %1;}"
+        ).arg(ORANGE.name()));
+        connect(this, &QLineEdit::textEdited, this, [this]{
+            if (on_edited){
+                on_edited();
+            }
+        });
+    }
+    std::function<void()> on_enter;
+    std::function<void()> on_edited;
+
+protected:
+    virtual void keyPressEvent(QKeyEvent* event) override{
+        if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter){
+            event->accept();
+            if (on_enter){
+                on_enter();
+            }
+            return;
+        }
+        QLineEdit::keyPressEvent(event);
+    }
+};
+
+//  What a test of the connection finds, written by the thread that makes it
+//  and read by the page.
+struct PiCheck{
+    std::atomic<bool> done{false};
+    bool ok = false;
+    QString message;
+};
+
+class PiPage : public Page{
+public:
+    explicit PiPage(Canvas& canvas)
+        : m_canvas(&canvas)
+    {
+        const SetupRequest& request = canvas.request();
+        const SetupResult& result = canvas.result();
+        //  What was typed before (the page is opened again) wins over what was
+        //  kept from the last time.
+        const bool typed = result.mobile_done;
+        const QString host = typed ? result.mobile_host : request.mobile_host;
+        const int port = typed ? result.mobile_port : request.mobile_port;
+        const QString token = typed ? result.mobile_token : request.mobile_token;
+        m_host = make_field(host, "192.168.1.50");
+        m_port = make_field(QString::number(port >= 1 && port <= 65535 ? port : 8765), "8765");
+        m_port->setValidator(new QIntValidator(1, 65535, m_port));
+        m_token = make_field(token, T("The token that the installer printed"));
+        m_token->setEchoMode(QLineEdit::Password);
+        canvas.set_focus_id(host.isEmpty() ? QString("continue") : QString("pi-test"));
+    }
+    virtual ~PiPage() override{
+        for (PiField* field : {m_host, m_port, m_token}){
+            field->on_enter = nullptr;
+            field->on_edited = nullptr;
+            field->hide();
+            field->deleteLater();
+        }
+    }
+
+    virtual const char* name() const override{
+        return "pi";
+    }
+
+    virtual void step(double dt) override{
+        (void)dt;
+        if (m_check && m_check->done.load(std::memory_order_acquire)){
+            m_message = m_check->message;
+            m_stage = m_check->ok ? 2 : 3;
+            m_check.reset();
+        }
+    }
+
+    virtual void paint(Canvas& canvas, QPainter& painter, double t) override{
+        const Intro in = intro_for(canvas);
+        //  The Raspberry Pi is the controller of a phone.
+        const int states[3] = {0, 1, 2};
+        draw_stepper(painter, states, prog(t, in.head - 0.05, in.head + 0.7));
+        const QString heading = T("Connect the Raspberry Pi");
+        draw_heading(painter, heading, 140, 150, 72, prog(t, in.head, in.head + 0.9), 1.0, 1640);
+        const QString sub = T("The phone is plugged into a Raspberry Pi that runs the Claude GG agent. Claude GG sees the screen of the phone and taps it through the Pi.");
+        const double sub_y = 150 + heading_height(heading, 72, 1640) + 18;
+        draw_sub(painter, sub, 140, sub_y, prog(t, in.sub, in.sub + 0.8), 1.0, 30, 1640);
+        const double top = sub_y + sub_height(sub, 30, 1640) + 34;
+        const double shown = eo(prog(t, in.bar, in.bar + 0.7));
+
+        //  The fields at the left: the labels here, the lines of text are widgets.
+        const QRectF host_box(140, top + 34, 780, 58);
+        const QRectF port_box(140, top + 148, 240, 58);
+        const QRectF token_box(140, top + 262, 780, 58);
+        const QFont label_font = ui_font(24, 600);
+        draw_text(painter, T("Address of the Raspberry Pi"), 144, top, label_font, white(0.7 * shown));
+        draw_text(painter, T("Port"), 144, top + 114, label_font, white(0.7 * shown));
+        draw_text(painter, T("Token"), 144, top + 228, label_font, white(0.7 * shown));
+        place(host_box, port_box, token_box, shown >= 0.99 && canvas.page_fade() >= 0.98);
+
+        //  The test of the connection, and what it found.
+        const bool can_test = canvas.request().mobile_check && m_stage != 1 && !m_host->text().trimmed().isEmpty();
+        const QString test_text = m_stage == 1 ? T("Testing...") : T("Test the connection");
+        const double test_width = draw_button(canvas, painter, "pi-test", test_text, 140, top + 348, ButtonKind::SECONDARY, shown, can_test);
+        if (m_stage != 0){
+            //  What the test says is made of the answer of the Pi: not translated.
+            const QString line = m_stage == 1 ? T("Asking the Raspberry Pi...") : m_message;
+            const QColor color = m_stage == 1 ? white(0.62 * shown) : m_stage == 2 ? with_alpha(QColor(126, 214, 146), shown) : with_alpha(QColor(255, 126, 114), shown);
+            const QFont font = ui_font(23, 500);
+            const double x = 140 + test_width + 24;
+            QStringList lines = wrap_text(font, line, 920 - x);
+            while (lines.size() > 4){
+                lines.removeLast();
+            }
+            const double height = 23 * 1.35;
+            double y = top + 348 + 32 - (double)lines.size() * height / 2.0;
+            for (const QString& one : lines){
+                draw_text(painter, one, x, y, font, color);
+                y += height;
+            }
+        }
+
+        //  The steps at the right.
+        paint_steps(painter, QRectF(1000, top, 780, 0), shown);
+
+        //  The terms of the game.
+        const QRectF warning(140, 846, 1640, 84);
+        panel(painter, warning, 22, with_alpha(QColor(52, 38, 16), 0.9 * shown), with_alpha(YELLOW, 0.7 * shown), 1.6);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(with_alpha(YELLOW, shown));
+        const QRectF mark(warning.left() + 24, warning.center().y() - 20, 40, 40);
+        painter.drawEllipse(mark);
+        draw_text_cy(painter, "!", mark.center().x(), mark.center().y() + 1, ui_font(28, 700), with_alpha(Qt::black, shown), Qt::AlignHCenter);
+        const QFont warning_font = ui_font(24, 500);
+        const QStringList warning_lines = wrap_text(warning_font, T("Automating Pokémon GO is against Niantic's Terms of Service and can get the account banned. Use a spare account and do it at your own risk."), warning.width() - 120);
+        const double warning_line = 24 * 1.35;
+        double wy = warning.center().y() - (double)warning_lines.size() * warning_line / 2.0;
+        for (const QString& one : warning_lines){
+            draw_text(painter, one, warning.left() + 88, wy, warning_font, white(0.88 * shown));
+            wy += warning_line;
+        }
+
+        const double b = eo(prog(t, in.buttons, in.buttons + 0.5));
+        draw_button(canvas, painter, "back", T("Back"), 136 + 26, 960, ButtonKind::LINK, std::min(1.0, b * 1.35));
+        draw_chevron_back(painter, QPointF(136 + 8, 982), white(0.7 * b));
+        const QString text = T("Continue");
+        draw_button(canvas, painter, "continue", text, 1780 - button_width(text, ButtonKind::PRIMARY), 950, ButtonKind::PRIMARY, b);
+    }
+
+    virtual void activate(Canvas& canvas, const QString& id) override{
+        if (id == "pi-test"){
+            start_check();
+        }else if (id == "continue"){
+            proceed(canvas);
+        }else if (id == "back"){
+            canvas.go_console();
+        }
+    }
+    virtual void escape_pressed(Canvas& canvas) override{
+        canvas.go_console();
+    }
+    virtual void enter_pressed(Canvas& canvas) override{
+        proceed(canvas);
+    }
+    virtual bool set_field(const QString& id, const QString& text) override{
+        PiField* field = id == "host" ? m_host : id == "port" ? m_port : id == "token" ? m_token : nullptr;
+        if (field == nullptr){
+            return false;
+        }
+        field->setText(text);
+        edited();
+        return true;
+    }
+    virtual QString state() const override{
+        const char* test = m_stage == 1 ? "running" : m_stage == 2 ? "ok" : m_stage == 3 ? "failed" : "idle";
+        return QString("host=%1;port=%2;token=%3;test=%4;message=%5")
+            .arg(m_host->text(), m_port->text(), QString(m_token->text().isEmpty() ? "none" : "set"), QString(test), m_message);
+    }
+
+private:
+    PiField* make_field(const QString& text, const QString& placeholder){
+        PiField* field = new PiField(m_canvas);
+        field->setText(text);
+        field->setPlaceholderText(placeholder);
+        field->hide();
+        field->on_enter = [this]{
+            start_check();
+        };
+        field->on_edited = [this]{
+            edited();
+        };
+        return field;
+    }
+    //  Something was typed: what the test found is of the text before.
+    void edited(){
+        if (m_stage == 2 || m_stage == 3){
+            m_stage = 0;
+            m_message.clear();
+        }
+    }
+    void place(const QRectF& host_box, const QRectF& port_box, const QRectF& token_box, bool visible){
+        PiField* const fields[3] = {m_host, m_port, m_token};
+        const QRectF boxes[3] = {host_box, port_box, token_box};
+        for (int c = 0; c < 3; c++){
+            PiField* field = fields[c];
+            const QRect geometry = m_canvas->window_rect(boxes[c]);
+            if (field->geometry() != geometry){
+                field->setGeometry(geometry);
+                field->setFont(ui_font(std::max(11.0, geometry.height() * 0.46), 500));
+            }
+            if (field->isVisible() != visible){
+                field->setVisible(visible);
+                if (visible){
+                    field->raise();
+                }
+            }
+        }
+        //  The first time they are there: a page that has nothing yet asks for
+        //  the address first.
+        if (visible && !m_focused && m_host->text().isEmpty()){
+            m_focused = true;
+            m_host->setFocus();
+        }
+    }
+    void start_check(){
+        const SetupRequest& request = m_canvas->request();
+        if (!request.mobile_check || m_check || m_host->text().trimmed().isEmpty()){
+            return;
+        }
+        const std::function<bool(const QString&, int, const QString&, QString&)> check = request.mobile_check;
+        const QString host = m_host->text().trimmed();
+        const int port = port_value();
+        const QString token = m_token->text().trimmed();
+        std::shared_ptr<PiCheck> state = std::make_shared<PiCheck>();
+        m_check = state;
+        m_stage = 1;
+        m_message.clear();
+        //  A few seconds at most, and the screen must not stand still: another
+        //  thread asks, the page reads the answer in step().
+        std::thread([check, host, port, token, state]{
+            QString message;
+            bool ok = false;
+            try{
+                ok = check(host, port, token, message);
+            }catch (...){
+                message = "The test could not be made.";
+            }
+            state->ok = ok;
+            state->message = message;
+            state->done.store(true, std::memory_order_release);
+        }).detach();
+    }
+    int port_value() const{
+        const int port = m_port->text().toInt();
+        return port >= 1 && port <= 65535 ? port : 8765;
+    }
+    void proceed(Canvas& canvas){
+        SetupResult& result = canvas.result();
+        result.mobile_done = true;
+        result.mobile_host = m_host->text().trimmed();
+        result.mobile_port = port_value();
+        result.mobile_token = m_token->text().trimmed();
+        //  There is no board to ask about: the setup counts as done.
+        result.board_done = true;
+        canvas.app_mobile_kept(result.mobile_host, result.mobile_port, result.mobile_token);
+        canvas.setFocus();
+        canvas.end_pi();
+    }
+
+    //  What to do on the Raspberry Pi: a panel with four steps, two of them
+    //  with the command to type. It starts at the top left of "place_rect" and
+    //  is as tall as its steps.
+    void paint_steps(QPainter& painter, const QRectF& place_rect, double shown) const{
+        struct Step{
+            const char* text;
+            const char* command;
+        };
+        static const Step STEPS[4] = {
+            {"Plug the phone into the Raspberry Pi with its USB cable. On the phone, turn on Developer options and USB debugging, and allow the Pi when the phone asks.", nullptr},
+            {"On the Raspberry Pi, open a terminal and download Claude GG:", "git clone https://github.com/MajorLOL/ClaudeGG"},
+            {"Then install the agent:", "sudo bash ClaudeGG/Mobile/agent/install-agent.sh"},
+            {"It prints the address and the token. Type them here and test the connection.", nullptr},
+        };
+        const double left = place_rect.left();
+        const double text_x = left + 76;
+        const double text_w = place_rect.width() - 76 - 28;
+        const QFont text_font = ui_font(22, 500);
+        QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+        mono.setPixelSize(21);
+        const double line = 22 * 1.38;
+        const double command_h = 40;
+
+        //  Heights first: the panel is as tall as its steps.
+        double total = 74;
+        QStringList lines[4];
+        for (int c = 0; c < 4; c++){
+            lines[c] = wrap_text(text_font, T(STEPS[c].text), text_w);
+            total += (double)lines[c].size() * line + (STEPS[c].command != nullptr ? 8 + command_h : 0) + 18;
+        }
+        total += 10;
+        const QRectF box(left, place_rect.top(), place_rect.width(), total);
+        panel(painter, box, 28, with_alpha(PANEL, 0.88 * shown), white(0.2 * shown), 1.6);
+        draw_text(painter, T("On the Raspberry Pi"), left + 30, box.top() + 20, ui_font(28, 700), white(shown));
+        double y = box.top() + 74;
+        for (int c = 0; c < 4; c++){
+            const QRectF circle(left + 28, y - 2, 34, 34);
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(with_alpha(ORANGE, shown));
+            painter.drawEllipse(circle);
+            draw_text_cy(painter, QString::number(c + 1), circle.center().x(), circle.center().y() + 1, ui_font(22, 700), with_alpha(Qt::black, shown), Qt::AlignHCenter);
+            for (const QString& one : lines[c]){
+                draw_text(painter, one, text_x, y, text_font, white(0.82 * shown));
+                y += line;
+            }
+            if (STEPS[c].command != nullptr){
+                y += 8;
+                const QRectF code(text_x, y, text_w, command_h);
+                panel(painter, code, 10, with_alpha(Qt::black, 0.55 * shown), white(0.14 * shown), 1.2);
+                draw_text_cy(painter, QString::fromLatin1(STEPS[c].command), code.left() + 14, code.center().y() + 1, mono, with_alpha(YELLOW, 0.95 * shown));
+                y += command_h;
+            }
+            y += 18;
+        }
+    }
+
+private:
+    Canvas* m_canvas;
+    PiField* m_host = nullptr;
+    PiField* m_port = nullptr;
+    PiField* m_token = nullptr;
+    //  0 not tested, 1 asking, 2 it works, 3 it does not.
+    int m_stage = 0;
+    QString m_message;
+    bool m_focused = false;
+    std::shared_ptr<PiCheck> m_check;
 };
 
 
@@ -7887,6 +8363,11 @@ void Canvas::leave_console_again(){
 void Canvas::go_board(){
     queue_page([this]{
         return std::unique_ptr<Page>(new BoardPage(*this));
+    });
+}
+void Canvas::go_pi(){
+    queue_page([this]{
+        return std::unique_ptr<Page>(new PiPage(*this));
     });
 }
 void Canvas::go_steps(const QString& board){
@@ -9773,11 +10254,14 @@ int run_setup_test(QApplication& application, const QString& folder){
     save(canvas, folder, "setup-36-console-start");
     save_preview(canvas, folder, "preview-console");
     checker.check(has_content(canvas.picture()), "the console screen has something on it");
-    checker.check(canvas.has_hit("console:0") && canvas.hit_enabled("console:0") && canvas.has_hit("console:1") && canvas.hit_enabled("console:1"),
-        "both supported consoles are tiles that can be picked");
-    checker.check(canvas.has_hit("console:2") && !canvas.hit_enabled("console:2") && canvas.has_hit("console:11") && !canvas.hit_enabled("console:11"),
+    checker.check(
+        canvas.has_hit("console:0") && canvas.hit_enabled("console:0") && canvas.has_hit("console:1") && canvas.hit_enabled("console:1") &&
+        canvas.has_hit("console:2") && canvas.hit_enabled("console:2"),
+        "the three supported consoles (the two Switches and the phone) are tiles that can be picked"
+    );
+    checker.check(canvas.has_hit("console:3") && !canvas.hit_enabled("console:3") && canvas.has_hit("console:12") && !canvas.hit_enabled("console:12"),
         "the other consoles are on the screen already, and cannot be picked");
-    checker.check(!canvas.click("console:2") && canvas.page_state() == "selected=", "a console that is not supported yet does nothing when it is clicked");
+    checker.check(!canvas.click("console:3") && canvas.page_state() == "selected=", "a console that is not supported yet does nothing when it is clicked");
     checker.check(canvas.has_hit("skip") && canvas.has_hit("continue"), "the console screen has Skip setup and Continue");
     checker.check(!canvas.hit_enabled("continue"), "no console, no way on");
     checker.check(canvas.page_state() == "selected=", "nothing is picked at first");
@@ -9790,10 +10274,12 @@ int run_setup_test(QApplication& application, const QString& folder){
     canvas.press_key(Qt::Key_Right);
     checker.check(canvas.focus_id() == "console:1", "the arrow keys go over the consoles");
     canvas.press_key(Qt::Key_Right);
-    checker.check(canvas.focus_id() == "console:1", "and skip the ones that are not supported yet");
+    checker.check(canvas.focus_id() == "console:2", "to the phone");
+    canvas.press_key(Qt::Key_Right);
+    checker.check(canvas.focus_id() == "console:2", "and skip the ones that are not supported yet");
     canvas.press_key(Qt::Key_Tab);
     canvas.press_key(Qt::Key_Tab);
-    checker.check(!canvas.focus_id().startsWith("console:") || canvas.focus_id() == "console:0" || canvas.focus_id() == "console:1",
+    checker.check(!canvas.focus_id().startsWith("console:") || canvas.focus_id() == "console:0" || canvas.focus_id() == "console:1" || canvas.focus_id() == "console:2",
         "Tab does not stop on them either");
     canvas.set_focus_id("console:1");
     canvas.move_to("console:1");
@@ -10731,6 +11217,117 @@ int run_setup_test(QApplication& application, const QString& folder){
         back.wait(2.0);
         checker.check(back.page_name() == "games" && !back.finished(), "Back leaves the console as it was");
         checker.check(back.result().console_code == "switch2", "and the answer stays");
+    }
+
+    //  ---- the phone: the Raspberry Pi comes in place of the board
+    {
+        SetupRequest phone_request;
+        phone_request.ask_console = true;
+        phone_request.ask_board = true;
+        phone_request.games = test_games();
+        phone_request.mobile_host = "192.168.7.7";
+        phone_request.mobile_port = 8765;
+        phone_request.mobile_token = "kept-token";
+        //  A stand-in for the agent: the one address that was kept works.
+        phone_request.mobile_check = [](const QString& host, int port, const QString& token, QString& message){
+            QThread::msleep(150);
+            if (host == "192.168.7.7" && port == 8765 && token == "kept-token"){
+                message = "Connected to Test Phone, Android 14, 1080 x 2400.";
+                return true;
+            }
+            message = "No answer: cannot reach the Raspberry Pi at " + host + ".";
+            return false;
+        };
+        Canvas phone(phone_request, true);
+        phone.resize(1280, 720);
+        QEventLoop phone_loop;
+        phone.start(&phone_loop);
+        phone.show();
+        phone.wait(2.5);
+        save(phone, folder, "setup-60-console-three");
+        checker.check(phone.page_name() == "console", "the phone is picked on the screen with the consoles");
+        checker.check(phone.click("console:2") && phone.page_state() == "selected=mobile", "the phone can be picked");
+        save(phone, folder, "setup-61-console-phone");
+        phone.click("continue");
+        phone.wait(2.8);
+        checker.check(phone.page_name() == "pi", "the phone leads to the page of the Raspberry Pi, not to the boards");
+        checker.check(phone.result().console_chosen && phone.result().console_code == "mobile", "the console is the answer");
+        checker.check(phone.page_state().startsWith("host=192.168.7.7;port=8765;token=set;test=idle"), "what was kept of the Raspberry Pi is filled in");
+        checker.check(phone.has_hit("pi-test") && phone.hit_enabled("pi-test") && phone.has_hit("back") && phone.has_hit("continue"), "the page has the test, Back and Continue");
+        save(phone, folder, "setup-62-pi");
+
+        //  The test of the connection runs on its own and the page goes on.
+        phone.click("pi-test");
+        phone.wait(0.1);
+        checker.check(phone.page_state().contains("test=running") && !phone.hit_enabled("pi-test"), "while the Raspberry Pi is asked the test cannot be pressed again");
+        auto wait_for_test = [&](Canvas& canvas){
+            for (int c = 0; c < 80 && canvas.page_state().contains("test=running"); c++){
+                QThread::msleep(50);
+                canvas.wait(0.1);
+            }
+        };
+        wait_for_test(phone);
+        checker.check(phone.page_state().contains("test=ok") && phone.page_state().contains("Connected to Test Phone"), "the test says that it works, and what the phone is");
+        save(phone, folder, "setup-63-pi-connected");
+        checker.check(phone.set_field("host", "10.0.0.9") && phone.page_state().contains("test=idle"), "a change of the address wipes what the test found");
+        phone.click("pi-test");
+        wait_for_test(phone);
+        checker.check(phone.page_state().contains("test=failed") && phone.page_state().contains("cannot reach the Raspberry Pi at 10.0.0.9"), "a Raspberry Pi that does not answer is told as it is");
+        save(phone, folder, "setup-64-pi-failed");
+        phone.set_field("host", "");
+        phone.wait(0.2);
+        checker.check(!phone.hit_enabled("pi-test"), "no address, no test");
+
+        //  Back to the consoles: the phone is still the pick.
+        phone.click("back");
+        phone.wait(2.8);
+        checker.check(phone.page_name() == "console" && phone.page_state() == "selected=mobile", "Back leads to the consoles, with the phone still picked");
+        phone.click("continue");
+        phone.wait(2.8);
+        checker.check(phone.page_name() == "pi", "and on again to the Raspberry Pi");
+        phone.set_field("host", "192.168.7.8");
+        phone.set_field("port", "8766");
+        phone.set_field("token", "abc123");
+        phone.click("continue");
+        phone.wait(2.8);
+        checker.check(phone.page_name() == "games", "Continue leads on to the choice of a game");
+        const SetupResult& phone_result = phone.result();
+        checker.check(
+            phone_result.mobile_done && phone_result.mobile_host == "192.168.7.8" && phone_result.mobile_port == 8766 && phone_result.mobile_token == "abc123",
+            "what was typed is the answer"
+        );
+        checker.check(phone_result.board_done && phone_result.board.isEmpty(), "there is no board: the setup counts as done");
+    }
+
+    //  ---- the phone, picked again from the games
+    {
+        SetupRequest again_request;
+        again_request.ask_console = true;
+        again_request.ask_board = true;
+        again_request.games = test_games();
+        const QString game_one = again_request.games[1].name;
+        Canvas again(again_request, true);
+        again.resize(1280, 720);
+        QEventLoop again_loop;
+        again.start(&again_loop);
+        again.show();
+        again.wait(2.0);
+        again.click("skip");
+        again.wait(2.8);
+        again.click("game:1");
+        again.wait(0.3);
+        again.click("console");
+        again.wait(2.0);
+        again.click("console:2");
+        again.wait(0.3);
+        again.click("continue");
+        again.wait(2.8);
+        checker.check(again.page_name() == "pi", "the phone, picked from the games, also asks for its Raspberry Pi");
+        again.set_field("host", "pi.local");
+        again.click("continue");
+        again.wait(2.8);
+        checker.check(again.page_name() == "games" && again.page_state() == "selected=" + game_one, "and ends on the games, with the game still picked");
+        checker.check(again.result().mobile_done && again.result().mobile_host == "pi.local" && again.result().mobile_port == 8765, "the port is 8765 when none was typed");
     }
 
     //  ---- a program with many options opens wide; the picture in full screen

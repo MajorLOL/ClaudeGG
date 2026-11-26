@@ -33,7 +33,7 @@ namespace Assistant{
 
 namespace{
 
-const char* const SECRET_NAMES[] = {"claude_api_key", "github_token"};
+const char* const SECRET_NAMES[SECRET_COUNT] = {"claude_api_key", "github_token", "mobile_token"};
 
 #ifdef _WIN32
 
@@ -113,7 +113,7 @@ SecretStore::SecretStore(const QString& file_path)
     const QJsonObject object = QJsonDocument::fromJson(file.readAll()).object();
     const bool same_protection = object.value("protection").toString() == QLatin1String(PROTECTION);
     m_remember = object.value("remember").toBool(true);
-    for (int index = 0; index < 2 && m_remember; index++){
+    for (int index = 0; index < SECRET_COUNT && m_remember; index++){
         const QString text = object.value(QLatin1String(SECRET_NAMES[index])).toString();
         if (text.isEmpty()){
             continue;
@@ -156,7 +156,7 @@ bool SecretStore::write(QString& error) const{
     QJsonObject object;
     object["protection"] = QLatin1String(PROTECTION);
     object["remember"] = m_remember;
-    for (int index = 0; index < 2; index++){
+    for (int index = 0; index < SECRET_COUNT; index++){
         if (!m_remember || m_values[index].isEmpty()){
             continue;
         }

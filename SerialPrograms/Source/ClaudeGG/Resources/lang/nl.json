@@ -385,5 +385,20 @@
  "Really remove?": "Echt verwijderen?",
  "Really close?": "Echt sluiten?",
  "Rename": "Naam wijzigen",
- "Each installation has its own settings: its own capture card and its own microcontroller. Closing this window does not stop them.": "Elke installatie heeft eigen instellingen: een eigen capture card en een eigen microcontroller. Als je dit venster sluit, blijven ze draaien."
+ "Each installation has its own settings: its own capture card and its own microcontroller. Closing this window does not stop them.": "Elke installatie heeft eigen instellingen: een eigen capture card en een eigen microcontroller. Als je dit venster sluit, blijven ze draaien.",
+ "On a Raspberry Pi, over USB": "Op een Raspberry Pi, via USB",
+ "The token that the installer printed": "Het token dat het installatieprogramma toonde",
+ "Connect the Raspberry Pi": "Verbind de Raspberry Pi",
+ "The phone is plugged into a Raspberry Pi that runs the Claude GG agent. Claude GG sees the screen of the phone and taps it through the Pi.": "De telefoon zit aan een Raspberry Pi die de Claude GG-agent draait. Claude GG ziet het scherm van de telefoon en tikt erop via de Pi.",
+ "Address of the Raspberry Pi": "Adres van de Raspberry Pi",
+ "Token": "Token",
+ "Testing...": "Testen...",
+ "Test the connection": "Verbinding testen",
+ "Asking the Raspberry Pi...": "De Raspberry Pi wordt gevraagd...",
+ "Automating Pokémon GO is against Niantic's Terms of Service and can get the account banned. Use a spare account and do it at your own risk.": "Pokémon GO automatiseren is tegen de gebruiksvoorwaarden van Niantic en kan ertoe leiden dat het account wordt verbannen. Gebruik een reserveaccount en doe het op eigen risico.",
+ "On the Raspberry Pi": "Op de Raspberry Pi",
+ "Plug the phone into the Raspberry Pi with its USB cable. On the phone, turn on Developer options and USB debugging, and allow the Pi when the phone asks.": "Steek de telefoon met de USB-kabel in de Raspberry Pi. Zet op de telefoon de ontwikkelaarsopties en USB-foutopsporing aan en sta de Pi toe als de telefoon erom vraagt.",
+ "On the Raspberry Pi, open a terminal and download Claude GG:": "Open op de Raspberry Pi een terminal en download Claude GG:",
+ "Then install the agent:": "Installeer daarna de agent:",
+ "It prints the address and the token. Type them here and test the connection.": "Het toont het adres en het token. Typ ze hier in en test de verbinding."
 }
