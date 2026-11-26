@@ -85,7 +85,7 @@ bool MobileAgent::request(const char* method, const QString& path, const QByteAr
         }
     }
 
-    const int split = data.indexOf("\r\n\r\n");
+    const qsizetype split = data.indexOf("\r\n\r\n");
     if (split < 0){
         return fail("the agent gave no answer (is it the Claude GG agent on that port?)");
     }
@@ -293,7 +293,7 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
     while (port == 0 && clock.elapsed() < 20000 && agent.state() != QProcess::NotRunning){
         if (agent.waitForReadyRead(500)){
             heard += agent.readAll();
-            const int at = heard.indexOf("listening on port ");
+            const qsizetype at = heard.indexOf("listening on port ");
             if (at >= 0){
                 port = heard.mid(at + 18).split('\n').front().trimmed().toInt();
             }
@@ -379,7 +379,7 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
 
     //  What is not allowed does not get to the phone.
     {
-        const int count = read_lines(adb_log).size();
+        const qsizetype count = read_lines(adb_log).size();
         error.clear();
         check(!phone.tap(-1, 5, 120, &error) && !error.isEmpty(), "a tap outside the screen is refused (" + error + ")");
         error.clear();
