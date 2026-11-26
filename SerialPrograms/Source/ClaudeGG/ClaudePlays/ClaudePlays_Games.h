@@ -8,10 +8,11 @@
  *  (FireRed and LeafGreen have a Claude Plays of their own, with the
  *  routines of the AutoStory: VideoGames/PokemonFRLG/Programs/ClaudePlays.)
  *
- *  Every game that is added to the program gets a list with a Claude Plays
- *  in it: a GameId and a profile here, and either a list of its own in
- *  VideoGames/ (like ZeldaTotK) or, while it has no programs, an entry in
- *  has_only_claude_plays() (the list is then made by GameOnlyList). The
+ *  Every game that is added to the program gets a Claude Plays: a GameId and
+ *  a profile here, and either a list of its own in VideoGames/ (like
+ *  ZeldaTotK) or, while it has no programs, an entry in
+ *  has_only_claude_plays(): it has no tile on the page with the games then,
+ *  and is a choice of the option "Game" of Claude Plays in Other Games. The
  *  notes of a profile say only what is certain.
  *
  *  No Qt in this header.

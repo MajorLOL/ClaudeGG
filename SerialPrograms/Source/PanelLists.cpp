@@ -69,16 +69,10 @@ std::vector<std::unique_ptr<PanelListDescriptor>> make_all_lists(){
 
     lists.emplace_back(std::make_unique<NintendoSwitch::ZeldaTotK::PanelListFactory>());
 
-    //  ClaudeGG: games with no program of their own yet, for Claude Plays.
-    //  A new game goes in here (a GameId and its profile, see
+    //  ClaudeGG: whatever game is on the screen, played by Claude. A game with
+    //  no program of its own yet has no tile of its own: it is a choice of the
+    //  option "Game" of this list's Claude Plays (a GameId and its profile, see
     //  ClaudeGG/ClaudePlays/ClaudePlays_Games.h) until it has programs.
-    for (ClaudeGG::ClaudePlays::GameId game : ClaudeGG::ClaudePlays::all_games()){
-        if (ClaudeGG::ClaudePlays::has_only_claude_plays(game)){
-            lists.emplace_back(std::make_unique<ClaudeGG::ClaudePlays::GameOnlyList>(game));
-        }
-    }
-
-    //  ClaudeGG: whatever game is on the screen, played by Claude.
     lists.emplace_back(std::make_unique<ClaudeGG::ClaudePlays::OtherGamesList>());
 
     if (STATIC_GLOBALS.DEVELOPER_MODE){

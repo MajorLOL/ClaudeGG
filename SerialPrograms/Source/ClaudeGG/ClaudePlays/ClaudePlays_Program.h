@@ -79,6 +79,9 @@ private:
     const GameId m_game;
 
     StaticTextOption SETUP_TEXT;
+    //  Only shown in Other Games: which of the games that have no list of
+    //  their own it is (see has_only_claude_plays()).
+    EnumDropdownOption<GameId> GAME;
     TextEditOption GOAL;
     TextEditOption ABOUT;
     EnumDropdownOption<Model> MODEL;

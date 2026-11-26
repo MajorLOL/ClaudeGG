@@ -420,6 +420,21 @@ std::string setup_text(const GameProfile& profile){
         ". Text is read as English.";
 }
 
+//  The choices of the option "Game" of Other Games: nothing in particular, and
+//  each game that has no list of its own (it has its profile, with its buttons,
+//  but no tile on the page with the games).
+EnumDropdownDatabase<GameId> other_games_database(){
+    EnumDropdownDatabase<GameId> database;
+    database.add(GameId::OTHER_GAMES, "other", "Whatever is on the screen", true);
+    for (GameId id : all_games()){
+        if (has_only_claude_plays(id)){
+            const GameProfile& profile = game_profile(id);
+            database.add(id, profile.identifier, profile.title, true);
+        }
+    }
+    return database;
+}
+
 }   //  namespace
 
 
@@ -427,6 +442,13 @@ std::string setup_text(const GameProfile& profile){
 GameProgram::GameProgram(GameId game)
     : m_game(game)
     , SETUP_TEXT(setup_text(game_profile(game)))
+    , GAME(
+        "<b>Game:</b><br>What the program tells Claude about the game: its name and its main controls, as "
+        "far as they are certain. \"Whatever is on the screen\": nothing, Claude finds out from the screen.",
+        other_games_database(),
+        LockMode::LOCK_WHILE_RUNNING,
+        GameId::OTHER_GAMES
+    )
     , GOAL(
         "<b>Goal:</b><br>What Claude should do, in your own words (any language). Say where the game is "
         "at, if that helps, and when the goal is reached.",
@@ -510,6 +532,9 @@ GameProgram::GameProgram(GameId game)
     })
 {
     PA_ADD_STATIC(SETUP_TEXT);
+    if (m_game == GameId::OTHER_GAMES){
+        PA_ADD_OPTION(GAME);
+    }
     PA_ADD_OPTION(GOAL);
     PA_ADD_OPTION(ABOUT);
     PA_ADD_OPTION(MODEL);
@@ -525,11 +550,13 @@ GameProgram::GameProgram(GameId game)
 
 void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope& scope){
     GameProgram_Descriptor::Stats& stats = env.current_stats<GameProgram_Descriptor::Stats>();
-    const GameProfile& profile = game_profile(m_game);
+    //  In Other Games, the game that was picked there.
+    const GameId selected = m_game == GameId::OTHER_GAMES ? (GameId)GAME : m_game;
+    const GameProfile& profile = game_profile(selected);
 
     env.log(
         PROGRAM_NAME + " build " + PROGRAM_BUILD + " (Claude Plays: " +
-        (m_game == GameId::OTHER_GAMES ? std::string(OTHER_GAMES_LIST) : profile.name) + ", experimental)",
+        (selected == GameId::OTHER_GAMES ? std::string(OTHER_GAMES_LIST) : profile.name) + ", experimental)",
         COLOR_BLUE
     );
 
@@ -604,7 +631,7 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
         if (!context->is_ready()){
             throw UserSetupError(context->logger(), "Controller is not ready.");
         }
-        ProConsole console(env, context, m_game);
+        ProConsole console(env, context, selected);
         session(console, context);
     }
 }

@@ -89,7 +89,7 @@ In **FireRed and LeafGreen** the tools are those of the AutoStory instead, and e
 | `save_game` | Saves the game. Only there when you allow saving. |
 | `wait`, `note`, `done` | Waits; writes a note down for itself; ends the session. |
 
-What each list's Claude Plays tells Claude: the name of its game and its main controls, as far as they are certain (Claude is told to go by the buttons the screen shows). Let's Go, Pikachu! and Let's Go, Eevee! are played with their single right Joy-Con; catching there takes a throwing motion, which the program cannot make. In Other Games, Claude is told that the program does not know the game.
+What each list's Claude Plays tells Claude: the name of its game and its main controls, as far as they are certain (Claude is told to go by the buttons the screen shows). Let's Go, Pikachu! and Let's Go, Eevee! are played with their single right Joy-Con; catching there takes a throwing motion, which the program cannot make. In Other Games, Claude is told that the program does not know the game, unless you pick one under "Game": Octopath Traveler 0, Mario Kart 8 Deluxe, Splatoon 3 and Animal Crossing: New Horizons have no programs of their own, so they have no tile on the page with the games and are a choice there.
 
 What keeps a session cheap:
 
