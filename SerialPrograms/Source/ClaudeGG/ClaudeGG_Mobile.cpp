@@ -29,6 +29,7 @@
 #include "Assistant/Assistant_Settings.h"
 #include "ClaudeGG_Mobile.h"
 #include "ClaudeGG_PokemonGo.h"
+#include "ClaudeGG_PokemonGoNav.h"
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -639,6 +640,17 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         python = QStandardPaths::findExecutable("python3");
     }
     check(!python.isEmpty(), "Python is there to run the agent");
+    //  The screen readers of the bot, ported to C++ (issue #30): held to the answers of the Python ones.
+    {
+        QStringList nav;
+        const int differ = PokemonGo::Nav::run_nav_checks(agent_folder + "/../tests/fixtures/nav_golden.json", nav);
+        for (const QString& line : nav){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, nav.isEmpty() ? QString("the screen readers answer as battle_nav.py does") : nav.last());
+    }
     if (wrong != 0){
         return finish();
     }

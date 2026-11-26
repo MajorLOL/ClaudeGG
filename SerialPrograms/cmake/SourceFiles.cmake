@@ -1507,6 +1507,8 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_Panel.h
     Source/ClaudeGG/ClaudeGG_PokemonGo.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGo.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoNav.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoNav.h
     Source/ClaudeGG/ClaudeGG_Instances.cpp
     Source/ClaudeGG/ClaudeGG_Instances.h
     Source/ClaudeGG/ClaudeGG_Language.cpp
