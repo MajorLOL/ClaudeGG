@@ -329,8 +329,8 @@ int run_embed_test(QApplication& application, const QString& folder){
     search.pid = (DWORD)pid;
     EnumChildWindows(search.parent, collect_child, (LPARAM)&search);
     const HWND window = search.found.front();
-    RECT place_rect;
-    RECT window_rect;
+    RECT place_rect = {0, 0, 0, 0};
+    RECT window_rect = {0, 0, 0, 0};
     bool fills = false;
     for (int tries = 0; tries < 50 && !fills; tries++){
         wait_for(100);
