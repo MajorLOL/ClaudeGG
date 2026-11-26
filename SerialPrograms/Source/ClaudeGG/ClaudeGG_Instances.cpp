@@ -38,6 +38,7 @@
 #include "CommonFramework/ImageTypes/ImageRGB32_Qt.h"
 #include "CommonFramework/VideoPipeline/VideoSession.h"
 #include "ClaudeGG_Setup.h"
+#include "ClaudeGG_Host.h"
 #include "ClaudeGG_Instances.h"
 
 #ifdef _WIN32
@@ -153,7 +154,7 @@ bool parse_instance_options(int argc, char* argv[], std::string& id, bool& overv
     id.clear();
     overview = false;
     for (int c = 1; c < argc; c++){
-        if (std::string(argv[c]) == INSTANCES_OPTION || std::string(argv[c]) == INSTANCES_HUB_TEST_OPTION){
+        if (std::string(argv[c]) == INSTANCES_OPTION || std::string(argv[c]) == INSTANCES_HUB_TEST_OPTION || std::string(argv[c]) == HOST_TEST_OPTION){
             overview = true;
         }else if (std::string(argv[c]) == INSTANCE_OPTION){
             const QString value = c + 1 < argc ? QString::fromUtf8(argv[c + 1]) : QString();
@@ -189,7 +190,8 @@ bool read_instance_options(int argc, char* argv[], QString* error){
     if (!id.empty()){
         set_current_instance(id);
     }
-    g_overview = overview;
+    //  The main window (ClaudeGG_Host.h) is the overview with the installations in it.
+    g_overview = overview || is_host();
     return true;
 }
 
@@ -684,7 +686,10 @@ bool show_instances_overview(){
 //  ---------------------------------------------------------------------
 
 int run_instances_hub(QApplication& application, const QString& test_folder){
-    (void)application;
+    //  The program itself: the overview with the installations in it.
+    if (is_host() && test_folder.isEmpty()){
+        return run_host(application);
+    }
     const std::string scratch = shared_base_path();
     const auto registry = std::make_shared<InstanceRegistry>(scratch);
 
@@ -855,7 +860,7 @@ int run_instances_checks(Logger& logger){
         check(registry.read("2", NOW, false).starting, "and what else is in its file is kept");
         check(registry.rename("1", "Main"), "the first installation can be given a name too");
         check(registry.read("1", NOW, false).name == "Main", "(it has one)");
-        check(clean_instance_name(QString(100, QChar('x'))).size() == INSTANCE_NAME_LENGTH, "a name is no longer than " + QString::number(INSTANCE_NAME_LENGTH) + " characters");
+        check(clean_instance_name(QString(100, QChar('x'))).size() == INSTANCE_NAME_LENGTH, "a name is no longer than 40 characters");
         check(clean_instance_name("   \t ").isEmpty(), "a name of spaces is none");
         check(registry.rename("2", "   "), "an empty name is written");
         check(registry.read("2", NOW, false).name.isEmpty() && registry.read("2", NOW, false).starting, "and takes the name away (the rest stays)");

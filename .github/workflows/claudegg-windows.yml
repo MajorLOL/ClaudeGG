@@ -755,6 +755,52 @@ jobs:
           }
           Write-Host "The embedding test passed."
 
+      #  The main window with the installations in it (see
+      #  Source/ClaudeGG/ClaudeGG_Host.h): installations are processes with no
+      #  window of their own, shown inside one window. A colour as an installation
+      #  first, to check what Windows says, then the program itself twice (its
+      #  setup, and its main window). Reports and does not stop the build until it
+      #  has been seen to pass; the pictures go with the build.
+      - name: Host test
+        id: host_test
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $dir = (Resolve-Path "Arduino-Source/SerialPrograms/bin/RelWithDebInfo").Path
+          New-Item -ItemType Directory -Force -Path "host-screenshots" | Out-Null
+          $shots = (Resolve-Path "host-screenshots").Path
+          $process = Start-Process -FilePath "$dir/ClaudeGG.exe" -WorkingDirectory $dir -ArgumentList "--host-test", "`"$shots`"" -PassThru
+          $handle = $process.Handle
+          if ($process.WaitForExit(1200000)) {
+            $code = $process.ExitCode
+          } else {
+            $process.Kill()
+            $code = -1
+          }
+          Write-Host "The host test: exit code $code."
+          if (Test-Path "$shots/host-test.txt") {
+            Get-Content "$shots/host-test.txt" | ForEach-Object { Write-Host $_ }
+          } else {
+            Write-Host "The test wrote no report."
+          }
+          Get-ChildItem $shots -Filter "*.jpg" -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "PP-PREVIEW-BEGIN $($_.Name)"
+            Write-Host ([Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName)))
+            Write-Host "PP-PREVIEW-END $($_.Name)"
+          }
+          foreach ($name in "ClaudeGG-Installations.log", "Installations/ci-host-b/ClaudeGG.log", "Installations/ci-host-c/ClaudeGG.log") {
+            $log = Join-Path $dir $name
+            if (Test-Path $log) {
+              Write-Host "---- the end of $name ----"
+              Get-Content $log -Tail 40
+            }
+          }
+          Get-Process ClaudeGG -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "Still running: $($_.Id)"; $_.Kill() }
+          if ($code -ne 0) {
+            throw "The host test failed (exit code $code): see the lines above."
+          }
+          Write-Host "The host test passed."
+
       #  Pokemon Automation's own tests (its repository CommandLineTests, pinned
       #  by its commit), run by the program itself with --command-line-test-mode,
       #  as its own workflow does. For now they may fail without failing the
@@ -808,9 +854,10 @@ jobs:
           SETUP: ${{ steps.setup_test.outcome }}
           INSTALLATIONS: ${{ steps.installations_test.outcome }}
           EMBEDDING: ${{ steps.embedding_test.outcome }}
+          HOST: ${{ steps.host_test.outcome }}
           POKEMON: ${{ steps.pokemon_tests.outcome }}
         run: |
-          for pair in "Intro test=$INTRO" "Tutorial film test=$TUTORIAL" "Language test=$LANGUAGE" "Setup test=$SETUP" "Installations test=$INSTALLATIONS" "Embedding test=$EMBEDDING" "Pokemon Automation's tests=$POKEMON"; do
+          for pair in "Intro test=$INTRO" "Tutorial film test=$TUTORIAL" "Language test=$LANGUAGE" "Setup test=$SETUP" "Installations test=$INSTALLATIONS" "Embedding test=$EMBEDDING" "Host test=$HOST" "Pokemon Automation's tests=$POKEMON"; do
             if [ "${pair#*=}" = "failure" ]; then
               echo "::warning::${pair%%=*} failed: see its step."
             fi
@@ -831,6 +878,8 @@ jobs:
             ui-screenshots/*.png
             setup-screenshots/*.png
             embed-screenshots/*.png
+            host-screenshots/*.jpg
+            host-screenshots/*.txt
 
       - name: Upload what a failed interface test left behind
         if: failure()

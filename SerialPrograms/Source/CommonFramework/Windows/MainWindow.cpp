@@ -30,6 +30,7 @@
 #include "CommonFramework/Options/QtWidget/WallpaperWidget.h"
 #include "CommonFramework/Windows/DpiScaler.h"
 #include "ClaudeGG/ClaudeGG_About.h"
+#include "ClaudeGG/ClaudeGG_Embed.h"
 #include "ClaudeGG/ClaudeGG_Home.h"
 #include "ClaudeGG/ClaudeGG_Instances.h"
 #include "ClaudeGG/ClaudeGG_Language.h"
@@ -400,6 +401,11 @@ void MainWindow::closeEvent(QCloseEvent* event){
     QMainWindow::closeEvent(event);
 }
 void MainWindow::resizeEvent(QResizeEvent* event){
+    //  In the main window of the program (an installation shown in it) this
+    //  window is as large as that one: not the size that is kept.
+    if (ClaudeGG::is_embedded()){
+        return;
+    }
     m_pending_resize = true;
     GlobalSettings::instance().WINDOW_SIZE->WIDTH.set(width());
     GlobalSettings::instance().WINDOW_SIZE->HEIGHT.set(height());
@@ -407,6 +413,9 @@ void MainWindow::resizeEvent(QResizeEvent* event){
 }
 
 void MainWindow::moveEvent(QMoveEvent* event){
+    if (ClaudeGG::is_embedded()){
+        return;
+    }
     m_pending_move = true;
     GlobalSettings::instance().WINDOW_SIZE->X_POS.set(x());
     GlobalSettings::instance().WINDOW_SIZE->Y_POS.set(y());

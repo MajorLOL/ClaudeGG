@@ -62,6 +62,20 @@ bool embed_instance_window(QWidget* window);
 //  main window to see that an installation has made its window.
 int count_child_windows(quintptr parent, qint64 pid);
 
+//  The windows of the process "pid" that are on the taskbar: visible, with no
+//  owner and no parent (what the user sees as "a window of the program").
+int count_top_level_windows(qint64 pid);
+
+//  Gives the keyboard to the first window of the process "pid" that is a child
+//  of "parent" (what is shown in the main window has to be typed in).
+bool focus_child_window(quintptr parent, qint64 pid);
+
+//  What Windows says about the first window of the process "pid" that is a child
+//  of "parent": the size of its inside and of the inside of "parent" (pixels),
+//  whether it is visible and whether it has the style of a child. False: there
+//  is none. Any of the pointers may be null.
+bool describe_child_window(quintptr parent, qint64 pid, QSize* child_size, QSize* parent_size, bool* visible, bool* child_style);
+
 //  The probe (what a test starts) and the test.
 int run_embed_probe(QApplication& application);
 int run_embed_test(QApplication& application, const QString& folder);

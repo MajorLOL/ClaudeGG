@@ -374,6 +374,8 @@
  "Installation %1": "Instalación %1",
  "New installation": "Nueva instalación",
  "A new window opens, with the setup.": "Se abre una ventana nueva, con la configuración.",
+ "Each installation has its own settings: its own capture card and its own microcontroller. They run in this window; closing it closes them.": "Cada instalación tiene sus propios ajustes: su propia capturadora y su propio microcontrolador. Se ejecutan en esta ventana; al cerrarla, se cierran también.",
+ "It starts here, with the setup.": "Se inicia aquí, con la configuración.",
  "Starting...": "Iniciando...",
  "Not running": "Detenida",
  "A program runs": "Un programa en marcha",

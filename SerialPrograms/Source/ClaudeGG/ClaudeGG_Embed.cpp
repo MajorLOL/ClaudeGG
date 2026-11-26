@@ -9,10 +9,12 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <memory>
 #include <thread>
 #include <vector>
 #include <QApplication>
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QEventLoop>
 #include <QFile>
@@ -31,6 +33,8 @@
 #include "Common/Cpp/Logging/GlobalLogger.h"
 #include "CommonFramework/Logging/Logger.h"
 #include "ClaudeGG_Embed.h"
+#include "ClaudeGG_InstancePaths.h"
+#include "ClaudeGG_Instances.h"
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -105,6 +109,57 @@ BOOL CALLBACK collect_child(HWND window, LPARAM parameter){
     return TRUE;
 }
 
+//  The windows on the taskbar of a process.
+struct TopSearch{
+    DWORD pid = 0;
+    int count = 0;
+};
+BOOL CALLBACK collect_top(HWND window, LPARAM parameter){
+    TopSearch& search = *(TopSearch*)parameter;
+    DWORD pid = 0;
+    GetWindowThreadProcessId(window, &pid);
+    if (pid != search.pid || !IsWindowVisible(window) || GetParent(window) != nullptr || GetWindow(window, GW_OWNER) != nullptr){
+        return TRUE;
+    }
+    if ((GetWindowLongW(window, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) != 0){
+        return TRUE;
+    }
+    search.count++;
+    return TRUE;
+}
+
+//  The window that this process was given goes (the main window was closed, or
+//  ended): what is open here is closed as its window would be, and when that
+//  does not end the process, it ends. A thread of its own, because the loop of
+//  events may be what does not answer.
+void start_guard(){
+    static std::atomic<bool> started(false);
+    if (started.exchange(true)){
+        return;
+    }
+    const HWND parent = (HWND)g_parent;
+    std::thread([parent]{
+        while (IsWindow(parent)){
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        }
+        global_logger_tagged().log("Embedding: the window that this was given is gone: the windows are closed.");
+        QCoreApplication* application = QCoreApplication::instance();
+        if (application == nullptr){
+            std::_Exit(0);
+        }
+        QMetaObject::invokeMethod(application, []{
+            close_instance_windows();
+        }, Qt::QueuedConnection);
+        std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+        QMetaObject::invokeMethod(application, []{
+            QCoreApplication::quit();
+        }, Qt::QueuedConnection);
+        std::this_thread::sleep_for(std::chrono::milliseconds(8000));
+        global_logger_tagged().log("Embedding: the process did not end: it ends now.", COLOR_RED);
+        std::_Exit(0);
+    }).detach();
+}
+
 #endif
 
 }
@@ -151,6 +206,7 @@ bool embed_instance_window(QWidget* window){
     }
     handle->setParent(g_foreign);
     g_windows.push_back(window);
+    start_guard();
     if (g_fit_timer == nullptr){
         g_fit_timer = new QTimer(QCoreApplication::instance());
         g_fit_timer->setInterval(100);
@@ -163,6 +219,73 @@ bool embed_instance_window(QWidget* window){
     return true;
 #else
     (void)window;
+    return false;
+#endif
+}
+
+int count_top_level_windows(qint64 pid){
+#ifdef _WIN32
+    TopSearch search;
+    search.pid = (DWORD)pid;
+    EnumWindows(collect_top, (LPARAM)&search);
+    return search.count;
+#else
+    (void)pid;
+    return 0;
+#endif
+}
+
+bool focus_child_window(quintptr parent, qint64 pid){
+#ifdef _WIN32
+    ChildSearch search;
+    search.parent = (HWND)parent;
+    search.pid = (DWORD)pid;
+    EnumChildWindows(search.parent, collect_child, (LPARAM)&search);
+    if (search.found.empty()){
+        return false;
+    }
+    return SetFocus(search.found.front()) != nullptr || GetFocus() == search.found.front();
+#else
+    (void)parent;
+    (void)pid;
+    return false;
+#endif
+}
+
+bool describe_child_window(quintptr parent, qint64 pid, QSize* child_size, QSize* parent_size, bool* visible, bool* child_style){
+#ifdef _WIN32
+    ChildSearch search;
+    search.parent = (HWND)parent;
+    search.pid = (DWORD)pid;
+    EnumChildWindows(search.parent, collect_child, (LPARAM)&search);
+    if (search.found.empty()){
+        return false;
+    }
+    const HWND window = search.found.front();
+    RECT inside = {0, 0, 0, 0};
+    RECT outside = {0, 0, 0, 0};
+    GetClientRect(window, &inside);
+    GetClientRect(search.parent, &outside);
+    if (child_size != nullptr){
+        *child_size = QSize(inside.right - inside.left, inside.bottom - inside.top);
+    }
+    if (parent_size != nullptr){
+        *parent_size = QSize(outside.right - outside.left, outside.bottom - outside.top);
+    }
+    if (visible != nullptr){
+        *visible = IsWindowVisible(window) != 0;
+    }
+    if (child_style != nullptr){
+        *child_style = (GetWindowLongW(window, GWL_STYLE) & WS_CHILD) != 0;
+    }
+    return true;
+#else
+    (void)parent;
+    (void)pid;
+    (void)child_size;
+    (void)parent_size;
+    (void)visible;
+    (void)child_style;
     return false;
 #endif
 }
@@ -219,55 +342,48 @@ int run_embed_probe(QApplication& application){
     }
     window.show();
 
-    //  It goes when the window it was given goes (a minute at most, for a probe
-    //  that nobody asked to go).
+    //  As an installation does, when it is not the first: a link that the main
+    //  window can ask to close it on, and a status that says it runs (the
+    //  main window shows that in its list).
+    std::unique_ptr<InstanceLink> link;
+    std::unique_ptr<QTimer> report;
+    const std::string id = current_instance();
+    if (id != MAIN_INSTANCE){
+        link = std::make_unique<InstanceLink>(
+            instance_link_name(shared_base_path(), QString::fromStdString("i" + id)),
+            [&application](const QString& command){
+                if (command == "close"){
+                    QMetaObject::invokeMethod(&application, []{
+                        QCoreApplication::quit();
+                    }, Qt::QueuedConnection);
+                }
+            }
+        );
+        const QString folder = InstanceRegistry(shared_base_path()).folder(QString::fromStdString(id));
+        const qint64 pid = QCoreApplication::applicationPid();
+        auto write = [folder, pid]{
+            write_instance_report_to(folder, pid, QDateTime::currentMSecsSinceEpoch(), "games", "Embedding probe", QImage());
+        };
+        write();
+        report = std::make_unique<QTimer>();
+        report->setInterval(1000);
+        QObject::connect(report.get(), &QTimer::timeout, report.get(), write);
+        report->start();
+    }
+
+    //  A minute at most, for a probe that nobody asked to go. (It goes when the
+    //  window it was given goes: see start_guard().)
     QTimer watch;
     watch.setInterval(250);
     int ticks = 0;
     QObject::connect(&watch, &QTimer::timeout, &application, [&]{
         ticks++;
-#ifdef _WIN32
-        if (!IsWindow((HWND)embed_parent())){
-            logger.log("Embedding probe: the window it was given is gone (seen by the event loop).");
-            application.quit();
-        }
-#endif
         if (ticks > 240){
             application.quit();
         }
     });
     watch.start();
-
-    //  The safety net, for an event loop that does not answer: a thread that
-    //  sees the window go too, asks the loop to end and, when it does not, ends
-    //  the process (with 3, so that the test sees it).
-    std::atomic<bool> ending(false);
-    std::thread guard([&]{
-#ifdef _WIN32
-        while (!ending){
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-            if (!IsWindow((HWND)embed_parent())){
-                break;
-            }
-        }
-        if (ending){
-            return;
-        }
-        logger.log("Embedding probe: the window it was given is gone (seen by the guard).");
-        QMetaObject::invokeMethod(&application, "quit", Qt::QueuedConnection);
-        for (int tries = 0; tries < 50; tries++){
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            if (ending){
-                return;
-            }
-        }
-        logger.log("Embedding probe: the event loop did not end: the process ends now.", COLOR_RED);
-        std::_Exit(3);
-#endif
-    });
     application.exec();
-    ending = true;
-    guard.join();
     logger.log("Embedding probe: ended.");
     return 0;
 }

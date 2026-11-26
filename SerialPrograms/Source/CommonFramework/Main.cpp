@@ -47,6 +47,7 @@
 #include "Startup/SetupSettings.h"
 #include "Windows/MainWindow.h"
 #include "ClaudeGG/ClaudeGG_Embed.h"
+#include "ClaudeGG/ClaudeGG_Host.h"
 #include "ClaudeGG/ClaudeGG_Instances.h"
 #include "ClaudeGG/ClaudeGG_Intro.h"
 #include "ClaudeGG/ClaudeGG_Language.h"
@@ -347,15 +348,24 @@ int run_program(int argc, char *argv[]){
         bool hub_test = false;
         bool embed_test = false;
         bool embed_probe = false;
+        bool host_test = false;
         QString setup_folder;
         QString hub_folder;
         QString embed_folder;
+        QString host_folder;
         for (int i = 1; i < argc; i++){
             if (strcmp(argv[i], ClaudeGG::INSTANCE_TEST_OPTION) == 0){
                 instance_test = true;
             }
             if (strcmp(argv[i], ClaudeGG::EMBED_PROBE_OPTION) == 0){
                 embed_probe = true;
+            }
+            if (strcmp(argv[i], ClaudeGG::HOST_TEST_OPTION) == 0){
+                host_test = true;
+                ask_setup = false;
+                if (i + 1 < argc){
+                    host_folder = QString::fromLocal8Bit(argv[i + 1]);
+                }
             }
             if (strcmp(argv[i], ClaudeGG::EMBED_TEST_OPTION) == 0){
                 embed_test = true;
@@ -407,6 +417,10 @@ int run_program(int argc, char *argv[]){
         }
         if (embed_test){
             return ClaudeGG::run_embed_test(application, embed_folder);
+        }
+        //  The main window, with the installations in it, as a person uses it.
+        if (host_test){
+            return ClaudeGG::run_host_test(application, host_folder);
         }
         if (ClaudeGG::is_overview_process()){
             return ClaudeGG::run_instances_hub(application, QString());
@@ -542,6 +556,10 @@ int run_program(int argc, char *argv[]){
     //  with a clock of its own, then through one that its pictures drive.
     std::unique_ptr<MainWindow> window = std::make_unique<MainWindow>();
     MainWindow& w = *window;
+    //  An installation in the main window: its window is a child of that.
+    if (ClaudeGG::is_embedded()){
+        ClaudeGG::embed_instance_window(&w);
+    }
     if (!ui_screenshots_folder.empty()){
         //  The test of the interface draws the window without putting it
         //  on the screen: the screen of a build machine is small, and a
@@ -582,6 +600,9 @@ int main(int argc, char *argv[]){
     set_program_path(argv[0]);
 #endif
 
+    //  Whether this is the main window (the overview with the installations in it)
+    //  and whether this is an installation in one: before any folder is asked for.
+    ClaudeGG::read_host_options(argc, argv);
     //  Which installation this is: before any folder of the program is asked for.
     {
         QString error;

@@ -374,6 +374,8 @@
  "Installation %1": "Installatie %1",
  "New installation": "Nieuwe installatie",
  "A new window opens, with the setup.": "Er opent een nieuw venster, met de setup.",
+ "Each installation has its own settings: its own capture card and its own microcontroller. They run in this window; closing it closes them.": "Elke installatie heeft eigen instellingen: een eigen capture card en een eigen microcontroller. Ze draaien in dit venster; als je het sluit, sluiten zij ook.",
+ "It starts here, with the setup.": "Start hier, met de setup.",
  "Starting...": "Wordt gestart...",
  "Not running": "Draait niet",
  "A program runs": "Een programma draait",

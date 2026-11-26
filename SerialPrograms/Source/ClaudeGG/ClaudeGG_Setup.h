@@ -192,6 +192,10 @@ struct SetupRequest{
     //  This screen is the overview of the installations, in a window of its own,
     //  instead of the setup. It needs the four functions that follow.
     bool overview = false;
+    //  The overview is the main window of the program, with the installations
+    //  shown inside it (ClaudeGG_Host.h): it is a child of that window, and
+    //  there is no other window to put away when one is opened.
+    bool host = false;
     //  The installations, with what they tell (called about once a second).
     std::function<std::vector<InstanceInfo>()> instance_list;
     //  A miniature was pressed: open that installation (bring its window
@@ -329,6 +333,11 @@ public:
 //  "test": no clock of its own (time only passes in wait()), and nothing
 //  opens outside the program.
 AppView* make_app_view(QWidget* parent, const SetupRequest& request, AppActions actions, bool test = false);
+
+//  The overview of the installations as a child of "parent" (the main window
+//  that shows them, see ClaudeGG_Host.h); the request needs the functions of
+//  the overview. It fills nothing by itself: the window places it.
+AppView* make_overview_view(QWidget* parent, const SetupRequest& request);
 
 //  Shows the screens full screen and returns when they are done or skipped.
 //  Needs a QApplication. The language is tried on the screens as it is

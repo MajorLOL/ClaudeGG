@@ -78,6 +78,7 @@
 #include "Common/Cpp/Cryptography/SecretSeal.h"
 #include "Common/Cpp/Json/JsonValue.h"
 #include "Common/Cpp/Options/StringOption.h"
+#include "ClaudeGG_Embed.h"
 #include "ClaudeGG_Firmware.h"
 #include "ClaudeGG_Language.h"
 #include "ClaudeGG_Scrub.h"
@@ -515,7 +516,13 @@ public:
     }
     void minimize(){
         m_minimize_requests++;
-        if (!m_test_mode){
+        if (m_test_mode){
+            return;
+        }
+        if (is_embedded()){
+            //  In the main window: the way away is the overview.
+            show_instances_overview();
+        }else if (parentWidget() == nullptr){
             showMinimized();
         }
     }
@@ -534,7 +541,8 @@ public:
         if (show){
             show();
         }
-        if (!m_test_mode){
+        //  (In the main window the overview comes over the installation.)
+        if (!m_test_mode && !is_embedded()){
             if (QWidget* top = window()){
                 top->showMinimized();
             }
@@ -7333,7 +7341,9 @@ public:
         draw_heading(painter, heading, 140, 80, 104, prog(t, in.head, in.head + 0.9), 1.0, 1200);
         draw_sub(
             painter,
-            T("Each installation has its own settings: its own capture card and its own microcontroller. Closing this window does not stop them."),
+            canvas.request().host
+                ? T("Each installation has its own settings: its own capture card and its own microcontroller. They run in this window; closing it closes them.")
+                : T("Each installation has its own settings: its own capture card and its own microcontroller. Closing this window does not stop them."),
             140, 80 + heading_height(heading, 104, 1200) + 12, prog(t, in.sub, in.sub + 0.8), 1.0, 30, 1250
         );
 
@@ -7665,7 +7675,11 @@ private:
         const double x = picture.left() + 4;
         const double name_y = picture.bottom() + 28;
         draw_elided(painter, T("New installation"), x, name_y, grid.width - 8, ui_font(30, 600), white(a));
-        draw_elided(painter, T("A new window opens, with the setup."), x, name_y + 40, grid.width - 8, ui_font(22, 500), white(0.62 * a));
+        draw_elided(
+            painter,
+            canvas.request().host ? T("It starts here, with the setup.") : T("A new window opens, with the setup."),
+            x, name_y + 40, grid.width - 8, ui_font(22, 500), white(0.62 * a)
+        );
         painter.restore();
         canvas.add_hit(id, QRectF(tile.left(), tile.top(), tile.width(), grid.picture_height + 56), reveal > 0.9);
     }
@@ -8935,17 +8949,24 @@ SetupResult run_setup(const SetupRequest& request){
     }
     std::unique_ptr<Canvas> canvas(new Canvas(request, false));
     QEventLoop loop;
+    //  In the main window (the installation is shown there): the window is a
+    //  child of it and as large as it is, not a screen of its own.
+    const bool embedded = is_embedded() && embed_instance_window(canvas.get());
     //  On the screen the program was started on.
     QScreen* screen = QGuiApplication::screenAt(QCursor::pos());
     if (screen == nullptr){
         screen = QApplication::primaryScreen();
     }
-    if (screen != nullptr){
+    if (screen != nullptr && !embedded){
         canvas->setScreen(screen);
         canvas->setGeometry(screen->geometry());
     }
     canvas->start(&loop);
-    canvas->showFullScreen();
+    if (embedded){
+        canvas->show();
+    }else{
+        canvas->showFullScreen();
+    }
     canvas->raise();
     canvas->activateWindow();
     canvas->setFocus();
@@ -8977,6 +8998,15 @@ SetupResult run_setup(const SetupRequest& request){
 
 AppView* make_app_view(QWidget* parent, const SetupRequest& request, AppActions actions, bool test){
     Canvas* canvas = new Canvas(request, test, parent, &actions);
+    canvas->start(nullptr);
+    return canvas;
+}
+
+AppView* make_overview_view(QWidget* parent, const SetupRequest& request){
+    SetupRequest overview = request;
+    overview.overview = true;
+    overview.host = true;
+    Canvas* canvas = new Canvas(overview, false, parent);
     canvas->start(nullptr);
     return canvas;
 }
