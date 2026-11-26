@@ -736,6 +736,15 @@ int run_host_test(QApplication& application, const QString& folder){
                 can_close = view->has_button("inst-close:" + id);
             }
             check(can_close, what + ": it tells the overview that it runs");
+            if (!can_close){
+                //  What is in the folder of the installation, and what the list makes of it.
+                const QString where = registry->folder(id);
+                QFile status(where + "status.json");
+                QString content = status.open(QIODevice::ReadOnly) ? QString::fromUtf8(status.readAll()).simplified() : QString("no status.json");
+                const InstanceInfo info = registry->read(id, QDateTime::currentMSecsSinceEpoch(), false);
+                note("its folder: " + QDir(where).entryList(QDir::Files).join(", ") + "; status.json: " + content +
+                    "; the list says: " + (info.running ? "running" : "not running") + ", state '" + info.state + "'");
+            }
             view->click("inst-close:" + id);
             view->click("inst-close:" + id);
             bool gone = false;
@@ -744,6 +753,9 @@ int run_host_test(QApplication& application, const QString& folder){
                 gone = !window.has(id);
             }
             check(gone, what + ": 'Close' ends it");
+            if (!gone){
+                note("its windows: " + describe_process_windows(child) + "; it runs: " + (window.running(id) ? "yes" : "no"));
+            }
         }
         window.close();
         check(!window.running(id), what + ": closing the main window ends it");
