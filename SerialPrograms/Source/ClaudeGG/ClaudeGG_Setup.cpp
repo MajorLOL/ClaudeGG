@@ -11255,6 +11255,7 @@ int run_setup_test(QApplication& application, const QString& folder){
         checker.check(phone.page_state().startsWith("host=192.168.7.7;port=8765;token=set;test=idle"), "what was kept of the Raspberry Pi is filled in");
         checker.check(phone.has_hit("pi-test") && phone.hit_enabled("pi-test") && phone.has_hit("back") && phone.has_hit("continue"), "the page has the test, Back and Continue");
         save(phone, folder, "setup-62-pi");
+        save_preview(phone, folder, "preview-pi");
 
         //  The test of the connection runs on its own and the page goes on.
         phone.click("pi-test");
@@ -11269,6 +11270,7 @@ int run_setup_test(QApplication& application, const QString& folder){
         wait_for_test(phone);
         checker.check(phone.page_state().contains("test=ok") && phone.page_state().contains("Connected to Test Phone"), "the test says that it works, and what the phone is");
         save(phone, folder, "setup-63-pi-connected");
+        save_preview(phone, folder, "preview-pi-connected");
         checker.check(phone.set_field("host", "10.0.0.9") && phone.page_state().contains("test=idle"), "a change of the address wipes what the test found");
         phone.click("pi-test");
         wait_for_test(phone);
