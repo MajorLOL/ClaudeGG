@@ -1,0 +1,82 @@
+"""The test chapters: parts of the bot that can be run on their own, from the web interface (Test) or with
+'python3 gamebot.py chapter <key>'.  Each one starts on a known screen, does one thing and stops, so a fix can be
+tried in a minute instead of waiting for the moment in a whole run.
+
+This file only describes them (the web interface reads it without loading the bot); gamebot.run_chapter() runs
+them.  Fields: key, group, title, the screen the game has to be on at the start, what it does."""
+
+CHAPTERS = [
+    # key             group                  title                                start screen                       what it does
+    ("screen",        "Checks",              "What the bot sees",                 "Any screen",
+     "Takes one screenshot, says which screen it is and marks what it finds (debug/g_test.png). No taps."),
+    ("video",         "Checks",              "Live video",                        "Any screen",
+     "Runs the live video of the phone for 8 seconds, as in a battle, and says how many pictures came. No taps."),
+    ("look",          "Checks",              "Looking: video against screenshots", "The map",
+     "Takes ten pictures from the live video and three screenshots, and says how long each took and what the bot finds on the map in both. No taps."),
+    ("checks",        "Checks",              "All checks without taps",           "Any screen (the map for the last one)",
+     "What the bot sees, the live video and looking (video against screenshots), one after the other. Nothing is tapped."),
+    ("play",          "Checks",              "Normal play for 3 minutes",         "The map",
+     "The normal bot (spin, catch, everything that is switched on) for 3 minutes, then it stops."),
+
+    ("battle_menu",   "GO Battle League",    "To the party screen",               "The map",
+     "Walks from the map to the party screen of the chosen league (rewards, rank, a new set on the way) and stops there."),
+    ("battle_one",    "GO Battle League",    "One battle",                        "The map",
+     "One whole battle of the chosen league: the way to it, the fight and the result screen."),
+    ("battle_fight",  "GO Battle League",    "The fight on the screen",           "A battle that is going on",
+     "Fights the battle that is on the screen now, to its result. Start it during the countdown or in the fight."),
+    ("battle_set",    "GO Battle League",    "All battles of the setting",        "The map",
+     "As many battles as set under Battles, as in the daily run."),
+
+    ("rocket",        "Team GO Rocket",      "Rocket battle",                     "A grunt or leader talking, at the stop",
+     "The whole Team GO Rocket battle: the party, the fight, the rewards and catching the Shadow Pokémon."),
+    ("rocket_fight",  "Team GO Rocket",      "The Rocket fight on the screen",    "A Rocket fight that is going on",
+     "Fights the Team GO Rocket fight that is on the screen now, until it is over."),
+
+    ("leagues",       "Your Pokémon and teams", "Read the leagues of now",         "The map",
+     "Walks to the league list of the Battle screen, reads the leagues and their max CP, and goes back. Nothing is chosen."),
+    ("tags",          "Your Pokémon and teams", "Make a tag for each league",      "The map",
+     "Reads the leagues, then makes a tag named after each one in the Pokémon storage (TAGS, +) - unless it is there already."),
+    ("scan_test",     "Your Pokémon and teams", "Scan the first 5 Pokémon",        "The map",
+     "Opens the storage, the first Pokémon and its appraisal, and reads name, CP and the IV bars of five Pokémon. A check before the whole scan."),
+    ("scan",          "Your Pokémon and teams", "Scan all your Pokémon",           "The map",
+     "The same for every Pokémon in the storage (about 2-4 s each: an hour or more). Stop test stops it; what was read is kept."),
+    ("scan_new",      "Your Pokémon and teams", "Scan the Pokémon of the last week", "The map",
+     "The same, only for the Pokémon caught in the last 7 days (search age0-7): minutes instead of an hour."),
+    ("scan_flags",    "Your Pokémon and teams", "Find shadow, lucky and purified",  "The map",
+     "Searches shadow, lucky and purified in the storage and marks those Pokémon in the collection (Shadow fights differently, Lucky is cheaper to power up)."),
+    ("teams",         "Your Pokémon and teams", "Make the teams",                  "Any screen",
+     "Works out the best team of three for each league from the scanned Pokémon: PvPoke rankings, how the IVs fit the cap, the simulator against the top 30 of the league; lead, switch and closer. No taps, except reading the leagues when they are not known yet."),
+    ("check_team",    "Your Pokémon and teams", "Check the moves and candy of the teams", "The map",
+     "Opens every team member and reserve: its candy, candy XL and moves; then the teams are made again (without the right moves or enough candy a Pokémon counts less)."),
+    ("tag_teams",     "Your Pokémon and teams", "Tag the team members",            "The map",
+     "Gives every Pokémon of the teams (and their reserves) the tag of its league (its menu, TAG, the tag, DONE)."),
+    ("refresh",       "Your Pokémon and teams", "The weekly round",                "The map",
+     "Leagues, tags when the leagues changed, the Pokémon of the last week (all the first time), shadow / lucky / purified, teams, moves and candy, tags, the battle team, a message to your phone."),
+    ("catch",         "Catching",            "Catch this Pokémon",                "An encounter",
+     "Catches the Pokémon on the screen (or runs, as the settings say), until the game is out of the encounter."),
+    ("throw",         "Catching",            "One throw",                         "An encounter",
+     "Throws one ball at the Pokémon on the screen, with the ring timing, and says how it went (ring size at the release, where the ball came down). Nothing else."),
+    ("bag",           "Items and rewards",   "Clean up the bag",                  "The map",
+     "Opens the bag and discards what the bag rules say, then back to the map."),
+    ("quests",        "Items and rewards",   "Claim GO Pass rewards",             "The map",
+     "Opens the quests, GO Pass, View rewards, Claim all, and closes them again (also when the button is not gold)."),
+    ("storage",       "Items and rewards",   "Pokémon storage: look",             "The map",
+     "Opens the Pokémon storage, searches with 'What may go from the storage' and takes a picture of what came up. Nothing is selected or sent away."),
+    ("gifts",         "Items and rewards",   "Gifts",                             "The map",
+     "One round of opening and sending gifts, as the gift settings say."),
+]
+
+KEYS = [c[0] for c in CHAPTERS]
+
+
+def chapter(key):
+    """The chapter as a dict, or None."""
+    for k, group, title, start, what in CHAPTERS:
+        if k == key:
+            return {"key": k, "group": group, "title": title, "start": start, "what": what}
+    return None
+
+
+def as_list():
+    """For the web interface: [{key, group, title, start, what}]."""
+    return [chapter(k) for k in KEYS]
