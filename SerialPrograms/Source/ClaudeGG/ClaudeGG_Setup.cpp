@@ -9550,7 +9550,11 @@ void check_overview(Checker& checker, const QString& folder){
     fake->opened.clear();
     hub.set_focus_id("inst:1");
     hub.press_key(Qt::Key_Tab);
-    checker.check(hub.focus_id() == "inst:2", "Tab goes to the next miniature");
+    checker.check(hub.focus_id() == "inst-rename:1", "Tab goes on to the links of a miniature (Rename ...");
+    hub.press_key(Qt::Key_Tab);
+    checker.check(hub.focus_id() == "inst-close:1", "... Close, on one that runs) ...");
+    hub.press_key(Qt::Key_Tab);
+    checker.check(hub.focus_id() == "inst:2", "... and then to the next miniature");
     hub.press_key(Qt::Key_Return);
     checker.check(fake->opened == QStringList({"2"}), "Enter opens it");
 

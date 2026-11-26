@@ -6,7 +6,10 @@
  */
 
 #include <cstdlib>
+#include <atomic>
+#include <chrono>
 #include <cstring>
+#include <thread>
 #include <vector>
 #include <QApplication>
 #include <QCoreApplication>
@@ -225,6 +228,7 @@ int run_embed_probe(QApplication& application){
         ticks++;
 #ifdef _WIN32
         if (!IsWindow((HWND)embed_parent())){
+            logger.log("Embedding probe: the window it was given is gone (seen by the event loop).");
             application.quit();
         }
 #endif
@@ -233,7 +237,37 @@ int run_embed_probe(QApplication& application){
         }
     });
     watch.start();
+
+    //  The safety net, for an event loop that does not answer: a thread that
+    //  sees the window go too, asks the loop to end and, when it does not, ends
+    //  the process (with 3, so that the test sees it).
+    std::atomic<bool> ending(false);
+    std::thread guard([&]{
+#ifdef _WIN32
+        while (!ending){
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            if (!IsWindow((HWND)embed_parent())){
+                break;
+            }
+        }
+        if (ending){
+            return;
+        }
+        logger.log("Embedding probe: the window it was given is gone (seen by the guard).");
+        QMetaObject::invokeMethod(&application, "quit", Qt::QueuedConnection);
+        for (int tries = 0; tries < 50; tries++){
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            if (ending){
+                return;
+            }
+        }
+        logger.log("Embedding probe: the event loop did not end: the process ends now.", COLOR_RED);
+        std::_Exit(3);
+#endif
+    });
     application.exec();
+    ending = true;
+    guard.join();
     logger.log("Embedding probe: ended.");
     return 0;
 }
@@ -384,7 +418,14 @@ int run_embed_test(QApplication& application, const QString& folder){
     place->hide();
     host.hide();
     delete place;
-    const bool ended = child.waitForFinished(15000);
+    //  The window of this process keeps answering while it waits: a window that
+    //  is in another one is tied to it, and the one that holds it must not stand
+    //  still while the other is busy with it.
+    bool ended = false;
+    for (int tries = 0; tries < 75 && !ended; tries++){
+        wait_for(200);
+        ended = child.state() == QProcess::NotRunning;
+    }
     if (!ended){
         child.kill();
         child.waitForFinished(5000);

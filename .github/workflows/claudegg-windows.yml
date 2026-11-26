@@ -467,6 +467,7 @@ jobs:
       #  stops the program (if it cannot play, the program goes on), so this
       #  step reports and does not stop the build.
       - name: Intro test
+        id: intro_test
         continue-on-error: true
         shell: pwsh
         run: |
@@ -502,6 +503,7 @@ jobs:
       #  sound output: its picture size, its sound, its length, and that it
       #  plays to the end. Reports and does not stop the build.
       - name: Tutorial film test
+        id: tutorial_test
         continue-on-error: true
         shell: pwsh
         run: |
@@ -537,6 +539,7 @@ jobs:
       #  same texts) and a few windows are translated and brought back. Without
       #  a window of its own on screen; reports and does not stop the build.
       - name: Language test
+        id: language_test
         continue-on-error: true
         shell: pwsh
         run: |
@@ -565,6 +568,7 @@ jobs:
       #  keys), saves a picture of each screen and checks what was answered.
       #  The pictures go with the build to look at.
       - name: Setup test
+        id: setup_test
         continue-on-error: true
         shell: pwsh
         run: |
@@ -610,6 +614,7 @@ jobs:
       #  its miniature and its connection), and the overview that shows the
       #  miniatures. Neither may touch the settings of installation 1.
       - name: Installations test
+        id: installations_test
         continue-on-error: true
         shell: pwsh
         run: |
@@ -715,6 +720,7 @@ jobs:
       #  fail without failing the build until the installations really are
       #  shown in the main window; then it becomes strict.
       - name: Embedding test
+        id: embedding_test
         continue-on-error: true
         shell: pwsh
         run: |
@@ -765,6 +771,7 @@ jobs:
           path: 'CommandLineTests'
 
       - name: Pokemon Automation's tests
+        id: pokemon_tests
         continue-on-error: true
         shell: pwsh
         run: |
@@ -785,6 +792,33 @@ jobs:
           if ($code -ne 0) {
             throw "Pokemon Automation's tests failed (exit code $code): see the lines above."
           }
+
+      #  What the steps that may fail without stopping the build said, in one
+      #  place: a warning on the page of the run for each, so that a failure
+      #  does not hide in a long log. The tests of the setup and of the
+      #  installations are this program's own and passed before: when one fails
+      #  the build is not published.
+      - name: Summary of the tests
+        if: always()
+        shell: bash
+        env:
+          INTRO: ${{ steps.intro_test.outcome }}
+          TUTORIAL: ${{ steps.tutorial_test.outcome }}
+          LANGUAGE: ${{ steps.language_test.outcome }}
+          SETUP: ${{ steps.setup_test.outcome }}
+          INSTALLATIONS: ${{ steps.installations_test.outcome }}
+          EMBEDDING: ${{ steps.embedding_test.outcome }}
+          POKEMON: ${{ steps.pokemon_tests.outcome }}
+        run: |
+          for pair in "Intro test=$INTRO" "Tutorial film test=$TUTORIAL" "Language test=$LANGUAGE" "Setup test=$SETUP" "Installations test=$INSTALLATIONS" "Embedding test=$EMBEDDING" "Pokemon Automation's tests=$POKEMON"; do
+            if [ "${pair#*=}" = "failure" ]; then
+              echo "::warning::${pair%%=*} failed: see its step."
+            fi
+          done
+          if [ "$SETUP" = "failure" ] || [ "$INSTALLATIONS" = "failure" ]; then
+            echo "::error::The test of the setup or of the installations failed: the build is not published."
+            exit 1
+          fi
 
       #  Also for a build that failed the interface test: to look at.
       - name: Upload artifact
