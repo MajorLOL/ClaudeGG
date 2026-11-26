@@ -22,9 +22,11 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <utility>
 #include <vector>
 #include <QImage>
 #include <QString>
+#include <QStringList>
 
 class QApplication;
 
@@ -51,6 +53,22 @@ struct MobileStroke{
     int ms = 300;
 };
 
+//  The Pokémon GO bot that runs on the Raspberry Pi (Mobile/gamebot.py, started
+//  and stopped by the agent: /v1/bot).
+struct MobileBotState{
+    bool installed = false;
+    bool running = false;
+    QStringList log;            //  the end of its log, the oldest line first
+};
+struct MobileBotStart{
+    //  Switches of the bot by name ("spin", "catch", ...): see BOT_SWITCHES in the agent.
+    std::vector<std::pair<QString, bool>> options;
+    QString throw_target;       //  "realistic", "nice", "great", "excellent" or "off"; empty: as it is
+    QString daily_time;         //  HH:MM; empty: as it is
+    int daily_max_min = 0;      //  minutes; 0: as it is
+    bool daily_now = false;     //  the daily run begins at once
+};
+
 class MobileAgent{
 public:
     //  "host" and "port" of the Pi, and the token the agent made (see its README).
@@ -71,6 +89,12 @@ public:
     bool key(const QString& name, QString* error = nullptr) const;
     bool text(const QString& typed, QString* error = nullptr) const;
     bool wake(QString* error = nullptr) const;
+
+    //  The Pokémon GO bot on the Pi. "lines": how much of the end of its log.
+    bool bot_state(MobileBotState& state, int lines = 40, QString* error = nullptr) const;
+    //  Sets what is asked in the bot's control file and starts it (afresh when it runs).
+    bool bot_start(const MobileBotStart& settings, QString* error = nullptr) const;
+    bool bot_stop(QString* error = nullptr) const;
 
 private:
     struct Reply{

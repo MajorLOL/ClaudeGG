@@ -70,6 +70,11 @@ int count_top_level_windows(qint64 pid);
 //  of "parent" (what is shown in the main window has to be typed in).
 bool focus_child_window(quintptr parent, qint64 pid);
 
+//  Takes the keyboard for a window of this process that is shown in the main
+//  window (a click in a child window of another program does not give it the
+//  keyboard by itself). Does nothing for a window that is not embedded.
+void take_keyboard(QWidget* window);
+
 //  What Windows says about the first window of the process "pid" that is a child
 //  of "parent": the size of its inside and of the inside of "parent" (pixels),
 //  whether it is visible and whether it has the style of a child. False: there

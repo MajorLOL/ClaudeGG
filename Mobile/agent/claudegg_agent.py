@@ -21,6 +21,11 @@ do is the list of the endpoints below, and the arguments are checked before an `
     POST /v1/key     {key: "BACK"}      or {keycode: 4}
     POST /v1/text    {text: "..."}      letters, digits and . , _ @ : / + - and spaces
     POST /v1/wake                       wakes the screen
+    GET  /v1/bot?lines=40               the Pokemon GO bot (gamebot.py, installed in the home folder as the service
+                                        spin-stop): installed, running, its options, the end of its log
+    POST /v1/bot/start {options, throw_target, daily_time, daily_max_min, daily_now}
+                                        sets what is asked in the bot's control file and starts it
+    POST /v1/bot/stop                   stops it
 
 Only the standard library is used, so it runs on the Pi as it is. Part of Claude GG
 (https://github.com/MajorLOL/ClaudeGG); MIT license like the rest of this folder.
@@ -55,6 +60,20 @@ VIDEO_WIDTH = (100, 2000, 540)
 VIDEO_IDLE_SECONDS = 5      #  the pipeline stops this long after the last viewer left
 VIDEO_FIRST_PICTURE_SECONDS = 12
 VIDEO_REPEAT_SECONDS = 1.0  #  a screen that does not change gives no new picture: the last one is sent again
+
+#  The Pokemon GO bot (Mobile/gamebot.py, installed in the home folder as a service called spin-stop). The
+#  agent only starts and stops it and sets the switches of its control file, as the bot's web interface
+#  does; the options a program of Claude GG may set are listed here, and nothing else is written.
+BOT_SERVICE = "spin-stop"
+BOT_SWITCHES = (
+    "spin", "catch", "gifts_open", "gifts_send", "daily_cycle", "curveball", "fast_catch",
+    "spin_only_when_full", "close_when_full", "rocket_fight", "quests", "bag_clean", "buddy",
+    "fast_look", "heat_pause", "live_look",
+)
+BOT_SWITCHES_OFF = ("curveball", "buddy", "fast_catch")      #  the ones that start unticked in the bot's web interface
+BOT_THROW_TARGETS = ("realistic", "off", "nice", "great", "excellent")
+BOT_LOG_LINES = (1, 200, 40)
+BOT_DAILY_TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 #  The keys a program may press (Android's key events). Others by their number, 0 to 300.
 KEYS = {
@@ -307,10 +326,11 @@ class VideoPipeline:
 class Phone:
     """What can be done with the phone: the endpoints, with their arguments checked."""
 
-    def __init__(self, adb, display=None, video=None):
+    def __init__(self, adb, display=None, video=None, bot=None):
         self.adb = adb
         self.display = display
         self.video = video if video is not None else VideoPipeline(adb, display)
+        self.bot = bot if bot is not None else Bot()
 
     @staticmethod
     def _int(value, name, low=0, high=MAX_COORDINATE):
@@ -396,6 +416,125 @@ class Phone:
 
     def wake(self):
         self.adb.run("shell", "input", "keyevent", KEYS["WAKEUP"])
+
+
+class Bot:
+    """The Pokemon GO bot of Mobile/ as the agent shows it and starts it: a service called spin-stop that
+    reads its switches from ~/gamebot_control.json. `home` is where its files are (the home folder of the
+    user of the agent), `systemctl` the command that starts and stops services."""
+
+    def __init__(self, home=None, systemctl=("sudo", "-n", "/usr/bin/systemctl"), status=("systemctl",)):
+        self.home = home or os.path.expanduser("~")
+        self.systemctl = list(systemctl)
+        self.status = list(status)
+        self.lock = threading.Lock()
+
+    def _path(self, name):
+        return os.path.join(self.home, name)
+
+    def installed(self):
+        return os.path.exists(self._path("gamebot.py"))
+
+    def running(self):
+        try:
+            done = subprocess.run(self.status + ["is-active", BOT_SERVICE], capture_output=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            return False
+        return done.stdout.decode(errors="ignore").strip() == "active"
+
+    def control(self):
+        try:
+            with open(self._path("gamebot_control.json"), "r", encoding="utf-8") as handle:
+                value = json.load(handle)
+            return value if isinstance(value, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def log_lines(self, count):
+        try:
+            with open(self._path("spin.log"), "rb") as handle:
+                handle.seek(0, 2)
+                handle.seek(max(handle.tell() - 60000, 0))
+                lines = handle.read().decode("utf-8", errors="ignore").splitlines()
+        except OSError:
+            return []
+        return lines[-count:]
+
+    def state(self, lines):
+        control = self.control()
+        #  A switch that was never touched is on (but for a few), as the web interface of the bot shows it.
+        options = {key: bool(control.get(key, key not in BOT_SWITCHES_OFF)) for key in BOT_SWITCHES}
+        return {
+            "installed": self.installed(), "running": self.running(), "options": options,
+            "throw_target": control.get("throw_target", "realistic"),
+            "daily_time": control.get("daily_time", "08:00"),
+            "daily_max_min": control.get("daily_max_min", 480),
+            "log": self.log_lines(lines),
+        }
+
+    @staticmethod
+    def _checked(body):
+        """What is asked, checked: the switches that exist with true or false, a throw target of the list,
+        a time as HH:MM and a time limit in minutes. Returns what is to be written to the control file."""
+        wanted = {}
+        options = body.get("options", {})
+        if not isinstance(options, dict):
+            raise AgentError(400, "options must be an object")
+        for key, value in options.items():
+            if key not in BOT_SWITCHES:
+                raise AgentError(400, "%s is not an option of the bot" % key)
+            if not isinstance(value, bool):
+                raise AgentError(400, "%s must be true or false" % key)
+            wanted[key] = value
+        if "throw_target" in body:
+            if body["throw_target"] not in BOT_THROW_TARGETS:
+                raise AgentError(400, "throw_target must be one of %s" % ", ".join(BOT_THROW_TARGETS))
+            wanted["throw_target"] = body["throw_target"]
+        if "daily_time" in body:
+            if not isinstance(body["daily_time"], str) or not BOT_DAILY_TIME.match(body["daily_time"]):
+                raise AgentError(400, "daily_time must be HH:MM")
+            wanted["daily_time"] = body["daily_time"]
+        if "daily_max_min" in body:
+            wanted["daily_max_min"] = Phone._int(body["daily_max_min"], "daily_max_min", 5, 1440)
+        return wanted
+
+    def _write_control(self, wanted):
+        control = self.control()
+        control.update(wanted)
+        path = self._path("gamebot_control.json")
+        temporary = path + ".tmp"
+        with open(temporary, "w", encoding="utf-8") as handle:
+            json.dump(control, handle)
+        os.replace(temporary, path)
+
+    def _service(self, action):
+        try:
+            done = subprocess.run(self.systemctl + [action, BOT_SERVICE], capture_output=True, timeout=30)
+        except (OSError, subprocess.SubprocessError) as error:
+            done_word = {"start": "started", "restart": "restarted", "stop": "stopped"}[action]
+            raise AgentError(502, "the bot could not be %s: %s" % (done_word, error))
+        if done.returncode != 0:
+            said = done.stderr.decode(errors="ignore").strip() or done.stdout.decode(errors="ignore").strip()
+            raise AgentError(502, "systemctl %s %s failed (%d): %s%s" % (
+                action, BOT_SERVICE, done.returncode, said[-200:],
+                " - the user of the agent needs the sudoers rule of the Installation page" if "password" in said else ""))
+
+    def start(self, body):
+        wanted = self._checked(body)
+        if not self.installed():
+            raise AgentError(409, "the Pokemon GO bot is not installed on this Raspberry Pi (Mobile/install.sh)")
+        with self.lock:
+            self._write_control(wanted)
+            if body.get("daily_now") is True:
+                #  What the Start button of the bot's web interface does: the daily run begins at once.
+                with open(self._path("gamebot_force.json"), "w", encoding="utf-8") as handle:
+                    handle.write(str(time.time()))
+            #  'start' on a service that runs does nothing: a program that is started again begins afresh.
+            self._service("restart" if self.running() else "start")
+
+    def stop(self):
+        with self.lock:
+            self._service("stop")
 
 
 def read_or_make_token(path):
@@ -520,6 +659,23 @@ def make_handler(phone, token, quiet=True):
                 if method == "POST" and path in actions:
                     actions[path](self._body())
                     return self._send(200, {"ok": True})
+                if method == "GET" and path == "/v1/bot":
+                    query = self.path.split("?", 1)[1] if "?" in self.path else ""
+                    values = dict(part.split("=", 1) for part in query.split("&") if "=" in part)
+                    try:
+                        lines = int(values.get("lines", BOT_LOG_LINES[2]))
+                    except ValueError:
+                        raise AgentError(400, "lines must be a whole number")
+                    if lines < BOT_LOG_LINES[0] or lines > BOT_LOG_LINES[1]:
+                        raise AgentError(400, "lines must be from %d to %d" % (BOT_LOG_LINES[0], BOT_LOG_LINES[1]))
+                    return self._send(200, phone.bot.state(lines))
+                if method == "POST" and path == "/v1/bot/start":
+                    phone.bot.start(self._body())
+                    return self._send(200, {"ok": True})
+                if method == "POST" and path == "/v1/bot/stop":
+                    self._body()
+                    phone.bot.stop()
+                    return self._send(200, {"ok": True})
                 if method == "POST" and path == "/v1/wake":
                     self._body()
                     phone.wake()
@@ -562,6 +718,8 @@ def main(argv=None):
     parser.add_argument("--ffmpeg", default="ffmpeg", help="the ffmpeg program (for the live picture)")
     parser.add_argument("--video-cmd", default=None, help="a program that writes JPEG pictures to its output, in place of screenrecord and ffmpeg (for tests)")
     parser.add_argument("--video-arg", action="append", default=[], help="an argument of --video-cmd")
+    parser.add_argument("--bot-home", default=None, help="where the Pokemon GO bot's files are (default: the home folder; for tests)")
+    parser.add_argument("--systemctl", action="append", default=None, help="the command that starts and stops the bot's service, one argument at a time (for tests)")
     parser.add_argument("--token-file", default=os.path.expanduser("~/.claudegg-agent/token"))
     parser.add_argument("--print-token", action="store_true", help="print the token and end")
     parser.add_argument("--verbose", action="store_true", help="log every request")
@@ -573,7 +731,8 @@ def main(argv=None):
         return 0
     adb = Adb([args.adb] + args.adb_arg, args.serial)
     video = VideoPipeline(adb, args.display, [args.video_cmd] + args.video_arg if args.video_cmd else None, args.ffmpeg)
-    phone = Phone(adb, args.display, video)
+    bot = Bot(args.bot_home, tuple(args.systemctl), tuple(args.systemctl)) if args.systemctl else Bot(args.bot_home)
+    phone = Phone(adb, args.display, video, bot)
     server = make_server(phone, token, args.host, args.port, quiet=not args.verbose)
     print("Claude GG agent %s listening on port %d" % (VERSION, server.server_address[1]), flush=True)
     print("The token is in %s" % args.token_file, flush=True)

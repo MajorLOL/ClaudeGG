@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <utility>
 //#include <QStatusBar>
+#include <QApplication>
+#include <QDialog>
 #include <QVBoxLayout>
 #include "Common/Cpp/ScopeExit.h"
 #include "Common/Cpp/Exceptions.h"
@@ -35,7 +37,9 @@
 #include "ClaudeGG/ClaudeGG_Instances.h"
 #include "ClaudeGG/ClaudeGG_Language.h"
 #include "ClaudeGG/ClaudeGG_Logo.h"
+#include "ClaudeGG/ClaudeGG_Panel.h"
 #include "ClaudeGG/ClaudeGG_Setup.h"
+#include "ClaudeGG/Assistant/Assistant_Http.h"
 #include "ClaudeGG/Assistant/Assistant_Panel.h"
 #include "ClaudeGG/Assistant/Assistant_Service.h"
 #include "WindowTracker.h"
@@ -82,6 +86,12 @@ MainWindow::MainWindow(QWidget* parent, bool app_test)
     centralwidget = new WallpaperWidget(this);
     centralwidget->setObjectName(QString::fromUtf8("centralwidget"));
     setCentralWidget(centralwidget);
+    //  What was a window of its own (the output log, the buttons, About) is a panel over this
+    //  one: one program, one window. It is hidden until a button asks for it.
+    m_panel = new ClaudeGG::PanelOverlay(centralwidget);
+    m_panel->on_closed = [this]{
+        m_window_panel = WindowPanel::NONE;
+    };
 //    statusbar = new QStatusBar(this);
 //    statusbar->setObjectName(QString::fromUtf8("statusbar"));
 //    setStatusBar(statusbar);
@@ -101,28 +111,11 @@ MainWindow::MainWindow(QWidget* parent, bool app_test)
     m_program_list = new ProgramSelect(*centralwidget, *this);
     m_program_list->hide();
 
-    //  The windows behind the buttons along the top.
+    //  The log and the diagram of the buttons, for the panel (they are no windows: the panel
+    //  holds them, see show_window_panel()).
     m_button_diagram.reset(new ButtonDiagram());
-    {
-        m_output_window.reset(new LoggerWindow(nullptr));
-        global_multi_logger().add_listener(*m_output_window);
-
-        // get snapshot of the saved initial x/y position, since activating the window seems to change the window coordinates, 
-        // which then causes initial x/y position to change, due to triggering moveEvent().
-        int32_t x_pos_log = GlobalSettings::instance().LOG_WINDOW_SIZE->X_POS;
-        int32_t y_pos_log = GlobalSettings::instance().LOG_WINDOW_SIZE->Y_POS;    
-
-        if (GlobalSettings::instance().LOG_WINDOW_STARTUP){ // show the Output Window on startup
-            m_output_window->show();
-            m_output_window->raise(); // bring the window to front on macOS
-            m_output_window->activateWindow(); // bring the window to front on Windows
-        }
-
-        // move the output window to desired position on startup
-        int32_t move_x_log = move_x_within_screen_bounds(x_pos_log);
-        int32_t move_y_log = move_y_within_screen_bounds(y_pos_log);
-        m_output_window->move(move_x_log, move_y_log);
-    }
+    m_output_window.reset(new LoggerWindow(nullptr));
+    global_multi_logger().add_listener(*m_output_window);
 
     //  The screens first (they start on the games): no program is loaded at
     //  the start, the games are shown, as at a first start.
@@ -169,9 +162,18 @@ MainWindow::MainWindow(QWidget* parent, bool app_test)
             open_game(game, program);
         });
     }
+    //  "Open Output Window at startup": the log, in its panel, once the window is up.
+    if (GlobalSettings::instance().LOG_WINDOW_STARTUP && !app_test){
+        QMetaObject::invokeMethod(this, [this]{
+            show_window_panel(WindowPanel::OUTPUT);
+        }, Qt::QueuedConnection);
+    }
 //    cout << "Done constructing" << endl;
 }
 MainWindow::~MainWindow(){
+    if (m_panel != nullptr){
+        m_panel->hide_panel();
+    }
     ClaudeGG::set_game_opener(nullptr);
     set_panel_settings_saver(nullptr);
     //  The panel before what it shows.
@@ -386,6 +388,48 @@ int32_t move_y_within_screen_bounds(int32_t y_pos){
 }
 
 
+void MainWindow::show_window_panel(WindowPanel panel){
+    if (m_panel == nullptr){
+        return;
+    }
+    //  The same button again puts the panel away.
+    if (panel == WindowPanel::NONE || (panel == m_window_panel && m_panel->is_open())){
+        m_panel->hide_panel();
+        m_window_panel = WindowPanel::NONE;
+        return;
+    }
+    ClaudeGG::PanelOverlay::Options options;
+    switch (panel){
+    case WindowPanel::OUTPUT:
+        options.wide = true;
+        m_panel->show_panel(ClaudeGG::tr_ui("Output"), m_output_window.get(), options);
+        break;
+    case WindowPanel::BUTTONS:
+        options.wide = true;
+        m_panel->show_panel(ClaudeGG::tr_ui("Buttons"), m_button_diagram.get(), options);
+        break;
+    case WindowPanel::ABOUT:{
+        //  The window of "About" as a widget of the panel; its connection for the check
+        //  for updates lives as long as it does.
+        std::shared_ptr<ClaudeGG::Assistant::HttpTransport> transport(ClaudeGG::Assistant::make_network_transport());
+        std::unique_ptr<QDialog> dialog = ClaudeGG::make_about(m_panel, about_info(), transport.get());
+        QDialog* raw = dialog.release();
+        //  (Its own context: the connection, and with it the transport, go after the window's widgets.)
+        QObject::connect(raw, &QObject::destroyed, raw, [transport]{});
+        //  Its own Close button (and Esc) ends the dialog: the panel goes with it.
+        QObject::connect(raw, &QDialog::finished, m_panel, [this]{
+            m_panel->hide_panel();
+        });
+        options.own = true;
+        m_panel->show_panel(ClaudeGG::tr_ui("About"), raw, options);
+        break;
+    }
+    case WindowPanel::NONE:
+        break;
+    }
+    m_window_panel = panel;
+}
+
 void MainWindow::closeEvent(QCloseEvent* event){
     //  ClaudeGG: the options of the panel that is open are written here,
     //  before anything is taken down. They were written only when the window
@@ -398,6 +442,16 @@ void MainWindow::closeEvent(QCloseEvent* event){
         }catch (...){}
     }
     close_all_windows();
+    //  No window is left behind: what is open next to this one (a window that a program
+    //  opened, a dialog) closes with it, so that the program ends with its window.
+    if (m_panel != nullptr){
+        m_panel->hide_panel();
+    }
+    for (QWidget* widget : QApplication::topLevelWidgets()){
+        if (widget != this && widget->isVisible() && !widget->isAncestorOf(this) && widget->windowType() != Qt::Desktop){
+            widget->close();
+        }
+    }
     QMainWindow::closeEvent(event);
 }
 void MainWindow::resizeEvent(QResizeEvent* event){
@@ -689,18 +743,15 @@ void MainWindow::make_app_view(bool test){
     actions.settings = [this]{
         show_settings();
     };
+    //  (Panels over this window, not windows of their own.)
     actions.about = [this]{
-        ClaudeGG::show_about(this, about_info());
+        show_window_panel(WindowPanel::ABOUT);
     };
     actions.output = [this]{
-        m_output_window->show();
-        m_output_window->raise(); // bring the window to front on macOS
-        m_output_window->activateWindow(); // bring the window to front on Windows
+        show_window_panel(WindowPanel::OUTPUT);
     };
     actions.buttons = [this]{
-        m_button_diagram->show();
-        m_button_diagram->raise(); // bring the window to front on macOS
-        m_button_diagram->activateWindow(); // bring the window to front on Windows
+        show_window_panel(WindowPanel::BUTTONS);
     };
     actions.claude = [this](bool show){
         show_assistant(show);

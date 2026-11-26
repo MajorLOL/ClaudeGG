@@ -400,5 +400,8 @@
  "Plug the phone into the Raspberry Pi with its USB cable. On the phone, turn on Developer options and USB debugging, and allow the Pi when the phone asks.": "Schließen Sie das Telefon mit dem USB-Kabel an den Raspberry Pi an. Aktivieren Sie auf dem Telefon die Entwickleroptionen und das USB-Debugging und erlauben Sie den Pi, wenn das Telefon danach fragt.",
  "On the Raspberry Pi, open a terminal and download Claude GG:": "Öffnen Sie auf dem Raspberry Pi ein Terminal und laden Sie Claude GG herunter:",
  "Then install the agent (as yourself, not with sudo):": "Installieren Sie danach den Agent (als Sie selbst, nicht mit sudo):",
- "It prints the address and the token. Type them here and test the connection.": "Es zeigt die Adresse und das Token an. Geben Sie sie hier ein und testen Sie die Verbindung."
+ "It prints the address and the token. Type them here and test the connection.": "Es zeigt die Adresse und das Token an. Geben Sie sie hier ein und testen Sie die Verbindung.",
+ "The Raspberry Pi answers. Claude GG sees the screen of the phone and taps it through the Pi.": "Der Raspberry Pi antwortet. Claude GG sieht den Bildschirm des Handys und tippt ihn über den Pi an.",
+ "There are no games for this console yet.": "Für diese Konsole gibt es noch keine Spiele.",
+ "Waiting for the phone.": "Warte auf das Handy."
 }

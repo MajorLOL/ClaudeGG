@@ -9,7 +9,10 @@
  *  microcontroller is used, then the steps of its setup. Only the intro is a
  *  film; these are screens that wait for the user. With a phone as the console
  *  (Mobile/) the Raspberry Pi is the microcontroller: a page for its address and
- *  token (with a test of the connection) comes in place of the boards.
+ *  token (with a test of the connection) comes in place of the boards, and the
+ *  same last step ("You are done!") follows it. Each console has its own games
+ *  (HomeGame::consoles): the page with the games shows those of the console in
+ *  use, the phone's Pokémon GO and not the Switch's games.
  *
  *  The intro and the menus are one screen: the film plays on the window of
  *  the setup, its last picture stays and fades into the first menu, and when
@@ -163,8 +166,9 @@ struct SetupRequest{
     QString language_code = "en";
 
     //  The games to choose from, in the order of the program's list of games
-    //  (what the page with the games shows too). Empty: there is no choice,
-    //  "Start" just ends the setup.
+    //  (what the page with the games shows too); of these the page shows the
+    //  games of the console in use (HomeGame::consoles). Empty: there is no
+    //  choice, "Start" just ends the setup.
     std::vector<HomeGame> games;
 
     //  The programs of those games (HomeProgram::game is the index into

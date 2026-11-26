@@ -18,12 +18,13 @@ import claudegg_agent as agent  # noqa: E402
 
 FAKE = os.path.join(os.path.dirname(HERE), "fake_adb.py")
 FAKE_VIDEO = os.path.join(os.path.dirname(HERE), "fake_video.py")
+FAKE_SYSTEMCTL = os.path.join(os.path.dirname(HERE), "fake_systemctl.py")
 
 
 class Running:
     """The agent on a free port, with the fake adb; `calls()` is what the fake adb was asked."""
 
-    def __init__(self, fail=False):
+    def __init__(self, fail=False, bot=None):
         self.folder = tempfile.TemporaryDirectory()
         self.log = os.path.join(self.folder.name, "adb.log")
         os.environ["FAKE_ADB_LOG"] = self.log
@@ -37,7 +38,7 @@ class Running:
         self.video_log = os.path.join(self.folder.name, "video.log")
         os.environ["FAKE_VIDEO_LOG"] = self.video_log
         video = agent.VideoPipeline(adb, None, [sys.executable, FAKE_VIDEO], retry_delay=0.05, idle_seconds=0.3)
-        self.phone = agent.Phone(adb, None, video)
+        self.phone = agent.Phone(adb, None, video, bot)
         self.server = agent.make_server(self.phone, self.token, "127.0.0.1", 0)
         self.port = self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -306,6 +307,143 @@ class VideoTest(unittest.TestCase):
         self.assertIsNone(picture)
         self.assertFalse(alive)
         self.assertIn("ffmpeg is not installed", video.error)
+
+
+class BotTest(unittest.TestCase):
+    """The Pokemon GO bot: what the agent says of it, and how it starts and stops it (with a systemctl that is not one)."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.home = self.folder.name
+        os.environ["FAKE_SYSTEMCTL_STATE"] = os.path.join(self.home, "service-state")
+        os.environ["FAKE_SYSTEMCTL_LOG"] = os.path.join(self.home, "service-calls")
+        os.environ.pop("FAKE_SYSTEMCTL_FAIL", None)
+        self.addCleanup(lambda: [os.environ.pop(name, None) for name in ("FAKE_SYSTEMCTL_STATE", "FAKE_SYSTEMCTL_LOG", "FAKE_SYSTEMCTL_FAIL")])
+        command = (sys.executable, FAKE_SYSTEMCTL)
+        self.agent = Running(bot=agent.Bot(self.home, command, command))
+        self.addCleanup(self.agent.close)
+
+    def json(self, method, path, body=None, **kwargs):
+        status, data, _ = self.agent.ask(method, path, body, **kwargs)
+        return status, json.loads(data.decode())
+
+    def install(self):
+        with open(os.path.join(self.home, "gamebot.py"), "w", encoding="utf-8") as handle:
+            handle.write("# the bot\n")
+
+    def control(self):
+        with open(os.path.join(self.home, "gamebot_control.json"), encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def service_calls(self):
+        try:
+            with open(os.environ["FAKE_SYSTEMCTL_LOG"], encoding="utf-8") as handle:
+                return [line.strip() for line in handle if not line.startswith("is-active")]
+        except OSError:
+            return []
+
+    def test_a_pi_without_the_bot_says_so(self):
+        status, state = self.json("GET", "/v1/bot")
+        self.assertEqual(status, 200)
+        self.assertFalse(state["installed"])
+        self.assertFalse(state["running"])
+        self.assertEqual(state["log"], [])
+        #  Not installed: nothing is started.
+        status, body = self.json("POST", "/v1/bot/start", {"options": {"spin": True}})
+        self.assertEqual(status, 409)
+        self.assertIn("not installed", body["error"])
+        self.assertEqual(self.service_calls(), [])
+
+    def test_the_state_is_what_the_bot_keeps(self):
+        self.install()
+        with open(os.path.join(self.home, "gamebot_control.json"), "w", encoding="utf-8") as handle:
+            json.dump({"spin": False, "daily_time": "06:45", "throw_target": "great", "battle": True}, handle)
+        with open(os.path.join(self.home, "spin.log"), "w", encoding="utf-8") as handle:
+            handle.write("".join("2026-11-26 10:00:%02d  line %d\n" % (n % 60, n) for n in range(100)))
+        status, state = self.json("GET", "/v1/bot?lines=3")
+        self.assertEqual(status, 200)
+        self.assertTrue(state["installed"])
+        self.assertFalse(state["running"])
+        self.assertFalse(state["options"]["spin"])
+        self.assertTrue(state["options"]["catch"], "a switch that was never touched is on, as the bot reads it")
+        self.assertFalse(state["options"]["curveball"], "but the ones that start unticked are off")
+        self.assertNotIn("battle", state["options"], "the battles of GO Battle League are not an option of Claude GG")
+        self.assertEqual((state["daily_time"], state["throw_target"], state["daily_max_min"]), ("06:45", "great", 480))
+        self.assertEqual([line.split("  ")[1] for line in state["log"]], ["line 97", "line 98", "line 99"])
+        self.assertEqual(self.json("GET", "/v1/bot?lines=0")[0], 400)
+        self.assertEqual(self.json("GET", "/v1/bot?lines=201")[0], 400)
+        self.assertEqual(self.json("GET", "/v1/bot?lines=x")[0], 400)
+
+    def test_start_sets_what_is_asked_and_keeps_the_rest(self):
+        self.install()
+        with open(os.path.join(self.home, "gamebot_control.json"), "w", encoding="utf-8") as handle:
+            json.dump({"battle": True, "bag_clean": True}, handle)
+        status, _ = self.json("POST", "/v1/bot/start", {
+            "options": {"spin": True, "catch": False, "gifts_open": False}, "throw_target": "great",
+            "daily_time": "06:30", "daily_max_min": 120,
+        })
+        self.assertEqual(status, 200)
+        control = self.control()
+        self.assertEqual(control["spin"], True)
+        self.assertEqual(control["catch"], False)
+        self.assertEqual(control["throw_target"], "great")
+        self.assertEqual(control["daily_time"], "06:30")
+        self.assertEqual(control["daily_max_min"], 120)
+        self.assertEqual((control["battle"], control["bag_clean"]), (True, True), "what was not asked for stays as it was")
+        self.assertEqual(self.service_calls(), ["start spin-stop"])
+        self.assertTrue(self.json("GET", "/v1/bot")[1]["running"])
+        self.assertFalse(os.path.exists(os.path.join(self.home, "gamebot_force.json")), "no daily run unless it is asked for")
+        #  Started while it runs: it begins afresh.
+        self.assertEqual(self.json("POST", "/v1/bot/start", {"options": {"spin": False}})[0], 200)
+        self.assertEqual(self.service_calls(), ["start spin-stop", "restart spin-stop"])
+
+    def test_the_daily_run_can_begin_at_once(self):
+        self.install()
+        self.assertEqual(self.json("POST", "/v1/bot/start", {"options": {"daily_cycle": True}, "daily_now": True})[0], 200)
+        self.assertTrue(os.path.exists(os.path.join(self.home, "gamebot_force.json")))
+
+    def test_what_is_asked_is_checked_before_anything_is_written(self):
+        self.install()
+        for body in (
+            {"options": {"battle": True}},                       #  not an option of Claude GG
+            {"options": {"spin": "yes"}},
+            {"options": {"spin": 1}},
+            {"options": ["spin"]},
+            {"throw_target": "perfect"},
+            {"daily_time": "25:00"},
+            {"daily_time": "8:00"},
+            {"daily_time": 800},
+            {"daily_max_min": 3},
+            {"daily_max_min": 2000},
+            {"daily_max_min": "60"},
+        ):
+            status, answer = self.json("POST", "/v1/bot/start", body)
+            self.assertEqual(status, 400, body)
+            self.assertIn("error", answer)
+        self.assertFalse(os.path.exists(os.path.join(self.home, "gamebot_control.json")))
+        self.assertEqual(self.service_calls(), [])
+
+    def test_stop(self):
+        self.install()
+        self.json("POST", "/v1/bot/start", {})
+        self.assertTrue(self.json("GET", "/v1/bot")[1]["running"])
+        self.assertEqual(self.json("POST", "/v1/bot/stop")[0], 200)
+        self.assertFalse(self.json("GET", "/v1/bot")[1]["running"])
+        self.assertEqual(self.service_calls(), ["start spin-stop", "stop spin-stop"])
+
+    def test_a_service_that_cannot_be_started_is_told_as_it_is(self):
+        self.install()
+        os.environ["FAKE_SYSTEMCTL_FAIL"] = "1"
+        status, answer = self.json("POST", "/v1/bot/start", {})
+        self.assertEqual(status, 502)
+        self.assertIn("sudoers", answer["error"])
+        self.assertEqual(self.json("POST", "/v1/bot/stop")[0], 502)
+
+    def test_the_token_is_needed(self):
+        self.assertEqual(self.json("GET", "/v1/bot", token=None)[0], 401)
+        self.assertEqual(self.json("POST", "/v1/bot/start", {}, token="wrong")[0], 401)
+        self.assertEqual(self.json("POST", "/v1/bot/stop", token=None)[0], 401)
 
 
 class AgentFailTest(unittest.TestCase):

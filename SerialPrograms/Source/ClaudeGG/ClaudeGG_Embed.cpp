@@ -290,6 +290,24 @@ bool focus_child_window(quintptr parent, qint64 pid){
 #endif
 }
 
+void take_keyboard(QWidget* window){
+#ifdef _WIN32
+    if (window == nullptr || !is_embedded()){
+        return;
+    }
+    QWidget* top = window->window();
+    if (top == nullptr || !top->isVisible()){
+        return;
+    }
+    const HWND handle = (HWND)top->winId();
+    if (handle != nullptr && GetFocus() != handle){
+        SetFocus(handle);
+    }
+#else
+    (void)window;
+#endif
+}
+
 bool describe_child_window(quintptr parent, qint64 pid, QSize* child_size, QSize* parent_size, bool* visible, bool* child_style){
 #ifdef _WIN32
     ChildSearch search;

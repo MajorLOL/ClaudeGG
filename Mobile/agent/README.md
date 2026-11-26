@@ -56,9 +56,15 @@ HTTP with JSON on the local network. Everything but `/v1/ping` needs the header
 | `POST /v1/key` `{key}` or `{keycode}` | `BACK`, `HOME`, `APP_SWITCH`, `POWER`, `WAKEUP`, `ENTER`, ... or a number 0 to 300 |
 | `POST /v1/text` `{text}` | letters, digits, spaces and `. , _ @ : / + -`, up to 200 |
 | `POST /v1/wake` | wakes the screen |
+| `GET /v1/bot?lines=40` | the Pokémon GO bot of `Mobile/` (`gamebot.py`, installed in the home folder as the service `spin-stop`): `{installed, running, options, throw_target, daily_time, daily_max_min, log}`, with the last `lines` (1 to 200) of `~/spin.log` |
+| `POST /v1/bot/start` `{options, throw_target, daily_time, daily_max_min, daily_now}` | sets what is asked in the bot's control file (`~/gamebot_control.json`, as its web interface does) and starts the service (restarts it when it runs). `options` are only switches of this list, true or false: `spin`, `catch`, `gifts_open`, `gifts_send`, `daily_cycle`, `curveball`, `fast_catch`, `spin_only_when_full`, `close_when_full`, `rocket_fight`, `quests`, `bag_clean`, `buddy`, `fast_look`, `heat_pause`, `live_look`; the options of GO Battle League are not among them. `daily_now` makes the daily run begin at once. 409: the bot is not installed |
+| `POST /v1/bot/stop` | stops the service |
 
 Errors are `{"error": "..."}` with 400 (an argument is wrong), 401 (the token), 413, 502 (`adb` says no: the phone is
 off, not authorised, or not there) or 504 (`adb` does not answer).
+
+The bot is started and stopped with `sudo -n /usr/bin/systemctl`: the user of the agent needs the same sudoers rule as the
+bot's web interface (the page *Installation* of the wiki); without it the answer is a 502 that says so.
 
 What it will not do: open a shell, run a program or write a file on the phone. Every argument is checked and
 `adb` is called with a list of arguments, never a line for a shell.
@@ -72,5 +78,5 @@ foldable's second screen, `--host 127.0.0.1` to listen on the Pi itself only).
 python3 -m unittest discover -s tests
 ```
 
-`fake_adb.py` is a phone that is not there. Claude GG's own test (`ClaudeGG.exe --mobile-test`) starts this
+`fake_adb.py` is a phone that is not there, `fake_systemctl.py` a service manager that is not one. Claude GG's own test (`ClaudeGG.exe --mobile-test`) starts this
 agent with it and goes through the protocol with the code that Claude GG uses.

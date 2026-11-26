@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <iterator>
 #include <map>
 #include <memory>
@@ -28,6 +29,7 @@
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -72,6 +74,7 @@
 #include "CommonFramework/Options/Environment/ThemeSelectorOption.h"
 #include "CommonFramework/Tools/GlobalThreadPools.h"
 #include "CommonFramework/Windows/MainWindow.h"
+#include "ClaudeGG/ClaudeGG_Panel.h"
 #include "Pokemon/Pokemon_Strings.h"
 #include "Pokemon/Resources/Pokemon_PokemonSlugs.h"
 #include "VideoGames/PokemonFRLG/Programs/AutoStory/PokemonFRLG_AutoStoryBoxes.h"
@@ -193,6 +196,7 @@ namespace{
 
 //  Defined further down, with the other checks.
 int check_settings_search(MainWindow& window, Logger& logger);
+int check_window_panels(MainWindow& window, Logger& logger, const std::function<void(const char*)>& save);
 
 //  Takes the pictures. Returns how many of them could not be taken. What it
 //  is about to do goes to the log first, so that the log of a test that
@@ -211,7 +215,9 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
         }
         //  A few small pictures, for the log of the build (see the workflow).
         const QString base = QString::fromLatin1(name);
-        if (base == "night-fire-about-update" || base == "night-fire-output-log" || base == "night-fire-settings-search"){
+        if (base == "night-fire-about-update" || base == "night-fire-output-log" || base == "night-fire-settings-search" ||
+            base == "night-fire-panel-about" || base == "night-fire-panel-output"
+        ){
             picture.scaledToWidth(960, Qt::SmoothTransformation).save(out + "/preview-" + base + ".jpg", "JPG", 72);
         }
     };
@@ -309,6 +315,24 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
             failed++;
             logger.log("UI test: the games of the setup do not have " + GAME, COLOR_RED);
         }
+        //  Each console has its own games: Pokemon GO is the phone's, the others are the Switch's.
+        {
+            bool go_ok = false;
+            bool switch_ok = true;
+            for (const HomeGame& listed_game : listed){
+                const bool go = listed_game.name.endsWith(" GO");
+                if (go){
+                    go_ok = listed_game.programs == 7 && game_is_for_console(listed_game, "mobile") &&
+                        !game_is_for_console(listed_game, "switch") && !game_is_for_console(listed_game, "switch2");
+                }else if (game_is_for_console(listed_game, "mobile") || !game_is_for_console(listed_game, "switch")){
+                    switch_ok = false;
+                }
+            }
+            if (!go_ok || !switch_ok){
+                failed++;
+                logger.log("UI test: the games are not divided over the consoles (Pokemon GO for the phone, the rest for the Switch)", COLOR_RED);
+            }
+        }
         if (!window.open_game(QString::fromStdString(GAME))){
             failed++;
             logger.log("UI test: the game that the setup chose could not be shown", COLOR_RED);
@@ -367,6 +391,12 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
             save(output, "night-fire-output-log");
         }
     }
+
+    //  The output log, the diagram of the buttons and About are panels over this window, not
+    //  windows of their own: one program in one window. Nothing may open next to it.
+    failed += check_window_panels(window, logger, [&](const char* name){
+        save(window, name);
+    });
 
     //  The other looks: the games and a program.
     struct Look{
@@ -1234,6 +1264,104 @@ int check_text_colors(Logger& logger){
 //  only the warnings and errors are asked for, lines that come in under the
 //  filter follow it, and the search marks, counts and steps through its
 //  matches. Returns how many checks failed.
+//  The windows that are open next to this one (not counting it).
+int other_windows(const QWidget& window){
+    int count = 0;
+    for (QWidget* widget : QApplication::topLevelWidgets()){
+        if (widget != &window && widget->isVisible() && widget->windowType() != Qt::Desktop && widget->windowType() != Qt::ToolTip){
+            count++;
+        }
+    }
+    return count;
+}
+
+int check_window_panels(MainWindow& window, Logger& logger, const std::function<void(const char*)>& save){
+    int wrong = 0;
+    auto check = [&](bool ok, const char* what){
+        if (!ok){
+            wrong++;
+            logger.log(std::string("Panel test: FAILED: ") + what, COLOR_RED);
+        }
+    };
+    ClaudeGG::PanelOverlay& panel = window.panel_overlay();
+    const int others = other_windows(window);
+    check(!panel.is_open() && window.window_panel() == MainWindow::WindowPanel::NONE, "no panel is open to begin with");
+
+    struct Case{
+        MainWindow::WindowPanel kind;
+        const char* title;
+        const char* picture;
+    };
+    const Case CASES[] = {
+        {MainWindow::WindowPanel::OUTPUT,   "Output",   "night-fire-panel-output"},
+        {MainWindow::WindowPanel::BUTTONS,  "Buttons",  "night-fire-panel-buttons"},
+        {MainWindow::WindowPanel::ABOUT,    "About",    "night-fire-panel-about"},
+    };
+    for (const Case& one : CASES){
+        const std::string name = one.title;
+        logger.log("Panel test: " + name);
+        window.show_window_panel(one.kind);
+        let_run(200);
+        check(panel.is_open() && window.window_panel() == one.kind, (name + ": the panel is open").c_str());
+        check(panel.title() == QString::fromLatin1(one.title), (name + ": it has its title").c_str());
+        check(panel.isVisible() && panel.content() != nullptr && panel.content()->isVisible(), (name + ": what it holds is shown").c_str());
+        check(other_windows(window) == others, (name + ": no window opened next to the window").c_str());
+        check(panel.content() != nullptr && panel.content()->parentWidget() != nullptr && !panel.content()->isWindow(),
+            (name + ": what it holds is no window of its own").c_str());
+        check(panel.card_rect().width() > 200 && panel.card_rect().height() > 150 && panel.rect().contains(panel.card_rect()),
+            (name + ": the card is inside the window").c_str());
+        save(one.picture);
+
+        //  The same button again puts it away; so does Esc, the cross and a click beside the card.
+        window.show_window_panel(one.kind);
+        check(!panel.is_open() && !panel.isVisible() && window.window_panel() == MainWindow::WindowPanel::NONE, (name + ": the same button puts it away").c_str());
+
+        window.show_window_panel(one.kind);
+        let_run(100);
+        QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+        QApplication::sendEvent(&panel, &escape);
+        check(!panel.is_open(), (name + ": Esc puts it away").c_str());
+
+        window.show_window_panel(one.kind);
+        let_run(100);
+        if (QPushButton* close = panel.findChild<QPushButton*>("ppPanelClose")){
+            close->click();
+        }
+        check(!panel.is_open(), (name + ": the cross puts it away").c_str());
+
+        window.show_window_panel(one.kind);
+        let_run(100);
+        {
+            const QPointF at(4, 4);
+            QMouseEvent press(QEvent::MouseButtonPress, at, panel.mapToGlobal(at), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(&panel, &press);
+        }
+        check(!panel.is_open(), (name + ": a click beside the card puts it away").c_str());
+        check(other_windows(window) == others, (name + ": and still no window next to the window").c_str());
+    }
+
+    //  One panel at a time: the next one takes the place of the one before.
+    window.show_window_panel(MainWindow::WindowPanel::OUTPUT);
+    let_run(100);
+    QWidget* output = panel.content();
+    window.show_window_panel(MainWindow::WindowPanel::BUTTONS);
+    let_run(100);
+    check(panel.is_open() && panel.title() == "Buttons" && panel.content() != output && output != nullptr && !output->isVisible(), "a second panel takes the place of the first");
+    //  The log in its panel also gets Esc from its own search box (which ignores it).
+    window.show_window_panel(MainWindow::WindowPanel::OUTPUT);
+    let_run(100);
+    if (QLineEdit* search = window.output_window().findChild<QLineEdit*>("ppLogSearch")){
+        QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+        QApplication::sendEvent(search, &escape);
+        check(!panel.is_open(), "Esc in the search of the log puts the panel away");
+    }else{
+        check(false, "the log has its search box in the panel");
+    }
+    window.show_window_panel(MainWindow::WindowPanel::NONE);
+    check(other_windows(window) == others, "no window was left open");
+    return wrong;
+}
+
 int check_output_window(MainWindow& window, Logger& logger){
     int checks = 0;
     int wrong = 0;

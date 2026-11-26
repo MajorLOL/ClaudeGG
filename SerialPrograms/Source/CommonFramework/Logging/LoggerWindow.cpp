@@ -311,6 +311,10 @@ void LoggerWindow::update(){
 
 
 void LoggerWindow::resizeEvent(QResizeEvent* event){
+    //  In a panel of the main window (ClaudeGG_Panel.h) its place and size are no window's.
+    if (parentWidget() != nullptr){
+        return;
+    }
     m_pending_resize = true;
     GlobalSettings::instance().LOG_WINDOW_SIZE->WIDTH.set(width());
     GlobalSettings::instance().LOG_WINDOW_SIZE->HEIGHT.set(height());
@@ -318,6 +322,9 @@ void LoggerWindow::resizeEvent(QResizeEvent* event){
 }
 
 void LoggerWindow::moveEvent(QMoveEvent* event){
+    if (parentWidget() != nullptr){
+        return;
+    }
     m_pending_move = true;
     GlobalSettings::instance().LOG_WINDOW_SIZE->X_POS.set(x());
     GlobalSettings::instance().LOG_WINDOW_SIZE->Y_POS.set(y());
@@ -325,6 +332,9 @@ void LoggerWindow::moveEvent(QMoveEvent* event){
 }
 
 void LoggerWindow::on_config_value_changed(void* object){
+    if (parentWidget() != nullptr){
+        return;
+    }
     if (object == &GlobalSettings::instance().LOG_WINDOW_SIZE->WIDTH || object == &GlobalSettings::instance().LOG_WINDOW_SIZE->HEIGHT){
         QMetaObject::invokeMethod(this, [this]{
             if (!m_pending_resize){

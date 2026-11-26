@@ -27,6 +27,7 @@
 #include "CommonFramework/GlobalAutoPaths.h"
 #include "Assistant/Assistant_Settings.h"
 #include "ClaudeGG_Mobile.h"
+#include "ClaudeGG_PokemonGo.h"
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -457,6 +458,47 @@ bool MobileAgent::wake(QString* error) const{
     return post("/v1/wake", "{}", error);
 }
 
+bool MobileAgent::bot_state(MobileBotState& state, int lines, QString* error) const{
+    Reply reply;
+    if (!request("GET", "/v1/bot?lines=" + QString::number(std::max(1, std::min(200, lines))), QByteArray(), reply, error)){
+        return false;
+    }
+    const QJsonObject object = QJsonDocument::fromJson(reply.body).object();
+    state.installed = object.value("installed").toBool();
+    state.running = object.value("running").toBool();
+    state.log.clear();
+    for (const QJsonValue& line : object.value("log").toArray()){
+        state.log << line.toString();
+    }
+    return true;
+}
+
+bool MobileAgent::bot_start(const MobileBotStart& settings, QString* error) const{
+    QJsonObject options;
+    for (const std::pair<QString, bool>& option : settings.options){
+        options.insert(option.first, option.second);
+    }
+    QJsonObject body;
+    body.insert("options", options);
+    if (!settings.throw_target.isEmpty()){
+        body.insert("throw_target", settings.throw_target);
+    }
+    if (!settings.daily_time.isEmpty()){
+        body.insert("daily_time", settings.daily_time);
+    }
+    if (settings.daily_max_min > 0){
+        body.insert("daily_max_min", settings.daily_max_min);
+    }
+    if (settings.daily_now){
+        body.insert("daily_now", true);
+    }
+    return post("/v1/bot/start", QJsonDocument(body).toJson(QJsonDocument::Compact), error);
+}
+
+bool MobileAgent::bot_stop(QString* error) const{
+    return post("/v1/bot/stop", "{}", error);
+}
+
 
 //  ---------------------------------------------------------------------
 //  The test
@@ -531,6 +573,10 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
     //  The live picture of the test: this file, again and again (see fake_video.py).
     const QString video_file = scratch.path() + "/picture.jpg";
     const QString fake_video = agent_folder + "/fake_video.py";
+    //  The Pokémon GO bot: its files are in a folder of the test, its service is a fake one.
+    const QString fake_systemctl = agent_folder + "/fake_systemctl.py";
+    const QString bot_home = scratch.path() + "/bot";
+    check(QDir().mkpath(bot_home) && QFile::exists(fake_systemctl), "the folder of the bot and the fake service are there");
     {
         QImage red(48, 96, QImage::Format_RGB32);
         red.fill(QColor(200, 30, 30));
@@ -542,12 +588,15 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
     QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
     environment.insert("FAKE_ADB_LOG", adb_log);
     environment.insert("FAKE_ADB_FAIL_FILE", off_file);
+    environment.insert("FAKE_SYSTEMCTL_STATE", scratch.path() + "/service-state");
+    environment.insert("FAKE_SYSTEMCTL_LOG", scratch.path() + "/service-calls");
     agent.setProcessEnvironment(environment);
     agent.setProcessChannelMode(QProcess::MergedChannels);
     agent.start(python, QStringList{
         script, "--host", "127.0.0.1", "--port", "0",
         "--adb", python, "--adb-arg", fake, "--token-file", token_file,
         "--video-cmd", python, "--video-arg", fake_video, "--video-arg", video_file,
+        "--bot-home", bot_home, "--systemctl", python, "--systemctl", fake_systemctl,
     });
     check(agent.waitForStarted(15000), "the agent starts");
 
@@ -653,6 +702,112 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         error.clear();
         check(!phone.text("x; reboot", &error) && !error.isEmpty(), "a text that could be a command is refused (" + error + ")");
         check(read_lines(adb_log).size() == count, "none of them reached the phone");
+    }
+
+    //  The Pokémon GO bot on the Pi (with a service that is not one).
+    {
+        MobileBotState state;
+        error.clear();
+        check(phone.bot_state(state, 40, &error), "the bot is asked for: " + error);
+        check(!state.installed && !state.running && state.log.isEmpty(), "it is not installed on this Pi");
+        MobileBotStart start;
+        start.options = {{"spin", true}, {"catch", false}};
+        error.clear();
+        check(!phone.bot_start(start, &error) && error.contains("not installed"), "a bot that is not installed is not started (" + error + ")");
+
+        {
+            QFile program(bot_home + "/gamebot.py");
+            check(program.open(QIODevice::WriteOnly) && program.write("# the bot\n") > 0, "the bot is installed (a file in its folder)");
+        }
+        {
+            QFile log(bot_home + "/spin.log");
+            check(log.open(QIODevice::WriteOnly) && log.write("2026-11-26 10:00:01  one\n2026-11-26 10:00:02  two\n2026-11-26 10:00:03  three\n") > 0, "with a log");
+        }
+        MobileBotStart bad;
+        bad.options = {{"battle", true}};
+        error.clear();
+        check(!phone.bot_start(bad, &error) && error.contains("not an option"), "an option that is not Claude GG's to set is refused (" + error + ")");
+
+        start.throw_target = "great";
+        start.daily_time = "06:30";
+        start.daily_max_min = 90;
+        start.daily_now = true;
+        error.clear();
+        check(phone.bot_start(start, &error), "the bot is started: " + error);
+        error.clear();
+        check(phone.bot_state(state, 2, &error) && state.installed && state.running, "and it runs now: " + error);
+        check(state.log.size() == 2 && state.log.back().endsWith("three"), "with the end of its log");
+        QJsonObject control;
+        {
+            QFile file(bot_home + "/gamebot_control.json");
+            if (file.open(QIODevice::ReadOnly)){
+                control = QJsonDocument::fromJson(file.readAll()).object();
+            }
+        }
+        check(control.value("spin").toBool() && !control.value("catch").toBool(true), "its switches are as asked");
+        check(control.value("throw_target").toString() == "great" && control.value("daily_time").toString() == "06:30" && control.value("daily_max_min").toInt() == 90,
+            "so are the throw, the time of the daily run and its limit");
+        check(QFile::exists(bot_home + "/gamebot_force.json"), "the daily run begins at once when that is asked for");
+        error.clear();
+        check(phone.bot_stop(&error), "the bot is stopped: " + error);
+        check(phone.bot_state(state, 1, &error) && !state.running, "and it does not run");
+        const QStringList calls = read_lines(scratch.path() + "/service-calls");
+        QStringList service;
+        for (const QString& line : calls){
+            if (!line.startsWith("is-active")){
+                service << line;
+            }
+        }
+        check(service == QStringList({"start spin-stop", "stop spin-stop"}), "the service was started and stopped, and nothing else (" + service.join("; ") + ")");
+        const MobileAgent stranger("127.0.0.1", port, "not-the-token", 20000);
+        error.clear();
+        check(!stranger.bot_start(start, &error) && !stranger.bot_stop(&error) && !stranger.bot_state(state, 1, &error), "a wrong token does not start or stop the bot");
+        check(read_lines(scratch.path() + "/service-calls").size() == calls.size(), "and the service was not asked");
+    }
+
+    //  The programs of the game "Pokémon GO": presets of that bot. What each asks for must be
+    //  what the agent knows (it refuses a switch that it does not know), and be what it is called.
+    {
+        check(PokemonGo::pokemon_go_program_count() == 7, "the game has its seven programs");
+        auto asks = [&](const std::string& program, const std::string& key){
+            for (const std::pair<std::string, bool>& option : PokemonGo::pokemon_go_switches(program)){
+                if (option.first == key){
+                    return option.second;
+                }
+            }
+            return false;
+        };
+        const std::string spin = "Spin Pok\xc3\xa9Stops";
+        const std::string catching = "Catch Pok\xc3\xa9mon";
+        const std::string daily = "Daily run";
+        const std::string rocket = "Team GO Rocket battles";
+        const std::string quests = "Claim GO Pass rewards";
+        check(asks(spin, "spin") && !asks(spin, "catch") && !asks(spin, "daily_cycle") && !asks(spin, "rocket_fight"), "Spin PokeStops only spins");
+        check(!asks(catching, "spin") && asks(catching, "catch") && !asks(catching, "gifts_open"), "Catch Pokemon only catches");
+        check(asks(daily, "daily_cycle") && asks(daily, "spin") && asks(daily, "catch") && asks(daily, "gifts_open") && asks(daily, "gifts_send"), "the daily run is the whole day");
+        check(asks(rocket, "rocket_fight") && asks(rocket, "spin") && !asks(rocket, "quests") && !asks(rocket, "catch"), "the Team GO Rocket battles are only those");
+        check(asks(quests, "quests") && asks(quests, "catch") && !asks(quests, "rocket_fight"), "the GO Pass rewards are claimed while it plays");
+        check(PokemonGo::pokemon_go_switches("Not a program").empty(), "a program that is not there asks nothing");
+        for (const std::string& program : {spin, catching, std::string("Spin Pok\xc3\xa9Stops and catch Pok\xc3\xa9mon"), std::string("Gifts"), daily, rocket, quests}){
+            MobileBotStart ask;
+            const std::vector<std::pair<std::string, bool>> switches = PokemonGo::pokemon_go_switches(program);
+            check(switches.size() == 16, "each program says what each of the bot's sixteen switches is (" + QString::fromStdString(program) + ")");
+            for (const std::pair<std::string, bool>& option : switches){
+                ask.options.emplace_back(QString::fromStdString(option.first), option.second);
+            }
+            error.clear();
+            check(phone.bot_start(ask, &error), "the bot takes what the program asks (" + QString::fromStdString(program) + "): " + error);
+        }
+        QJsonObject control;
+        {
+            QFile file(bot_home + "/gamebot_control.json");
+            if (file.open(QIODevice::ReadOnly)){
+                control = QJsonDocument::fromJson(file.readAll()).object();
+            }
+        }
+        check(control.value("quests").toBool() && control.value("catch").toBool() && !control.value("rocket_fight").toBool(true), "and it keeps what the last one asked");
+        error.clear();
+        check(phone.bot_stop(&error), "the bot is stopped again: " + error);
     }
 
     //  The live picture.

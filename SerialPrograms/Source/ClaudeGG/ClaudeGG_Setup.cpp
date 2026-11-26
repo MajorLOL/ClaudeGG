@@ -84,6 +84,7 @@
 #include "ClaudeGG_Embed.h"
 #include "ClaudeGG_Firmware.h"
 #include "ClaudeGG_Language.h"
+#include "ClaudeGG_Mobile.h"
 #include "ClaudeGG_Scrub.h"
 #include "ClaudeGG_Setup.h"
 
@@ -445,6 +446,23 @@ public:
     virtual bool shows_menu() const{
         return true;
     }
+    //  The buttons in the top right corner of a window of its own (minimize,
+    //  the overview) are drawn over the page; a page that has its own things
+    //  there (the picture in full screen) leaves them out.
+    virtual bool shows_buttons() const{
+        return true;
+    }
+    //  The picture of the page fills the window. The keys that leave it
+    //  (Escape, F11) go to the page then, also when a widget has the keyboard.
+    virtual bool full_screen() const{
+        return false;
+    }
+    //  The mouse moved, was pressed or the wheel turned: something of the
+    //  person (the picture in full screen hides what is over it when nothing
+    //  of this happens for a while).
+    virtual void person_active(Canvas& canvas){
+        (void)canvas;
+    }
     //  What the page shows, for the miniature of the installation ("Pokemon
     //  FireRed: AutoStory"); empty: nothing in particular.
     virtual QString about() const{
@@ -539,6 +557,32 @@ public:
     //  How often it was asked for (the test does not minimize its windows).
     int minimize_requests() const{
         return m_minimize_requests;
+    }
+    //  Where the buttons in the top right corner begin, in the places of the
+    //  1920 x 1080 screen (the right end of the screen when there are none):
+    //  what a page draws at the top right stops short of it.
+    double buttons_left() const{
+        if (!can_minimize()){
+            return DW;
+        }
+        const bool two = m_request.overview || (bool)m_request.show_overview;
+        return DW - 36 - 56 - (two ? 14 + 56 : 0);
+    }
+    //  The mouse pointer is not drawn (a picture in full screen, while nobody
+    //  moves the mouse); it comes back with the next movement.
+    void set_cursor_hidden(bool hidden){
+        if (hidden == m_cursor_hidden){
+            return;
+        }
+        m_cursor_hidden = hidden;
+        if (hidden){
+            setCursor(Qt::BlankCursor);
+        }else{
+            unsetCursor();
+        }
+    }
+    bool cursor_hidden() const{
+        return m_cursor_hidden;
     }
 
     //  ---- the installations (see ClaudeGG_Instances.h)
@@ -764,6 +808,11 @@ public:
     bool console_again() const{
         return m_console_again;
     }
+    //  The console that is in use: the one that was picked here, otherwise the
+    //  one that was kept ("switch", "switch2", "mobile"; empty: not known).
+    QString console_code() const{
+        return m_result.console_chosen ? m_result.console_code : m_request.console_code;
+    }
     double page_fade() const{
         return m_fade;
     }
@@ -804,6 +853,8 @@ public:
     void go_guide();
     void go_other();
     void go_done(const QString& board);
+    //  The last step after the page of the Raspberry Pi (the console is a phone).
+    void go_done_phone();
     //  "selected": the game that is picked already (-1: none).
     void go_games(int selected = -1);
     //  The programs of this game (an index into the games).
@@ -906,7 +957,7 @@ public:
             m_console_again = false;
             go_games(m_games_back);
         }else{
-            end_installation();
+            go_done_phone();
         }
     }
     //  For the test: the text of a field of the page (empty id: none).
@@ -918,6 +969,8 @@ public:
     //  Moves the mouse over it.
     bool move_to(const QString& id);
     void press_key(int key, Qt::KeyboardModifiers modifiers = Qt::NoModifier, const QString& text = QString());
+    //  The mouse moves to this place (in the places of the 1920 x 1080 screen).
+    void move_mouse(double x, double y);
     //  Types the letters one by one.
     void type_text(const QString& text);
     //  Turns the wheel over the middle of it (positive: up).
@@ -1017,6 +1070,8 @@ private:
     QString m_copied;
     bool m_device_manager_opened = false;
     int m_minimize_requests = 0;
+    bool m_cursor_hidden = false;
+    QPointF m_last_mouse;
     int m_overview_requests = 0;
     //  The status and the miniature that the overview reads, once a second.
     QTimer m_presence;
@@ -3665,10 +3720,16 @@ public:
 //  The end
 //  ---------------------------------------------------------------------
 
+QPixmap phone_picture();
+
+//  "You are done!": the last step of the setup. With a phone as the console
+//  ("phone") it is the one after the page of the Raspberry Pi: the same step
+//  as that of the boards, with the picture of the phone and a way back.
 class DonePage : public Page{
 public:
-    DonePage(Canvas& canvas, const QString& board)
+    DonePage(Canvas& canvas, const QString& board, bool phone = false)
         : m_board(board)
+        , m_phone(phone)
     {
         canvas.set_focus_id("start");
     }
@@ -3686,21 +3747,31 @@ public:
         draw_stepper(painter, states, prog(t, in.head - 0.05, in.head + 0.7));
         const QString heading = T("You are done!");
         draw_heading(painter, heading, 140, 300, 118, prog(t, in.head, in.head + 0.9), 1.0);
-        draw_sub(painter, T("Check keyboard, video and audio, then finish up."), 140,
-            300 + heading_height(heading, 118) + 26, prog(t, in.sub, in.sub + 0.8), 1.0);
+        const QString sub = m_phone
+            ? T("The Raspberry Pi answers. Claude GG sees the screen of the phone and taps it through the Pi.")
+            : T("Check keyboard, video and audio, then finish up.");
+        draw_sub(painter, sub, 140, 300 + heading_height(heading, 118) + 26, prog(t, in.sub, in.sub + 0.8), 1.0, 36, 780);
 
         const double reveal = eo(prog(t, in.bar, in.bar + 0.8));
-        const QPixmap picture = plain_picture("switch-gg");
+        const QPixmap picture = m_phone ? phone_picture() : plain_picture("switch-gg");
         if (!picture.isNull()){
-            const double w = 840;
+            //  The picture of the phone is tall: it is as high as the picture of the Switch is wide.
+            const double w = m_phone ? std::min(840.0, 560.0 * picture.width() / picture.height()) : 840.0;
             const double h = w * picture.height() / picture.width();
             const double bob = std::sin(m_clock * 1.6) * 5;
-            glow(painter, QRectF(1000 + 60, 460 + bob + 30, w - 120, h - 60), 60, ORANGE, 0.3 * reveal);
-            draw_picture(painter, picture, QRectF(960, 400 + bob + (1.0 - reveal) * 40, w, h), reveal);
+            const double x = m_phone ? 1380 - w / 2.0 : 960;
+            const double y = m_phone ? 330 : 400;
+            glow(painter, QRectF(x + 60, y + bob + 30, w - 120, h - 60), 60, ORANGE, 0.3 * reveal);
+            draw_picture(painter, picture, QRectF(x, y + bob + (1.0 - reveal) * 40, w, h), reveal);
         }
 
         const double b = eo(prog(t, in.buttons, in.buttons + 0.5));
-        draw_text(painter, T("Steps from the Pokémon Automation Setup Guide"), 140, 1010, ui_font(26, 500), white(0.62 * b));
+        if (m_phone){
+            draw_button(canvas, painter, "back", T("Back"), 136 + 26, 960, ButtonKind::LINK, std::min(1.0, b * 1.35));
+            draw_chevron_back(painter, QPointF(136 + 8, 982), white(0.7 * b));
+        }else{
+            draw_text(painter, T("Steps from the Pokémon Automation Setup Guide"), 140, 1010, ui_font(26, 500), white(0.62 * b));
+        }
         //  The installation ends here. With games to choose from, a screen of its
         //  own follows (no part of the installation: no steps, no way back to it).
         const bool has_games = !canvas.request().games.empty();
@@ -3713,14 +3784,25 @@ public:
             canvas.result().board_done = true;
             canvas.result().board = m_board;
             canvas.end_installation();
+        }else if (id == "back" && m_phone){
+            canvas.go_pi();
+        }
+    }
+    virtual void escape_pressed(Canvas& canvas) override{
+        if (m_phone){
+            canvas.go_pi();
         }
     }
     virtual void enter_pressed(Canvas& canvas) override{
         activate(canvas, "start");
     }
+    virtual QString state() const override{
+        return m_phone ? "phone" : "";
+    }
 
 private:
     QString m_board;
+    bool m_phone = false;
     double m_clock = 0;
 };
 
@@ -3795,11 +3877,22 @@ public:
         , m_app_mode(canvas.app_mode())
     {
         const int count = (int)m_games.size();
-        m_columns = count <= 12 ? 4 : 5;
+        //  Only the games of the console that is in use are shown (the games of
+        //  the Switch are no games of a phone): the places are counted over those.
+        //  (No console chosen yet: the program's own, the Nintendo Switch.)
+        const QString console = canvas.console_code().isEmpty() ? QString("switch") : canvas.console_code();
+        m_slot.assign((size_t)count, -1);
+        for (int c = 0; c < count; c++){
+            if (game_is_for_console(m_games[(size_t)c], console)){
+                m_slot[(size_t)c] = (int)m_order.size();
+                m_order.push_back(c);
+            }
+        }
+        m_columns = m_order.size() <= 12 ? 4 : 5;
         for (const HomeGame& game : m_games){
             m_grounds.push_back(logo_ground(game.icon));
         }
-        if (selected >= 0 && selected < count && m_games[(size_t)selected].enabled){
+        if (selected >= 0 && selected < count && pickable(selected)){
             //  Back from the programs of this game.
             m_selected = selected;
             canvas.set_focus_id(tile_id(selected));
@@ -3829,9 +3922,13 @@ public:
         if (searching){
             paint_found(canvas, painter, top, eo(prog(t, 0.0, 0.2)));
         }else{
-            for (int c = 0; c < (int)m_games.size(); c++){
-                const double begin = in.bar + 0.05 * c;
-                paint_tile(canvas, painter, c, tile_rect(c, top), eo(prog(t, begin, begin + 0.55)));
+            for (int place = 0; place < (int)m_order.size(); place++){
+                const double begin = in.bar + 0.05 * place;
+                paint_tile(canvas, painter, m_order[(size_t)place], tile_rect(place, top), eo(prog(t, begin, begin + 0.55)));
+            }
+            if (m_order.empty()){
+                //  A console that has no games yet.
+                draw_text(painter, T("There are no games for this console yet."), 144, top + 20, ui_font(30, 500), white(0.7 * eo(prog(t, in.bar, in.bar + 0.6))));
             }
         }
 
@@ -3900,7 +3997,7 @@ public:
         }
         if (id.startsWith("game:")){
             const int index = id.mid(5).toInt();
-            if (index >= 0 && index < (int)m_games.size() && m_games[(size_t)index].enabled){
+            if (pickable(index)){
                 m_selected = index;
                 //  A game picked: the next Enter starts it.
                 canvas.set_focus_id("start");
@@ -3943,9 +4040,10 @@ public:
             target = next_enabled(current, column_step);
         }else{
             //  A row up or down: the same place in that row, if there is a game.
-            const int wanted = current + row_step * m_columns;
-            if (wanted >= 0 && wanted < (int)m_games.size() && m_games[(size_t)wanted].enabled){
-                target = wanted;
+            const int place = current >= 0 && current < (int)m_slot.size() ? m_slot[(size_t)current] : -1;
+            const int wanted = place + row_step * m_columns;
+            if (place >= 0 && wanted >= 0 && wanted < (int)m_order.size() && pickable(m_order[(size_t)wanted])){
+                target = m_order[(size_t)wanted];
             }
         }
         if (target >= 0){
@@ -3979,10 +4077,18 @@ private:
     static int index_of(const QString& id){
         return id.startsWith("game:") ? id.mid(5).toInt() : -1;
     }
+    //  The game is shown (it is for the console that is in use) and can be picked.
+    bool pickable(int index) const{
+        return index >= 0 && index < (int)m_games.size() && m_slot[(size_t)index] >= 0 && m_games[(size_t)index].enabled;
+    }
+    //  The game is shown on this page.
+    bool shown(int index) const{
+        return index >= 0 && index < (int)m_slot.size() && m_slot[(size_t)index] >= 0;
+    }
     //  The next game that can be picked after "from" in this direction, or -1.
     int next_enabled(int from, int direction) const{
         for (int c = from + direction; c >= 0 && c < (int)m_games.size(); c += direction){
-            if (m_games[(size_t)c].enabled){
+            if (pickable(c)){
                 return c;
             }
         }
@@ -3999,7 +4105,7 @@ private:
             return nullptr;
         }
         for (const HomeProgram& program : canvas.request().programs){
-            if (program.game >= 0 && program.game < (int)m_games.size() &&
+            if (shown(program.game) &&
                 m_games[(size_t)program.game].name == canvas.resume_game() &&
                 program.name == canvas.resume_program()
             ){
@@ -4026,7 +4132,7 @@ private:
             for (int pass = 0; pass < 2; pass++){
                 for (size_t c = 0; c < programs.size(); c++){
                     const HomeProgram& program = programs[c];
-                    if (program.game < 0 || program.game >= (int)m_games.size()){
+                    if (!shown(program.game)){
                         continue;
                     }
                     const bool in_name = program.name.contains(query, Qt::CaseInsensitive);
@@ -4185,7 +4291,7 @@ private:
         constexpr double RIGHT = 1780;
         constexpr double BOTTOM = 925;
         constexpr double GAP = 22;
-        const int rows = ((int)m_games.size() + m_columns - 1) / m_columns;
+        const int rows = ((int)m_order.size() + m_columns - 1) / m_columns;
         const double width = (RIGHT - LEFT - GAP * (m_columns - 1)) / m_columns;
         const double height = std::max(110.0, std::min(200.0, (BOTTOM - top - GAP * (rows - 1)) / std::max(1, rows)));
         return QRectF(
@@ -4299,6 +4405,10 @@ private:
 private:
     std::vector<HomeGame> m_games;
     std::vector<LogoGround> m_grounds;
+    //  The games that are shown, in their places: the indexes into m_games, and for
+    //  each game its place (-1: it is not shown).
+    std::vector<int> m_order;
+    std::vector<int> m_slot;
     int m_columns = 4;
     int m_selected = -1;
     bool m_app_mode = false;
@@ -4319,12 +4429,35 @@ private:
 //  sound that belongs to it. Without a person (the test) a made-up picture
 //  and a made-up sound stand in, so that the screen can be looked at on a
 //  computer that has no card; they are never used otherwise.
+//  Where the picture of a phone comes from (the console "Android phone"): the
+//  agent of its Raspberry Pi. There is no capture card then.
+struct PhoneSource{
+    bool active = false;
+    QString host;
+    int port = 8765;
+    QString token;
+};
+
 class LiveInput{
 public:
-    explicit LiveInput(bool synthetic)
+    explicit LiveInput(bool synthetic, const PhoneSource& phone = PhoneSource())
         : m_synthetic(synthetic)
+        , m_phone_mode(phone.active)
     {
         m_clock.start();
+        if (m_phone_mode){
+            //  One source, the phone: its live picture is asked of the Pi, a picture of the
+            //  test is made up. It has no sound.
+            m_video_names = QStringList{"Phone (Raspberry Pi)"};
+            m_video_index = 0;
+            if (!m_synthetic && !phone.host.isEmpty()){
+                m_phone_video.reset(new MobileVideo(phone.host, phone.port, phone.token, 10, 540));
+                m_phone_video->start();
+            }else if (!m_synthetic){
+                m_error = "The address of the Raspberry Pi is not set.";
+            }
+            return;
+        }
         refresh_devices();
         if (m_synthetic){
             m_video_names = QStringList{"USB3 Video", "HD60 X"};
@@ -4357,7 +4490,14 @@ public:
     int video_index() const{
         return m_video_index;
     }
+    //  The picture is that of a phone (a tall one: the page fits it in, it does not cut it).
+    bool phone() const{
+        return m_phone_mode;
+    }
     void select_video(int index, bool remember = true){
+        if (m_phone_mode){
+            return;
+        }
         stop();
         m_picture = QImage();
         m_has_picture = false;
@@ -4398,10 +4538,10 @@ public:
         return m_picture;
     }
     QSize picture_size() const{
-        return m_synthetic ? QSize(1920, 1080) : m_size;
+        return m_synthetic && !m_phone_mode ? QSize(1920, 1080) : m_size;
     }
     double fps() const{
-        return m_synthetic && m_video_index >= 0 ? 60.0 : m_fps;
+        return m_synthetic && !m_phone_mode && m_video_index >= 0 ? 60.0 : m_fps;
     }
     const QString& error() const{
         return m_error;
@@ -4427,6 +4567,10 @@ public:
     void step(double dt){
         m_since_fps += dt;
         m_since_devices += dt;
+        if (m_phone_mode){
+            step_phone(dt);
+            return;
+        }
         if (m_synthetic){
             m_synthetic_time += dt;
             if (m_video_index >= 0){
@@ -4464,6 +4608,41 @@ public:
     }
 
 private:
+    void step_phone(double dt){
+        if (m_synthetic){
+            m_synthetic_time += dt;
+            if (m_picture.isNull()){
+                //  A tall picture: the sun on the hill, turned on its side.
+                m_picture = sunset_picture().transformed(QTransform().rotate(90));
+                m_size = m_picture.size();
+            }
+            m_has_picture = true;
+            m_fps = 10;
+            return;
+        }
+        if (m_since_fps >= 1.0){
+            m_fps = (double)m_window_frames / m_since_fps;
+            m_window_frames = 0;
+            m_since_fps = 0;
+        }
+        if (m_phone_video == nullptr){
+            return;
+        }
+        QImage picture;
+        quint64 serial = 0;
+        if (m_phone_video->latest(picture, &serial) && serial != m_phone_serial && !picture.isNull()){
+            m_phone_serial = serial;
+            m_window_frames++;
+            m_last_frame = (double)m_clock.elapsed() / 1000.0;
+            m_size = picture.size();
+            m_picture = picture;
+            m_has_picture = true;
+            m_error.clear();
+        }else if (!m_has_picture){
+            m_error = m_phone_video->error();
+        }
+    }
+
     void refresh_devices(){
         if (m_synthetic){
             return;
@@ -4671,6 +4850,10 @@ private:
 
 private:
     bool m_synthetic;
+    //  The picture is the phone's (see PhoneSource).
+    bool m_phone_mode = false;
+    std::unique_ptr<MobileVideo> m_phone_video;
+    quint64 m_phone_serial = 0;
     double m_synthetic_time = 0;
     QObject m_context;
     QElapsedTimer m_clock;
@@ -4812,6 +4995,22 @@ void draw_light(QPainter& painter, Light light, const QPointF& c, double radius,
     }
 }
 
+//  The picture of the programs page when the console is a phone: from the agent of
+//  its Raspberry Pi (what was typed there a moment ago wins over what was kept).
+PhoneSource phone_source(Canvas& canvas){
+    PhoneSource source;
+    if (canvas.console_code() != "mobile"){
+        return source;
+    }
+    const SetupRequest& request = canvas.request();
+    const SetupResult& result = canvas.result();
+    source.active = true;
+    source.host = result.mobile_done ? result.mobile_host : request.mobile_host;
+    source.port = result.mobile_done ? result.mobile_port : request.mobile_port;
+    source.token = result.mobile_done ? result.mobile_token : request.mobile_token;
+    return source;
+}
+
 class ProgramsPage : public Page{
 public:
     ProgramsPage(Canvas& canvas, int game)
@@ -4821,7 +5020,7 @@ public:
         , m_game_info(&canvas.request().games[(size_t)game])
         , m_game_name(canvas.request().games[(size_t)game].name)
         , m_build(canvas.request().build)
-        , m_input(canvas.test_mode())
+        , m_input(canvas.test_mode(), phone_source(canvas))
         , m_probe(canvas.app_folder(), canvas.scan_override())
         , m_test_probe(canvas.test_mode())
     {
@@ -4845,6 +5044,9 @@ public:
         canvas.set_focus_id("start");
     }
     virtual ~ProgramsPage() override{
+        if (m_canvas != nullptr){
+            m_canvas->set_cursor_hidden(false);
+        }
         //  What was changed in the options is kept; their widgets go before the
         //  panel that holds them.
         release_options();
@@ -4858,6 +5060,18 @@ public:
     virtual bool shows_menu() const override{
         return !(m_video_full && m_full.value > 0.5);
     }
+    //  Nor do the buttons of a window of its own: they were over the way out
+    //  of the picture ("Exit full screen").
+    virtual bool shows_buttons() const override{
+        return !(m_video_full || m_full.value > 0.02);
+    }
+    virtual bool full_screen() const override{
+        return m_video_full;
+    }
+    virtual void person_active(Canvas& canvas) override{
+        (void)canvas;
+        m_idle = 0;
+    }
 
     //  ---- time
 
@@ -4868,6 +5082,15 @@ public:
         m_input.step(dt);
         m_full.target = m_video_full ? 1.0 : 0.0;
         m_full.step(dt, 14.0);
+        //  What is over the picture in full screen (the way out, live and the
+        //  size, the card) goes away when the mouse has not moved for a while,
+        //  and comes back with the next movement or key.
+        m_idle = m_video_full ? m_idle + dt : 0.0;
+        m_chrome.target = !m_video_full || m_idle < FULL_IDLE ? 1.0 : 0.0;
+        m_chrome.step(dt, 9.0);
+        if (m_canvas != nullptr){
+            m_canvas->set_cursor_hidden(m_video_full && m_chrome.target < 0.5 && m_chrome.value < 0.05);
+        }
         m_scroll.step(dt, 16.0);
         if (m_toast_left > 0){
             m_toast_left -= dt;
@@ -4908,7 +5131,7 @@ public:
 
         const QString heading = T("Which program do you want to start?");
         draw_heading(painter, heading, 138, 34, 58, prog(t, in.head, in.head + 0.9), 1.0, 1100);
-        paint_game_badge(painter, a_head);
+        paint_game_badge(canvas, painter, a_head);
         paint_search(canvas, painter, a_body);
         paint_list(canvas, painter, a_body);
         paint_detail(painter, a_body);
@@ -4978,6 +5201,7 @@ public:
 
     virtual bool key(Canvas& canvas, QKeyEvent& event) override{
         m_keys_seen++;
+        m_idle = 0;
         m_key_times.push_back(m_clock);
         while (!m_key_times.empty() && m_clock - m_key_times.front() > 130.0){
             m_key_times.pop_front();
@@ -5130,7 +5354,8 @@ public:
             ";range=" + (m_selection ? QString::number((int)std::lround(std::fabs(m_sel_a - m_sel_b))) : QString("0")) +
             ";rows=" + QString::number(m_view.size()) + ";options=" + options_state_name() +
             ";host=" + (m_host != nullptr && !m_host->isHidden() ? "shown" : "hidden") +
-            ";full=" + (m_video_full ? "yes" : "no") + ";wide=" + (m_wide.target > 0.5 ? "yes" : "no") + ";saved=" + m_saved_path;
+            ";full=" + (m_video_full ? "yes" : "no") + ";wide=" + (m_wide.target > 0.5 ? "yes" : "no") + ";saved=" + m_saved_path +
+            ";source=" + (m_input.phone() ? "phone" : "card") + ";badge=" + QString::number((int)std::lround(m_badge_right));
     }
 
 private:
@@ -5679,12 +5904,14 @@ private:
 
     //  ---- painting
 
-    void paint_game_badge(QPainter& painter, double a){
+    void paint_game_badge(Canvas& canvas, QPainter& painter, double a){
         const HomeGame& game = *m_game_info;
         const QString count = game.programs == 1 ? tr_ui("1 program") : tr_ui("%1 programs").arg((int)m_programs.size());
         const QFont name_font = ui_font(31, 700);
         const QFont count_font = ui_font(28, 500);
-        const double right = 1785;
+        //  Left of the buttons in the corner of a window of its own.
+        const double right = std::min(1785.0, canvas.buttons_left() - 24.0);
+        m_badge_right = right;
         const double count_w = text_width(count_font, count);
         const double name_w = text_width(name_font, short_game_name(game.name));
         const double name_x = right - count_w - 22 - name_w;
@@ -5977,7 +6204,8 @@ private:
         painter.drawRect(box);
         if (m_input.has_picture() && !m_input.picture().isNull()){
             const QImage& image = m_input.picture();
-            const double scale = std::max(box.width() / image.width(), box.height() / image.height());
+            const double scale = m_input.phone() ? std::min(box.width() / image.width(), box.height() / image.height())
+                : std::max(box.width() / image.width(), box.height() / image.height());
             const double w = image.width() * scale;
             const double h = image.height() * scale;
             const QRectF target(box.center().x() - w / 2.0, box.center().y() - h / 2.0, w, h);
@@ -5987,7 +6215,9 @@ private:
             painter.setOpacity(base);
         }else{
             QString title = T("No picture");
-            QString sub = m_input.video_names().isEmpty() ? T("Connect a capture card.") : (m_input.error().isEmpty() ? T("Waiting for the card.") : m_input.error());
+            QString sub = m_input.phone()
+                ? (m_input.error().isEmpty() ? T("Waiting for the phone.") : m_input.error())
+                : m_input.video_names().isEmpty() ? T("Connect a capture card.") : (m_input.error().isEmpty() ? T("Waiting for the card.") : m_input.error());
             draw_text_cy(painter, title, box.center().x(), box.center().y() - 18, ui_font(34, 600), white(0.75 * a), Qt::AlignHCenter);
             int line = 0;
             for (const QString& text : wrap_text(ui_font(21, 500), sub, box.width() - 80)){
@@ -6087,8 +6317,19 @@ private:
     void toggle_video_full(){
         m_video_full = !m_video_full;
         m_source_open = false;
+        m_idle = 0;
+        m_chrome.jump(1.0);
         if (m_video_full){
             canvas_focus_exit();
+            //  The keyboard is the page's now (Escape leaves the picture).
+            if (m_canvas != nullptr){
+                m_canvas->take_focus();
+                if (is_embedded() && !m_canvas->test_mode()){
+                    take_keyboard(m_canvas);
+                }
+            }
+        }else if (m_canvas != nullptr){
+            m_canvas->set_cursor_hidden(false);
         }
     }
     void canvas_focus_exit(){
@@ -6100,14 +6341,14 @@ private:
     //  cut, with what is useful over it (live or not, how large, the card)
     //  and the way out.
     void paint_video_full(Canvas& canvas, QPainter& painter){
-        const double a = clamp01(m_full.value);
-        if (a < 0.004){
+        const double fade = clamp01(m_full.value);
+        if (fade < 0.004){
             return;
         }
         const QRectF screen = canvas.screen_rect();
         painter.save();
         painter.setPen(Qt::NoPen);
-        painter.setBrush(QColor(0, 0, 0, (int)std::lround(255 * a)));
+        painter.setBrush(QColor(0, 0, 0, (int)std::lround(255 * fade)));
         painter.drawRect(screen.adjusted(-2, -2, 2, 2));
         if (m_input.has_picture() && !m_input.picture().isNull()){
             const QImage& image = m_input.picture();
@@ -6116,11 +6357,17 @@ private:
             const double h = image.height() * scale;
             const QRectF target(screen.center().x() - w / 2.0, screen.center().y() - h / 2.0, w, h);
             const double base = painter.opacity();
-            painter.setOpacity(base * a * (m_input.live() ? 1.0 : 0.45));
+            painter.setOpacity(base * fade * (m_input.live() ? 1.0 : 0.45));
             painter.drawImage(target, image);
             painter.setOpacity(base);
         }else{
-            draw_text_cy(painter, T("No picture"), screen.center().x(), screen.center().y(), ui_font(40, 600), white(0.75 * a), Qt::AlignHCenter);
+            draw_text_cy(painter, T("No picture"), screen.center().x(), screen.center().y(), ui_font(40, 600), white(0.75 * fade), Qt::AlignHCenter);
+        }
+        //  What is over the picture goes when nobody moves the mouse (m_chrome).
+        const double a = fade * clamp01(m_chrome.value);
+        if (a < 0.004){
+            painter.restore();
+            return;
         }
 
         //  Over the corners of the window, on a dark ground so that they read on any picture.
@@ -6161,7 +6408,8 @@ private:
             const QRectF key_rect(exit_rect.right() - 14 - key_w, exit_rect.center().y() - 15, key_w, 30);
             panel(painter, key_rect, 8, QColor(), white(0.4 * a), 1.4);
             draw_text_cy(painter, "Esc", key_rect.center().x(), key_rect.center().y() + 1, key_font, white(0.8 * a), Qt::AlignHCenter);
-            if (m_video_full){
+            //  Not a button that cannot be seen (a click on it would leave the picture).
+            if (m_video_full && m_chrome.value > 0.2){
                 canvas.add_hit("video-exit", exit_rect, true, true);
                 if (canvas.focused("video-exit")){
                     panel(painter, exit_rect.adjusted(-4, -4, 4, 4), 27, QColor(), with_alpha(YELLOW, 0.9 * a), 2.2);
@@ -6657,6 +6905,14 @@ private:
     //  The picture over the whole screen.
     bool m_video_full = false;
     Smooth m_full;                          //  0 to 1
+    //  What is over the picture in full screen: 1 shown, 0 gone (nobody moves
+    //  the mouse); the seconds since somebody did.
+    Smooth m_chrome;
+    double m_idle = 0;
+    //  Where the badge with the game's name ends (the buttons of a window of
+    //  its own are right of it).
+    double m_badge_right = 0;
+    static constexpr double FULL_IDLE = 2.5;
 };
 
 
@@ -8396,6 +8652,11 @@ void Canvas::go_done(const QString& board){
         return std::unique_ptr<Page>(new DonePage(*this, board));
     });
 }
+void Canvas::go_done_phone(){
+    queue_page([this]{
+        return std::unique_ptr<Page>(new DonePage(*this, QString(), true));
+    });
+}
 void Canvas::go_games(int selected){
     queue_page([this, selected]{
         return std::unique_ptr<Page>(new GamesPage(*this, selected));
@@ -8842,7 +9103,7 @@ void Canvas::paintEvent(QPaintEvent*){
             painter.setOpacity(1.0);
             paint_app_menu(painter);
         }
-        if (can_minimize()){
+        if (can_minimize() && m_page->shows_buttons()){
             paint_minimize(painter);
             if (m_request.overview){
                 paint_close_button(painter);
@@ -8896,6 +9157,12 @@ void Canvas::mouseMoveEvent(QMouseEvent* event){
     if (m_intro == IntroState::FILM || m_holding || m_releasing){
         return;
     }
+    //  Not for a movement of less than two pixels (Windows also sends the
+    //  position again when something under the pointer is drawn).
+    if (m_page != nullptr && (event->position() - m_last_mouse).manhattanLength() >= 2.0){
+        m_last_mouse = event->position();
+        m_page->person_active(*this);
+    }
     update_hover(event->position());
     if (!m_drag_id.isEmpty() && m_page && !m_pending){
         m_page->drag(*this, m_drag_id, to_design(event->position()), 1);
@@ -8919,6 +9186,16 @@ void Canvas::mousePressEvent(QMouseEvent* event){
     m_focus_visible = false;
     //  The keyboard comes back to the page (from the widget that had it).
     setFocus(Qt::MouseFocusReason);
+    //  In the main window this window is a child of a window of another
+    //  program, and Windows does not give the keyboard to a child that is
+    //  clicked: it is taken (Escape in the picture in full screen was lost).
+    if (is_embedded() && !m_test_mode){
+        take_keyboard(this);
+    }
+    if (m_page != nullptr){
+        m_last_mouse = event->position();
+        m_page->person_active(*this);
+    }
     const Hit* hit = find_hit(to_design(event->position()));
     if (hit != nullptr && hit->enabled && hit->id.startsWith("drag:") && m_page && !m_pending){
         m_drag_id = hit->id;
@@ -9004,6 +9281,12 @@ void Canvas::keyPressEvent(QKeyEvent* event){
     if (m_page == nullptr || m_pending){
         return;
     }
+    if (m_page->full_screen() && child_has_focus()){
+        //  The picture fills the window: nothing behind it is typed into, so
+        //  the keyboard is the page's (Escape leaves the picture at once, not
+        //  after a first one that only gives the keyboard back).
+        take_focus();
+    }
     if (child_has_focus()){
         //  A widget of the page has the keyboard (its options) and did not use
         //  this key: it is not a key of the page (Enter in a field must not
@@ -9065,6 +9348,7 @@ void Canvas::wheelEvent(QWheelEvent* event){
     if (m_intro == IntroState::FILM || m_holding || m_releasing || m_video_open || m_page == nullptr || m_pending){
         return;
     }
+    m_page->person_active(*this);
     if (m_page->wheel(*this, to_design(event->position()), event->angleDelta().y())){
         event->accept();
         update();
@@ -9107,6 +9391,11 @@ bool Canvas::move_to(const QString& id){
         }
     }
     return false;
+}
+void Canvas::move_mouse(double x, double y){
+    const QPointF at(m_offset.x() + x * m_scale, m_offset.y() + y * m_scale);
+    QMouseEvent event(QEvent::MouseMove, at, mapToGlobal(at), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+    mouseMoveEvent(&event);
 }
 void Canvas::press_key(int key, Qt::KeyboardModifiers modifiers, const QString& text){
     QKeyEvent event(QEvent::KeyPress, key, modifiers, text);
@@ -9631,6 +9920,21 @@ std::vector<HomeGame> test_games(bool many = false){
         }
         games.push_back(game);
     }
+    return games;
+}
+
+//  The same games with their consoles (the games of the Switch are for the two
+//  Switches), and Pokemon GO as the last one: the game of the phone.
+std::vector<HomeGame> test_games_with_consoles(){
+    std::vector<HomeGame> games = test_games();
+    for (HomeGame& game : games){
+        game.consoles = QStringList{"switch", "switch2"};
+    }
+    HomeGame go;
+    go.name = "Pokemon GO";
+    go.programs = 6;
+    go.consoles = QStringList{"mobile"};
+    games.push_back(go);
     return games;
 }
 
@@ -11230,7 +11534,7 @@ int run_setup_test(QApplication& application, const QString& folder){
         SetupRequest phone_request;
         phone_request.ask_console = true;
         phone_request.ask_board = true;
-        phone_request.games = test_games();
+        phone_request.games = test_games_with_consoles();
         phone_request.mobile_host = "192.168.7.7";
         phone_request.mobile_port = 8765;
         phone_request.mobile_token = "kept-token";
@@ -11298,13 +11602,90 @@ int run_setup_test(QApplication& application, const QString& folder){
         phone.set_field("token", "abc123");
         phone.click("continue");
         phone.wait(2.8);
-        checker.check(phone.page_name() == "games", "Continue leads on to the choice of a game");
+        //  The last step, as with a board: "You are done!".
+        checker.check(phone.page_name() == "done" && phone.page_state() == "phone", "Continue leads to the last step, as it does with a board");
+        checker.check(phone.has_hit("start") && phone.has_hit("back"), "which has Back and Continue");
+        save(phone, folder, "setup-65-pi-done");
+        save_preview(phone, folder, "preview-pi-done");
+        phone.click("back");
+        phone.wait(2.8);
+        checker.check(phone.page_name() == "pi" && phone.page_state().startsWith("host=192.168.7.8;port=8766;token=set"), "Back leads to the Raspberry Pi, with what was typed");
+        phone.click("continue");
+        phone.wait(2.8);
+        phone.press_key(Qt::Key_Escape);
+        phone.wait(2.8);
+        checker.check(phone.page_name() == "pi", "Esc goes back too");
+        phone.click("continue");
+        phone.wait(2.8);
+        checker.check(phone.page_name() == "done", "and on again");
+        phone.click("start");
+        phone.wait(2.8);
+        checker.check(phone.page_name() == "games", "Continue on the last step leads on to the choice of a game");
+        //  The games of the Nintendo Switch are no games of a phone: only the game of the phone is there.
+        const QString go_id = "game:" + QString::number((int)phone_request.games.size() - 1);
+        checker.check(phone.has_hit(go_id) && !phone.has_hit("game:0") && !phone.has_hit("game:3") && !phone.has_hit("game:7"),
+            "the games of the Switch are not shown for a phone, its own game is");
+        save(phone, folder, "setup-66-games-phone");
+        save_preview(phone, folder, "preview-games-phone");
+        checker.check(phone.click(go_id) && phone.page_state() == "selected=Pokemon GO", "and it can be picked");
         const SetupResult& phone_result = phone.result();
         checker.check(
             phone_result.mobile_done && phone_result.mobile_host == "192.168.7.8" && phone_result.mobile_port == 8766 && phone_result.mobile_token == "abc123",
             "what was typed is the answer"
         );
         checker.check(phone_result.board_done && phone_result.board.isEmpty(), "there is no board: the setup counts as done");
+    }
+
+    //  ---- each console has its own games
+    {
+        for (const QString console : {"switch", "switch2", "mobile"}){
+            SetupRequest request_games;
+            request_games.ask_game = true;
+            request_games.games = test_games_with_consoles();
+            request_games.console_code = console;
+            const int go = (int)request_games.games.size() - 1;
+            HomeProgram spin;
+            spin.game = go;
+            spin.name = "Spin PokeStops";
+            spin.description = "Spins the PokeStops.";
+            spin.tag = "rough";
+            spin.tag_meaning = "Not tried on a phone yet.";
+            request_games.programs.push_back(spin);
+            Canvas games_page(request_games, true);
+            games_page.resize(1280, 720);
+            games_page.set_scan([]{
+                return HardwareState();
+            });
+            QEventLoop games_loop;
+            games_page.start(&games_loop);
+            games_page.show();
+            games_page.wait(2.5);
+            const bool phone_console = console == "mobile";
+            checker.check(games_page.page_name() == "games", "the games are asked for (" + console + ")");
+            checker.check(games_page.has_hit("game:" + QString::number(go)) == phone_console, "Pokemon GO is shown for a phone and for nothing else (" + console + ")");
+            checker.check(games_page.has_hit("game:3") == !phone_console && games_page.has_hit("game:0") == !phone_console, "and the games of the Switch are not (" + console + ")");
+            checker.check(games_page.focus_id() == "game:" + QString::number(phone_console ? go : 0), "the keyboard starts on a game that is shown (" + console + ")");
+            if (phone_console){
+                //  The arrow keys do not run off to games that are not there.
+                games_page.press_key(Qt::Key_Right);
+                games_page.press_key(Qt::Key_Down);
+                games_page.press_key(Qt::Key_Left);
+                games_page.press_key(Qt::Key_Up);
+                games_page.wait(0.2);
+                checker.check(games_page.focus_id() == "game:" + QString::number(go), "and the arrow keys stay on it");
+                save(games_page, folder, "setup-67-games-mobile");
+                //  Its programs: the page with them shows the picture of the phone, not of a capture card.
+                games_page.click("game:" + QString::number(go));
+                games_page.wait(0.2);
+                games_page.click("start");
+                games_page.wait(3.0);
+                checker.check(games_page.page_name() == "programs" && games_page.page_state().contains(";source=phone;"), "the programs of the game of the phone show the phone's picture");
+                save(games_page, folder, "setup-68-programs-phone");
+                save_preview(games_page, folder, "preview-programs-phone");
+            }else{
+                save(games_page, folder, "setup-67-games-" + console);
+            }
+        }
     }
 
     //  ---- the phone, picked again from the games
@@ -11405,10 +11786,34 @@ int run_setup_test(QApplication& application, const QString& folder){
         wide.click("opt-wide");
         wide.wait(1.6);
 
+        //  In a window of its own the buttons in the corner (minimize, the
+        //  overview) are over the right of the page: the badge with the name of
+        //  the game stops short of them (it was under them).
+        {
+            const QString state = wide.page_state();
+            const qsizetype at = state.indexOf(";badge=");
+            const int badge_right = at < 0 ? 100000 : state.mid(at + 7).toInt();
+            checker.check(wide.has_hit("minimize") && badge_right <= (int)wide.buttons_left() - 20,
+                "the badge with the game's name is left of the buttons in the corner (" + QString::number(badge_right) + " and " + QString::number((int)wide.buttons_left()) + ")");
+        }
+
         //  The picture over the whole screen.
         wide.click("video-full");
         wide.wait(0.8);
         checker.check(wide.page_state().contains(";full=yes;") && wide.has_hit("video-exit"), "the button puts the picture over the whole screen, with a way out");
+        checker.check(!wide.has_hit("minimize") && !wide.has_hit("instances"), "the buttons in the corner are not over the way out");
+        //  What is over the picture goes when the mouse does not move, and comes back with it.
+        wide.wait(3.5);
+        checker.check(!wide.has_hit("video-exit") && wide.cursor_hidden(), "nobody moves the mouse: the way out and the rest go, and so does the pointer");
+        save_preview(wide, folder, "preview-video-full-idle", 1280);
+        wide.move_mouse(900, 500);
+        wide.wait(0.5);
+        checker.check(wide.has_hit("video-exit") && !wide.cursor_hidden(), "a movement of the mouse brings them back");
+        wide.wait(3.5);
+        checker.check(!wide.has_hit("video-exit"), "and they go again");
+        wide.press_key(Qt::Key_Shift);
+        wide.wait(0.5);
+        checker.check(wide.has_hit("video-exit"), "a key brings them back too");
         checker.check(!wide.has_hit("prog:9") && !wide.has_hit("start") && !wide.has_hit("opt-close"), "nothing behind it can be pressed");
         checker.check(wide.page_state().contains(";host=hidden;"), "and the options are not over it");
         save(wide, folder, "setup-57-video-full");
@@ -11419,6 +11824,7 @@ int run_setup_test(QApplication& application, const QString& folder){
         wide.press_key(Qt::Key_Escape);
         wide.wait(0.8);
         checker.check(wide.page_name() == "programs" && wide.page_state().contains(";full=no;") && wide.has_hit("prog:9"), "Escape brings the page back");
+        checker.check(wide.has_hit("minimize") && !wide.cursor_hidden(), "the buttons in the corner and the pointer are back");
         wide.press_key(Qt::Key_F11);
         wide.wait(0.8);
         checker.check(wide.page_state().contains(";full=yes;"), "F11 does the same as the button");

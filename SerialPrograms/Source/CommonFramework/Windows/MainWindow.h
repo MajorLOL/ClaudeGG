@@ -26,6 +26,7 @@ class LoggerWindow;
 class WallpaperWidget;
 namespace ClaudeGG{
     class AppView;
+    class PanelOverlay;
     struct AboutInfo;
     namespace Assistant{
         class HttpTransport;
@@ -68,6 +69,19 @@ public:
 
     ClaudeGG::AboutInfo about_info() const;
     LoggerWindow& output_window(){ return *m_output_window; }
+
+    //  What the buttons "About", "Output" and "Buttons" show: a panel that lies over this
+    //  window (ClaudeGG_Panel.h), not a window of its own. Everything is one program in one
+    //  window, and closes with it.
+    enum class WindowPanel{
+        NONE,
+        ABOUT,
+        OUTPUT,
+        BUTTONS,
+    };
+    void show_window_panel(WindowPanel panel);
+    WindowPanel window_panel() const{ return m_window_panel; }
+    ClaudeGG::PanelOverlay& panel_overlay(){ return *m_panel; }
 
     //  The panel with Claude at the right: shown or hidden.
     void show_assistant(bool show);
@@ -141,6 +155,11 @@ private:
     std::unique_ptr<PanelSession> m_current_panel;
     QWidget* m_current_panel_widget;
 
+    //  The panel over the window, and what it shows. (The diagram and the log are held in
+    //  it while it shows them: they are made here and deleted here, before the window's
+    //  children are.)
+    ClaudeGG::PanelOverlay* m_panel = nullptr;
+    WindowPanel m_window_panel = WindowPanel::NONE;
     std::unique_ptr<ButtonDiagram> m_button_diagram;
     std::unique_ptr<LoggerWindow> m_output_window;
 

@@ -14,14 +14,34 @@ namespace ClaudeGG{
 
 
 
+namespace{
+
+//  The game of the phone: Pokémon GO (the list of Mobile/, see ClaudeGG_PokemonGo.h).
+bool is_pokemon_go(const QString& name){
+    return name.startsWith("Pok") && name.endsWith(" GO", Qt::CaseSensitive);
+}
+
+}
+
+QStringList consoles_of_game(const QString& name){
+    if (is_pokemon_go(name)){
+        return QStringList{"mobile"};
+    }
+    return QStringList{"switch", "switch2"};
+}
+
+bool game_is_for_console(const HomeGame& game, const QString& console_code){
+    return game.consoles.isEmpty() || console_code.isEmpty() || game.consoles.contains(console_code);
+}
+
 QString short_game_name(const QString& name){
     //  The series' name is the first word, with an accented letter in it.
     if (name.startsWith("Pok", Qt::CaseInsensitive)){
         const qsizetype space = name.indexOf(' ');
         if (space > 0 && space <= 8 && space + 1 < name.size()){
             const QString rest = name.mid(space + 1);
-            //  Not for the one that would be left as "Home".
-            if (rest.compare("Home", Qt::CaseInsensitive) != 0){
+            //  Not for the ones that would be left as "Home" or "GO".
+            if (rest.compare("Home", Qt::CaseInsensitive) != 0 && !is_pokemon_go(name)){
                 return rest;
             }
         }
@@ -37,6 +57,7 @@ void game_label_colors(const QString& name, QColor& first, QColor& second){
     };
     //  The pairs of versions first: each half of the label gets a version.
     static const Entry ENTRIES[] = {
+        //  (Pokémon GO is found by its name below: "GO" is in too many others.)
         {"FireRed",         0xffdf5230, 0xff3f9d4e},
         {"Scarlet",         0xffd8402b, 0xff7a4cc4},
         {"Sword",           0xff2f8fd6, 0xffd23a5a},
@@ -51,6 +72,11 @@ void game_label_colors(const QString& name, QColor& first, QColor& second){
         //  The list for whatever else is on the screen (ClaudePlays).
         {"Other Games",     0xff5a55b8, 0xff5a55b8},
     };
+    if (is_pokemon_go(name)){
+        first = QColor(0x2f, 0x7f, 0xd6);
+        second = QColor(0xd2, 0x3a, 0x3a);
+        return;
+    }
     for (const Entry& entry : ENTRIES){
         if (name.contains(QLatin1String(entry.word), Qt::CaseInsensitive)){
             first = QColor(entry.first);

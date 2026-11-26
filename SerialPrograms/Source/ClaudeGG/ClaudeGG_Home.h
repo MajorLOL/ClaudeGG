@@ -16,6 +16,7 @@
 #include <QColor>
 #include <QPixmap>
 #include <QString>
+#include <QStringList>
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -26,6 +27,10 @@ struct HomeGame{
     QPixmap icon;           //  May be empty.
     int programs = 0;
     bool enabled = true;
+    //  The consoles it is for ("switch", "switch2", "mobile"). Empty: every
+    //  console. The page with the games shows only the games of the console
+    //  that is in use.
+    QStringList consoles;
 };
 
 struct HomeProgram{
@@ -41,6 +46,15 @@ struct HomeProgram{
 //  The name of a game without the series in front of it:
 //  "Pokemon FireRed and LeafGreen" becomes "FireRed and LeafGreen".
 QString short_game_name(const QString& name);
+
+//  The consoles that a game (by the name of its list) is for: "Pokémon GO" is a
+//  game of the phone, the others are games of the Nintendo Switch and the
+//  Switch 2.
+QStringList consoles_of_game(const QString& name);
+
+//  The game is for this console. An empty console (not known yet) shows
+//  every game.
+bool game_is_for_console(const HomeGame& game, const QString& console_code);
 
 //  The two colors of a game's cartridge label. Games that come as a pair of
 //  versions get the colors of both; the others the same color twice.
