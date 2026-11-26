@@ -16,6 +16,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QEvent>
 #include <QEventLoop>
 #include <QFile>
 #include <QImage>
@@ -295,6 +296,20 @@ protected:
     virtual void resizeEvent(QResizeEvent* event) override{
         QWidget::resizeEvent(event);
         place_children();
+    }
+    virtual void changeEvent(QEvent* event) override{
+        QWidget::changeEvent(event);
+        //  Back in this window (from another program): what is typed goes on to
+        //  the installation that is shown, as it did before.
+        if (event->type() == QEvent::ActivationChange && isActiveWindow() && !m_current.isEmpty()){
+            const QString id = m_current;
+            QTimer::singleShot(0, this, [this, id]{
+                auto it = m_embedded.find(id);
+                if (m_current == id && it != m_embedded.end() && !it->second.container.isNull() && it->second.process != nullptr){
+                    focus_child_window((quintptr)it->second.container->winId(), (qint64)it->second.process->processId());
+                }
+            });
+        }
     }
     virtual void closeEvent(QCloseEvent* event) override{
         //  The installations are in this window: they go with it, and what is

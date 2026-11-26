@@ -5,6 +5,7 @@
 #include <memory>
 //#include <QTextStream>
 #include <QApplication>
+#include <QFileInfo>
 #include "Common/Cpp/Logging/LastLogTracker.h"
 #include "Common/Cpp/Logging/FileLogger.h"
 #include "Common/Cpp/Logging/GlobalLogger.h"
@@ -282,12 +283,17 @@ int run_program(int argc, char *argv[]){
             COLOR_BLUE
         );
     }
-    try{
-        PERSISTENT_SETTINGS().read();
-    }catch (const FileException& error){
-        logger.log(error.message(), COLOR_RED);
-    }catch (const ParseException& error){
-        logger.log(error.message(), COLOR_RED);
+    //  A new installation has no settings file yet: that is no error to show.
+    if (!QFileInfo::exists(QString::fromStdString(PROGRAM_SETTING_JSON_PATH()))){
+        logger.log("Settings: none yet (a new installation): the defaults are used.", COLOR_BLUE);
+    }else{
+        try{
+            PERSISTENT_SETTINGS().read();
+        }catch (const FileException& error){
+            logger.log(error.message(), COLOR_RED);
+        }catch (const ParseException& error){
+            logger.log(error.message(), COLOR_RED);
+        }
     }
 
     //  The theme, before any window is made. Settings that were saved have
