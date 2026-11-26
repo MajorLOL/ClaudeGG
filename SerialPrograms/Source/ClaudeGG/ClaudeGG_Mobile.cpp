@@ -392,7 +392,7 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
     //  A phone that is switched off, and that comes back.
     {
         QFile off(off_file);
-        off.open(QIODevice::WriteOnly);
+        check(off.open(QIODevice::WriteOnly), "the phone is switched off for the test");
         off.close();
         QImage picture;
         error.clear();
