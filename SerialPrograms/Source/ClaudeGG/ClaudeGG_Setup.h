@@ -203,6 +203,9 @@ struct SetupRequest{
     //  "Remove" was pressed twice: deletes the installation's folder. False:
     //  it was not deleted.
     std::function<bool(const QString& id)> instance_remove;
+    //  "Rename" was pressed and a name typed: gives the installation that name
+    //  (empty: takes its name away, it is called "Installation <id>" again).
+    std::function<bool(const QString& id, const QString& name)> instance_rename;
     //  "Close" was pressed twice on an installation that runs: closes its
     //  windows, as if its user had (what is open there is saved the way it is
     //  when its window is closed).

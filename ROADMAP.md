@@ -6,7 +6,7 @@ What Claude GG has, what could make the FRLG AutoStory faster, what could be add
 
 - Its own name (`ClaudeGG.exe`), icon, logo and "About" window, which has a button that looks for a newer build, only when it is pressed. The links to Pokémon Automation's Discord and its check for a new version are gone. What keeps its old name: see "The name" in section 8.
 - A new interface: see [README.md](README.md).
-- Several installations side by side, each a process of its own with its own folder, settings, capture card and microcontroller, and an overview with a miniature of each. Not yet: a name of your own for an installation, and stopping one from the overview. See [ClaudeGG_Instances.h](SerialPrograms/Source/ClaudeGG/ClaudeGG_Instances.h).
+- Several installations side by side, each a process of its own with its own folder, settings, capture card and microcontroller, and an overview with a miniature of each. Each can be given a name of your own and be closed from the overview. Not yet: the installations inside the one main window (under way). See [ClaudeGG_Instances.h](SerialPrograms/Source/ClaudeGG/ClaudeGG_Instances.h).
 - Colored text of the programs (written for a white background) that reads on Night and on Day.
 - A search in the Output window, with a filter for warnings and errors, and in the settings pages (Ctrl+F).
 - Pictures of the screen made without `QVideoFrame::toImage()`, which made the memory grow on some computers: [VideoFrameConversion.h](SerialPrograms/Source/CommonFramework/VideoPipeline/Backends/VideoFrameConversion.h). Not measured on a console: whether a long hunt with the stream history on now stays flat.

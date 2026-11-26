@@ -382,5 +382,6 @@
  "Remove": "Verwijderen",
  "Really remove?": "Echt verwijderen?",
  "Really close?": "Echt sluiten?",
+ "Rename": "Naam wijzigen",
  "Each installation has its own settings: its own capture card and its own microcontroller. Closing this window does not stop them.": "Elke installatie heeft eigen instellingen: een eigen capture card en een eigen microcontroller. Als je dit venster sluit, blijven ze draaien."
 }

@@ -7235,6 +7235,49 @@ QString instance_state_text(const InstanceInfo& info){
     return T("Games");
 }
 
+//  The line of text over the name of a miniature, where a name is typed: Enter
+//  keeps it, Escape does not, and so does leaving it (a click elsewhere).
+class NameEdit : public QLineEdit{
+public:
+    explicit NameEdit(QWidget* parent)
+        : QLineEdit(parent)
+    {
+        setFrame(true);
+    }
+    //  Called once, with whether the name is kept.
+    std::function<void(bool keep)> on_done;
+
+protected:
+    virtual void keyPressEvent(QKeyEvent* event) override{
+        if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter){
+            event->accept();
+            finish(true);
+            return;
+        }
+        if (event->key() == Qt::Key_Escape){
+            event->accept();
+            finish(false);
+            return;
+        }
+        QLineEdit::keyPressEvent(event);
+    }
+    virtual void focusOutEvent(QFocusEvent* event) override{
+        QLineEdit::focusOutEvent(event);
+        if (event->reason() != Qt::PopupFocusReason){
+            finish(true);
+        }
+    }
+
+private:
+    void finish(bool keep){
+        const std::function<void(bool)> done = on_done;
+        on_done = nullptr;
+        if (done){
+            done(keep);
+        }
+    }
+};
+
 class InstancesPage : public Page{
 public:
     explicit InstancesPage(Canvas& canvas)
@@ -7242,6 +7285,9 @@ public:
     {
         refresh();
         canvas.set_focus_id(m_infos.empty() ? QString("inst-new") : "inst:" + m_infos.front().id);
+    }
+    virtual ~InstancesPage() override{
+        drop_edit();
     }
 
     virtual const char* name() const override{
@@ -7257,6 +7303,7 @@ public:
             m_poll = 0;
             refresh();
         }
+        place_edit();
         if (!m_confirm.isEmpty()){
             m_confirm_time -= dt;
             if (m_confirm_time <= 0){
@@ -7300,7 +7347,11 @@ public:
 
     virtual void activate(Canvas& canvas, const QString& id) override{
         const SetupRequest& request = canvas.request();
-        if (id == "inst-new"){
+        //  A name that is being typed is kept when something else is pressed.
+        end_rename(true);
+        if (id.startsWith("inst-rename:")){
+            begin_rename(id.mid(QString("inst-rename:").size()));
+        }else if (id == "inst-new"){
             const QString made = request.instance_create ? request.instance_create() : QString();
             if (!made.isEmpty()){
                 //  The window of the new one comes by itself; this one goes aside
@@ -7358,6 +7409,93 @@ public:
     }
 
 private:
+    //  ---- a name of its own: a line of text over the name of the miniature
+    int index_of(const QString& id) const{
+        for (size_t c = 0; c < m_infos.size(); c++){
+            if (m_infos[c].id == id){
+                return (int)c;
+            }
+        }
+        return -1;
+    }
+    void begin_rename(const QString& id){
+        const int index = index_of(id);
+        if (index < 0 || !m_canvas->request().instance_rename){
+            return;
+        }
+        m_rename_id = id;
+        m_rename_was = m_infos[(size_t)index].name;
+        NameEdit* edit = new NameEdit(m_canvas);
+        edit->setMaxLength(INSTANCE_NAME_LENGTH);
+        edit->setPlaceholderText(T("Installation %1").arg(id));
+        edit->setText(m_rename_was);
+        edit->selectAll();
+        edit->on_done = [this](bool keep){
+            end_rename(keep);
+        };
+        m_edit = edit;
+        place_edit();
+        edit->show();
+        edit->raise();
+        edit->setFocus();
+    }
+    void place_edit(){
+        if (m_edit == nullptr){
+            return;
+        }
+        const int index = index_of(m_rename_id);
+        if (index < 0){
+            //  It is gone (removed from elsewhere).
+            end_rename(false);
+            return;
+        }
+        const TileGrid grid = tile_grid(m_infos.size() + 1);
+        const QRectF tile = tile_rect(grid, (size_t)index);
+        const double top = tile.top() + grid.picture_height + 28 - 24;
+        const QRect geometry = m_canvas->window_rect(QRectF(tile.left(), top, grid.width - 8, 48));
+        if (m_edit->geometry() != geometry){
+            m_edit->setGeometry(geometry);
+            QFont font = m_edit->font();
+            font.setPixelSize(std::max(11, (int)std::lround(geometry.height() * 0.5)));
+            m_edit->setFont(font);
+        }
+        //  Only when the page is there as a whole, not while it fades.
+        const bool visible = m_canvas->page_fade() >= 0.98;
+        if (m_edit->isVisible() != visible){
+            m_edit->setVisible(visible);
+            if (visible){
+                m_edit->setFocus();
+            }
+        }
+    }
+    //  Keeps the name that was typed, or not.
+    void end_rename(bool keep){
+        if (m_edit == nullptr){
+            return;
+        }
+        const QString id = m_rename_id;
+        const QString typed = m_edit->text();
+        const QString was = m_rename_was;
+        drop_edit();
+        if (keep && clean_instance_name(typed) != clean_instance_name(was)){
+            const SetupRequest& request = m_canvas->request();
+            if (request.instance_rename){
+                request.instance_rename(id, typed);
+            }
+        }
+        refresh();
+        m_canvas->setFocus();
+    }
+    void drop_edit(){
+        m_rename_id.clear();
+        if (m_edit != nullptr){
+            m_edit->on_done = nullptr;
+            m_edit->hide();
+            m_edit->deleteLater();
+            m_edit = nullptr;
+        }
+    }
+
     void refresh(){
         const SetupRequest& request = m_canvas->request();
         m_infos = request.instance_list ? request.instance_list() : std::vector<InstanceInfo>();
@@ -7466,12 +7604,18 @@ private:
         const bool closable = info.running;
         const QString close_text = m_close_confirm == info.id ? T("Really close?") : T("Close");
         const double close_w = closable ? button_width(close_text, ButtonKind::LINK) : 0;
-        draw_elided(
-            painter, instance_name_text(info), x, name_y, grid.width - 8 - std::max(remove_w, close_w) - 10,
-            ui_font(30, 600), white(a)
-        );
+        //  A name of its own can be given to any of them (not while it is typed).
+        const bool renamable = m_canvas->request().instance_rename != nullptr && m_rename_id != info.id;
+        const QString rename_text = T("Rename");
+        const double rename_w = renamable ? button_width(rename_text, ButtonKind::LINK) : 0;
+        if (m_rename_id != info.id){
+            draw_elided(
+                painter, instance_name_text(info), x, name_y, grid.width - 8 - std::max(remove_w, close_w) - 10,
+                ui_font(30, 600), white(a)
+            );
+        }
         const QString line = info.running && !info.title.isEmpty() ? info.title : instance_state_text(info);
-        draw_elided(painter, line, x, name_y + 40, grid.width - 8, ui_font(22, 500), white(0.62 * a));
+        draw_elided(painter, line, x, name_y + 40, grid.width - 8 - rename_w - (renamable ? 10 : 0), ui_font(22, 500), white(0.62 * a));
         painter.restore();
 
         //  The hits are in the places of the screen, without the slide of the entrance.
@@ -7486,6 +7630,10 @@ private:
             }else{
                 draw_button(canvas, painter, remove_id, remove_text, area.left(), area.top(), ButtonKind::LINK, 1.0);
             }
+        }
+        if (renamable && reveal > 0.9){
+            const QRectF area(picture.right() - rename_w, picture.bottom() + 46, rename_w, 44);
+            draw_button(canvas, painter, "inst-rename:" + info.id, rename_text, area.left(), area.top(), ButtonKind::LINK, 1.0);
         }
         if (closable && reveal > 0.9){
             const QString close_id = "inst-close:" + info.id;
@@ -7536,6 +7684,10 @@ private:
     //  An installation that was started: this window steps aside when it runs.
     QString m_waiting;
     double m_waiting_time = 0;
+    //  A name is being typed for this one.
+    QString m_rename_id;
+    QString m_rename_was;
+    QPointer<NameEdit> m_edit;
 };
 
 
@@ -9182,6 +9334,7 @@ void check_overview(Checker& checker, const QString& folder){
         QStringList opened;
         QStringList removed;
         QStringList closed;
+        QStringList renamed;
         int created = 0;
     };
     const auto fake = std::make_shared<Fake>();
@@ -9237,6 +9390,15 @@ void check_overview(Checker& checker, const QString& folder){
     };
     request.instance_close = [fake](const QString& id){
         fake->closed << id;
+    };
+    request.instance_rename = [fake](const QString& id, const QString& name){
+        fake->renamed << id + "=" + name;
+        for (InstanceInfo& info : fake->list){
+            if (info.id == id){
+                info.name = clean_instance_name(name);
+            }
+        }
+        return true;
     };
     request.instance_remove = [fake](const QString& id){
         fake->removed << id;
@@ -9316,6 +9478,60 @@ void check_overview(Checker& checker, const QString& folder){
     hub.click("inst-close:2");
     hub.wait(0.2);
     checker.check(fake->closed == QStringList({"2"}), "two presses close it");
+
+    //  A name of its own: a line of text over the name, Enter keeps it.
+    checker.check(
+        hub.has_hit("inst-rename:1") && hub.has_hit("inst-rename:2") && hub.has_hit("inst-rename:3") && hub.has_hit("inst-rename:4"),
+        "every installation can be given a name, the one that runs and the first too"
+    );
+    //  The line that is on the screen (one that was kept is hidden until it is deleted).
+    auto visible_edit = [&hub]() -> QLineEdit*{
+        for (QLineEdit* edit : hub.findChildren<QLineEdit*>()){
+            if (edit->isVisible()){
+                return edit;
+            }
+        }
+        return nullptr;
+    };
+    hub.click("inst-rename:3");
+    hub.wait(0.2);
+    QLineEdit* name_edit = visible_edit();
+    checker.check(name_edit != nullptr, "'Rename' puts a line of text over the name");
+    if (name_edit != nullptr){
+        checker.check(name_edit->text() == "Shiny hunter", "it starts with the name that there is");
+        checker.check(!hub.has_hit("inst-rename:3") && hub.has_hit("inst-rename:2"), "and the link is gone from that miniature only, while it is typed");
+        name_edit->setText("   Night   shift  ");
+        QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+        QCoreApplication::sendEvent(name_edit, &escape);
+        hub.wait(0.2);
+        checker.check(fake->renamed.isEmpty(), "Escape keeps no name");
+        checker.check(visible_edit() == nullptr, "and the line is gone");
+    }
+    hub.wait(0.3);
+    hub.click("inst-rename:3");
+    hub.wait(0.2);
+    name_edit = visible_edit();
+    checker.check(name_edit != nullptr, "'Rename' puts the line again");
+    if (name_edit != nullptr){
+        name_edit->setText("   Night   shift  ");
+        QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+        QCoreApplication::sendEvent(name_edit, &enter);
+        hub.wait(0.3);
+        checker.check(fake->renamed == QStringList({"3=   Night   shift  "}), "Enter gives the installation that name");
+        checker.check(instance_name_text(fake->list[2]) == "Night shift", "it is one line, and it is on the miniature");
+    }
+    save(hub, folder, "setup-71-installations-renamed");
+    //  A name that did not change is not written again.
+    fake->renamed.clear();
+    hub.click("inst-rename:3");
+    hub.wait(0.2);
+    name_edit = visible_edit();
+    if (name_edit != nullptr){
+        QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+        QCoreApplication::sendEvent(name_edit, &enter);
+        hub.wait(0.3);
+    }
+    checker.check(fake->renamed.isEmpty(), "a name that is not changed is not written");
 
     //  A new installation: it is made and started, and it is on the screen.
     hub.click("inst-new");

@@ -136,6 +136,11 @@ QString instance_setting_key_for(const QString& key, const std::string& id);
 //  The list of installations, and what an installation tells about itself
 //  ---------------------------------------------------------------------
 
+//  What a name may be: one line, without the characters of a control, no more
+//  than INSTANCE_NAME_LENGTH characters. Empty when nothing is left.
+constexpr int INSTANCE_NAME_LENGTH = 40;
+QString clean_instance_name(const QString& name);
+
 struct InstanceInfo{
     //  The folder name: "1", "2", ...
     QString id;
@@ -188,6 +193,11 @@ public:
     //  Deletes an installation's folder with everything in it (its settings, its
     //  logs and pictures). Not installation 1, and not one that runs.
     bool remove(const QString& id, qint64 now) const;
+
+    //  Gives an installation a name of its own (into its installation.json; the
+    //  rest of that file is kept). An empty name takes the name away. Any
+    //  installation, the first too, running or not. False: not written.
+    bool rename(const QString& id, const QString& name) const;
 
     //  The status of one, without its picture.
     InstanceInfo read(const QString& id, qint64 now, bool with_picture) const;

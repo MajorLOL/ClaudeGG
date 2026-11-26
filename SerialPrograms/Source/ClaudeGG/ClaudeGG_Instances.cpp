@@ -314,6 +314,34 @@ QString InstanceRegistry::create(qint64 now) const{
     return QString();
 }
 
+QString clean_instance_name(const QString& name){
+    QString clean;
+    for (const QChar c : name){
+        //  A control (a tab, a new line ...) is a space; spaces are made one.
+        clean += c.category() == QChar::Other_Control ? QChar(' ') : c;
+    }
+    clean = clean.simplified();
+    if (clean.size() > INSTANCE_NAME_LENGTH){
+        clean = clean.left(INSTANCE_NAME_LENGTH).trimmed();
+    }
+    return clean;
+}
+
+bool InstanceRegistry::rename(const QString& id, const QString& name) const{
+    if (!valid_instance_id(id)){
+        return false;
+    }
+    QDir().mkpath(folder(id));
+    QJsonObject made = read_object(folder(id) + "installation.json");
+    const QString clean = clean_instance_name(name);
+    if (clean.isEmpty()){
+        made.remove("name");
+    }else{
+        made["name"] = clean;
+    }
+    return write_object(folder(id) + "installation.json", made);
+}
+
 bool InstanceRegistry::remove(const QString& id, qint64 now) const{
     if (!valid_instance_id(id) || id == MAIN_INSTANCE){
         return false;
@@ -689,6 +717,9 @@ int run_instances_hub(QApplication& application, const QString& test_folder){
             global_logger_tagged().log("Installations: installation " + id.toStdString() + " did not answer a request to close.", COLOR_RED);
         }
     };
+    request.instance_rename = [registry](const QString& id, const QString& name){
+        return registry->rename(id, name);
+    };
 
     //  There is one overview: a second one asks the first to come forward. (The
     //  lock decides which one is first: on Windows two servers can listen on the
@@ -816,6 +847,20 @@ int run_instances_checks(Logger& logger){
         check(list[1].starting && !list[1].running, "a new installation without a status is starting");
         check(!registry.read("2", NOW + INSTANCE_STARTING_MSEC + 1000, false).starting, "and is not starting for ever");
         check(!registry.read("9", NOW, false).starting, "a folder that nobody made through the program is not starting");
+
+        //  A name of its own.
+        check(registry.read("2", NOW, false).name.isEmpty(), "an installation has no name of its own at first");
+        check(registry.rename("2", "  Shiny\thunter \n  Switch 2  "), "an installation is given a name");
+        check(registry.read("2", NOW, false).name == "Shiny hunter Switch 2", "the name is one line, with single spaces");
+        check(registry.read("2", NOW, false).starting, "and what else is in its file is kept");
+        check(registry.rename("1", "Main"), "the first installation can be given a name too");
+        check(registry.read("1", NOW, false).name == "Main", "(it has one)");
+        check(clean_instance_name(QString(100, QChar('x'))).size() == INSTANCE_NAME_LENGTH, "a name is no longer than " + QString::number(INSTANCE_NAME_LENGTH) + " characters");
+        check(clean_instance_name("   \t ").isEmpty(), "a name of spaces is none");
+        check(registry.rename("2", "   "), "an empty name is written");
+        check(registry.read("2", NOW, false).name.isEmpty() && registry.read("2", NOW, false).starting, "and takes the name away (the rest stays)");
+        check(!registry.rename("not a name", "X") && !registry.rename("../3", "X"), "only an installation is named, nothing else");
+        registry.rename("1", QString());
     }
 
     //  The status and the miniature.

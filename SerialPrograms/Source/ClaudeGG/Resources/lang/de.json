@@ -382,5 +382,6 @@
  "Remove": "Entfernen",
  "Really remove?": "Wirklich entfernen?",
  "Really close?": "Wirklich schließen?",
+ "Rename": "Umbenennen",
  "Each installation has its own settings: its own capture card and its own microcontroller. Closing this window does not stop them.": "Jede Installation hat ihre eigenen Einstellungen: eine eigene Capture-Karte und einen eigenen Mikrocontroller. Wenn du dieses Fenster schließt, laufen sie weiter."
 }
