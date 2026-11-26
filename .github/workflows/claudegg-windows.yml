@@ -862,8 +862,8 @@ jobs:
               echo "::warning::${pair%%=*} failed: see its step."
             fi
           done
-          if [ "$SETUP" = "failure" ] || [ "$INSTALLATIONS" = "failure" ]; then
-            echo "::error::The test of the setup or of the installations failed: the build is not published."
+          if [ "$SETUP" = "failure" ] || [ "$INSTALLATIONS" = "failure" ] || [ "$HOST" = "failure" ]; then
+            echo "::error::The test of the setup, of the installations or of the main window failed: the build is not published."
             exit 1
           fi
 
