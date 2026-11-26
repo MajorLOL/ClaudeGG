@@ -519,7 +519,10 @@ int run_program(int argc, char *argv[]){
     //  Check whether the hardware is powerful enough to run this program.
     //  (Not for the test of the interface: nobody is there to answer a
     //  message box, and it runs no program.)
-    if (ui_screenshots_folder.empty() && !check_hardware()){
+    //  (Nor in an installation that runs in the main window: that window
+    //  asks, once, before it opens, since a message of this check would be a
+    //  window of its own, outside the main window.)
+    if (ui_screenshots_folder.empty() && !ClaudeGG::is_embedded() && !check_hardware()){
         return 1;
     }
 

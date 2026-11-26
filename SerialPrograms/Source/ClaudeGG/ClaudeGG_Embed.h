@@ -76,6 +76,11 @@ bool focus_child_window(quintptr parent, qint64 pid);
 //  is none. Any of the pointers may be null.
 bool describe_child_window(quintptr parent, qint64 pid, QSize* child_size, QSize* parent_size, bool* visible, bool* child_style);
 
+//  What Windows says about every window of the process "pid" that is not a child
+//  window (title, class, visible or not, owner, size): for a test to say what an
+//  installation is doing when it has not made its window in the main window.
+QString describe_process_windows(qint64 pid);
+
 //  The probe (what a test starts) and the test.
 int run_embed_probe(QApplication& application);
 int run_embed_test(QApplication& application, const QString& folder);

@@ -235,6 +235,44 @@ int count_top_level_windows(qint64 pid){
 #endif
 }
 
+QString describe_process_windows(qint64 pid){
+#ifdef _WIN32
+    struct Listing{
+        DWORD pid = 0;
+        QStringList lines;
+    } listing;
+    listing.pid = (DWORD)pid;
+    EnumWindows([](HWND window, LPARAM parameter) -> BOOL{
+        Listing& found = *(Listing*)parameter;
+        DWORD owner_pid = 0;
+        GetWindowThreadProcessId(window, &owner_pid);
+        if (owner_pid != found.pid || found.lines.size() >= 12){
+            return TRUE;
+        }
+        wchar_t title[128] = {0};
+        wchar_t kind[128] = {0};
+        GetWindowTextW(window, title, 127);
+        GetClassNameW(window, kind, 127);
+        RECT area = {0, 0, 0, 0};
+        GetWindowRect(window, &area);
+        found.lines.append(
+            QString("'%1' (%2) %3, %4x%5%6")
+                .arg(QString::fromWCharArray(title))
+                .arg(QString::fromWCharArray(kind))
+                .arg(IsWindowVisible(window) ? "visible" : "hidden")
+                .arg(area.right - area.left)
+                .arg(area.bottom - area.top)
+                .arg(GetWindow(window, GW_OWNER) != nullptr ? ", with an owner" : "")
+        );
+        return TRUE;
+    }, (LPARAM)&listing);
+    return listing.lines.isEmpty() ? QString("no window at all") : listing.lines.join("; ");
+#else
+    (void)pid;
+    return QString();
+#endif
+}
+
 bool focus_child_window(quintptr parent, qint64 pid){
 #ifdef _WIN32
     ChildSearch search;

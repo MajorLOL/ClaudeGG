@@ -30,6 +30,7 @@
 #include "Common/Cpp/Color.h"
 #include "Common/Cpp/Logging/AbstractLogger.h"
 #include "Common/Cpp/Logging/GlobalLogger.h"
+#include "CommonFramework/Environment/HardwareValidation.h"
 #include "CommonFramework/Logging/Logger.h"
 #include "ClaudeGG_Embed.h"
 #include "ClaudeGG_Host.h"
@@ -460,6 +461,12 @@ int run_host(QApplication& application){
         return 0;
     }
 
+    //  Is this computer powerful enough? The installations that run in this window
+    //  do not ask: a message of that check would be a window of its own.
+    if (!check_hardware()){
+        return 1;
+    }
+
     HostWindow window(registry, false);
     InstanceLink link(link_name, [&window](const QString& command){
         if (command == "show"){
@@ -698,6 +705,13 @@ int run_host_test(QApplication& application, const QString& folder){
         check(shown, what + ": it is shown in the main window when its window is there");
         if (!shown){
             note(window.running(id) ? "the installation runs, and has made no window in the main window" : "the installation has ended");
+            if (window.running(id)){
+                note("its windows: " + describe_process_windows(window.process_id(id)));
+                QScreen* screen = QGuiApplication::primaryScreen();
+                if (screen != nullptr){
+                    save(screen->grabWindow(0).toImage(), "host-" + what + "-screen");
+                }
+            }
             window.close();
             return;
         }
