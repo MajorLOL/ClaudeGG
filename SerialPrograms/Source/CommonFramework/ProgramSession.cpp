@@ -129,8 +129,16 @@ void ProgramSession::report_stats_changed(){
     push_stats();
 }
 void ProgramSession::report_error(const std::string& message){
+    {
+        std::lock_guard<Mutex> lg(m_last_error_lock);
+        m_last_error = message;
+    }
     std::lock_guard<Mutex> lg(m_lock);
     push_error(message);
+}
+std::string ProgramSession::last_error() const{
+    std::lock_guard<Mutex> lg(m_last_error_lock);
+    return m_last_error;
 }
 
 
@@ -247,7 +255,11 @@ std::string ProgramSession::start_program(){
         //  Wait for previous program thread to finish.
         join_program_thread();
 
-        //  Now start the program.
+        //  Now start the program. (What went wrong the last time is over.)
+        {
+            std::lock_guard<Mutex> error_lock(m_last_error_lock);
+            m_last_error.clear();
+        }
         m_logger.log("Starting program...");
         m_last_state_change.store(current_time(), std::memory_order_relaxed);
         set_state(ProgramState::RUNNING);
