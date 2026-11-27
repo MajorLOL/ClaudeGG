@@ -30,6 +30,7 @@
 #include "ClaudeGG_Mobile.h"
 #include "ClaudeGG_PokemonGo.h"
 #include "ClaudeGG_PokemonGoBattle.h"
+#include "ClaudeGG_PokemonGoFight.h"
 #include "ClaudeGG_PokemonGoNav.h"
 
 namespace PokemonAutomation{
@@ -666,6 +667,21 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             }
         }
         check(differ == 0, engine.isEmpty() ? QString("the brain of the fights answers as battle_engine.py does") : engine.last());
+    }
+    //  The state of a fight, ported to C++ (issue #30): fights played on it as they were played on the Python one.
+    {
+        QStringList fights;
+        const int differ = PokemonGo::Fight::run_fight_checks(
+            agent_folder + "/../tests/fixtures/fight_golden.json.qz",
+            agent_folder + "/../models/battle_data.json",
+            fights
+        );
+        for (const QString& line : fights){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, fights.isEmpty() ? QString("the state of a fight is kept as battle_fight.py keeps it") : fights.last());
     }
     if (wrong != 0){
         return finish();

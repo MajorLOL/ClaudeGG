@@ -581,6 +581,17 @@ static const MonRow* mon_row(const QString& id){
     const auto found = g_data.mon_index.constFind(id);
     return found == g_data.mon_index.constEnd() ? nullptr : &g_data.mons[(size_t)found.value()];
 }
+static bool make_move(const QString& id, Move& out);
+
+bool move_by_id(const QString& id, Move& out){
+    return make_move(id, out);
+}
+
+QStringList species_charged(const QString& species){
+    const MonRow* row = mon_row(species);
+    return row == nullptr ? QStringList() : row->charged;
+}
+
 static bool make_move(const QString& id, Move& out){
     const MoveRow* row = move_row(id);
     if (row == nullptr){
@@ -826,6 +837,8 @@ bool make_mon(const MonSpec& spec, Mon& out){
         mon.charged.push_back(move);
     }
     mon.hp = hp;
+    mon.hp_float = spec.stats.has_value() && spec.stats->size() >= 3;
+    mon.max_hp_float = mon.hp_float;
     mon.energy = 0;
     mon.shields = 2;
     out = mon;

@@ -72,6 +72,8 @@ struct Mon{
     Move fast;
     std::vector<Move> charged;
     double hp = 0;
+    bool hp_float = false;              //  Python's hp is a float when the stats were fitted (it prints as 174.0) ...
+    bool max_hp_float = false;          //  ... as does its maximum, which hp goes back to when it is full
     int energy = 0;
     int shields = 2;
 
@@ -93,6 +95,11 @@ struct MonSpec{
 };
 //  False when the species or a move is not in the data.
 bool make_mon(const MonSpec& spec, Mon& out);
+
+
+//  The move with this id, and the charged moves that a species can have (in the order of the data).
+bool move_by_id(const QString& id, Move& out);
+QStringList species_charged(const QString& species);
 
 
 //  ---- types and names
