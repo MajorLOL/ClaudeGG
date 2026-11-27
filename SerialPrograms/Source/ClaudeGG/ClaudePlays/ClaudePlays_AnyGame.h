@@ -78,6 +78,16 @@ const PadLayout& ps3_controller_layout();
 //  An original Xbox controller: A, B, X, Y, WHITE, BLACK, LT, RT, START,
 //  BACK, LSTICK, RSTICK and the d-pad. No HOME.
 const PadLayout& xbox_controller_layout();
+//  The pads of the retro consoles, through a BlueRetro adapter, by their own
+//  names. None has HOME. The PlayStation and the PlayStation 2: those of the
+//  PlayStation 3. The GameCube: A, B, X, Y, Z, L, R, START, the stick and the
+//  C stick. The Nintendo 64: A, B, Z, L, R, START, C_UP to C_RIGHT and one
+//  stick. The Dreamcast: A, B, X, Y, L, R, START and one stick.
+const PadLayout& ps1_controller_layout();
+const PadLayout& ps2_controller_layout();
+const PadLayout& gamecube_controller_layout();
+const PadLayout& n64_controller_layout();
+const PadLayout& dreamcast_controller_layout();
 //  The layout of a kind of pad.
 const PadLayout& pad_layout(PadKind pad);
 

@@ -1938,13 +1938,20 @@ QString short_board_name(const QString& id){
 bool console_wired_only(const QString& console){
     return console == "ps3" || console == "xbox";
 }
+//  The consoles that take only a wireless board (a Switch Pro Controller over
+//  Bluetooth): the retro consoles, through a BlueRetro adapter, which takes a
+//  Bluetooth pad. The ESP32-S3 has no Bluetooth for a pad.
+bool console_wireless_only(const QString& console){
+    return console == "retro";
+}
 
 //  The pictures of those consoles (with the pictures of the consoles,
 //  further down).
 QPixmap ps3_picture();
 QPixmap xbox_picture();
+QPixmap retro_picture();
 QPixmap console_picture(const QString& console){
-    return console == "xbox" ? xbox_picture() : ps3_picture();
+    return console == "xbox" ? xbox_picture() : console == "retro" ? retro_picture() : ps3_picture();
 }
 
 //  ---------------------------------------------------------------------
@@ -1954,7 +1961,9 @@ QPixmap console_picture(const QString& console){
 class BoardPage : public Page{
 public:
     explicit BoardPage(Canvas& canvas)
-        : m_menu("Select your board", make_sections(console_wired_only(canvas.console_code())))
+        : m_menu("Select your board", make_sections(
+            console_wired_only(canvas.console_code()), console_wireless_only(canvas.console_code())
+        ))
     {
         canvas.set_focus_id("bar");
     }
@@ -2026,7 +2035,9 @@ private:
     //  For a PlayStation 3 or an original Xbox only the wired board: it plays
     //  a plain USB gamepad (see console_wired_only()). The wireless ones play
     //  a Switch controller over Bluetooth, which those consoles do not know.
-    static std::vector<MenuSection> make_sections(bool wired_only){
+    //  For the retro consoles the other way round: BlueRetro takes a pad over
+    //  Bluetooth, which the ESP32-S3 cannot play.
+    static std::vector<MenuSection> make_sections(bool wired_only, bool wireless_only){
         std::vector<MenuSection> sections;
 
         MenuSection supported;
@@ -2079,6 +2090,13 @@ private:
             row.chips = wired_only
                 ? std::vector<MenuChip>{{"For this console", ChipKind::ORANGE_FILL}, {"Wired", ChipKind::RING}}
                 : std::vector<MenuChip>{{"Most reliable", ChipKind::ORANGE_RING}, {"Wired", ChipKind::RING}};
+            if (wireless_only){
+                row.dim = true;
+                row.enabled = false;
+                row.chips = {{"Wired", ChipKind::DIM}};
+                row.callout1 = "Not for this console:";
+                row.callout2 = "it needs a wireless board: a Pico W, a Pico 2 W or an ESP32.";
+            }
             supported.rows.push_back(row);
         }
         sections.push_back(supported);
@@ -2425,6 +2443,51 @@ const BoardSpec& spec_for(const QString& board, const QString& console){
     };
     if (ps3 && board == "esp32s3"){
         return ESP32S3_PS3_SPEC;
+    }
+
+    //  The retro consoles: the wireless board plays a Switch Pro Controller
+    //  to a BlueRetro adapter (Apache-2.0: an ESP32 with its firmware, in the
+    //  console's controller port), which takes it as a Bluetooth pad and
+    //  plays the console's own pad. Its board page offers only the wireless
+    //  boards.
+    const char* const BLUERETRO_TITLE = "Prepare the BlueRetro adapter";
+    const char* const BLUERETRO_SUB =
+        "A second ESP32 (not an ESP32-S3) with the BlueRetro firmware, or a ready-made BlueRetro adapter, in the "
+        "first controller port of the console. Flash BlueRetro with its web installer: the build for your console.";
+    const char* const RETRO_PAIR_TITLE = "Pair with the adapter";
+    const char* const RETRO_PAIR_SUB =
+        "Turn on the console: BlueRetro looks for a pad by itself. Wait until its light stays on, then click the "
+        "video and press the arrow keys. This has not been tried with BlueRetro yet.";
+    static const StepText PICO_RETRO[] = {
+        {"Plug it in", "Connect the Pico to the computer with a micro-USB cable. Keep it within 1 m (3 ft) of the BlueRetro adapter.", Action::NONE},
+        {"Enter flash mode", "Unplug it, hold the white Bootsel button, plug it in again, then let go.", Action::BOOTSEL},
+        {"Flash the firmware", "Pick the firmware version and press Flash now. The program puts the file on the Pico for you.", Action::FIRMWARE},
+        {BLUERETRO_TITLE, BLUERETRO_SUB, Action::NONE},
+        {"Select the controller", SELECT_SUB, Action::NONE},
+        {"Select the port and the type", PORT_SUB, Action::PORTS},
+        {RETRO_PAIR_TITLE, RETRO_PAIR_SUB, Action::NONE},
+    };
+    static const StepText ESP32_RETRO[] = {
+        {"Plug it in", "Connect the ESP32 to the computer with a USB cable. Keep it within 1 m (3 ft) of the BlueRetro adapter.", Action::DEVICE},
+        {"Flash the firmware", "Pick the port of the ESP32 and the firmware version, then press Flash now.", Action::FIRMWARE},
+        {"Restart the board", "Press the EN or RESET button, or unplug it and plug it in again.", Action::NONE},
+        {BLUERETRO_TITLE, BLUERETRO_SUB, Action::NONE},
+        {"Select the controller", SELECT_SUB, Action::NONE},
+        {"Select the port and the type", PORT_SUB, Action::PORTS},
+        {RETRO_PAIR_TITLE, RETRO_PAIR_SUB, Action::NONE},
+    };
+    static const BoardSpec PICO_RETRO_SPEC = {
+        PICO_RETRO, sizeof(PICO_RETRO) / sizeof(PICO_RETRO[0]),
+        "Wireless, through a BlueRetro adapter. Experimental. Seven steps.", "NS1: Wireless Pro Controller",
+        2, 3, 4, 5, 6, false
+    };
+    static const BoardSpec ESP32_RETRO_SPEC = {
+        ESP32_RETRO, sizeof(ESP32_RETRO) / sizeof(ESP32_RETRO[0]),
+        "Wireless, through a BlueRetro adapter. Experimental. Seven steps.", "NS1: Wireless Pro Controller",
+        1, 3, 4, 5, 6, false
+    };
+    if (console == "retro" && board != "esp32s3"){
+        return board == "esp32" ? ESP32_RETRO_SPEC : PICO_RETRO_SPEC;
     }
 
     static const StepText PICO[] = {
@@ -3162,8 +3225,8 @@ private:
 
         //  The Switch, with its screen black until it is linked. (A
         //  PlayStation 3 or an Xbox: its controller, with a glow once it is
-        //  linked.)
-        const bool other = m_console == "ps3" || m_console == "xbox";
+        //  linked. The retro consoles: a pad and the BlueRetro adapter.)
+        const bool other = m_console == "ps3" || m_console == "xbox" || m_console == "retro";
         const QPixmap plain = other ? console_picture(m_console) : plain_picture("switch");
         const QPixmap linked = other ? console_picture(m_console) : plain_picture("switch-gg");
         const double switch_w = other ? 400 : 620;
@@ -3173,7 +3236,9 @@ private:
         draw_picture(painter, plain, sw, a * (1.0 - m_link.value));
         draw_picture(painter, linked, sw, a * m_link.value);
         draw_text(
-            painter, QString(m_console == "ps3" ? "PlayStation 3" : m_console == "xbox" ? "Original Xbox" : "Nintendo Switch"),
+            painter,
+            m_console == "ps3" ? QString("PlayStation 3") : m_console == "xbox" ? QString("Original Xbox")
+                : m_console == "retro" ? T("BlueRetro and your console") : QString("Nintendo Switch"),
             CX_PICO, sw.bottom() + 4, ui_font(26, 500), white(0.6 * a), Qt::AlignHCenter
         );
 
@@ -3845,7 +3910,7 @@ public:
     DonePage(Canvas& canvas, const QString& board, bool phone = false)
         : m_board(board)
         , m_phone(phone)
-        , m_other_console(!phone && (canvas.console_code() == "ps3" || canvas.console_code() == "xbox"))
+        , m_other_console(!phone && (canvas.console_code() == "ps3" || canvas.console_code() == "xbox" || canvas.console_code() == "retro"))
         , m_console(canvas.console_code())
     {
         canvas.set_focus_id("start");
@@ -7377,6 +7442,72 @@ QPixmap ps3_picture(){
     return cache;
 }
 
+//  A plain gamepad of the old kind, light gray with a d-pad and four colored
+//  buttons, and a small adapter with a cable and a light of Bluetooth blue:
+//  the picture of the console "retro" (BlueRetro, for several consoles; it
+//  is no picture of one of them). Drawn here, as the picture of the Switch 2 is.
+QPixmap retro_picture(){
+    static QPixmap cache;
+    if (!cache.isNull()){
+        return cache;
+    }
+    constexpr int W = 540;
+    constexpr int H = 360;
+    QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter p(&image);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(Qt::NoPen);
+
+    //  The adapter, at the top, with its cable down to the pad.
+    p.setBrush(QColor(70, 74, 84));
+    p.drawRoundedRect(QRectF(214, 12, 112, 70), 16, 16);
+    p.setBrush(QColor(52, 130, 230));
+    p.drawEllipse(QPointF(270, 47), 13, 13);
+    p.setBrush(QColor(255, 255, 255, 80));
+    p.drawEllipse(QPointF(266, 43), 5, 4);
+    p.setBrush(QColor(110, 114, 124));
+    p.drawRoundedRect(QRectF(264, 82, 12, 62), 5, 5);
+
+    //  The body: a rounded bar with round ends.
+    QPainterPath body;
+    body.addRoundedRect(QRectF(30, 130, 480, 210), 105, 105);
+    QLinearGradient shade(0, 130, 0, 340);
+    shade.setColorAt(0, QColor(204, 206, 212));
+    shade.setColorAt(1, QColor(150, 152, 160));
+    p.setBrush(shade);
+    p.drawPath(body);
+    p.setPen(QPen(QColor(236, 238, 242), 2));
+    p.setBrush(Qt::NoBrush);
+    p.drawPath(body);
+    p.setPen(Qt::NoPen);
+
+    //  The d-pad, and START and SELECT in the middle.
+    p.setBrush(QColor(44, 46, 52));
+    p.drawRoundedRect(QRectF(118, 190, 30, 92), 6, 6);
+    p.drawRoundedRect(QRectF(87, 221, 92, 30), 6, 6);
+    p.drawRoundedRect(QRectF(226, 248, 36, 14), 7, 7);
+    p.drawRoundedRect(QRectF(278, 248, 36, 14), 7, 7);
+
+    //  Four buttons in a diamond.
+    const struct{
+        QPointF center;
+        QColor color;
+    } buttons[] = {
+        {QPointF(420, 196), QColor(226, 196, 64)},
+        {QPointF(462, 236), QColor(214, 70, 64)},
+        {QPointF(378, 236), QColor(70, 120, 214)},
+        {QPointF(420, 276), QColor(84, 170, 70)},
+    };
+    for (const auto& button : buttons){
+        p.setBrush(button.color);
+        p.drawEllipse(button.center, 20, 20);
+    }
+    p.end();
+    cache = QPixmap::fromImage(image);
+    return cache;
+}
+
 struct ConsoleInfo{
     //  The value of the setting "console" (GlobalSettings::GAME_CONSOLE).
     const char* code;
@@ -7411,20 +7542,22 @@ constexpr ConsoleInfo CONSOLES[] = {
     //  which takes it as a Switch pad and plays an original Xbox controller.
     //  Experimental: not tried on an Xbox yet.
     {"xbox",        "Original Xbox",        "ESP32-S3 and a Pico with OGX-Mini",    true},
+    //  PlayStation, PlayStation 2, GameCube, Nintendo 64 and Dreamcast: a
+    //  wireless board (a Switch Pro Controller over Bluetooth) to a BlueRetro
+    //  adapter (Apache-2.0, an ESP32 in the console's controller port), which
+    //  plays the console's own pad. One console here: the board and the steps
+    //  are the same for all of them; each has a list of games of its own.
+    //  Experimental: not tried with BlueRetro yet.
+    {"retro",       "Retro consoles",       "Through BlueRetro: PS1, PS2, GameCube, N64, Dreamcast", true},
     //  What the gamepad adapters of the community already speak (the
     //  platforms of OGX-Mini) and what the commercial ones list.
     {"ps5",         "PlayStation 5",        nullptr,    false},
     {"ps4",         "PlayStation 4",        nullptr,    false},
-    {"ps2",         "PlayStation 2",        nullptr,    false},
-    {"ps1",         "PlayStation",          nullptr,    false},
     {"psclassic",   "PlayStation Classic",  nullptr,    false},
     {"xboxseries",  "Xbox Series X|S",      nullptr,    false},
     {"xboxone",     "Xbox One",             nullptr,    false},
     {"xbox360",     "Xbox 360",             nullptr,    false},
     {"wiiu",        "Nintendo Wii U",       nullptr,    false},
-    {"gamecube",    "Nintendo GameCube",    nullptr,    false},
-    {"n64",         "Nintendo 64",          nullptr,    false},
-    {"dreamcast",   "Sega Dreamcast",       nullptr,    false},
 };
 constexpr int CONSOLE_COUNT = (int)(sizeof(CONSOLES) / sizeof(CONSOLES[0]));
 
@@ -7483,7 +7616,7 @@ public:
         if (supported_count() < CONSOLE_COUNT){
             const double begin = in.bar + 0.07 * supported_count();
             const double reveal = eo(prog(t, begin, begin + 0.6));
-            const double y = top + BIG_HEIGHT + 24;
+            const double y = top + large_block() + 24;
             draw_text_cy(painter, T("Coming soon"), 144, y + 14, ui_font(24, 600), white(0.68 * reveal));
             painter.setPen(QPen(white(0.2 * reveal), 1.4));
             const double text_end = 144 + text_width(ui_font(24, 600), T("Coming soon")) + 22;
@@ -7560,7 +7693,11 @@ public:
     }
 
 private:
+    //  The supported consoles: one row of up to five large tiles; more go in
+    //  two rows of lower tiles.
     static constexpr double BIG_HEIGHT = 236;
+    static constexpr double TWO_ROW_HEIGHT = 140;
+    static constexpr double ROW_GAP = 20;
     static constexpr int SMALL_COLUMNS = 5;
     bool m_again = false;                   //  chosen again, from the games
 
@@ -7576,6 +7713,21 @@ private:
             count += info.supported ? 1 : 0;
         }
         return count;
+    }
+    static int large_columns(){
+        const int count = supported_count();
+        return count <= 5 ? count : (count + 1) / 2;
+    }
+    static int large_rows(){
+        const int columns = std::max(1, large_columns());
+        return (supported_count() + columns - 1) / columns;
+    }
+    static double large_height(){
+        return large_rows() > 1 ? TWO_ROW_HEIGHT : BIG_HEIGHT;
+    }
+    //  The height of all the large tiles together.
+    static double large_block(){
+        return large_rows() * large_height() + (large_rows() - 1) * ROW_GAP;
     }
     //  The next console after "from" in this direction that can be picked, or -1.
     static int next_enabled(int from, int direction){
@@ -7604,14 +7756,19 @@ private:
         const int large = supported_count();
         if (index < large){
             constexpr double GAP = 40;
-            const double width = (RIGHT - LEFT - GAP * (large - 1)) / large;
-            return QRectF(LEFT + (width + GAP) * index, top, width, BIG_HEIGHT);
+            const int columns = large_columns();
+            const double width = (RIGHT - LEFT - GAP * (columns - 1)) / columns;
+            return QRectF(
+                LEFT + (width + GAP) * (index % columns),
+                top + (large_height() + ROW_GAP) * (index / columns),
+                width, large_height()
+            );
         }
         constexpr double GAP = 10;
         constexpr double HEIGHT = 60;
         const int k = index - large;
         const double width = (RIGHT - LEFT - GAP * (SMALL_COLUMNS - 1)) / SMALL_COLUMNS;
-        const double first = top + BIG_HEIGHT + 18 + 28 + 18;
+        const double first = top + large_block() + 18 + 28 + 18;
         return QRectF(
             LEFT + (width + GAP) * (k % SMALL_COLUMNS),
             first + (HEIGHT + GAP) * (k / SMALL_COLUMNS),
@@ -7651,20 +7808,23 @@ private:
         //  The console on the left, as large as the tile lets it be; its name
         //  and what it covers on the right. With three tiles side by side
         //  they are narrower: the picture, and the type, are smaller; with
-        //  four or five, smaller again.
-        const bool narrow = supported_count() >= 3;
-        const bool narrower = supported_count() >= 4;
-        const bool narrowest = supported_count() >= 5;
+        //  four or five, smaller again. In two rows the tiles are lower: the
+        //  picture gets less room.
+        const bool narrow = large_columns() >= 3;
+        const bool narrower = large_columns() >= 4;
+        const bool narrowest = large_columns() >= 5;
+        const bool low = large_rows() > 1;
         const QString code = QString::fromLatin1(info.code);
         const QPixmap picture =
             code == "switch" ? plain_picture("switch")
             : code == "switch2" ? switch2_picture()
             : code == "ps3" ? ps3_picture()
             : code == "xbox" ? xbox_picture()
+            : code == "retro" ? retro_picture()
             : phone_picture();
         const QRectF room(
-            box.left() + (narrowest ? 14 : narrower ? 18 : narrow ? 26 : 36), box.top() + 30,
-            narrowest ? 92 : narrower ? 120 : narrow ? 200 : 360, box.height() - 60
+            box.left() + (narrowest ? 14 : narrower ? 18 : narrow ? 26 : 36), box.top() + (low ? 22 : 30),
+            narrowest ? 92 : narrower ? 120 : low ? 150 : narrow ? 200 : 360, box.height() - (low ? 44 : 60)
         );
         if (!picture.isNull()){
             const double scale = std::min(room.width() / picture.width(), room.height() / picture.height());
@@ -10402,6 +10562,11 @@ std::vector<HomeGame> test_games_with_consoles(){
     xbox.programs = 1;
     xbox.consoles = QStringList{"xbox"};
     games.push_back(xbox);
+    HomeGame retro;
+    retro.name = "GameCube games";
+    retro.programs = 1;
+    retro.consoles = QStringList{"retro"};
+    games.push_back(retro);
     HomeGame go;
     go.name = "Pokemon GO";
     go.programs = 6;
@@ -11039,12 +11204,12 @@ int run_setup_test(QApplication& application, const QString& folder){
     checker.check(
         canvas.has_hit("console:0") && canvas.hit_enabled("console:0") && canvas.has_hit("console:1") && canvas.hit_enabled("console:1") &&
         canvas.has_hit("console:2") && canvas.hit_enabled("console:2") && canvas.has_hit("console:3") && canvas.hit_enabled("console:3") &&
-        canvas.has_hit("console:4") && canvas.hit_enabled("console:4"),
-        "the five supported consoles (the two Switches, the phone, the PlayStation 3 and the original Xbox) are tiles that can be picked"
+        canvas.has_hit("console:4") && canvas.hit_enabled("console:4") && canvas.has_hit("console:5") && canvas.hit_enabled("console:5"),
+        "the six supported consoles (the two Switches, the phone, the PlayStation 3, the original Xbox and the retro consoles) are tiles that can be picked"
     );
-    checker.check(canvas.has_hit("console:5") && !canvas.hit_enabled("console:5") && canvas.has_hit("console:12") && !canvas.hit_enabled("console:12"),
+    checker.check(canvas.has_hit("console:6") && !canvas.hit_enabled("console:6") && canvas.has_hit("console:12") && !canvas.hit_enabled("console:12"),
         "the other consoles are on the screen already, and cannot be picked");
-    checker.check(!canvas.click("console:5") && canvas.page_state() == "selected=", "a console that is not supported yet does nothing when it is clicked");
+    checker.check(!canvas.click("console:6") && canvas.page_state() == "selected=", "a console that is not supported yet does nothing when it is clicked");
     checker.check(canvas.has_hit("skip") && canvas.has_hit("continue"), "the console screen has Skip setup and Continue");
     checker.check(!canvas.hit_enabled("continue"), "no console, no way on");
     checker.check(canvas.page_state() == "selected=", "nothing is picked at first");
@@ -11063,11 +11228,14 @@ int run_setup_test(QApplication& application, const QString& folder){
     canvas.press_key(Qt::Key_Right);
     checker.check(canvas.focus_id() == "console:4", "to the original Xbox");
     canvas.press_key(Qt::Key_Right);
-    checker.check(canvas.focus_id() == "console:4", "and skip the ones that are not supported yet");
+    checker.check(canvas.focus_id() == "console:5", "to the retro consoles");
+    canvas.press_key(Qt::Key_Right);
+    checker.check(canvas.focus_id() == "console:5", "and skip the ones that are not supported yet");
     canvas.press_key(Qt::Key_Tab);
     canvas.press_key(Qt::Key_Tab);
     checker.check(!canvas.focus_id().startsWith("console:") || canvas.focus_id() == "console:0" || canvas.focus_id() == "console:1" ||
-        canvas.focus_id() == "console:2" || canvas.focus_id() == "console:3" || canvas.focus_id() == "console:4",
+        canvas.focus_id() == "console:2" || canvas.focus_id() == "console:3" || canvas.focus_id() == "console:4" ||
+        canvas.focus_id() == "console:5",
         "Tab does not stop on them either");
     canvas.set_focus_id("console:1");
     canvas.move_to("console:1");
@@ -12163,16 +12331,56 @@ int run_setup_test(QApplication& application, const QString& folder){
         save(ps3, folder, "setup-64-steps-" + code);
     }
 
+    //  ---- the retro consoles: only the wireless boards, with the steps of
+    //  BlueRetro
+    for (const char* board : {"pico", "esp32"}){
+        SetupRequest retro_request;
+        retro_request.ask_console = true;
+        retro_request.ask_board = true;
+        retro_request.games = test_games_with_consoles();
+        Canvas retro(retro_request, true);
+        retro.resize(1280, 720);
+        retro.set_scan([]{
+            return HardwareState();
+        });
+        QEventLoop retro_loop;
+        retro.start(&retro_loop);
+        retro.show();
+        retro.wait(2.5);
+        const QString row = QString("row:") + board;
+        checker.check(retro.click("console:5") && retro.page_state() == "selected=retro", "the retro consoles can be picked");
+        save(retro, folder, "setup-62-console-retro");
+        retro.click("continue");
+        retro.wait(2.5);
+        checker.check(retro.result().console_chosen && retro.result().console_code == "retro", "the retro consoles are the answer");
+        checker.check(retro.page_name() == "board", "the board question follows the retro consoles");
+        retro.click("bar");
+        retro.wait(0.9);
+        save(retro, folder, "setup-63-board-retro");
+        checker.check(!retro.click("row:esp32s3"), "the wired board cannot be picked for the retro consoles");
+        checker.check(retro.click(row), "a wireless board can (" + row + ")");
+        retro.wait(0.5);
+        retro.click("continue");
+        retro.wait(2.2);
+        checker.check(retro.page_name() == "steps", "the wireless board goes to its steps (retro, " + row + ")");
+        checker.check(
+            retro.page_state().contains("steps=7") && retro.page_state().contains("type=NS1: Wireless Pro Controller"),
+            "the steps of BlueRetro, with the wireless Pro Controller as the type (" + row + ")"
+        );
+        save(retro, folder, QString("setup-64-steps-retro-") + board);
+    }
+
     //  ---- each console has its own games
     {
-        for (const QString console : {"switch", "switch2", "mobile", "ps3", "xbox"}){
+        for (const QString console : {"switch", "switch2", "mobile", "ps3", "xbox", "retro"}){
             SetupRequest request_games;
             request_games.ask_game = true;
             request_games.games = test_games_with_consoles();
             request_games.console_code = console;
             const int go = (int)request_games.games.size() - 1;
-            const int xbox_games = go - 1;
-            const int ps3_games = go - 2;
+            const int retro_games = go - 1;
+            const int xbox_games = go - 2;
+            const int ps3_games = go - 3;
             HomeProgram spin;
             spin.game = go;
             spin.name = "Spin PokeStops";
@@ -12192,14 +12400,18 @@ int run_setup_test(QApplication& application, const QString& folder){
             const bool phone_console = console == "mobile";
             const bool ps3_console = console == "ps3";
             const bool xbox_console = console == "xbox";
-            const bool switch_console = !phone_console && !ps3_console && !xbox_console;
+            const bool retro_console = console == "retro";
+            const bool switch_console = !phone_console && !ps3_console && !xbox_console && !retro_console;
             checker.check(games_page.page_name() == "games", "the games are asked for (" + console + ")");
             checker.check(games_page.has_hit("game:" + QString::number(go)) == phone_console, "Pokemon GO is shown for a phone and for nothing else (" + console + ")");
             checker.check(games_page.has_hit("game:" + QString::number(ps3_games)) == ps3_console, "the games of the PlayStation 3 are shown for it and for nothing else (" + console + ")");
             checker.check(games_page.has_hit("game:" + QString::number(xbox_games)) == xbox_console, "the games of the original Xbox are shown for it and for nothing else (" + console + ")");
+            checker.check(games_page.has_hit("game:" + QString::number(retro_games)) == retro_console, "the games of the retro consoles are shown for them and for nothing else (" + console + ")");
             checker.check(games_page.has_hit("game:3") == switch_console && games_page.has_hit("game:0") == switch_console, "and the games of the Switch are not (" + console + ")");
             checker.check(
-                games_page.focus_id() == "game:" + QString::number(phone_console ? go : ps3_console ? ps3_games : xbox_console ? xbox_games : 0),
+                games_page.focus_id() == "game:" + QString::number(
+                    phone_console ? go : ps3_console ? ps3_games : xbox_console ? xbox_games : retro_console ? retro_games : 0
+                ),
                 "the keyboard starts on a game that is shown (" + console + ")"
             );
             if (phone_console){

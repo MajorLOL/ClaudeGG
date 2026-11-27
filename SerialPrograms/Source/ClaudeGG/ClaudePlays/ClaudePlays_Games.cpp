@@ -246,6 +246,51 @@ std::map<GameId, GameProfile> make_profiles(){
         xbox.console = "xbox";
         add(std::move(xbox));
     }
+    //  The retro consoles: a wireless board through a BlueRetro adapter.
+    const char* const BLUERETRO =
+        " The pad is played through an adapter (BlueRetro, which takes a Bluetooth pad and passes it on as "
+        "this console's own): there is no rumble.";
+    auto retro = [&](GameId id, const char* identifier, const char* category, const char* title, std::string notes, PadKind pad){
+        GameProfile profile{id, identifier, category, "", title, std::move(notes), pad, false};
+        profile.console = "retro";
+        add(std::move(profile));
+    };
+    retro(
+        GameId::PLAYSTATION_1, "PlayStation:ClaudePlays", "PlayStation", "PlayStation games",
+        std::string("The console is the first PlayStation. In most games CROSS confirms and CIRCLE goes back (in "
+        "many Japanese games the other way round), and START opens the game's menu. Its pad has no button for "
+        "the console's menu. Games save only to a memory card, from a save point or the game's menu.") + BLUERETRO,
+        PadKind::PS1_CONTROLLER
+    );
+    retro(
+        GameId::PLAYSTATION_2, "PlayStation2:ClaudePlays", "PlayStation 2", "PlayStation 2 games",
+        std::string("The console is a PlayStation 2. In most games CROSS confirms and CIRCLE goes back (in many "
+        "Japanese games the other way round), and START opens the game's menu. Its pad has no button for the "
+        "console's menu. The buttons are only pressed fully, never half (some games use the pressure).") + BLUERETRO,
+        PadKind::PS2_CONTROLLER
+    );
+    retro(
+        GameId::GAMECUBE, "GameCube:ClaudePlays", "GameCube", "GameCube games",
+        std::string("The console is a Nintendo GameCube. In most games A confirms and B goes back, START opens the "
+        "game's menu. The C stick is the second stick. L and R are only pressed fully. Its pad has no button "
+        "for the console's menu.") + BLUERETRO,
+        PadKind::GAMECUBE_CONTROLLER
+    );
+    retro(
+        GameId::NINTENDO_64, "Nintendo64:ClaudePlays", "Nintendo 64", "Nintendo 64 games",
+        std::string("The console is a Nintendo 64. In most games A confirms and B goes back, START opens the game's "
+        "menu or pauses. C_UP, C_DOWN, C_LEFT and C_RIGHT are the yellow buttons, often the camera. Z is the "
+        "trigger under the pad. The stick is the one in the middle of the pad. Its pad has no button for the "
+        "console's menu.") + BLUERETRO,
+        PadKind::N64_CONTROLLER
+    );
+    retro(
+        GameId::DREAMCAST, "Dreamcast:ClaudePlays", "Dreamcast", "Dreamcast games",
+        std::string("The console is a Sega Dreamcast. In most games A confirms and B goes back, START opens the "
+        "game's menu or pauses. L and R are triggers and only pressed fully. Its pad has no button for the "
+        "console's menu.") + BLUERETRO,
+        PadKind::DREAMCAST_CONTROLLER
+    );
     return profiles;
 }
 
@@ -267,6 +312,11 @@ bool has_only_claude_plays(GameId id){
     case GameId::ANIMAL_CROSSING_NEW_HORIZONS:
     case GameId::PLAYSTATION_3:
     case GameId::ORIGINAL_XBOX:
+    case GameId::PLAYSTATION_1:
+    case GameId::PLAYSTATION_2:
+    case GameId::GAMECUBE:
+    case GameId::NINTENDO_64:
+    case GameId::DREAMCAST:
         return true;
     default:
         return false;
@@ -306,6 +356,11 @@ const std::vector<GameId>& all_games(){
         GameId::OTHER_GAMES,
         GameId::PLAYSTATION_3,
         GameId::ORIGINAL_XBOX,
+        GameId::PLAYSTATION_1,
+        GameId::PLAYSTATION_2,
+        GameId::GAMECUBE,
+        GameId::NINTENDO_64,
+        GameId::DREAMCAST,
     };
     return games;
 }
