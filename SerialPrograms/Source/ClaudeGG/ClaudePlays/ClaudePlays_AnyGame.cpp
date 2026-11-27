@@ -86,8 +86,95 @@ const PadLayout& xbox_controller_layout(){
     };
     return layout;
 }
+//  The pads of the retro consoles (through a BlueRetro adapter). None has a
+//  button for the console's menu.
+const PadLayout& ps1_controller_layout(){
+    static const PadLayout layout{
+        "a PlayStation controller (a DualShock)",
+        {
+            "CROSS", "CIRCLE", "SQUARE", "TRIANGLE", "L1", "R1", "L2", "R2", "START", "SELECT", "L3", "R3",
+            "UP", "DOWN", "LEFT", "RIGHT",
+        },
+        {"left_stick", "right_stick"},
+        false,
+        "a real PlayStation (the first one)",
+        "On a PlayStation, CROSS is usually yes and CIRCLE usually no or back.",
+        false,
+    };
+    return layout;
+}
+const PadLayout& ps2_controller_layout(){
+    static const PadLayout layout{
+        "a PlayStation 2 controller (a DualShock 2)",
+        {
+            "CROSS", "CIRCLE", "SQUARE", "TRIANGLE", "L1", "R1", "L2", "R2", "START", "SELECT", "L3", "R3",
+            "UP", "DOWN", "LEFT", "RIGHT",
+        },
+        {"left_stick", "right_stick"},
+        false,
+        "a real PlayStation 2",
+        "On a PlayStation 2, CROSS is usually yes and CIRCLE usually no or back.",
+        false,
+    };
+    return layout;
+}
+const PadLayout& gamecube_controller_layout(){
+    static const PadLayout layout{
+        "a Nintendo GameCube controller",
+        {
+            "A", "B", "X", "Y", "Z", "L", "R", "START",
+            "UP", "DOWN", "LEFT", "RIGHT",
+        },
+        {"stick", "c_stick"},
+        false,
+        "a real Nintendo GameCube",
+        "On a GameCube, A is usually yes and B usually no or back.",
+        false,
+    };
+    return layout;
+}
+const PadLayout& n64_controller_layout(){
+    static const PadLayout layout{
+        "a Nintendo 64 controller",
+        {
+            "A", "B", "Z", "L", "R", "START", "C_UP", "C_DOWN", "C_LEFT", "C_RIGHT",
+            "UP", "DOWN", "LEFT", "RIGHT",
+        },
+        {"stick"},
+        false,
+        "a real Nintendo 64",
+        "On a Nintendo 64, A is usually yes and B usually no or back.",
+        false,
+    };
+    return layout;
+}
+const PadLayout& dreamcast_controller_layout(){
+    static const PadLayout layout{
+        "a Sega Dreamcast controller",
+        {
+            "A", "B", "X", "Y", "L", "R", "START",
+            "UP", "DOWN", "LEFT", "RIGHT",
+        },
+        {"stick"},
+        false,
+        "a real Sega Dreamcast",
+        "On a Dreamcast, A is usually yes and B usually no or back.",
+        false,
+    };
+    return layout;
+}
 const PadLayout& pad_layout(PadKind pad){
     switch (pad){
+    case PadKind::PS1_CONTROLLER:
+        return ps1_controller_layout();
+    case PadKind::PS2_CONTROLLER:
+        return ps2_controller_layout();
+    case PadKind::GAMECUBE_CONTROLLER:
+        return gamecube_controller_layout();
+    case PadKind::N64_CONTROLLER:
+        return n64_controller_layout();
+    case PadKind::DREAMCAST_CONTROLLER:
+        return dreamcast_controller_layout();
     case PadKind::XBOX_CONTROLLER:
         return xbox_controller_layout();
     case PadKind::RIGHT_JOYCON:
@@ -217,7 +304,7 @@ std::string button_name(const std::string& given, const PadLayout& layout){
             name = name.substr(start.size());
         }
     }
-    if (layout.has_button("START")){
+    if (layout.has_button("CROSS")){
         //  A PlayStation controller: the other names of its buttons, and those
         //  of a Switch where they are not another button of it.
         struct Alias{
@@ -253,6 +340,34 @@ std::string button_name(const std::string& given, const PadLayout& layout){
             if (name == alias.given){
                 return alias.button;
             }
+        }
+        return name;
+    }
+    if (layout.has_button("START")){
+        //  A GameCube, Nintendo 64 or Dreamcast controller: START for PLUS,
+        //  their triggers for those of a Switch.
+        if (name == "+" || name == "PLUS"){
+            return "START";
+        }
+        if (layout.has_button("C_UP")){
+            //  The Nintendo 64: Z is its trigger, its C buttons may be
+            //  written C-UP, C UP or CUP.
+            if (name == "ZL" || name == "ZR" || name == "Z_TRIGGER"){
+                return "Z";
+            }
+            for (const char* direction : DIRECTIONS){
+                const std::string d = direction;
+                if (name == "C-" + d || name == "C " + d || name == "C" + d){
+                    return "C_" + d;
+                }
+            }
+            return name;
+        }
+        if (name == "ZL" || name == "LT" || name == "L2" || name == "LEFT_TRIGGER"){
+            return "L";
+        }
+        if (name == "ZR" || name == "RT" || name == "R2" || name == "RIGHT_TRIGGER"){
+            return "R";
         }
         return name;
     }

@@ -24,6 +24,7 @@
 #include "NintendoSwitch/Commands/NintendoSwitch_Commands_PushButtons.h"
 #include "NintendoSwitch/Controllers/Joycon/NintendoSwitch_Joycon.h"
 #include "NintendoSwitch/Controllers/PABotBase2/NintendoSwitch_PABotBase2_WiredController.h"
+#include "NintendoSwitch/Controllers/PABotBase2/NintendoSwitch_PABotBase2_ProController.h"
 #include "NintendoSwitch/Controllers/Procon/NintendoSwitch_ProController.h"
 #include "NintendoSwitch/NintendoSwitch_ConsoleHandle.h"
 #include "PokemonBDSP/Programs/PokemonBDSP_GameNavigation.h"
@@ -378,21 +379,126 @@ bool xbox_button_of(const std::string& name, Button& button){
     return false;
 }
 
-//  A console that is played with the Switch's wired controller under other
-//  names: the PlayStation 3 and the original Xbox.
+//  The retro consoles, with a wireless board (a Switch Pro Controller) and a
+//  BlueRetro adapter (Apache-2.0, an ESP32 in the console's controller port).
+//  BlueRetro maps a Bluetooth pad by the places of its buttons (its tables
+//  of the Switch Pro Controller and of each console): the left face button
+//  (Y) to the left one of the console, the bottom one (B) to the bottom one,
+//  and so on; L and R to L1 and R1, ZL and ZR to L2 and R2 or the analog
+//  triggers. The PlayStation and the PlayStation 2 come out as the
+//  PlayStation 3 (ps3_button_of()). Not tried on any of them yet.
+
+//  The GameCube: Y to B, B to A, A to X, X to Y, L and R both to Z, ZL and ZR
+//  to the analog L and R, PLUS to START. The right stick is the C stick.
+bool gamecube_button_of(const std::string& name, Button& button){
+    struct Entry{
+        const char* name;
+        Button button;
+    };
+    static const Entry ENTRIES[] = {
+        {"A",           BUTTON_B},
+        {"B",           BUTTON_Y},
+        {"X",           BUTTON_A},
+        {"Y",           BUTTON_X},
+        {"Z",           BUTTON_R},
+        {"L",           BUTTON_ZL},
+        {"R",           BUTTON_ZR},
+        {"START",       BUTTON_PLUS},
+    };
+    for (const Entry& entry : ENTRIES){
+        if (name == entry.name){
+            button = entry.button;
+            return true;
+        }
+    }
+    return false;
+}
+
+//  The Nintendo 64: B to A, Y to B, A to C_DOWN, X to C_LEFT, ZL and ZR to Z,
+//  L to L, R to R, PLUS to START. C_UP and C_RIGHT are only on the right
+//  stick (n64_stick_of()), which BlueRetro turns into the four C buttons.
+bool n64_button_of(const std::string& name, Button& button){
+    struct Entry{
+        const char* name;
+        Button button;
+    };
+    static const Entry ENTRIES[] = {
+        {"A",           BUTTON_B},
+        {"B",           BUTTON_Y},
+        {"C_DOWN",      BUTTON_A},
+        {"C_LEFT",      BUTTON_X},
+        {"Z",           BUTTON_ZL},
+        {"L",           BUTTON_L},
+        {"R",           BUTTON_R},
+        {"START",       BUTTON_PLUS},
+    };
+    for (const Entry& entry : ENTRIES){
+        if (name == entry.name){
+            button = entry.button;
+            return true;
+        }
+    }
+    return false;
+}
+bool n64_stick_of(const std::string& name, double& x, double& y){
+    if (name == "C_UP"){
+        x = 0;
+        y = 1;
+        return true;
+    }
+    if (name == "C_RIGHT"){
+        x = 1;
+        y = 0;
+        return true;
+    }
+    return false;
+}
+
+//  The Dreamcast: B to A, A to B, Y to X, X to Y, ZL and ZR to the analog L
+//  and R, PLUS to START.
+bool dreamcast_button_of(const std::string& name, Button& button){
+    struct Entry{
+        const char* name;
+        Button button;
+    };
+    static const Entry ENTRIES[] = {
+        {"A",           BUTTON_B},
+        {"B",           BUTTON_A},
+        {"X",           BUTTON_Y},
+        {"Y",           BUTTON_X},
+        {"L",           BUTTON_ZL},
+        {"R",           BUTTON_ZR},
+        {"START",       BUTTON_PLUS},
+    };
+    for (const Entry& entry : ENTRIES){
+        if (name == entry.name){
+            button = entry.button;
+            return true;
+        }
+    }
+    return false;
+}
+
+//  A console that is played with a Switch controller under other names: the
+//  PlayStation 3 and the original Xbox (the wired controller), the retro
+//  consoles (the wireless Pro Controller, through BlueRetro).
 class WiredPadConsole : public PlayConsole{
 public:
     using ButtonOf = bool (*)(const std::string& name, Button& button);
+    //  A button of the console that is a push of the right stick (the C
+    //  buttons of a Nintendo 64): where to push it.
+    using StickOf = bool (*)(const std::string& name, double& x, double& y);
 
     WiredPadConsole(
         SingleSwitchProgramEnvironment& env, ProControllerContext& context, Language language,
-        const PadLayout& layout, ButtonOf button_of
+        const PadLayout& layout, ButtonOf button_of, StickOf stick_of = nullptr
     )
         : m_env(env)
         , m_context(context)
         , m_language(language)
         , m_layout(layout)
         , m_button_of(button_of)
+        , m_stick_of(stick_of)
     {}
 
     virtual const PadLayout& layout() const override{
@@ -404,10 +510,17 @@ public:
         bool down = false;
         bool left = false;
         bool right = false;
+        double stick2_x = input.stick2_x;
+        double stick2_y = input.stick2_y;
         for (const std::string& name : input.buttons){
             Button button = BUTTON_NONE;
+            double x = 0;
+            double y = 0;
             if (m_button_of(name, button)){
                 buttons |= button;
+            }else if (m_stick_of != nullptr && m_stick_of(name, x, y)){
+                stick2_x = x;
+                stick2_y = y;
             }else if (name == "UP"){
                 up = true;
             }else if (name == "DOWN"){
@@ -421,14 +534,23 @@ public:
         pbf_controller_state(
             m_context, buttons, dpad_of(up, down, left, right),
             JoystickPosition(input.stick_x, input.stick_y),
-            JoystickPosition(input.stick2_x, input.stick2_y),
+            JoystickPosition(stick2_x, stick2_y),
             duration
         );
     }
     virtual void mash(const std::string& name, std::chrono::milliseconds duration) override{
         Button button = BUTTON_NONE;
+        double x = 0;
+        double y = 0;
         if (m_button_of(name, button)){
             pbf_mash_button(m_context, button, duration);
+        }else if (m_stick_of != nullptr && m_stick_of(name, x, y)){
+            //  A push of the stick and a let go, again and again.
+            const std::chrono::milliseconds STEP(50);
+            for (std::chrono::milliseconds done(0); done < duration; done += 2 * STEP){
+                pbf_controller_state(m_context, BUTTON_NONE, DPAD_NONE, JoystickPosition(0, 0), JoystickPosition(x, y), STEP);
+                pbf_controller_state(m_context, BUTTON_NONE, DPAD_NONE, JoystickPosition(0, 0), JoystickPosition(0, 0), STEP);
+            }
         }
     }
     virtual void wait(std::chrono::milliseconds duration) override{
@@ -454,6 +576,7 @@ private:
     const Language m_language;
     const PadLayout& m_layout;
     const ButtonOf m_button_of;
+    const StickOf m_stick_of;
 };
 
 
@@ -559,6 +682,7 @@ std::string setup_text(const GameProfile& profile){
     const bool other = profile.id == GameId::OTHER_GAMES;
     const bool ps3 = profile.pad == PadKind::PS3_CONTROLLER;
     const bool xbox = profile.pad == PadKind::XBOX_CONTROLLER;
+    const bool retro = profile.console == "retro";
     return
         "<b>Experimental:</b> this program is new. It has not been tested on a console, and not with a real "
         "API key either: the build machine has none. Watch it. <b>Many games save by themselves:</b> what "
@@ -590,6 +714,13 @@ std::string setup_text(const GameProfile& profile){
                 "Controller as the type, plugged into a Raspberry Pi Pico with OGX-Mini, which is plugged into "
                 "the Xbox. OGX-Mini takes the board as a Switch pad and plays an original Xbox controller. Not "
                 "tried on an Xbox yet: first check in its menu that the d-pad moves and that A picks")
+            : retro
+            ? std::string("a ") + profile.category + " with a game on the screen, and a BlueRetro adapter (an "
+                "ESP32 with the BlueRetro firmware) in its first controller port. A wireless board (a Pico W, "
+                "a Pico 2 W or an ESP32) with NS1: Wireless Pro Controller as the type pairs with the adapter "
+                "as a Switch Pro Controller, and the adapter plays the console's own pad. Not tried on a " +
+                profile.category + " yet: first check that the d-pad moves in a menu and that the buttons are "
+                "where the program says"
             : std::string("the game on the screen, with the controller its other programs use") +
               (profile.pad == PadKind::RIGHT_JOYCON ? " (a right Joy-Con)" : "")) +
         ". Text is read in the language set under \"Language of the text\" (English unless you change it).";
@@ -851,6 +982,33 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
             pad_layout(profile.pad), xbox ? &xbox_button_of : &ps3_button_of
         );
         session(console, context);
+    }else if (profile.console == "retro"){
+        ProController& controller = env.console.controller<ProController>();
+        //  The wireless Pro Controller of a Pico W, a Pico 2 W or an ESP32:
+        //  BlueRetro takes a Bluetooth pad. (The wired types are another
+        //  class; the wired Pro Controller is this one too, and cannot be
+        //  told apart here: the setup steers to the wireless boards.)
+        if (dynamic_cast<PABotBase2_ProController*>(&controller) == nullptr){
+            throw UserSetupError(
+                env.console,
+                "A BlueRetro adapter takes a Bluetooth pad: pick NS1: Wireless Pro Controller as the type of "
+                "the controller (on a wireless board: a Pico W, a Pico 2 W or an ESP32)."
+            );
+        }
+        ProControllerContext context(scope, controller);
+        if (!context->is_ready()){
+            throw UserSetupError(context->logger(), "Controller is not ready.");
+        }
+        const PadKind pad = profile.pad;
+        WiredPadConsole console(
+            env, context, text_language, pad_layout(pad),
+            pad == PadKind::GAMECUBE_CONTROLLER ? &gamecube_button_of
+            : pad == PadKind::N64_CONTROLLER ? &n64_button_of
+            : pad == PadKind::DREAMCAST_CONTROLLER ? &dreamcast_button_of
+            : &ps3_button_of,
+            pad == PadKind::N64_CONTROLLER ? &n64_stick_of : nullptr
+        );
+        session(console, context);
     }else if (profile.pad == PadKind::RIGHT_JOYCON){
         JoyconContext context(scope, env.console.controller<RightJoycon>());
         if (!context->is_ready()){
@@ -934,6 +1092,16 @@ QRgb card_ground(GameId game){
         return qRgb(0x2a, 0x4f, 0x9a);
     case GameId::ORIGINAL_XBOX:
         return qRgb(0x3c, 0x7a, 0x34);
+    case GameId::PLAYSTATION_1:
+        return qRgb(0x5a, 0x5e, 0x6e);
+    case GameId::PLAYSTATION_2:
+        return qRgb(0x23, 0x35, 0x7a);
+    case GameId::GAMECUBE:
+        return qRgb(0x5b, 0x3f, 0x96);
+    case GameId::NINTENDO_64:
+        return qRgb(0x2f, 0x6b, 0x4a);
+    case GameId::DREAMCAST:
+        return qRgb(0xc0, 0x5a, 0x1e);
     default:
         return qRgb(0x44, 0x4a, 0x5c);
     }

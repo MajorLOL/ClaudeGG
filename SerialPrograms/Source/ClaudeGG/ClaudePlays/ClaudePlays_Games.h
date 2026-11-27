@@ -50,6 +50,15 @@ enum class GameId{
     PLAYSTATION_3,
     //  Whatever game an original Xbox shows: the list of that console.
     ORIGINAL_XBOX,
+    //  The retro consoles, each with a list of its own: a wireless board
+    //  plays a Switch Pro Controller to a BlueRetro adapter (an ESP32 in
+    //  the console's controller port), which passes it on as the console's
+    //  own pad. The setup has one console for all of them, "retro".
+    PLAYSTATION_1,
+    PLAYSTATION_2,
+    GAMECUBE,
+    NINTENDO_64,
+    DREAMCAST,
 };
 
 //  The controller the game's programs use.
@@ -63,6 +72,14 @@ enum class PadKind{
     //  An original Xbox controller, by its own names: the same board,
     //  through a Raspberry Pi Pico with OGX-Mini (xbox_controller_layout()).
     XBOX_CONTROLLER,
+    //  The pads of the retro consoles, by their own names: a wireless board
+    //  (a Switch Pro Controller) through a BlueRetro adapter, which maps
+    //  the buttons by where they are on the pad.
+    PS1_CONTROLLER,
+    PS2_CONTROLLER,
+    GAMECUBE_CONTROLLER,
+    N64_CONTROLLER,
+    DREAMCAST_CONTROLLER,
 };
 
 struct GameProfile{
@@ -102,7 +119,8 @@ bool has_only_claude_plays(GameId id);
 bool is_other_games_choice(GameId id);
 
 //  The consoles of a list of games by its name, when the list is one of a
-//  game here that is not played on the Switch: {"ps3"} or {"xbox"}. Empty:
+//  game here that is not played on the Switch: {"ps3"}, {"xbox"} or
+//  {"retro"}. Empty:
 //  not one of them.
 std::vector<std::string> consoles_of_list(const std::string& list_name);
 

@@ -438,5 +438,15 @@
  "Connect to the Xbox": "Conéctate a la Xbox",
  "Pick NS1: Wired Controller as the type, not the Wired Pro Controller. The Pico sees it as a Switch pad and passes it on to the Xbox.": "Elige NS1: Wired Controller como tipo, no el Wired Pro Controller. La Pico lo ve como un mando de Switch y lo pasa a la Xbox.",
  "Click the video and press the arrow keys: they should move through the menu of the Xbox. This has not been tried on an Xbox yet.": "Haz clic en el vídeo y pulsa las flechas: deberían moverse por el menú de la Xbox. Todavía no se ha probado en una Xbox.",
- "Wired, through a Raspberry Pi Pico with OGX-Mini. Experimental. Eight steps.": "Por cable, a través de una Raspberry Pi Pico con OGX-Mini. Experimental. Ocho pasos."
+ "Wired, through a Raspberry Pi Pico with OGX-Mini. Experimental. Eight steps.": "Por cable, a través de una Raspberry Pi Pico con OGX-Mini. Experimental. Ocho pasos.",
+ "it needs a wireless board: a Pico W, a Pico 2 W or an ESP32.": "necesita una placa inalámbrica: una Pico W, una Pico 2 W o un ESP32.",
+ "Prepare the BlueRetro adapter": "Prepara el adaptador BlueRetro",
+ "A second ESP32 (not an ESP32-S3) with the BlueRetro firmware, or a ready-made BlueRetro adapter, in the first controller port of the console. Flash BlueRetro with its web installer: the build for your console.": "Un segundo ESP32 (no un ESP32-S3) con el firmware BlueRetro, o un adaptador BlueRetro ya hecho, en el primer puerto de mando de la consola. Flashea BlueRetro con su instalador web: la versión para tu consola.",
+ "Pair with the adapter": "Empareja con el adaptador",
+ "Turn on the console: BlueRetro looks for a pad by itself. Wait until its light stays on, then click the video and press the arrow keys. This has not been tried with BlueRetro yet.": "Enciende la consola: BlueRetro busca un mando por sí solo. Espera a que su luz quede encendida, luego haz clic en el vídeo y pulsa las flechas. Esto aún no se ha probado con BlueRetro.",
+ "Connect the Pico to the computer with a micro-USB cable. Keep it within 1 m (3 ft) of the BlueRetro adapter.": "Conecta la Pico al ordenador con un cable micro-USB. Mantenla a menos de 1 m del adaptador BlueRetro.",
+ "Connect the ESP32 to the computer with a USB cable. Keep it within 1 m (3 ft) of the BlueRetro adapter.": "Conecta el ESP32 al ordenador con un cable USB. Mantenlo a menos de 1 m del adaptador BlueRetro.",
+ "Wireless, through a BlueRetro adapter. Experimental. Seven steps.": "Inalámbrico, a través de un adaptador BlueRetro. Experimental. Siete pasos.",
+ "BlueRetro and your console": "BlueRetro y tu consola",
+ "Through BlueRetro: PS1, PS2, GameCube, N64, Dreamcast": "A través de BlueRetro: PS1, PS2, GameCube, N64, Dreamcast"
 }

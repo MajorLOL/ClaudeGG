@@ -322,17 +322,24 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
         }
         //  Each console has its own games: Pokemon GO is the phone's, the
         //  Claude Plays of the PlayStation 3 and of the original Xbox those
-        //  consoles', the others are the Switch's.
+        //  consoles', those of the retro consoles (BlueRetro) theirs, the
+        //  others are the Switch's.
         {
             bool go_ok = false;
             bool ps3_ok = false;
             bool xbox_ok = false;
+            int retro_ok = 0;
+            bool retro_wrong = false;
             bool switch_ok = true;
-            const char* const OTHERS[] = {"mobile", "ps3", "xbox"};
+            const char* const OTHERS[] = {"mobile", "ps3", "xbox", "retro"};
+            const QStringList RETRO_LISTS{
+                "PlayStation games", "PlayStation 2 games", "GameCube games", "Nintendo 64 games", "Dreamcast games",
+            };
             for (const HomeGame& listed_game : listed){
                 const bool go = listed_game.name.endsWith(" GO");
                 const bool ps3 = listed_game.name == "PlayStation 3 games";
                 const bool xbox = listed_game.name == "Original Xbox games";
+                const bool retro = RETRO_LISTS.contains(listed_game.name);
                 const auto only = [&](const char* console){
                     bool fine = game_is_for_console(listed_game, console) &&
                         !game_is_for_console(listed_game, "switch") && !game_is_for_console(listed_game, "switch2");
@@ -349,6 +356,12 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     ps3_ok = listed_game.programs == 1 && only("ps3");
                 }else if (xbox){
                     xbox_ok = listed_game.programs == 1 && only("xbox");
+                }else if (retro){
+                    if (listed_game.programs == 1 && only("retro")){
+                        retro_ok++;
+                    }else{
+                        retro_wrong = true;
+                    }
                 }else{
                     bool fine = game_is_for_console(listed_game, "switch");
                     for (const char* other : OTHERS){
@@ -359,9 +372,9 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     switch_ok = switch_ok && fine;
                 }
             }
-            if (!go_ok || !ps3_ok || !xbox_ok || !switch_ok){
+            if (!go_ok || !ps3_ok || !xbox_ok || retro_ok != 5 || retro_wrong || !switch_ok){
                 failed++;
-                logger.log("UI test: the games are not divided over the consoles (Pokemon GO for the phone, Claude Plays of the PlayStation 3 and of the original Xbox for them, the rest for the Switch)", COLOR_RED);
+                logger.log("UI test: the games are not divided over the consoles (Pokemon GO for the phone, Claude Plays of the PlayStation 3, the original Xbox and the five retro consoles for them, the rest for the Switch)", COLOR_RED);
             }
         }
         if (!window.open_game(QString::fromStdString(GAME))){
