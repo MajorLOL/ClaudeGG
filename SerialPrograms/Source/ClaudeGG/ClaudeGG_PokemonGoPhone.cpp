@@ -540,19 +540,19 @@ int run_phone_checks(QStringList& report){
         //  A file as gamebot.py writes it: json.dump(d, f, indent=1, sort_keys=True).
         {
             QFile out(seen_file);
-            out.open(QIODevice::WriteOnly | QIODevice::Truncate);
+            check(out.open(QIODevice::WriteOnly | QIODevice::Truncate), "the test file can be written");
             out.write("{\n \"Dragalge\": {\n  \"Gunk Shot\": 3,\n  \"Outrage\": 1,\n  \"first:Gunk Shot\": 2\n },\n \"Lanturn\": {\n  \"Surf\": 5\n }\n}");
         }
         check(read_seen(seen_file) == seen, "the file of gamebot.py is read");
         {
             QFile out(seen_file);
-            out.open(QIODevice::WriteOnly | QIODevice::Truncate);
+            check(out.open(QIODevice::WriteOnly | QIODevice::Truncate), "the test file can be written");
             out.write("{\"Dragalge\": {\"Outrage\": \"many\"}}");
         }
         check(read_seen(seen_file).empty(), "a file with something else in it is no file");
         {
             QFile out(seen_file);
-            out.open(QIODevice::WriteOnly | QIODevice::Truncate);
+            check(out.open(QIODevice::WriteOnly | QIODevice::Truncate), "the test file can be written");
             out.write("{not json");
         }
         check(read_seen(seen_file).empty(), "a file that is not JSON is no file");
@@ -568,7 +568,7 @@ int run_phone_checks(QStringList& report){
               && back.at("Flying").gates == learned["Flying"].gates && back.at("Flying").rows.empty(), "and is read back as it was");
         {
             QFile out(game_file);
-            out.open(QIODevice::WriteOnly | QIODevice::Truncate);
+            check(out.open(QIODevice::WriteOnly | QIODevice::Truncate), "the test file can be written");
             out.write("{\n \"Ghost\": {\n  \"gates\": [\n   [\n    0.29,\n    0.79,\n    0.5,\n    0.79\n   ]\n  ],\n  \"rows\": []\n }\n}");
         }
         const std::map<QString, Minigame::Learned> python = read_minigames(game_file);
