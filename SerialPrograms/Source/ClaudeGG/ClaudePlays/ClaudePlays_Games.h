@@ -48,6 +48,8 @@ enum class GameId{
     ANIMAL_CROSSING_NEW_HORIZONS,
     //  Whatever game a PlayStation 3 shows: the list of that console.
     PLAYSTATION_3,
+    //  Whatever game an original Xbox shows: the list of that console.
+    ORIGINAL_XBOX,
 };
 
 //  The controller the game's programs use.
@@ -58,6 +60,9 @@ enum class PadKind{
     //  console sees as a plain USB gamepad (ClaudePlays_AnyGame.h,
     //  ps3_controller_layout()).
     PS3_CONTROLLER,
+    //  An original Xbox controller, by its own names: the same board,
+    //  through a Raspberry Pi Pico with OGX-Mini (xbox_controller_layout()).
+    XBOX_CONTROLLER,
 };
 
 struct GameProfile{
@@ -97,7 +102,8 @@ bool has_only_claude_plays(GameId id);
 bool is_other_games_choice(GameId id);
 
 //  The consoles of a list of games by its name, when the list is one of a
-//  game here that is not played on the Switch: {"ps3"}. Empty: not one of them.
+//  game here that is not played on the Switch: {"ps3"} or {"xbox"}. Empty:
+//  not one of them.
 std::vector<std::string> consoles_of_list(const std::string& list_name);
 
 //  The name of the list of games "Other Games".

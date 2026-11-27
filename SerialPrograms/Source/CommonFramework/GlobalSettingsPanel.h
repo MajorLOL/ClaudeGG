@@ -67,6 +67,7 @@ enum class SetupConsole{
     SWITCH2,    //  Nintendo Switch 2.
     MOBILE,     //  An Android phone, on a Raspberry Pi (Mobile/agent).
     PS3,        //  PlayStation 3, through a wired board that it sees as a USB gamepad.
+    XBOX,       //  The original Xbox, through that board and a Pico with OGX-Mini.
 };
 
 

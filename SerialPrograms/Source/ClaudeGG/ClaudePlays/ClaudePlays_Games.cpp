@@ -229,6 +229,23 @@ std::map<GameId, GameProfile> make_profiles(){
         ps3.console = "ps3";
         add(std::move(ps3));
     }
+    {
+        GameProfile xbox{
+            GameId::ORIGINAL_XBOX,
+            "OriginalXbox:ClaudePlays",
+            "Original Xbox",
+            "",
+            "Original Xbox games",
+            "The console is the original Xbox. On it, A usually confirms and B goes back. START opens a "
+            "game's menu in many games. Its controller has no button for the console's menu. The pad is "
+            "played through an adapter (a board that is a Switch pad, passed on as an Xbox pad): WHITE, "
+            "BLACK, LT and RT are only pressed fully, and there is no rumble.",
+            PadKind::XBOX_CONTROLLER,
+            false,
+        };
+        xbox.console = "xbox";
+        add(std::move(xbox));
+    }
     return profiles;
 }
 
@@ -249,6 +266,7 @@ bool has_only_claude_plays(GameId id){
     case GameId::SPLATOON_3:
     case GameId::ANIMAL_CROSSING_NEW_HORIZONS:
     case GameId::PLAYSTATION_3:
+    case GameId::ORIGINAL_XBOX:
         return true;
     default:
         return false;
@@ -287,6 +305,7 @@ const std::vector<GameId>& all_games(){
         GameId::ANIMAL_CROSSING_NEW_HORIZONS,
         GameId::OTHER_GAMES,
         GameId::PLAYSTATION_3,
+        GameId::ORIGINAL_XBOX,
     };
     return games;
 }

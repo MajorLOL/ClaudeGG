@@ -80,6 +80,9 @@ std::vector<std::unique_ptr<PanelListDescriptor>> make_all_lists(){
     //  Claude Plays with its controller, for whatever game it shows. The page
     //  with the games shows it for that console only (consoles_of_game()).
     lists.emplace_back(std::make_unique<ClaudeGG::ClaudePlays::GameOnlyList>(ClaudeGG::ClaudePlays::GameId::PLAYSTATION_3));
+    //  ClaudeGG: the original Xbox (that board through a Pico with OGX-Mini),
+    //  the same way.
+    lists.emplace_back(std::make_unique<ClaudeGG::ClaudePlays::GameOnlyList>(ClaudeGG::ClaudePlays::GameId::ORIGINAL_XBOX));
 
     //  ClaudeGG: the game of the phone (Mobile/): the programs start the bot of the
     //  Raspberry Pi that the phone is plugged into. The page with the games shows

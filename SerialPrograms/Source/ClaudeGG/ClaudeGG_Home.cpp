@@ -28,7 +28,8 @@ QStringList consoles_of_game(const QString& name){
     if (is_pokemon_go(name)){
         return QStringList{"mobile"};
     }
-    //  The list of another console (the PlayStation 3's Claude Plays).
+    //  The list of another console (the Claude Plays of the PlayStation 3 and
+    //  of the original Xbox).
     const std::vector<std::string> others = ClaudePlays::consoles_of_list(name.toStdString());
     if (!others.empty()){
         QStringList consoles;

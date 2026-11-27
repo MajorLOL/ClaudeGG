@@ -1904,6 +1904,21 @@ QString short_board_name(const QString& id){
     return QString::fromLatin1(board_name(id));
 }
 
+//  The consoles that take only the wired board (the ESP32-S3 as the
+//  Switch's wired controller, a plain USB gamepad): the PlayStation 3, and
+//  the original Xbox through a Pico with OGX-Mini.
+bool console_wired_only(const QString& console){
+    return console == "ps3" || console == "xbox";
+}
+
+//  The pictures of those consoles (with the pictures of the consoles,
+//  further down).
+QPixmap ps3_picture();
+QPixmap xbox_picture();
+QPixmap console_picture(const QString& console){
+    return console == "xbox" ? xbox_picture() : ps3_picture();
+}
+
 //  ---------------------------------------------------------------------
 //  Page 2: which microcontroller
 //  ---------------------------------------------------------------------
@@ -1911,7 +1926,7 @@ QString short_board_name(const QString& id){
 class BoardPage : public Page{
 public:
     explicit BoardPage(Canvas& canvas)
-        : m_menu("Select your board", make_sections(canvas.console_code() == "ps3"))
+        : m_menu("Select your board", make_sections(console_wired_only(canvas.console_code())))
     {
         canvas.set_focus_id("bar");
     }
@@ -1980,20 +1995,20 @@ public:
     }
 
 private:
-    //  For a PlayStation 3 ("ps3") only the wired board: the console takes it
-    //  as a USB gamepad. The wireless ones play a Switch controller over
-    //  Bluetooth, which it does not know.
-    static std::vector<MenuSection> make_sections(bool ps3){
+    //  For a PlayStation 3 or an original Xbox only the wired board: it plays
+    //  a plain USB gamepad (see console_wired_only()). The wireless ones play
+    //  a Switch controller over Bluetooth, which those consoles do not know.
+    static std::vector<MenuSection> make_sections(bool wired_only){
         std::vector<MenuSection> sections;
 
         MenuSection supported;
         supported.header = "Supported";
-        auto wireless = [ps3](MenuRow& row){
-            if (ps3){
+        auto wireless = [wired_only](MenuRow& row){
+            if (wired_only){
                 row.dim = true;
                 row.enabled = false;
                 row.chips = {{"Wireless", ChipKind::DIM}};
-                row.callout1 = "Not for a PlayStation 3:";
+                row.callout1 = "Not for this console:";
                 row.callout2 = "it needs the wired board, the ESP32-S3.";
             }
         };
@@ -2033,8 +2048,8 @@ private:
             row.glyph = "esp32s3";
             row.name = board_name("esp32s3");
             row.literal = true;
-            row.chips = ps3
-                ? std::vector<MenuChip>{{"For the PlayStation 3", ChipKind::ORANGE_FILL}, {"Wired", ChipKind::RING}}
+            row.chips = wired_only
+                ? std::vector<MenuChip>{{"For this console", ChipKind::ORANGE_FILL}, {"Wired", ChipKind::RING}}
                 : std::vector<MenuChip>{{"Most reliable", ChipKind::ORANGE_RING}, {"Wired", ChipKind::RING}};
             supported.rows.push_back(row);
         }
@@ -2339,11 +2354,31 @@ const char* const GRIP_SUB = "On the Switch, go to HOME, then Controllers, then 
 const char* const SELECT_SUB = "In the program, pick Serial: PABotBase2 in the first dropdown. Not Serial: PABotBase.";
 const char* const PORT_SUB = "Pick your device as the serial port (on Windows, for example COM3) and NS1: Wireless Pro Controller as the type.";
 
-//  The picture of the console "ps3" (with the pictures of the consoles,
-//  further down).
-QPixmap ps3_picture();
-
-const BoardSpec& spec_for(const QString& board, bool ps3){
+const BoardSpec& spec_for(const QString& board, const QString& console){
+    //  The original Xbox: the ESP32-S3 as the Switch's wired controller (a
+    //  HORIPAD S), plugged into a Raspberry Pi Pico with OGX-Mini (MIT), which
+    //  takes that pad as one of its controllers and plays an original Xbox
+    //  controller to the console (its first mode). Its board page offers no
+    //  other board.
+    static const StepText ESP32S3_XBOX[] = {
+        {"Connect the ESP32-S3", "Plug the port labeled COM or UART into the computer. The port labeled USB or OTG goes into the Pico, in a later step. They are not interchangeable.", Action::DEVICE},
+        {"Flash the firmware", "Pick the port of the ESP32-S3 and the firmware version, then press Flash now.", Action::FIRMWARE},
+        {"Restart the board", "Press the EN or RESET button, or unplug both cables and plug them in again.", Action::NONE},
+        {"Prepare the Pico with OGX-Mini", "A Raspberry Pi Pico with a USB port for a controller, wired as the page of OGX-Mini shows. Hold its Bootsel button, plug it into the computer and copy the Pi Pico file of OGX-Mini onto it. It plays an original Xbox controller from the start.", Action::NONE},
+        {"Connect the Pico", "Plug the USB or OTG port of the ESP32-S3 into the Pico's port for a controller, and the Pico into a controller port of the Xbox with an Xbox-to-USB adapter cable.", Action::NONE},
+        {"Select the controller and the port", "In the program, pick Serial: PABotBase2 in the first dropdown, then your device as the serial port. Click Reset Ctrl if it is not listed.", Action::PORTS},
+        {"Connect to the Xbox", "Pick NS1: Wired Controller as the type, not the Wired Pro Controller. The Pico sees it as a Switch pad and passes it on to the Xbox.", Action::NONE},
+        {"Test", "Click the video and press the arrow keys: they should move through the menu of the Xbox. This has not been tried on an Xbox yet.", Action::NONE},
+    };
+    static const BoardSpec ESP32S3_XBOX_SPEC = {
+        ESP32S3_XBOX, sizeof(ESP32S3_XBOX) / sizeof(ESP32S3_XBOX[0]),
+        "Wired, through a Raspberry Pi Pico with OGX-Mini. Experimental. Eight steps.", "NS1: Wired Controller",
+        1, -1, 5, 6, 6, true
+    };
+    if (console == "xbox" && board == "esp32s3"){
+        return ESP32S3_XBOX_SPEC;
+    }
+    const bool ps3 = console == "ps3";
     //  The PlayStation 3: the ESP32-S3 as the Switch's wired controller (a
     //  HORIPAD S), which the console takes as a plain USB gamepad. Its board
     //  page offers no other board.
@@ -2435,8 +2470,8 @@ public:
     StepsPage(Canvas& canvas, const QString& board)
         : m_canvas(canvas)
         , m_board(board)
-        , m_ps3(canvas.console_code() == "ps3")
-        , m_spec(spec_for(board, m_ps3))
+        , m_console(canvas.console_code())
+        , m_spec(spec_for(board, m_console))
         , m_kind(firmware_kind(board))
         , m_probe(canvas.app_folder(), canvas.scan_override())
         , m_versions("version")
@@ -3098,16 +3133,21 @@ private:
         const QString picture = m_board == "esp32" ? "esp32-big" : m_board == "esp32s3" ? "esp32s3-big" : "pico-big";
 
         //  The Switch, with its screen black until it is linked. (A
-        //  PlayStation 3: its controller, with a glow once it is linked.)
-        const QPixmap plain = m_ps3 ? ps3_picture() : plain_picture("switch");
-        const QPixmap linked = m_ps3 ? ps3_picture() : plain_picture("switch-gg");
-        const double switch_w = m_ps3 ? 400 : 620;
+        //  PlayStation 3 or an Xbox: its controller, with a glow once it is
+        //  linked.)
+        const bool other = m_console == "ps3" || m_console == "xbox";
+        const QPixmap plain = other ? console_picture(m_console) : plain_picture("switch");
+        const QPixmap linked = other ? console_picture(m_console) : plain_picture("switch-gg");
+        const double switch_w = other ? 400 : 620;
         const double switch_h = plain.isNull() ? 260 : switch_w * plain.height() / plain.width();
         const QRectF sw(CX_PICO - switch_w / 2, CY + 188, switch_w, switch_h);
         glow(painter, QRectF(sw.left() + 40, sw.top() + 30, sw.width() - 80, sw.height() - 60), 60, ORANGE, 0.28 * a * m_link.value);
         draw_picture(painter, plain, sw, a * (1.0 - m_link.value));
         draw_picture(painter, linked, sw, a * m_link.value);
-        draw_text(painter, QString(m_ps3 ? "PlayStation 3" : "Nintendo Switch"), CX_PICO, sw.bottom() + 4, ui_font(26, 500), white(0.6 * a), Qt::AlignHCenter);
+        draw_text(
+            painter, QString(m_console == "ps3" ? "PlayStation 3" : m_console == "xbox" ? "Original Xbox" : "Nintendo Switch"),
+            CX_PICO, sw.bottom() + 4, ui_font(26, 500), white(0.6 * a), Qt::AlignHCenter
+        );
 
         //  The computer, the line, the board.
         draw_picture(painter, plain_picture("computer"), QRectF(CX_PC - 75, CY - 64, 150, 128), a * 0.9);
@@ -3523,8 +3563,8 @@ private:
 private:
     Canvas& m_canvas;
     QString m_board;
-    //  The console is a PlayStation 3: its steps, and its picture.
-    const bool m_ps3;
+    //  The console ("ps3", "xbox": their steps, and their pictures).
+    const QString m_console;
     const BoardSpec& m_spec;
     QString m_kind;
     int m_current = 0;
@@ -3777,7 +3817,8 @@ public:
     DonePage(Canvas& canvas, const QString& board, bool phone = false)
         : m_board(board)
         , m_phone(phone)
-        , m_ps3(!phone && canvas.console_code() == "ps3")
+        , m_other_console(!phone && (canvas.console_code() == "ps3" || canvas.console_code() == "xbox"))
+        , m_console(canvas.console_code())
     {
         canvas.set_focus_id("start");
     }
@@ -3801,10 +3842,10 @@ public:
         draw_sub(painter, sub, 140, 300 + heading_height(heading, 118) + 26, prog(t, in.sub, in.sub + 0.8), 1.0, 36, 780);
 
         const double reveal = eo(prog(t, in.bar, in.bar + 0.8));
-        const QPixmap picture = m_phone ? phone_picture() : m_ps3 ? ps3_picture() : plain_picture("switch-gg");
+        const QPixmap picture = m_phone ? phone_picture() : m_other_console ? console_picture(m_console) : plain_picture("switch-gg");
         if (!picture.isNull()){
             //  The picture of the phone is tall: it is as high as the picture of the Switch is wide.
-            const double w = m_phone ? std::min(840.0, 560.0 * picture.width() / picture.height()) : m_ps3 ? 640.0 : 840.0;
+            const double w = m_phone ? std::min(840.0, 560.0 * picture.width() / picture.height()) : m_other_console ? 640.0 : 840.0;
             const double h = w * picture.height() / picture.width();
             const double bob = std::sin(m_clock * 1.6) * 5;
             const double x = m_phone ? 1380 - w / 2.0 : 960;
@@ -3851,8 +3892,10 @@ public:
 private:
     QString m_board;
     bool m_phone = false;
-    //  The console is a PlayStation 3: its picture instead of the Switch's.
-    bool m_ps3 = false;
+    //  The console is a PlayStation 3 or an Xbox: its picture instead of the
+    //  Switch's.
+    bool m_other_console = false;
+    QString m_console;
     double m_clock = 0;
 };
 
@@ -7121,6 +7164,84 @@ QPixmap phone_picture(){
     return cache;
 }
 
+//  A large gamepad of the kind of the original Xbox: dark, with a round
+//  middle, its four colored buttons and the black and white ones: the
+//  picture of the console "xbox". Drawn here, as the picture of the Switch 2 is.
+QPixmap xbox_picture(){
+    static QPixmap cache;
+    if (!cache.isNull()){
+        return cache;
+    }
+    constexpr int W = 540;
+    constexpr int H = 380;
+    QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter p(&image);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(Qt::NoPen);
+
+    //  The body: wide, with heavy grips.
+    QPainterPath body;
+    body.addRoundedRect(QRectF(40, 30, 460, 190), 90, 90);
+    QPainterPath left;
+    left.addEllipse(QRectF(16, 120, 170, 250));
+    QPainterPath right;
+    right.addEllipse(QRectF(354, 120, 170, 250));
+    const QPainterPath shape = body.united(left).united(right);
+    QLinearGradient shade(0, 30, 0, 370);
+    shade.setColorAt(0, QColor(64, 68, 76));
+    shade.setColorAt(1, QColor(22, 24, 28));
+    p.setBrush(shade);
+    p.drawPath(shape);
+    p.setPen(QPen(QColor(118, 124, 136), 2));
+    p.setBrush(Qt::NoBrush);
+    p.drawPath(shape);
+    p.setPen(Qt::NoPen);
+
+    //  The round middle with its green jewel.
+    p.setBrush(QColor(30, 32, 38));
+    p.drawEllipse(QPointF(270, 120), 52, 52);
+    p.setBrush(QColor(84, 170, 70));
+    p.drawEllipse(QPointF(270, 120), 30, 30);
+    p.setBrush(QColor(255, 255, 255, 50));
+    p.drawEllipse(QPointF(262, 110), 11, 9);
+
+    //  The left stick (high), the d-pad (low), the right stick.
+    const QColor dark(16, 17, 21);
+    p.setBrush(dark);
+    p.drawEllipse(QPointF(116, 118), 40, 40);
+    p.drawEllipse(QPointF(362, 238), 36, 36);
+    p.setBrush(QColor(62, 66, 76));
+    p.drawEllipse(QPointF(116, 118), 28, 28);
+    p.drawEllipse(QPointF(362, 238), 25, 25);
+    const QColor key(150, 156, 170);
+    p.setBrush(key);
+    p.drawRoundedRect(QRectF(167, 206, 22, 70), 5, 5);
+    p.drawRoundedRect(QRectF(143, 230, 70, 22), 5, 5);
+
+    //  A, B, X, Y in their colors, and black and white under them.
+    const struct{
+        QPointF center;
+        QColor color;
+    } buttons[] = {
+        {QPointF(420, 140), QColor(84, 170, 70)},
+        {QPointF(456, 108), QColor(214, 70, 64)},
+        {QPointF(384, 108), QColor(70, 120, 214)},
+        {QPointF(420, 76), QColor(226, 196, 64)},
+    };
+    for (const auto& button : buttons){
+        p.setBrush(button.color);
+        p.drawEllipse(button.center, 18, 18);
+    }
+    p.setBrush(QColor(20, 20, 22));
+    p.drawEllipse(QPointF(462, 160), 11, 11);
+    p.setBrush(QColor(232, 232, 236));
+    p.drawEllipse(QPointF(482, 132), 11, 11);
+    p.end();
+    cache = QPixmap::fromImage(image);
+    return cache;
+}
+
 //  A gamepad of the PlayStation kind, black, with its four symbols: the
 //  picture of the console "ps3". Drawn here, as the picture of the Switch 2 is.
 QPixmap ps3_picture(){
@@ -7246,6 +7367,10 @@ constexpr ConsoleInfo CONSOLES[] = {
     //  USB gamepad, which the PlayStation 3 takes. Experimental: not tried
     //  on a PlayStation 3 yet.
     {"ps3",         "PlayStation 3",        "Through an ESP32-S3, wired",           true},
+    //  The same board, plugged into a Raspberry Pi Pico with OGX-Mini (MIT),
+    //  which takes it as a Switch pad and plays an original Xbox controller.
+    //  Experimental: not tried on an Xbox yet.
+    {"xbox",        "Original Xbox",        "ESP32-S3 and a Pico with OGX-Mini",    true},
     //  What the gamepad adapters of the community already speak (the
     //  platforms of OGX-Mini) and what the commercial ones list.
     {"ps5",         "PlayStation 5",        nullptr,    false},
@@ -7256,7 +7381,6 @@ constexpr ConsoleInfo CONSOLES[] = {
     {"xboxseries",  "Xbox Series X|S",      nullptr,    false},
     {"xboxone",     "Xbox One",             nullptr,    false},
     {"xbox360",     "Xbox 360",             nullptr,    false},
-    {"xbox",        "Original Xbox",        nullptr,    false},
     {"wiiu",        "Nintendo Wii U",       nullptr,    false},
     {"gamecube",    "Nintendo GameCube",    nullptr,    false},
     {"n64",         "Nintendo 64",          nullptr,    false},
@@ -7478,18 +7602,20 @@ private:
         //  The console on the left, as large as the tile lets it be; its name
         //  and what it covers on the right. With three tiles side by side
         //  they are narrower: the picture, and the type, are smaller; with
-        //  four, smaller again.
+        //  four or five, smaller again.
         const bool narrow = supported_count() >= 3;
         const bool narrower = supported_count() >= 4;
+        const bool narrowest = supported_count() >= 5;
         const QString code = QString::fromLatin1(info.code);
         const QPixmap picture =
             code == "switch" ? plain_picture("switch")
             : code == "switch2" ? switch2_picture()
             : code == "ps3" ? ps3_picture()
+            : code == "xbox" ? xbox_picture()
             : phone_picture();
         const QRectF room(
-            box.left() + (narrower ? 18 : narrow ? 26 : 36), box.top() + 30,
-            narrower ? 120 : narrow ? 200 : 360, box.height() - 60
+            box.left() + (narrowest ? 14 : narrower ? 18 : narrow ? 26 : 36), box.top() + 30,
+            narrowest ? 92 : narrower ? 120 : narrow ? 200 : 360, box.height() - 60
         );
         if (!picture.isNull()){
             const double scale = std::min(room.width() / picture.width(), room.height() / picture.height());
@@ -7497,10 +7623,10 @@ private:
             const double h = picture.height() * scale;
             draw_picture(painter, picture, QRectF(room.center().x() - w / 2.0, room.center().y() - h / 2.0, w, h), a);
         }
-        const double text_x = room.right() + (narrower ? 16 : narrow ? 22 : 36);
-        const double text_w = box.right() - (narrower ? 20 : 28) - text_x;
-        const double name_px = narrower ? 25 : narrow ? 28 : 36;
-        const double note_px = narrower ? 19 : narrow ? 21 : 23;
+        const double text_x = room.right() + (narrowest ? 12 : narrower ? 16 : narrow ? 22 : 36);
+        const double text_w = box.right() - (narrowest ? 16 : narrower ? 20 : 28) - text_x;
+        const double name_px = narrowest ? 23 : narrower ? 25 : narrow ? 28 : 36;
+        const double note_px = narrowest ? 17 : narrower ? 19 : narrow ? 21 : 23;
         const QFont name_font = ui_font(name_px, 600);
         const QStringList name_lines = wrap_text(name_font, QString::fromLatin1(info.name), text_w);
         const double name_line = name_px * 1.22;
@@ -10095,6 +10221,11 @@ std::vector<HomeGame> test_games_with_consoles(){
     ps3.programs = 1;
     ps3.consoles = QStringList{"ps3"};
     games.push_back(ps3);
+    HomeGame xbox;
+    xbox.name = "Original Xbox games";
+    xbox.programs = 1;
+    xbox.consoles = QStringList{"xbox"};
+    games.push_back(xbox);
     HomeGame go;
     go.name = "Pokemon GO";
     go.programs = 6;
@@ -10731,12 +10862,13 @@ int run_setup_test(QApplication& application, const QString& folder){
     checker.check(has_content(canvas.picture()), "the console screen has something on it");
     checker.check(
         canvas.has_hit("console:0") && canvas.hit_enabled("console:0") && canvas.has_hit("console:1") && canvas.hit_enabled("console:1") &&
-        canvas.has_hit("console:2") && canvas.hit_enabled("console:2") && canvas.has_hit("console:3") && canvas.hit_enabled("console:3"),
-        "the four supported consoles (the two Switches, the phone and the PlayStation 3) are tiles that can be picked"
+        canvas.has_hit("console:2") && canvas.hit_enabled("console:2") && canvas.has_hit("console:3") && canvas.hit_enabled("console:3") &&
+        canvas.has_hit("console:4") && canvas.hit_enabled("console:4"),
+        "the five supported consoles (the two Switches, the phone, the PlayStation 3 and the original Xbox) are tiles that can be picked"
     );
-    checker.check(canvas.has_hit("console:4") && !canvas.hit_enabled("console:4") && canvas.has_hit("console:12") && !canvas.hit_enabled("console:12"),
+    checker.check(canvas.has_hit("console:5") && !canvas.hit_enabled("console:5") && canvas.has_hit("console:12") && !canvas.hit_enabled("console:12"),
         "the other consoles are on the screen already, and cannot be picked");
-    checker.check(!canvas.click("console:4") && canvas.page_state() == "selected=", "a console that is not supported yet does nothing when it is clicked");
+    checker.check(!canvas.click("console:5") && canvas.page_state() == "selected=", "a console that is not supported yet does nothing when it is clicked");
     checker.check(canvas.has_hit("skip") && canvas.has_hit("continue"), "the console screen has Skip setup and Continue");
     checker.check(!canvas.hit_enabled("continue"), "no console, no way on");
     checker.check(canvas.page_state() == "selected=", "nothing is picked at first");
@@ -10753,11 +10885,13 @@ int run_setup_test(QApplication& application, const QString& folder){
     canvas.press_key(Qt::Key_Right);
     checker.check(canvas.focus_id() == "console:3", "to the PlayStation 3");
     canvas.press_key(Qt::Key_Right);
-    checker.check(canvas.focus_id() == "console:3", "and skip the ones that are not supported yet");
+    checker.check(canvas.focus_id() == "console:4", "to the original Xbox");
+    canvas.press_key(Qt::Key_Right);
+    checker.check(canvas.focus_id() == "console:4", "and skip the ones that are not supported yet");
     canvas.press_key(Qt::Key_Tab);
     canvas.press_key(Qt::Key_Tab);
     checker.check(!canvas.focus_id().startsWith("console:") || canvas.focus_id() == "console:0" || canvas.focus_id() == "console:1" ||
-        canvas.focus_id() == "console:2" || canvas.focus_id() == "console:3",
+        canvas.focus_id() == "console:2" || canvas.focus_id() == "console:3" || canvas.focus_id() == "console:4",
         "Tab does not stop on them either");
     canvas.set_focus_id("console:1");
     canvas.move_to("console:1");
@@ -11804,8 +11938,20 @@ int run_setup_test(QApplication& application, const QString& folder){
         checker.check(phone_result.board_done && phone_result.board.isEmpty(), "there is no board: the setup counts as done");
     }
 
-    //  ---- the PlayStation 3: only the wired board, with steps of its own
-    {
+    //  ---- the PlayStation 3 and the original Xbox: only the wired board,
+    //  with steps of their own
+    struct WiredConsole{
+        const char* tile;
+        const char* code;
+        const char* name;
+        const char* steps;
+    };
+    for (const WiredConsole& wired : {
+        WiredConsole{"console:3", "ps3", "the PlayStation 3", "steps=6"},
+        WiredConsole{"console:4", "xbox", "the original Xbox", "steps=8"},
+    }){
+        const QString code = QString::fromLatin1(wired.code);
+        const QString name = QString::fromLatin1(wired.name);
         SetupRequest ps3_request;
         ps3_request.ask_console = true;
         ps3_request.ask_board = true;
@@ -11819,37 +11965,38 @@ int run_setup_test(QApplication& application, const QString& folder){
         ps3.start(&ps3_loop);
         ps3.show();
         ps3.wait(2.5);
-        checker.check(ps3.click("console:3") && ps3.page_state() == "selected=ps3", "the PlayStation 3 can be picked");
-        save(ps3, folder, "setup-62-console-ps3");
+        checker.check(ps3.click(wired.tile) && ps3.page_state() == "selected=" + code, name + " can be picked");
+        save(ps3, folder, "setup-62-console-" + code);
         ps3.click("continue");
         ps3.wait(2.5);
-        checker.check(ps3.result().console_chosen && ps3.result().console_code == "ps3", "the PlayStation 3 is the answer");
-        checker.check(ps3.page_name() == "board", "the board question follows the PlayStation 3");
+        checker.check(ps3.result().console_chosen && ps3.result().console_code == code, name + " is the answer");
+        checker.check(ps3.page_name() == "board", "the board question follows " + name);
         ps3.click("bar");
         ps3.wait(0.9);
-        save(ps3, folder, "setup-63-board-ps3");
-        checker.check(!ps3.click("row:pico") && !ps3.click("row:pico2") && !ps3.click("row:esp32"), "the wireless boards cannot be picked for a PlayStation 3");
-        checker.check(ps3.click("row:esp32s3"), "the ESP32-S3 can");
+        save(ps3, folder, "setup-63-board-" + code);
+        checker.check(!ps3.click("row:pico") && !ps3.click("row:pico2") && !ps3.click("row:esp32"), "the wireless boards cannot be picked for " + name);
+        checker.check(ps3.click("row:esp32s3"), "the ESP32-S3 can (" + code + ")");
         ps3.wait(0.5);
         ps3.click("continue");
         ps3.wait(2.2);
-        checker.check(ps3.page_name() == "steps", "the ESP32-S3 goes to its steps");
+        checker.check(ps3.page_name() == "steps", "the ESP32-S3 goes to its steps (" + code + ")");
         checker.check(
-            ps3.page_state().contains("steps=6") && ps3.page_state().contains("type=NS1: Wired Controller"),
-            "six steps of the PlayStation 3, with the Switch's wired controller as the type"
+            ps3.page_state().contains(wired.steps) && ps3.page_state().contains("type=NS1: Wired Controller"),
+            "the steps of " + name + ", with the Switch's wired controller as the type"
         );
-        save(ps3, folder, "setup-64-steps-ps3");
+        save(ps3, folder, "setup-64-steps-" + code);
     }
 
     //  ---- each console has its own games
     {
-        for (const QString console : {"switch", "switch2", "mobile", "ps3"}){
+        for (const QString console : {"switch", "switch2", "mobile", "ps3", "xbox"}){
             SetupRequest request_games;
             request_games.ask_game = true;
             request_games.games = test_games_with_consoles();
             request_games.console_code = console;
             const int go = (int)request_games.games.size() - 1;
-            const int ps3_games = go - 1;
+            const int xbox_games = go - 1;
+            const int ps3_games = go - 2;
             HomeProgram spin;
             spin.game = go;
             spin.name = "Spin PokeStops";
@@ -11868,13 +12015,15 @@ int run_setup_test(QApplication& application, const QString& folder){
             games_page.wait(2.5);
             const bool phone_console = console == "mobile";
             const bool ps3_console = console == "ps3";
-            const bool switch_console = !phone_console && !ps3_console;
+            const bool xbox_console = console == "xbox";
+            const bool switch_console = !phone_console && !ps3_console && !xbox_console;
             checker.check(games_page.page_name() == "games", "the games are asked for (" + console + ")");
             checker.check(games_page.has_hit("game:" + QString::number(go)) == phone_console, "Pokemon GO is shown for a phone and for nothing else (" + console + ")");
             checker.check(games_page.has_hit("game:" + QString::number(ps3_games)) == ps3_console, "the games of the PlayStation 3 are shown for it and for nothing else (" + console + ")");
+            checker.check(games_page.has_hit("game:" + QString::number(xbox_games)) == xbox_console, "the games of the original Xbox are shown for it and for nothing else (" + console + ")");
             checker.check(games_page.has_hit("game:3") == switch_console && games_page.has_hit("game:0") == switch_console, "and the games of the Switch are not (" + console + ")");
             checker.check(
-                games_page.focus_id() == "game:" + QString::number(phone_console ? go : ps3_console ? ps3_games : 0),
+                games_page.focus_id() == "game:" + QString::number(phone_console ? go : ps3_console ? ps3_games : xbox_console ? xbox_games : 0),
                 "the keyboard starts on a game that is shown (" + console + ")"
             );
             if (phone_console){

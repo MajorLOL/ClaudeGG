@@ -71,8 +71,25 @@ const PadLayout& ps3_controller_layout(){
     };
     return layout;
 }
+const PadLayout& xbox_controller_layout(){
+    static const PadLayout layout{
+        "an original Xbox controller",
+        {
+            "A", "B", "X", "Y", "WHITE", "BLACK", "LT", "RT", "START", "BACK", "LSTICK", "RSTICK",
+            "UP", "DOWN", "LEFT", "RIGHT",
+        },
+        {"left_stick", "right_stick"},
+        false,
+        "a real original Xbox",
+        "On an Xbox, A is usually yes and B usually no or back.",
+        false,
+    };
+    return layout;
+}
 const PadLayout& pad_layout(PadKind pad){
     switch (pad){
+    case PadKind::XBOX_CONTROLLER:
+        return xbox_controller_layout();
     case PadKind::RIGHT_JOYCON:
         return right_joycon_layout();
     case PadKind::PS3_CONTROLLER:
@@ -220,6 +237,25 @@ std::string button_name(const std::string& given, const PadLayout& layout){
         }
         return name;
     }
+    if (layout.has_button("BLACK")){
+        //  An original Xbox controller: the other names of its buttons.
+        struct Alias{
+            const char* given;
+            const char* button;
+        };
+        static const Alias ALIASES[] = {
+            {"+", "START"}, {"PLUS", "START"}, {"-", "BACK"}, {"MINUS", "BACK"}, {"SELECT", "BACK"},
+            {"LS", "LSTICK"}, {"L3", "LSTICK"}, {"LCLICK", "LSTICK"}, {"RS", "RSTICK"}, {"R3", "RSTICK"}, {"RCLICK", "RSTICK"},
+            {"L", "LT"}, {"R", "RT"}, {"ZL", "LT"}, {"ZR", "RT"}, {"L2", "LT"}, {"R2", "RT"},
+            {"LEFT_TRIGGER", "LT"}, {"RIGHT_TRIGGER", "RT"},
+        };
+        for (const Alias& alias : ALIASES){
+            if (name == alias.given){
+                return alias.button;
+            }
+        }
+        return name;
+    }
     if (name == "+" || name == "START"){
         return "PLUS";
     }
@@ -293,7 +329,7 @@ std::vector<std::string> button_names(const PadLayout& layout, bool home, bool d
             names.push_back(button);
         }
     }
-    if (home){
+    if (home && layout.has_home){
         names.emplace_back("HOME");
     }
     return names;
@@ -538,6 +574,10 @@ bool read_buttons(
 ){
     for (const QJsonValue& value : given){
         const std::string name = button_name(value.toString().toStdString(), layout);
+        if (name == "HOME" && !layout.has_home){
+            error = "This controller has no HOME button: the console has no menu to leave the game for. Nothing was pressed.";
+            return false;
+        }
         if (name == "HOME" && !options.allow_home){
             error =
                 "HOME leaves the game for the console's menu, and the user has not allowed it in this "
@@ -933,7 +973,7 @@ std::string any_game_instructions(
         "- Never start a new game over a save, delete save data, or give away, release or sell what the "
         "user has in the game, unless the goal says so. Never buy anything for real money, and stay out of "
         "the console's settings and its shop.\n";
-    if (options.allow_home){
+    if (options.allow_home && layout.has_home){
         text +=
             "- HOME leaves the game for the console's menu. Press it only when the goal needs that.\n";
     }
