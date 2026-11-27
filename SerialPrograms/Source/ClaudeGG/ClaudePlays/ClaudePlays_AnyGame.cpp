@@ -57,6 +57,31 @@ const PadLayout& right_joycon_layout(){
     };
     return layout;
 }
+const PadLayout& ps3_controller_layout(){
+    static const PadLayout layout{
+        "a PlayStation 3 controller",
+        {
+            "CROSS", "CIRCLE", "SQUARE", "TRIANGLE", "L1", "R1", "L2", "R2", "START", "SELECT", "L3", "R3",
+            "UP", "DOWN", "LEFT", "RIGHT",
+        },
+        {"left_stick", "right_stick"},
+        false,
+        "a real PlayStation 3",
+        "On a PlayStation 3, CROSS is usually yes and CIRCLE usually no or back.",
+    };
+    return layout;
+}
+const PadLayout& pad_layout(PadKind pad){
+    switch (pad){
+    case PadKind::RIGHT_JOYCON:
+        return right_joycon_layout();
+    case PadKind::PS3_CONTROLLER:
+        return ps3_controller_layout();
+    case PadKind::PRO_CONTROLLER:
+        break;
+    }
+    return pro_controller_layout();
+}
 
 int picture_tokens(int width, int height){
     if (width <= 0 || height <= 0){
@@ -174,6 +199,26 @@ std::string button_name(const std::string& given, const PadLayout& layout){
         if (name.size() > start.size() && name.compare(0, start.size(), start) == 0){
             name = name.substr(start.size());
         }
+    }
+    if (layout.has_button("START")){
+        //  A PlayStation controller: the other names of its buttons, and those
+        //  of a Switch where they are not another button of it.
+        struct Alias{
+            const char* given;
+            const char* button;
+        };
+        static const Alias ALIASES[] = {
+            {"+", "START"}, {"PLUS", "START"}, {"-", "SELECT"}, {"MINUS", "SELECT"},
+            {"LS", "L3"}, {"LSTICK", "L3"}, {"LCLICK", "L3"}, {"RS", "R3"}, {"RSTICK", "R3"}, {"RCLICK", "R3"},
+            {"L", "L1"}, {"R", "R1"}, {"ZL", "L2"}, {"ZR", "R2"}, {"PS", "HOME"},
+            {"CROSS_BUTTON", "CROSS"}, {"SQUARE_BUTTON", "SQUARE"}, {"CIRCLE_BUTTON", "CIRCLE"}, {"TRIANGLE_BUTTON", "TRIANGLE"},
+        };
+        for (const Alias& alias : ALIASES){
+            if (name == alias.given){
+                return alias.button;
+            }
+        }
+        return name;
     }
     if (name == "+" || name == "START"){
         return "PLUS";
@@ -812,13 +857,13 @@ std::string any_game_instructions(
     const PadLayout& layout, const AnyGameOptions& options, const GameFacts& facts, bool save_routine
 ){
     std::string text = options.external
-        ? "You are Claude, playing a game on a real Nintendo Switch through the tools of the program " + PROGRAM_NAME +
+        ? "You are Claude, playing a game on " + layout.console + " through the tools of the program " + PROGRAM_NAME +
           ". The program sees the console's screen through a capture card and works " + layout.name +
           " for you. The user who runs it gave you the goal in this conversation and reads along in the "
           "program's log.\n"
           "\n"
           "The game\n"
-        : "You are Claude, playing a game on a real Nintendo Switch through the program " + PROGRAM_NAME +
+        : "You are Claude, playing a game on " + layout.console + " through the program " + PROGRAM_NAME +
           ". The program sees the console's screen through a capture card and works " + layout.name +
           " for you. The user who started it gave you a goal and reads along in the program's log.\n"
           "\n"
@@ -845,8 +890,7 @@ std::string any_game_instructions(
             "no sense, look.\n";
     }
     text +=
-        "- The buttons the game shows on its screen are the ones to go by. On a Switch, A is usually yes "
-        "and B usually no or back.\n"
+        "- The buttons the game shows on its screen are the ones to go by. " + layout.yes_no + "\n"
         "\n"
         "How to play\n"
         "- You act only through the tools. Each result ends with \"Screen:\": how much of the picture "

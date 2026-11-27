@@ -85,6 +85,7 @@ GlobalSettings::GlobalSettings()
             {SetupConsole::SWITCH,  "switch",  "Nintendo Switch"},
             {SetupConsole::SWITCH2, "switch2", "Nintendo Switch 2"},
             {SetupConsole::MOBILE,  "mobile",  "Phone (on a Raspberry Pi)"},
+            {SetupConsole::PS3,     "ps3",     "PlayStation 3"},
         },
         LockMode::UNLOCK_WHILE_RUNNING,
         SetupConsole::NONE

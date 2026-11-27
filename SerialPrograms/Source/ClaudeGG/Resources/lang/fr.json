@@ -403,5 +403,14 @@
  "It prints the address and the token. Type them here and test the connection.": "Il affiche l'adresse et le jeton. Saisissez-les ici et testez la connexion.",
  "The Raspberry Pi answers. Claude GG sees the screen of the phone and taps it through the Pi.": "Le Raspberry Pi répond. Claude GG voit l'écran du téléphone et le touche via le Pi.",
  "There are no games for this console yet.": "Il n'y a pas encore de jeux pour cette console.",
- "Waiting for the phone.": "En attente du téléphone."
+ "Waiting for the phone.": "En attente du téléphone.",
+ "Through an ESP32-S3, wired": "Via un ESP32-S3, filaire",
+ "Not for a PlayStation 3:": "Pas pour une PlayStation 3 :",
+ "it needs the wired board, the ESP32-S3.": "elle a besoin de la carte filaire, l'ESP32-S3.",
+ "For the PlayStation 3": "Pour la PlayStation 3",
+ "Plug the port labeled COM or UART into the computer, and the port labeled USB or OTG into a USB port of the PlayStation 3. They are not interchangeable.": "Branchez le port marqué COM ou UART à l'ordinateur, et le port marqué USB ou OTG à un port USB de la PlayStation 3. Ils ne sont pas interchangeables.",
+ "Connect to the PlayStation 3": "Connectez-vous à la PlayStation 3",
+ "Pick NS1: Wired Controller as the type, not the Wired Pro Controller. The PlayStation 3 sees it as a USB gamepad.": "Choisissez NS1: Wired Controller comme type, pas le Wired Pro Controller. La PlayStation 3 le voit comme une manette USB.",
+ "Click the video and press the arrow keys: they should move through the menu of the PlayStation 3. This has not been tried on a PlayStation 3 yet.": "Cliquez sur la vidéo et appuyez sur les flèches : elles devraient parcourir le menu de la PlayStation 3. Cela n'a pas encore été essayé sur une PlayStation 3.",
+ "Wired: the PlayStation 3 takes it as a USB gamepad. Experimental. Six short steps.": "Filaire : la PlayStation 3 le prend pour une manette USB. Expérimental. Six étapes courtes."
 }

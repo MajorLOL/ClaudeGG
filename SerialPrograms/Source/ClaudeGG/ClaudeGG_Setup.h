@@ -146,7 +146,7 @@ struct SetupRequest{
     //  now. It belongs to the setup, so it goes with ask_board.
     bool ask_console = false;
 
-    //  The console that was chosen before ("switch", "switch2" or "mobile"),
+    //  The console that was chosen before ("switch", "switch2", "mobile" or "ps3"),
     //  shown as picked; empty: none yet.
     QString console_code;
 
@@ -245,7 +245,7 @@ struct SetupResult{
     bool language_chosen = false;
     QString language_code = "en";
 
-    //  The console was chosen: its code ("switch", "switch2" or "mobile").
+    //  The console was chosen: its code ("switch", "switch2", "mobile" or "ps3").
     bool console_chosen = false;
     QString console_code;
 

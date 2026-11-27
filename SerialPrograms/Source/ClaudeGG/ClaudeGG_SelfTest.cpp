@@ -318,22 +318,35 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
             failed++;
             logger.log("UI test: the games of the setup do not have " + GAME, COLOR_RED);
         }
-        //  Each console has its own games: Pokemon GO is the phone's, the others are the Switch's.
+        //  Each console has its own games: Pokemon GO is the phone's, the
+        //  Claude Plays of the PlayStation 3 that console's, the others are
+        //  the Switch's.
         {
             bool go_ok = false;
+            bool ps3_ok = false;
             bool switch_ok = true;
             for (const HomeGame& listed_game : listed){
                 const bool go = listed_game.name.endsWith(" GO");
+                const bool ps3 = listed_game.name == "PlayStation 3 games";
+                const auto only = [&](const char* console){
+                    return game_is_for_console(listed_game, console) &&
+                        !game_is_for_console(listed_game, "switch") && !game_is_for_console(listed_game, "switch2") &&
+                        (QString(console) == "mobile" || !game_is_for_console(listed_game, "mobile")) &&
+                        (QString(console) == "ps3" || !game_is_for_console(listed_game, "ps3"));
+                };
                 if (go){
-                    go_ok = listed_game.programs == 10 && game_is_for_console(listed_game, "mobile") &&
-                        !game_is_for_console(listed_game, "switch") && !game_is_for_console(listed_game, "switch2");
-                }else if (game_is_for_console(listed_game, "mobile") || !game_is_for_console(listed_game, "switch")){
+                    go_ok = listed_game.programs == 10 && only("mobile");
+                }else if (ps3){
+                    ps3_ok = listed_game.programs == 1 && only("ps3");
+                }else if (game_is_for_console(listed_game, "mobile") || game_is_for_console(listed_game, "ps3") ||
+                    !game_is_for_console(listed_game, "switch")
+                ){
                     switch_ok = false;
                 }
             }
-            if (!go_ok || !switch_ok){
+            if (!go_ok || !ps3_ok || !switch_ok){
                 failed++;
-                logger.log("UI test: the games are not divided over the consoles (Pokemon GO for the phone, the rest for the Switch)", COLOR_RED);
+                logger.log("UI test: the games are not divided over the consoles (Pokemon GO for the phone, Claude Plays of the PlayStation 3 for it, the rest for the Switch)", COLOR_RED);
             }
         }
         if (!window.open_game(QString::fromStdString(GAME))){
@@ -1395,9 +1408,7 @@ int check_assistant(const QString& out, Logger& logger){
             wrong++;
             logger.log("Assistant test: failed: two games with the identifier " + profile.identifier, COLOR_RED);
         }
-        const ClaudePlays::PadLayout& layout = profile.pad == ClaudePlays::PadKind::RIGHT_JOYCON
-            ? ClaudePlays::right_joycon_layout()
-            : ClaudePlays::pro_controller_layout();
+        const ClaudePlays::PadLayout& layout = ClaudePlays::pad_layout(profile.pad);
         for (bool allowed : {false, true}){
             game_cases++;
             ClaudePlays::AnyGameOptions options;

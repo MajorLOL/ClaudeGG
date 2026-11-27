@@ -209,6 +209,26 @@ std::map<GameId, GameProfile> make_profiles(){
         PadKind::PRO_CONTROLLER,
         false,
     });
+    {
+        //  Not one game: the console. The program does not know which game
+        //  is in it, so it has no name for Claude.
+        GameProfile ps3{
+            GameId::PLAYSTATION_3,
+            "PlayStation3:ClaudePlays",
+            "PlayStation 3",
+            "",
+            "PlayStation 3 games",
+            "The console is a PlayStation 3. On it, CROSS usually confirms and CIRCLE goes back (on a "
+            "Japanese console, and in some Japanese games, the other way round). START opens a game's menu "
+            "in many games, and the PS button (HOME here) the console's own menu. The board that plays the "
+            "controller is a plain USB gamepad to the console, not its own controller: L2 and R2 are only "
+            "pressed fully, there is no motion sensing and no rumble.",
+            PadKind::PS3_CONTROLLER,
+            false,
+        };
+        ps3.console = "ps3";
+        add(std::move(ps3));
+    }
     return profiles;
 }
 
@@ -228,10 +248,25 @@ bool has_only_claude_plays(GameId id){
     case GameId::MARIO_KART_8_DELUXE:
     case GameId::SPLATOON_3:
     case GameId::ANIMAL_CROSSING_NEW_HORIZONS:
+    case GameId::PLAYSTATION_3:
         return true;
     default:
         return false;
     }
+}
+
+bool is_other_games_choice(GameId id){
+    return has_only_claude_plays(id) && game_profile(id).console == "switch";
+}
+
+std::vector<std::string> consoles_of_list(const std::string& list_name){
+    for (GameId id : all_games()){
+        const GameProfile& profile = game_profile(id);
+        if (profile.console != "switch" && has_only_claude_plays(id) && profile.title == list_name){
+            return {profile.console};
+        }
+    }
+    return {};
 }
 
 const std::vector<GameId>& all_games(){
@@ -251,6 +286,7 @@ const std::vector<GameId>& all_games(){
         GameId::SPLATOON_3,
         GameId::ANIMAL_CROSSING_NEW_HORIZONS,
         GameId::OTHER_GAMES,
+        GameId::PLAYSTATION_3,
     };
     return games;
 }

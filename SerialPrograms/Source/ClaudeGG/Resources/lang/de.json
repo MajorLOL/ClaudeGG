@@ -403,5 +403,14 @@
  "It prints the address and the token. Type them here and test the connection.": "Es zeigt die Adresse und das Token an. Geben Sie sie hier ein und testen Sie die Verbindung.",
  "The Raspberry Pi answers. Claude GG sees the screen of the phone and taps it through the Pi.": "Der Raspberry Pi antwortet. Claude GG sieht den Bildschirm des Handys und tippt ihn über den Pi an.",
  "There are no games for this console yet.": "Für diese Konsole gibt es noch keine Spiele.",
- "Waiting for the phone.": "Warte auf das Handy."
+ "Waiting for the phone.": "Warte auf das Handy.",
+ "Through an ESP32-S3, wired": "Über einen ESP32-S3, kabelgebunden",
+ "Not for a PlayStation 3:": "Nicht für eine PlayStation 3:",
+ "it needs the wired board, the ESP32-S3.": "sie braucht das kabelgebundene Board, den ESP32-S3.",
+ "For the PlayStation 3": "Für die PlayStation 3",
+ "Plug the port labeled COM or UART into the computer, and the port labeled USB or OTG into a USB port of the PlayStation 3. They are not interchangeable.": "Stecken Sie den Anschluss mit der Beschriftung COM oder UART in den Computer und den Anschluss mit der Beschriftung USB oder OTG in einen USB-Anschluss der PlayStation 3. Sie sind nicht austauschbar.",
+ "Connect to the PlayStation 3": "Mit der PlayStation 3 verbinden",
+ "Pick NS1: Wired Controller as the type, not the Wired Pro Controller. The PlayStation 3 sees it as a USB gamepad.": "Wählen Sie NS1: Wired Controller als Typ, nicht den Wired Pro Controller. Die PlayStation 3 erkennt ihn als USB-Gamepad.",
+ "Click the video and press the arrow keys: they should move through the menu of the PlayStation 3. This has not been tried on a PlayStation 3 yet.": "Klicken Sie auf das Video und drücken Sie die Pfeiltasten: Sie sollten sich durch das Menü der PlayStation 3 bewegen. Das wurde noch nicht auf einer PlayStation 3 ausprobiert.",
+ "Wired: the PlayStation 3 takes it as a USB gamepad. Experimental. Six short steps.": "Kabelgebunden: Die PlayStation 3 nimmt ihn als USB-Gamepad. Experimentell. Sechs kurze Schritte."
 }

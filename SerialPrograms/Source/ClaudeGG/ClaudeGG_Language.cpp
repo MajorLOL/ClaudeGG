@@ -108,13 +108,14 @@ UiLanguage language_of(const QString& code){
     return UiLanguage::ENGLISH;
 }
 
-//  The console of the setup, as the codes of its screen ("switch", "switch2";
-//  empty: none chosen).
+//  The console of the setup, as the codes of its screen ("switch", "switch2",
+//  "mobile", "ps3"; empty: none chosen).
 QString console_code_of(SetupConsole console){
     switch (console){
     case SetupConsole::SWITCH:   return "switch";
     case SetupConsole::SWITCH2:  return "switch2";
     case SetupConsole::MOBILE:   return "mobile";
+    case SetupConsole::PS3:      return "ps3";
     case SetupConsole::NONE:     break;
     }
     return QString();
@@ -123,6 +124,7 @@ SetupConsole console_of(const QString& code){
     if (code == "switch") return SetupConsole::SWITCH;
     if (code == "switch2") return SetupConsole::SWITCH2;
     if (code == "mobile") return SetupConsole::MOBILE;
+    if (code == "ps3") return SetupConsole::PS3;
     return SetupConsole::NONE;
 }
 
