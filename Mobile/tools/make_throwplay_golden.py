@@ -40,6 +40,8 @@ import gamebot as G  # noqa: E402
 import spin_stop as S  # noqa: E402
 
 ROOT = os.path.dirname(HERE)
+MONO = 640.25         # time.monotonic() of the fake phone runs this far behind time.time() (on a real one they are nowhere near each other: the times of the
+#                       video are on the monotonic clock, and a sum that mixes the two up is no sum)
 OUT = os.path.join(ROOT, "tests", "fixtures", "throwplay_golden.json.qz")
 W, H = TG.W, TG.H
 
@@ -155,6 +157,14 @@ class World:
         return self.by_id[id(base)]
 
 
+class ThrowClock(Clock):
+    """The fake clock, with a monotonic clock that is not the same as the clock of the day."""
+
+    @staticmethod
+    def monotonic():
+        return Clock.t - MONO
+
+
 def record(spec):
     """Plays one story on the fake phone; returns the list of events."""
     Clock.t = START
@@ -167,7 +177,7 @@ def record(spec):
     saved_screen = dict(S.screen)
     try:
         restore(spec.get("init", {}))
-        G.time = S.time = Clock
+        G.time = S.time = ThrowClock
         G.log = S.log = lambda text: rec.add("log", text)
         G.random = FakeRandom(spec.get("seed", 1), rec, spec.get("random_script", ()))
         settings = dict(spec.get("settings", {}))
@@ -200,12 +210,12 @@ def record(spec):
                 index = next_frame()
                 if kind == "quick" and live["on"] and not spec.get("quick_not_live"):
                     Clock.t += spec.get("live_shot_seconds", 0.02)
-                    take.live, take.t = True, Clock.t - spec.get("live_age", 0.12)
+                    take.live, take.t = True, Clock.t - MONO - spec.get("live_age", 0.12)
                     rec.add("shot", index, kind, True)
                 else:
                     Clock.t += spec.get("shot_seconds", 0.0)
                     if kind == "quick":
-                        take.live, take.t = False, Clock.t
+                        take.live, take.t = False, Clock.t - MONO
                     rec.add("shot", index, kind, False)
                 return world.picture(index)
             take.live, take.t = False, 0.0
@@ -218,7 +228,7 @@ def record(spec):
         def live_frames(seconds, every=0.0):
             if not live["on"]:
                 return []
-            start = Clock.t
+            start = Clock.t - MONO
             Clock.t += seconds
             got = script_frames.pop(0) if script_frames else []
             rec.add("live_frames", seconds, every, [[start + dt, index] for dt, index in got])
@@ -317,16 +327,17 @@ def record(spec):
 RING_BOX = TG.encounter_box(884, 900, 320)
 
 
-def ring_frame(ratio, found=True, **kw):
-    """A catch screen with the ring at this size; found: the detector sees the white ring."""
-    return {"pic": TG.ring_ops(884, 900, 160, ratio, **kw), "found": [RING_BOX] if found else []}
+def ring_frame(ratio, found=True, box=None, radius=160, cx=884, **kw):
+    """A catch screen with the ring at this size; found: the detector sees the white ring (box: its box, when it is not the square one; cx: the ring
+    is not in the middle)."""
+    return {"pic": TG.ring_ops(cx, 900, radius, ratio, **kw), "found": [box or TG.encounter_box(cx, 900, 320)] if found else []}
 
 
-def flight_frame(x, y, ratio=0.5, w=100, h=100, found=False):
+def flight_frame(x, y, ratio=0.5, w=100, h=100, found=False, box=None, radius=160, cx=884):
     """The same, with a ball in the air at (x, y)."""
-    ops = TG.ring_ops(884, 900, 160, ratio)
+    ops = TG.ring_ops(cx, 900, radius, ratio)
     ops.append(["ellipse", x, y, w // 2, h // 2, 0, -1, [30, 30, 220]])
-    return {"pic": ops, "found": [RING_BOX] if found else []}
+    return {"pic": ops, "found": [box or TG.encounter_box(cx, 900, 320)] if found else []}
 
 
 def empty_frame():
@@ -344,6 +355,32 @@ def story(name, calls, frames, **spec):
 
 def throw(curve=False, target=0.5, name="great", aim_dx=0, power=1.0, **extra):
     return dict({"fn": "throw_touch", "curve": curve, "target": target, "name": name, "aim_dx": aim_dx, "power": power}, **extra)
+
+
+# ---------------------------------------------------------------------- what the stories have to hit exactly
+
+def decision_ring():
+    """ring_at() at the moment where throw_touch decides how long to wait, in the stories with the usual numbers of `common` (a screenshot of the ring
+    with size 0.9 after the first quarter of a second, the spin command done 0.9 s after it started, nothing learned yet): the number that the wait is
+    counted from.  (The same sums, in the same order, with the same clock, as the code does them.)"""
+    img = TG.make_scene(ring_frame(0.9)["pic"])
+    measured = G.measure_ring(img, tuple(RING_BOX))["ratio"]
+    t_shot = START + G.TOUCH_SHOT
+    now = START + 0.9
+    return (measured - G.RING_SPEED * ((now + 0.3) - t_shot - 0.3)) % 1.0
+
+
+def target_for_diff(a, want):
+    """The target (a ring size between 0 and 1) for which (a - target) % 1.0 is exactly `want` (the number just below it, or just above, when
+    nothing makes exactly that)."""
+    import math
+    x = a - want + 1.0
+    for _ in range(400):
+        d = (a - x) % 1.0
+        if d == want:
+            return x
+        x = math.nextafter(x, 2.0 if d > want else -1.0)
+    raise ValueError("no target for the difference %r" % want)
 
 
 # ---------------------------------------------------------------------- the stories
@@ -365,6 +402,40 @@ def stories():
     for name, x in (("left", 500), ("right", 1250), ("a_bit_right", 940), ("hit_edge_95", 884 + 95), ("hit_edge_96", 884 + 96),
                     ("at_the_limit_112", 884 + 112), ("over_the_limit_113", 884 + 113), ("a_bit_left", 884 - 60)):
         out.append(story("touch_straight_lands_%s" % name, [throw()], flights(x), shots=shots5, **common))
+    # the size of the ring at the release is called Excellent below 0.3, Great below 0.7 and Nice from there: the pictures are made so that the
+    # size that measure_ring() reads is exactly 0.3 (48 / 160) or 0.7 (112 / 160), or in the step just under or over it
+    for name, radius, ratio in (("exactly_0_3", 153, 0.32), ("just_under_0_3", 160, 0.315), ("just_over_0_3", 160, 0.32), ("exactly_0_7", 153, 0.735),
+                                ("just_under_0_7", 160, 0.72), ("just_over_0_7", 140, 0.74), ("far_under", 160, 0.1), ("far_over", 160, 0.95)):
+        f = flight_frame(884, 772, ratio=ratio, radius=radius)
+        out.append(story("touch_size_at_the_release_%s" % name, [throw()], [ring_hi, f, f, f, f], shots=shots5, **common))
+    # the end of the swipe is never higher than y = 50: the predictor's deltaY that lands the finger on 49, 50 and 51 (the curveball starts from the last
+    # point of the spin, y = 1957; the straight throw from the ball, y = 2017)
+    for kind, curve, top in (("curve", True, 1957), ("straight", False, 2017)):
+        for off in (-1, 0, 1):
+            out.append(story("touch_the_top_of_the_swipe_%s_%d" % (kind, 50 + off), [throw(curve=curve)], flights(884), shots=shots5,
+                             shot_seconds=0.3, spin_seconds=0.9, release_seconds=0.35, params=[[float(50 + off - top), 190.0]]))
+    # ---- where the ball came down, on the edges: a hit is 0.85 of the 0.35 share of the width of the box from the middle (the box of 400: 119 px exactly), a miss
+    # begins at the share itself (140 px), and a throw is planned to miss when the aim is more than the share (140 px) to the side
+    box400 = TG.encounter_box(884, 900, 400)
+    ring400 = ring_frame(0.9, box=box400)
+    for name, err, aim_dx in (("hit_119", 119, 0), ("hit_120", 120, 0), ("limit_140", 140, 0), ("over_140", 141, 0),
+                              ("aim_140_missed", 330, 140), ("aim_141_missed", 330, 141), ("aim_140_landed", 0, 140), ("aim_141_landed", 0, 141)):
+        f = flight_frame(884 + err, 740, box=box400)
+        out.append(story("touch_landing_%s" % name, [throw(aim_dx=aim_dx)], [ring400, f, f, f, f], shots=shots5, **common))
+    # the aim that is learned from a curveball that did not go where it was meant to: not when the throw was meant to be sloppy (more than 2.5 times the
+    # spread of 45 px = 112.5 px to the side), and kept within 700 px (the step is 0.3 of the miss)
+    for aim_dx in (110, 112, 113, 115, -112, -113):
+        f = flight_frame(884 + aim_dx + 200, 772)
+        out.append(story("touch_learn_the_aim_meant_%s%d" % ("minus_" if aim_dx < 0 else "", abs(aim_dx)), [throw(curve=True, aim_dx=aim_dx)], [ring_hi, f, f, f, f],
+                         shots=shots5, **common))
+    for name, cx, aim0, err in (("right", 1584, 690.0, 100), ("left", 184, -690.0, -100)):
+        ring_here = ring_frame(0.9, cx=cx)
+        f = flight_frame(cx + err, 772, cx=cx)
+        out.append(story("touch_the_aim_stays_within_700_%s" % name, [throw(curve=True)], [ring_here, f, f, f, f], shots=shots5, init={"cal": {"aim": aim0}}, **common))
+    # the rings that the detector finds: only a 'boundingBox' with at least the score, and higher than 300 px above the ball (the ball is at y = 2017)
+    for name, label, cy in (("a_clickable", "clickable", 900), ("cy_1716", "boundingBox", 1716), ("cy_1717", "boundingBox", 1717), ("cy_1718", "boundingBox", 1718)):
+        odd = {"pic": TG.ring_ops(884, 900, 160, 0.9), "found": [[label, 0.9, 884, cy, 320, 320]]}
+        out.append(story("touch_the_detector_finds_%s" % name, [throw()], [odd, ring_mid, land_on], shots=[0, 1, 2, 2, 2, 2], **common))
     out.append(story("touch_straight_no_ball_seen", [throw()], [ring_hi, ring_mid], shots=[0, 1, 1, 1, 1], **common))
     out.append(story("touch_straight_the_ball_is_too_high", [throw()], [ring_hi, flight_frame(884, 200)], shots=[0, 1, 1, 1, 1], **common))
     out.append(story("touch_straight_the_ball_is_a_bit_late", [throw()], [ring_hi, ring_mid, flight_frame(884, 772)], shots=[0, 1, 1, 2, 2], **common))
@@ -397,6 +468,37 @@ def stories():
     for ratio, name in ((0.15, "excellent"), (0.5, "great"), (0.85, "nice")):
         out.append(story("touch_ring_at_release_%s" % name, [throw()], [ring_hi, flight_frame(884, 772, ratio=ratio), flight_frame(884, 772, ratio=ratio)],
                          shots=[0, 1, 2, 2, 2], **common))
+
+    # ---- the throw is timed, and the ring is already just below the target: no waiting (a difference of more than 0.93 is a difference of less than 0.07)
+    a = decision_ring()
+    for label, want in (("0925", 0.925), ("0929", 0.929), ("exactly_093", 0.93), ("0931", 0.931), ("0935", 0.935), ("094", 0.94)):
+        out.append(story("touch_wait_difference_%s" % label, [throw(target=target_for_diff(a, want), name="nice")], flights(884), shots=shots5, **common))
+    # the speed of the touch events decides the number of steps (round to the nearest, the half to the even one): the lengths of the swipe that are
+    # just on this side and just on that side of a half
+    for lat in (60.4, 61.0):
+        out.append(story("touch_steps_lat_%s" % lat, [throw()], flights(884), shots=shots5, init={"cal": {"lat": lat}}, **common))
+    for lat in (23.8, 24.0, 24.2):
+        out.append(story("touch_steps_short_throw_lat_%s" % lat, [throw()], flights(884), shots=shots5, init={"cal": {"lat": lat}},
+                         **dict(common, params=[[-880.0, 50.0]])))
+    out.append(story("touch_steps_default_throw_lat", [throw()], [empty_frame(), empty_frame(), land_on], shots=[0, 1, 2, 2, 2, 2], init={"cal": {"lat": 80.4}}, **common))
+    out.append(story("touch_steps_default_throw_lat_80", [throw()], [empty_frame(), empty_frame(), land_on], shots=[0, 1, 2, 2, 2, 2], init={"cal": {"lat": 80.0}}, **common))
+    # 0.8 * 251 ms is 200.8: cut to 200 (and not rounded to 201), which is 2.5 steps of 80 ms, so 2 (the half to the even one)
+    out.append(story("touch_steps_the_duration_is_cut", [throw()], flights(884), shots=shots5, init={"cal": {"lat": 80.0}}, **dict(common, params=[[-880.0, 251.0]])))
+    # a speed of the phone that is nothing or less than nothing counts as 5 ms a touch event
+    for lat in (0.0, -3.0):
+        out.append(story("touch_steps_a_phone_with_lat_%s" % lat, [throw()], flights(884), shots=shots5, init={"cal": {"lat": lat}}, **common))
+    # ---- a box that is not square: the width is what a hit is measured in, the height says where the ball comes down, and the predictor is told both
+    tall, wide = TG.encounter_box(884, 900, 300, 340), TG.encounter_box(884, 900, 340, 300)
+    for name, box in (("tall", tall), ("wide", wide)):
+        def box_flights(x, box=box, y=772):
+            f = flight_frame(x, y, box=box)
+            return [ring_frame(0.9, box=box), f, f, f, f]
+        for label, x in (("on_it", 884 + 60), ("100", 884 + 100), ("110", 884 + 110), ("118", 884 + 118), ("120", 884 + 120)):
+            out.append(story("touch_%s_ring_lands_%s" % (name, label), [throw()], box_flights(x), shots=shots5, **common))
+        out.append(story("touch_%s_ring_curve" % name, [throw(curve=True, aim_dx=30)], box_flights(884 + 110), shots=shots5, **common))
+        out.append(story("touch_%s_ring_planned_miss" % name, [throw(aim_dx=108)], box_flights(884 + 108), shots=shots5, **common))
+    out.append(story("touch_the_ring_found_while_following", [throw(live=True)], [ring_frame(0.9, box=tall)] + [ring_frame(r, box=tall) for r in (0.85, 0.8, 0.75)],
+                     shots=[0], live_frames=[[[0.1, 1], [0.2, 2], [0.3, 3]], []], params=[[-880.0, 190.0]], release_seconds=0.35, spin_seconds=0.9))
 
     # ---- a curveball: the finger goes round before the throw, and the aim is learned
     out.append(story("touch_curve_on_it", [throw(curve=True)], flights(884), shots=shots5, **common))
@@ -447,6 +549,16 @@ def stories():
     out.append(story("touch_single_touch_not_possible_and_the_finger_stays", [throw(curve=True)], [ring_hi], shots=[0], spin_outputs=["Error: no"],
                      adb_errors=["device offline"], **common))
     out.append(story("touch_a_message_without_an_error", [throw()], flights(884), shots=shots5, spin_outputs=["  all fine \n"], **common))
+    # 'rror' is looked for as it is written (a message in capitals is no error), and the message that is told is cut after the blanks around it are gone
+    for name, text in (("capitals", "ERROR: SHOUTED"), ("usage_in_lower_case", "usage: input"), ("unknown_in_capitals", "UNKNOWN COMMAND")):
+        out.append(story("touch_a_message_that_is_no_error_%s" % name, [throw()], flights(884), shots=shots5, spin_outputs=[text], **common))
+    out.append(story("touch_single_touch_not_possible_a_long_message_after_blanks", [throw(curve=True)], [ring_hi, land_on], shots=[0, 1],
+                     spin_outputs=["   \n  Error: " + "y" * 120], **common))
+    # the finger goes up where it is: at the last point of the spin of a curveball
+    out.append(story("touch_the_screenshot_fails_the_finger_goes_up_curve", [throw(curve=True)], ["x"], shots=["error: no screen"], **common))
+    # the end of the swipe stays 20 px from the sides of the screen: the aim that puts it on 19, 20 and 21 from the left, and on 19, 20 and 21 from the right
+    for off in (-866, -865, -864, -863, 863, 864, 865, 866):
+        out.append(story("touch_the_side_of_the_screen_%s%d" % ("minus_" if off < 0 else "", abs(off)), [throw(aim_dx=off)], flights(884), shots=shots5, **common))
     out.append(story("touch_the_release_fails", [throw()], flights(884), shots=shots5, adb_errors=["device offline"], **common))
     out.append(story("touch_the_screenshot_fails_the_finger_goes_up", [throw()], ["x"], shots=["error: no screen"], **common))
     out.append(story("touch_the_second_screenshot_fails", [throw()], [empty_frame()], shots=[0, "error: no screen"], **common))
@@ -465,6 +577,8 @@ def stories():
     live_flight = [[0.1, 7], [0.25, 8], [0.4, 9]]
     live_frames = ring_series + sky_frames
     out.append(story("live_follow_and_throw", [throw(live=True)], live_frames, shots=[0], live_frames=[follow, live_flight],
+                     live_age=0.12, params=[[-880.0, 190.0]], release_seconds=0.35, spin_seconds=0.9))
+    out.append(story("live_the_tenth_throw", [throw(live=True)], live_frames, shots=[0], live_frames=[follow, live_flight], init={"throw_stats": {"n": 9, "on": 7}},
                      live_age=0.12, params=[[-880.0, 190.0]], release_seconds=0.35, spin_seconds=0.9))
     out.append(story("live_follow_and_throw_a_curve", [throw(curve=True, live=True, aim_dx=40)], live_frames, shots=[0], live_frames=[follow, live_flight],
                      params=[[-880.0, 190.0]], release_seconds=0.35, spin_seconds=0.9))
@@ -553,6 +667,8 @@ def ball_stories():
                          ("straight_on_purpose", [0.1, 0.95, 0.5, 0.5]), ("sloppy", [0.1, 0.5, 0.03, 0.5]), ("a_long_pause", [0.1, 0.5, 0.5, 0.03])):
         out.append(story("ball_realistic_%s" % name, [ball], frames, shots=shots, random_script=script, settings={"throw_target": "realistic", "curveball": True},
                          **common))
+    tall = TG.encounter_box(884, 900, 300, 340)
+    out.append(story("ball_simple_throw_tall_ring", [ball], [ring_frame(0.9, box=tall)], shots=[0], settings={"throw_target": "off"}, **common))
     out.append(story("ball_realistic_without_curve", [ball], frames, shots=shots, random_script=[0.1, 0.5, 0.5], settings={"throw_target": "realistic"}, **common))
     out.append(story("ball_two_throws_learn", [ball, ball, ball], frames, shots=shots + shots + shots, seed=8,
                      settings={"throw_target": "great", "curveball": True}, **common))
@@ -568,6 +684,12 @@ def direct_stories():
     box = list(RING_BOX)
     far = list(TG.encounter_box(884, 900, 320))
     out.append(story("aim_a_ring", [{"fn": "aim"}], [ring_frame(0.6)], shots=[0], shot_seconds=0.3, params=[[-880.0, 190.0]]))
+    out.append(story("aim_a_tall_ring", [{"fn": "aim"}], [ring_frame(0.6, box=TG.encounter_box(884, 900, 300, 340))], shots=[0], shot_seconds=0.3,
+                     params=[[-880.0, 190.0]]))
+    out.append(story("track_a_tall_ring", [{"fn": "ring_track", "first": 0, "live": True}], [ring_frame(0.9, box=TG.encounter_box(884, 900, 300, 340)), ring_frame(0.85)],
+                     live_frames=[[[0.1, 1]]]))
+    out.append(story("flight_a_tall_ring", [{"fn": "watch_flight", "before": 0, "ring": list(TG.encounter_box(884, 900, 300, 340))}],
+                     [ring_frame(0.5), flight_frame(884 + 110, 772), flight_frame(884 + 110, 772)], shots=[1, 2, 1, 2], shot_seconds=0.3))
     out.append(story("aim_no_ring", [{"fn": "aim"}], [empty_frame()], shots=[0], shot_seconds=0.3))
     out.append(story("aim_a_ring_that_is_not_one", [{"fn": "aim"}], [{"pic": TG.ring_ops(884, 1900, 160, 0.6), "found": [TG.encounter_box(884, 1900, 320)]}],
                      shots=[0], shot_seconds=0.3))
@@ -604,7 +726,7 @@ def all_stories():
 
 
 def capture():
-    return {"start": START, "cases": [dict(c, events=record(c["spec"])) for c in all_stories()]}
+    return {"start": START, "mono": MONO, "cases": [dict(c, events=record(c["spec"])) for c in all_stories()]}
 
 
 def text(doc=None):

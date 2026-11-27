@@ -26,6 +26,7 @@
 #include <utility>
 #include <vector>
 #include <opencv2/core.hpp>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QString>
 #include <QStringList>
@@ -177,6 +178,7 @@ struct Cal{
     std::vector<std::array<double, 3>> obs;         //  last throws: (ring measured, s until release, ring at release)
     double c_live = -0.12;              //  the same as c for a picture of the live video
     std::vector<std::array<double, 3>> obs_live;    //  ... and the throws that were timed with the live video
+    bool no_curve = false;              //  this phone cannot send single touch events (cal['no_curve'], kept while the program runs)
 };
 
 //  The shrink speed of the ring (size per second) from pictures taken one after another (time, size), or nothing.
@@ -197,6 +199,9 @@ QString aim_note(int aim_dx, int ring_w = 460);
 
 //  ---- the numbers (for the check): every number above under the name of the Python code (the dicts as objects, the tuples as arrays)
 QJsonObject throw_constants();
+
+//  A picture drawn as the stories of the check say (make_throw_golden.make_scene(): a background, discs, rings, noise).  For the checks.
+cv::Mat make_check_scene(const QJsonArray& ops);
 
 //  Holds all of it to the file of the Python code (the report gets a line for every difference).  Returns how many there were.
 int run_throw_checks(const QString& golden, QStringList& report);

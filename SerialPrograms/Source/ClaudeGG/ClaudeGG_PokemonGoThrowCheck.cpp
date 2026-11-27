@@ -208,6 +208,11 @@ Detection detection_of(const QJsonArray& box){
 }
 
 
+cv::Mat make_check_scene(const QJsonArray& ops){
+    return make_scene(ops);
+}
+
+
 int run_throw_checks(const QString& golden, QStringList& report){
     QFile file(golden);
     if (!file.open(QIODevice::ReadOnly)){

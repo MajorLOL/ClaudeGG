@@ -46,6 +46,7 @@
 #include "ClaudeGG_PokemonGoMap.h"
 #include "ClaudeGG_PokemonGoStart.h"
 #include "ClaudeGG_PokemonGoThrow.h"
+#include "ClaudeGG_PokemonGoThrowPlay.h"
 #include "ClaudeGG_PokemonGoVision.h"
 
 namespace PokemonAutomation{
@@ -847,6 +848,19 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             }
         }
         check(differ == 0, throw_report.isEmpty() ? QString("the readers and the sums of the throw are done as gamebot.py does them") : throw_report.last());
+    }
+    //  The throw itself, ported to C++ (issue #31): holding the ball, following the ring, timing the release, the pictures of the flight
+    //  and what the bot learns from them, the variation of a 'realistic' throw and the simple throw - little stories played on a
+    //  pretend phone with a pretend clock, event by event as the Python code did them.
+    {
+        QStringList play_report;
+        const int differ = PokemonGo::Throw::run_throwplay_checks(agent_folder + "/../tests/fixtures/throwplay_golden.json.qz", play_report);
+        for (const QString& line : play_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, play_report.isEmpty() ? QString("the throw of a ball is done as gamebot.py does it") : play_report.last());
     }
     //  The text reader, ported to C++ (issue #30): the table that Tesseract writes made into lines of words with their places, as
     //  gamebot.ocr_lines() makes them (354 tables, 36 of them read from frames of real fights), and - where the tesseract program is
