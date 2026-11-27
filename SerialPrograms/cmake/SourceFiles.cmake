@@ -1519,6 +1519,8 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_PokemonGo.h
     Source/ClaudeGG/ClaudeGG_PokemonGoBattle.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoBattle.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoBrain.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoBrain.h
     Source/ClaudeGG/ClaudeGG_PokemonGoFight.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoFight.h
     Source/ClaudeGG/ClaudeGG_PokemonGoFlow.cpp
@@ -1529,6 +1531,9 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_PokemonGoLoop.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoLoop.h
     Source/ClaudeGG/ClaudeGG_PokemonGoLoopCheck.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoMap.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoMap.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoMapCheck.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoMinigame.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoMinigame.h
     Source/ClaudeGG/ClaudeGG_PokemonGoModels.cpp

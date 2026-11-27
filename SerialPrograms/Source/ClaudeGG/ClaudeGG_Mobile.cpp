@@ -43,6 +43,7 @@
 #include "ClaudeGG_PokemonGoModels.h"
 #include "ClaudeGG_PokemonGoNav.h"
 #include "ClaudeGG_PokemonGoPhone.h"
+#include "ClaudeGG_PokemonGoMap.h"
 #include "ClaudeGG_PokemonGoStart.h"
 #include "ClaudeGG_PokemonGoVision.h"
 
@@ -819,6 +820,19 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             }
         }
         check(differ == 0, start.isEmpty() ? QString("the start of the game and the battles of a run are done as gamebot.py does them") : start.last());
+    }
+    //  A step on the map, ported to C++ (issue #31): the looks of the Brain at the map, do_map() (a Pokémon, a PokéStop, turning the
+    //  camera, the gifts of the hour, the full storage, a fast catch that is checked) and do_pokestop(), with the readers of pixels, played
+    //  on the stories of the Python code.
+    {
+        QStringList map;
+        const int differ = PokemonGo::Map::run_map_checks(agent_folder + "/../tests/fixtures/map_golden.json.qz", map);
+        for (const QString& line : map){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, map.isEmpty() ? QString("a step on the map is done as gamebot.py does it") : map.last());
     }
     //  The text reader, ported to C++ (issue #30): the table that Tesseract writes made into lines of words with their places, as
     //  gamebot.ocr_lines() makes them (354 tables, 36 of them read from frames of real fights), and - where the tesseract program is
