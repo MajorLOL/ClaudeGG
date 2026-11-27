@@ -50,6 +50,9 @@ private:
     QPushButton* m_reset_button;
 
     std::vector<std::shared_ptr<VideoSourceDescriptor>> m_sources;
+    //  The saved camera is not connected: it is shown as one more entry after
+    //  m_sources, and picking that entry keeps it.
+    bool m_missing_shown = false;
     std::vector<
         std::pair<
             Resolution,

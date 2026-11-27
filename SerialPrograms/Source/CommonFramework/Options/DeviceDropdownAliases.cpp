@@ -80,6 +80,24 @@ std::optional<std::string> DeviceDropdownAliases::lookup(DeviceAliasType categor
     return result;
 }
 
+std::optional<std::string> DeviceDropdownAliases::known_name(DeviceAliasType category, const std::string& device_id) const{
+    std::optional<std::string> result;
+    EditableTableOption::run_on_all_rows<DeviceAliasRow>([&](const DeviceAliasRow& row){
+        if (row.category != category || std::string(row.device_id) != device_id){
+            return false;
+        }
+        std::string alias = row.alias;
+        std::string name = row.device_name;
+        if (!alias.empty()){
+            result = std::move(alias);
+        }else if (!name.empty()){
+            result = std::move(name);
+        }
+        return true;
+    });
+    return result;
+}
+
 void DeviceDropdownAliases::add_device(DeviceAliasType category, const std::string& id, const std::string& name){
     bool found = false;
     run_on_all_rows([&](DeviceAliasRow& row){
@@ -136,8 +154,19 @@ std::optional<std::string> DeviceAliasOptions::lookup(DeviceAliasType category, 
     return m_aliases.lookup(category, device_id);
 }
 
+std::optional<std::string> DeviceAliasOptions::known_name(DeviceAliasType category, const std::string& device_id) const{
+    return m_aliases.known_name(category, device_id);
+}
+
 std::optional<std::string> device_dropdown_name(DeviceAliasType category, const std::string& device_id){
     return GlobalSettings::instance().DEVICE_ALIASES->lookup(category, device_id);
+}
+std::optional<std::string> device_known_name(DeviceAliasType category, const std::string& device_id){
+    return GlobalSettings::instance().DEVICE_ALIASES->known_name(category, device_id);
+}
+std::string missing_device_label(DeviceAliasType category, const std::string& device_id){
+    std::optional<std::string> name = device_known_name(category, device_id);
+    return (name ? *name : device_id) + " (not connected)";
 }
 
 }

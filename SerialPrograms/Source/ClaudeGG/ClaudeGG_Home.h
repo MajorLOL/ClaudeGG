@@ -27,7 +27,7 @@ struct HomeGame{
     QPixmap icon;           //  May be empty.
     int programs = 0;
     bool enabled = true;
-    //  The consoles it is for ("switch", "switch2", "mobile"). Empty: every
+    //  The consoles it is for ("switch", "switch2", "mobile", "ps3", "xbox", "retro"). Empty: every
     //  console. The page with the games shows only the games of the console
     //  that is in use.
     QStringList consoles;
@@ -48,8 +48,9 @@ struct HomeProgram{
 QString short_game_name(const QString& name);
 
 //  The consoles that a game (by the name of its list) is for: "Pokémon GO" is a
-//  game of the phone, the others are games of the Nintendo Switch and the
-//  Switch 2.
+//  game of the phone, "PlayStation 3 games" and "Original Xbox games" (Claude
+//  Plays) of those consoles, the others are games of the Nintendo Switch and
+//  the Switch 2.
 QStringList consoles_of_game(const QString& name);
 
 //  The game is for this console. An empty console (not known yet) shows

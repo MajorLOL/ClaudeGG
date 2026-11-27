@@ -8,6 +8,9 @@
 #include <utility>
 //#include <QStatusBar>
 #include <QApplication>
+#include <QDateTime>
+#include <QTextDocumentFragment>
+#include <QTimer>
 #include <QDialog>
 #include <QVBoxLayout>
 #include "Common/Cpp/ScopeExit.h"
@@ -20,6 +23,11 @@
 #include "Common/Cpp/CpuId/CpuId.h"
 #include "Common/Cpp/ColoredText.h"
 #include "Common/Qt/UiStateQtWidget.h"
+#include "Controllers/ControllerSession.h"
+#include "Controllers/ControllerTypeStrings.h"
+#include "CommonFramework/ProgramSession.h"
+#include "CommonFramework/VideoPipeline/VideoSession.h"
+#include "CommonFramework/VideoPipeline/VideoSourceDescriptor.h"
 #include "PanelLists.h"
 #include "CommonFramework/Globals.h"
 #include "CommonFramework/GlobalAutoPaths.h"
@@ -108,6 +116,7 @@ MainWindow::MainWindow(QWidget* parent, bool app_test)
 #else
     setWindowTitle(QString::fromStdString(title));
 #endif
+    m_base_title = windowTitle();
 
     //  The list of programs stays, out of sight: it makes the programs and
     //  loads their panels, as it always did. (The screens show them.)
@@ -611,6 +620,7 @@ void MainWindow::load_panel(
         }
         m_app->host(m_current_panel_widget, game, game_name, title);
         update_resume();
+        update_controllers();
         return;
     }catch (Exception& e){
         e.log(global_logger_tagged());
@@ -627,15 +637,36 @@ void MainWindow::load_panel(
 }
 void MainWindow::on_busy(){
     m_busy = true;
-    std::string text = "Running";
-    if (m_current_panel != nullptr){
-        text += " " + m_current_panel->descriptor().display_name();
-    }
-    m_app->set_state(true, QString::fromStdString(text));
+    m_busy_since = QDateTime::currentMSecsSinceEpoch();
+    m_busy_name = m_current_panel != nullptr
+        ? QString::fromStdString(m_current_panel->descriptor().display_name())
+        : QString();
+    update_busy_text();
 }
 void MainWindow::on_idle(){
     m_busy = false;
-    m_app->set_state(false, "Ready");
+    //  (Empty: the header says "Ready" in the language in use.)
+    m_app->set_state(false, QString());
+    setWindowTitle(m_base_title);
+}
+void MainWindow::update_busy_text(){
+    if (!m_busy || m_app == nullptr){
+        return;
+    }
+    const qint64 seconds = std::max<qint64>(0, (QDateTime::currentMSecsSinceEpoch() - m_busy_since) / 1000);
+    const qint64 hours = seconds / 3600;
+    const qint64 minutes = seconds / 60 % 60;
+    QString time = QString("%1:%2").arg(minutes, hours > 0 ? 2 : 1, 10, QChar('0')).arg(seconds % 60, 2, 10, QChar('0'));
+    if (hours > 0){
+        time = QString::number(hours) + ":" + time;
+    }
+    QString text = ClaudeGG::tr_ui("Running");
+    if (!m_busy_name.isEmpty()){
+        text += " " + m_busy_name;
+    }
+    text += "  " + time;
+    m_app->set_state(true, text);
+    setWindowTitle(text + " - " + m_base_title);
 }
 
 
@@ -752,6 +783,91 @@ void MainWindow::update_resume(){
     m_program_list->persistent_panel(game, program);
     m_app->set_resume(QString::fromStdString(game), QString::fromStdString(program));
 }
+void MainWindow::update_controllers(){
+    if (m_app == nullptr){
+        return;
+    }
+    std::vector<ClaudeGG::AppController> list;
+    if (m_current_panel != nullptr){
+        for (const PanelSession::ConsoleController& entry : m_current_panel->console_controllers()){
+            if (entry.session == nullptr){
+                continue;
+            }
+            const ControllerSession& session = *entry.session;
+            ClaudeGG::AppController controller;
+            controller.console = (int)entry.console;
+            const std::shared_ptr<ControllerDescriptor> descriptor = session.descriptor();
+            if (descriptor != nullptr){
+                const std::string name = descriptor->display_name();
+                if (!name.empty() && name != "(none)"){
+                    controller.device = QString::fromStdString(name);
+                }
+                try{
+                    controller.interface_name = QString::fromStdString(
+                        CONTROLLER_INTERFACE_STRINGS.get_string(descriptor->interface_type)
+                    );
+                }catch (...){}
+            }
+            const ControllerType type = session.controller_type();
+            if (type != ControllerType::None){
+                try{
+                    controller.type = QString::fromStdString(CONTROLLER_TYPE_STRINGS.get_string(type));
+                }catch (...){}
+            }
+            if (controller.device.isEmpty()){
+                controller.status = ClaudeGG::AppController::Status::NONE;
+            }else{
+                switch (session.connection_status()){
+                case ControllerConnection::Status::READY:
+                    controller.status = ClaudeGG::AppController::Status::READY;
+                    break;
+                case ControllerConnection::Status::FAILED_TO_CONNECT:{
+                    controller.status = ClaudeGG::AppController::Status::FAILED;
+                    //  The program says why in markup, for its own page.
+                    controller.error = QTextDocumentFragment::fromHtml(
+                        QString::fromStdString(session.status_text())
+                    ).toPlainText().simplified();
+                    break;
+                }
+                default:
+                    controller.status = ClaudeGG::AppController::Status::CONNECTING;
+                    break;
+                }
+            }
+            list.push_back(std::move(controller));
+        }
+    }
+    m_app->set_controllers(list);
+
+    std::vector<ClaudeGG::AppVideo> videos;
+    if (m_current_panel != nullptr){
+        for (size_t index = 0; index < 16; index++){
+            VideoSession* session = m_current_panel->console_video_session(index);
+            if (session == nullptr){
+                break;
+            }
+            ClaudeGG::AppVideo video;
+            video.console = (int)index + 1;
+            const std::shared_ptr<const VideoSourceDescriptor> descriptor = session->descriptor();
+            if (descriptor != nullptr){
+                const std::string name = descriptor->display_name();
+                if (!name.empty() && name != "(none)"){
+                    video.source = QString::fromStdString(name);
+                }
+            }
+            video.live = !video.source.isEmpty() && session->fps_source() >= 1.0;
+            videos.push_back(std::move(video));
+        }
+    }
+    m_app->set_videos(videos);
+
+    //  Why the program stopped, when that was an error.
+    QString error;
+    if (const ProgramSession* program = dynamic_cast<const ProgramSession*>(m_current_panel.get())){
+        error = QString::fromStdString(program->last_error()).simplified();
+    }
+    m_app->set_error(error);
+}
 void MainWindow::set_sleep_label(const QString& text){
     if (m_app != nullptr){
         m_app->set_sleep_text(text);
@@ -829,6 +945,16 @@ void MainWindow::make_app_view(bool test){
     layout->setSpacing(0);
     layout->addWidget(m_app->widget());
     update_resume();
+    //  Which controller the open program has, in the header of its page. (The
+    //  test has no event loop: there the timer never fires.)
+    update_controllers();
+    QTimer* controllers = new QTimer(this);
+    controllers->setInterval(500);
+    connect(controllers, &QTimer::timeout, this, [this]{
+        update_controllers();
+        update_busy_text();
+    });
+    controllers->start();
     //  As it was left the last time.
     if (!test && GlobalSettings::instance().KEEP_SCREEN_ON){
         m_sleep_scope.reset(new SleepSuppressScope(SleepSuppress::SCREEN_ON));

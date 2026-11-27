@@ -209,6 +209,88 @@ std::map<GameId, GameProfile> make_profiles(){
         PadKind::PRO_CONTROLLER,
         false,
     });
+    {
+        //  Not one game: the console. The program does not know which game
+        //  is in it, so it has no name for Claude.
+        GameProfile ps3{
+            GameId::PLAYSTATION_3,
+            "PlayStation3:ClaudePlays",
+            "PlayStation 3",
+            "",
+            "PlayStation 3 games",
+            "The console is a PlayStation 3. On it, CROSS usually confirms and CIRCLE goes back (on a "
+            "Japanese console, and in some Japanese games, the other way round). START opens a game's menu "
+            "in many games, and the PS button (HOME here) the console's own menu. The board that plays the "
+            "controller is a plain USB gamepad to the console, not its own controller: L2 and R2 are only "
+            "pressed fully, there is no motion sensing and no rumble.",
+            PadKind::PS3_CONTROLLER,
+            false,
+        };
+        ps3.console = "ps3";
+        add(std::move(ps3));
+    }
+    {
+        GameProfile xbox{
+            GameId::ORIGINAL_XBOX,
+            "OriginalXbox:ClaudePlays",
+            "Original Xbox",
+            "",
+            "Original Xbox games",
+            "The console is the original Xbox. On it, A usually confirms and B goes back. START opens a "
+            "game's menu in many games. Its controller has no button for the console's menu. The pad is "
+            "played through an adapter (a board that is a Switch pad, passed on as an Xbox pad): WHITE, "
+            "BLACK, LT and RT are only pressed fully, and there is no rumble.",
+            PadKind::XBOX_CONTROLLER,
+            false,
+        };
+        xbox.console = "xbox";
+        add(std::move(xbox));
+    }
+    //  The retro consoles: a wireless board through a BlueRetro adapter.
+    const char* const BLUERETRO =
+        " The pad is played through an adapter (BlueRetro, which takes a Bluetooth pad and passes it on as "
+        "this console's own): there is no rumble.";
+    auto retro = [&](GameId id, const char* identifier, const char* category, const char* title, std::string notes, PadKind pad){
+        GameProfile profile{id, identifier, category, "", title, std::move(notes), pad, false};
+        profile.console = "retro";
+        add(std::move(profile));
+    };
+    retro(
+        GameId::PLAYSTATION_1, "PlayStation:ClaudePlays", "PlayStation", "PlayStation games",
+        std::string("The console is the first PlayStation. In most games CROSS confirms and CIRCLE goes back (in "
+        "many Japanese games the other way round), and START opens the game's menu. Its pad has no button for "
+        "the console's menu. Games save only to a memory card, from a save point or the game's menu.") + BLUERETRO,
+        PadKind::PS1_CONTROLLER
+    );
+    retro(
+        GameId::PLAYSTATION_2, "PlayStation2:ClaudePlays", "PlayStation 2", "PlayStation 2 games",
+        std::string("The console is a PlayStation 2. In most games CROSS confirms and CIRCLE goes back (in many "
+        "Japanese games the other way round), and START opens the game's menu. Its pad has no button for the "
+        "console's menu. The buttons are only pressed fully, never half (some games use the pressure).") + BLUERETRO,
+        PadKind::PS2_CONTROLLER
+    );
+    retro(
+        GameId::GAMECUBE, "GameCube:ClaudePlays", "GameCube", "GameCube games",
+        std::string("The console is a Nintendo GameCube. In most games A confirms and B goes back, START opens the "
+        "game's menu. The C stick is the second stick. L and R are only pressed fully. Its pad has no button "
+        "for the console's menu.") + BLUERETRO,
+        PadKind::GAMECUBE_CONTROLLER
+    );
+    retro(
+        GameId::NINTENDO_64, "Nintendo64:ClaudePlays", "Nintendo 64", "Nintendo 64 games",
+        std::string("The console is a Nintendo 64. In most games A confirms and B goes back, START opens the game's "
+        "menu or pauses. C_UP, C_DOWN, C_LEFT and C_RIGHT are the yellow buttons, often the camera. Z is the "
+        "trigger under the pad. The stick is the one in the middle of the pad. Its pad has no button for the "
+        "console's menu.") + BLUERETRO,
+        PadKind::N64_CONTROLLER
+    );
+    retro(
+        GameId::DREAMCAST, "Dreamcast:ClaudePlays", "Dreamcast", "Dreamcast games",
+        std::string("The console is a Sega Dreamcast. In most games A confirms and B goes back, START opens the "
+        "game's menu or pauses. L and R are triggers and only pressed fully. Its pad has no button for the "
+        "console's menu.") + BLUERETRO,
+        PadKind::DREAMCAST_CONTROLLER
+    );
     return profiles;
 }
 
@@ -228,10 +310,31 @@ bool has_only_claude_plays(GameId id){
     case GameId::MARIO_KART_8_DELUXE:
     case GameId::SPLATOON_3:
     case GameId::ANIMAL_CROSSING_NEW_HORIZONS:
+    case GameId::PLAYSTATION_3:
+    case GameId::ORIGINAL_XBOX:
+    case GameId::PLAYSTATION_1:
+    case GameId::PLAYSTATION_2:
+    case GameId::GAMECUBE:
+    case GameId::NINTENDO_64:
+    case GameId::DREAMCAST:
         return true;
     default:
         return false;
     }
+}
+
+bool is_other_games_choice(GameId id){
+    return has_only_claude_plays(id) && game_profile(id).console == "switch";
+}
+
+std::vector<std::string> consoles_of_list(const std::string& list_name){
+    for (GameId id : all_games()){
+        const GameProfile& profile = game_profile(id);
+        if (profile.console != "switch" && has_only_claude_plays(id) && profile.title == list_name){
+            return {profile.console};
+        }
+    }
+    return {};
 }
 
 const std::vector<GameId>& all_games(){
@@ -251,6 +354,13 @@ const std::vector<GameId>& all_games(){
         GameId::SPLATOON_3,
         GameId::ANIMAL_CROSSING_NEW_HORIZONS,
         GameId::OTHER_GAMES,
+        GameId::PLAYSTATION_3,
+        GameId::ORIGINAL_XBOX,
+        GameId::PLAYSTATION_1,
+        GameId::PLAYSTATION_2,
+        GameId::GAMECUBE,
+        GameId::NINTENDO_64,
+        GameId::DREAMCAST,
     };
     return games;
 }

@@ -40,6 +40,9 @@ public:
     virtual std::vector<std::string> make_header() const override;
     void add_connected_devices();
     std::optional<std::string> lookup(DeviceAliasType category, const std::string& device_id) const;
+    //  The alias, else the original name the table saw for the device the
+    //  last time it was connected. std::nullopt when the table has neither.
+    std::optional<std::string> known_name(DeviceAliasType category, const std::string& device_id) const;
 
 private:
     void add_device(DeviceAliasType category, const std::string& id, const std::string& name);
@@ -54,6 +57,7 @@ public:
 
     void add_connected_devices();
     std::optional<std::string> lookup(DeviceAliasType category, const std::string& device_id) const;
+    std::optional<std::string> known_name(DeviceAliasType category, const std::string& device_id) const;
 
 private:
     DeviceDropdownAliases m_aliases;
@@ -63,6 +67,20 @@ private:
 //  Returns std::nullopt when no non-empty alias is configured.
 //  Configured in Global Settings. Device IDs remain unchanged.
 std::optional<std::string> device_dropdown_name(
+    DeviceAliasType category,
+    const std::string& device_id
+);
+
+//  Presentation only, for a saved device that is not connected: its alias, or
+//  the name it had when the alias table last saw it connected.
+std::optional<std::string> device_known_name(
+    DeviceAliasType category,
+    const std::string& device_id
+);
+
+//  What a device dropdown shows for a saved device that is not connected:
+//  its known name (else its ID) and "(not connected)".
+std::string missing_device_label(
     DeviceAliasType category,
     const std::string& device_id
 );

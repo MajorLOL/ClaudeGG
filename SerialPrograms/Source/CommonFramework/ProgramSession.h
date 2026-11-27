@@ -103,6 +103,12 @@ public:
 
     Mutex& program_lock() const{ return m_lock; }
 
+    //  ClaudeGG: why the program stopped the last time it ran, when it stopped
+    //  with an error (what report_error() was given), for the header of the
+    //  main window. Empty: it has not run, it runs now, or it stopped without
+    //  an error. Thread-safe.
+    std::string last_error() const;
+
 
 public:
     //  Program Control
@@ -165,6 +171,10 @@ private:
 
     mutable Mutex m_lock;
     ConditionVariable m_cv;
+
+    //  ClaudeGG: see last_error(). Its own lock: m_lock can be held a while.
+    mutable Mutex m_last_error_lock;
+    std::string m_last_error;
 
     std::atomic<WallClock> m_last_state_change;
     std::atomic<ProgramState> m_state;

@@ -36,6 +36,14 @@ public:
     //  ClaudeGG: the options without the panel (see PanelSession).
     virtual ConfigOption* config_options() override{ return &options(); }
     virtual VideoFeed* console_video(size_t index) override{ return index == 0 ? &m_system.video() : nullptr; }
+    virtual VideoSession* console_video_session(size_t index) override{ return index == 0 ? &m_system.video() : nullptr; }
+    virtual std::vector<ConsoleController> console_controllers() override{
+        std::vector<ConsoleController> out;
+        for (size_t c = 0; c < m_system.controllers(); c++){
+            out.push_back({1, &m_system.controller(c)});
+        }
+        return out;
+    }
 
 
 public:

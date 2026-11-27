@@ -76,6 +76,25 @@ std::vector<std::unique_ptr<PanelListDescriptor>> make_all_lists(){
     //  ClaudeGG/ClaudePlays/ClaudePlays_Games.h) until it has programs.
     lists.emplace_back(std::make_unique<ClaudeGG::ClaudePlays::OtherGamesList>());
 
+    //  ClaudeGG: the PlayStation 3 (a wired board it takes as a USB gamepad):
+    //  Claude Plays with its controller, for whatever game it shows. The page
+    //  with the games shows it for that console only (consoles_of_game()).
+    lists.emplace_back(std::make_unique<ClaudeGG::ClaudePlays::GameOnlyList>(ClaudeGG::ClaudePlays::GameId::PLAYSTATION_3));
+    //  ClaudeGG: the original Xbox (that board through a Pico with OGX-Mini),
+    //  the same way.
+    lists.emplace_back(std::make_unique<ClaudeGG::ClaudePlays::GameOnlyList>(ClaudeGG::ClaudePlays::GameId::ORIGINAL_XBOX));
+    //  ClaudeGG: the retro consoles (a wireless board through a BlueRetro
+    //  adapter), each with a list of its own, shown for the console "retro".
+    for (ClaudeGG::ClaudePlays::GameId id : {
+        ClaudeGG::ClaudePlays::GameId::PLAYSTATION_1,
+        ClaudeGG::ClaudePlays::GameId::PLAYSTATION_2,
+        ClaudeGG::ClaudePlays::GameId::GAMECUBE,
+        ClaudeGG::ClaudePlays::GameId::NINTENDO_64,
+        ClaudeGG::ClaudePlays::GameId::DREAMCAST,
+    }){
+        lists.emplace_back(std::make_unique<ClaudeGG::ClaudePlays::GameOnlyList>(id));
+    }
+
     //  ClaudeGG: the game of the phone (Mobile/): the programs start the bot of the
     //  Raspberry Pi that the phone is plugged into. The page with the games shows
     //  it for that console only (see ClaudeGG_Home.h, consoles_of_game()).

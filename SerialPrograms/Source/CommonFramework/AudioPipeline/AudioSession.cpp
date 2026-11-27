@@ -9,6 +9,7 @@
 #include "CommonFramework/GlobalSettingsPanel.h"
 #include "Backends/AudioPassthroughPairQtThread.h"
 #include "Sources/AudioSource_Null.h"
+#include "Sources/AudioSource_Device.h"
 #include "AudioPipelineOptions.h"
 #include "AudioSession.h"
 
@@ -218,6 +219,25 @@ void AudioSession::signal_post_output_change(){
 void AudioSession::reset(){
     std::lock_guard<Mutex> lg(m_lock);
     m_logger.log("AudioSession::reset()");
+    //  A saved device that was not connected when the settings were loaded
+    //  keeps only its name. Look for it again: it may be plugged in now.
+    if (m_option.m_input_source != nullptr && m_option.m_input_source->type == AudioSourceType::Device){
+        const AudioDeviceInfo& info = static_cast<const AudioSourceDescriptor_Device&>(*m_option.m_input_source).device_info();
+        if (!info && !info.device_name().empty()){
+            m_option.m_input_source->load_json(m_option.m_input_source->to_json());
+            if (static_cast<const AudioSourceDescriptor_Device&>(*m_option.m_input_source).device_info()){
+                m_logger.log("The saved audio input is connected again.");
+                m_option.m_input_source->sanitize_desired_format(m_logger, m_option.m_input_choice);
+            }
+        }
+    }
+    if (!m_option.m_output_device && !m_option.m_output_device.device_name().empty()){
+        AudioDeviceInfo output(m_option.m_output_device.device_name());
+        if (output){
+            m_logger.log("The saved audio output is connected again.");
+        }
+        m_option.m_output_device = std::move(output);
+    }
     signal_pre_input_change();
     m_devices->reset(
         m_option.m_input_source,

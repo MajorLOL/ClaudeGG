@@ -346,6 +346,9 @@ file(GLOB CORE_LIBRARY_SOURCES
     Source/NintendoSwitch/Controllers/PABotBase2/NintendoSwitch_PABotBase2_ProController.h
     Source/NintendoSwitch/Controllers/PABotBase2/NintendoSwitch_PABotBase2_WiredController.cpp
     Source/NintendoSwitch/Controllers/PABotBase2/NintendoSwitch_PABotBase2_WiredController.h
+    Source/NintendoSwitch/Controllers/PABotBase2/NintendoSwitch2_PABotBase2_OemController.cpp
+    Source/NintendoSwitch/Controllers/PABotBase2/NintendoSwitch2_PABotBase2_OemController.h
+    Source/NintendoSwitch/Controllers/PABotBase2/NintendoSwitch2_PABotBase2_ProController.h
     Source/NintendoSwitch/Controllers/Procon/NintendoSwitch_ProController.cpp
     Source/NintendoSwitch/Controllers/Procon/NintendoSwitch_ProController.h
     Source/NintendoSwitch/Controllers/Procon/NintendoSwitch_ProController_from_Keyboard.cpp
@@ -1314,16 +1317,16 @@ file(GLOB LIBRARY_SOURCES
     Source/ML/Inference/ML_PaddleOCRPipeline.h
     Source/ML/Inference/ML_YOLONavigation.cpp
     Source/ML/Inference/ML_YOLONavigation.h
-    Source/ML/Inference/ML_YOLOv5Detector.cpp
-    Source/ML/Inference/ML_YOLOv5Detector.h
+    Source/ML/Inference/ML_YOLODetector.cpp
+    Source/ML/Inference/ML_YOLODetector.h
     Source/ML/ML_Panels.cpp
     Source/ML/ML_Panels.h
     Source/ML/Models/ML_ONNXRuntimeHelpers.cpp
     Source/ML/Models/ML_ONNXRuntimeHelpers.h
     Source/ML/Models/ML_OrtEnv.cpp
     Source/ML/Models/ML_OrtEnv.h
-    Source/ML/Models/ML_YOLOv5Model.cpp
-    Source/ML/Models/ML_YOLOv5Model.h
+    Source/ML/Models/ML_YOLOModel.cpp
+    Source/ML/Models/ML_YOLOModel.h
     Source/ML/Programs/ML_LabelImages.cpp
     Source/ML/Programs/ML_LabelImages.h
     Source/ML/Programs/ML_LabelImagesOverlayManager.cpp
@@ -1545,6 +1548,12 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_PokemonGoStartCheck.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoText.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoText.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoThrow.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoThrow.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoThrowCheck.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoThrowPlay.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoThrowPlay.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoThrowPlayCheck.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoVision.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoVision.h
     Source/ClaudeGG/ClaudeGG_Instances.cpp
@@ -2073,6 +2082,8 @@ file(GLOB LIBRARY_SOURCES
     Source/VideoGames/PokemonHome/Inference/PokemonHome_BoxGenderDetector.h
     Source/VideoGames/PokemonHome/Inference/PokemonHome_BoxNumberReader.cpp
     Source/VideoGames/PokemonHome/Inference/PokemonHome_BoxNumberReader.h
+    Source/VideoGames/PokemonHome/Inference/PokemonHome_BoxSpacesReader.cpp
+    Source/VideoGames/PokemonHome/Inference/PokemonHome_BoxSpacesReader.h
     Source/VideoGames/PokemonHome/Inference/PokemonHome_BoxViewDetector.cpp
     Source/VideoGames/PokemonHome/Inference/PokemonHome_BoxViewDetector.h
     Source/VideoGames/PokemonHome/Inference/PokemonHome_ButtonDetector.cpp

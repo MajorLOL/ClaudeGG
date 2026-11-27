@@ -64,6 +64,8 @@
 #include "Common/Cpp/Options/GroupOption.h"
 #include "Common/Qt/Options/ConfigWidget.h"
 #include "CommonFramework/AudioPipeline/AudioOption.h"
+#include "CommonFramework/AudioPipeline/Sources/AudioSource_Device.h"
+#include "CommonFramework/Options/DeviceDropdownAliases.h"
 #include "CommonFramework/GlobalAutoPaths.h"
 #include "CommonFramework/Globals.h"
 #include "CommonFramework/GlobalSettingsPanel.h"
@@ -318,22 +320,61 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
             failed++;
             logger.log("UI test: the games of the setup do not have " + GAME, COLOR_RED);
         }
-        //  Each console has its own games: Pokemon GO is the phone's, the others are the Switch's.
+        //  Each console has its own games: Pokemon GO is the phone's, the
+        //  Claude Plays of the PlayStation 3 and of the original Xbox those
+        //  consoles', those of the retro consoles (BlueRetro) theirs, the
+        //  others are the Switch's.
         {
             bool go_ok = false;
+            bool ps3_ok = false;
+            bool xbox_ok = false;
+            int retro_ok = 0;
+            bool retro_wrong = false;
             bool switch_ok = true;
+            const char* const OTHERS[] = {"mobile", "ps3", "xbox", "retro"};
+            const QStringList RETRO_LISTS{
+                "PlayStation games", "PlayStation 2 games", "GameCube games", "Nintendo 64 games", "Dreamcast games",
+            };
             for (const HomeGame& listed_game : listed){
                 const bool go = listed_game.name.endsWith(" GO");
-                if (go){
-                    go_ok = listed_game.programs == 10 && game_is_for_console(listed_game, "mobile") &&
+                const bool ps3 = listed_game.name == "PlayStation 3 games";
+                const bool xbox = listed_game.name == "Original Xbox games";
+                const bool retro = RETRO_LISTS.contains(listed_game.name);
+                const auto only = [&](const char* console){
+                    bool fine = game_is_for_console(listed_game, console) &&
                         !game_is_for_console(listed_game, "switch") && !game_is_for_console(listed_game, "switch2");
-                }else if (game_is_for_console(listed_game, "mobile") || !game_is_for_console(listed_game, "switch")){
-                    switch_ok = false;
+                    for (const char* other : OTHERS){
+                        if (QString(other) != QString(console) && game_is_for_console(listed_game, other)){
+                            fine = false;
+                        }
+                    }
+                    return fine;
+                };
+                if (go){
+                    go_ok = listed_game.programs == 10 && only("mobile");
+                }else if (ps3){
+                    ps3_ok = listed_game.programs == 1 && only("ps3");
+                }else if (xbox){
+                    xbox_ok = listed_game.programs == 1 && only("xbox");
+                }else if (retro){
+                    if (listed_game.programs == 1 && only("retro")){
+                        retro_ok++;
+                    }else{
+                        retro_wrong = true;
+                    }
+                }else{
+                    bool fine = game_is_for_console(listed_game, "switch");
+                    for (const char* other : OTHERS){
+                        if (game_is_for_console(listed_game, other)){
+                            fine = false;
+                        }
+                    }
+                    switch_ok = switch_ok && fine;
                 }
             }
-            if (!go_ok || !switch_ok){
+            if (!go_ok || !ps3_ok || !xbox_ok || retro_ok != 5 || retro_wrong || !switch_ok){
                 failed++;
-                logger.log("UI test: the games are not divided over the consoles (Pokemon GO for the phone, the rest for the Switch)", COLOR_RED);
+                logger.log("UI test: the games are not divided over the consoles (Pokemon GO for the phone, Claude Plays of the PlayStation 3, the original Xbox and the five retro consoles for them, the rest for the Switch)", COLOR_RED);
             }
         }
         if (!window.open_game(QString::fromStdString(GAME))){
@@ -1327,6 +1368,75 @@ int check_older_audio_settings(Logger& logger){
 
 
 
+//  An audio input or output that was saved but is not connected (an unplugged
+//  capture card) is not forgotten: saving the settings again keeps its name,
+//  it does not count as a device, and the dropdown says it is not connected.
+//  The names below are on no build machine.
+int check_missing_audio_devices(Logger& logger){
+    const std::string INPUT = "ClaudeGG test: an audio input that is not connected";
+    const std::string OUTPUT = "ClaudeGG test: an audio output that is not connected";
+    int failed = 0;
+    auto check = [&](bool ok, const char* what){
+        if (!ok){
+            failed++;
+            logger.log(std::string("Missing device test: failed: ") + what + ".", COLOR_RED);
+        }
+    };
+
+    JsonObject json;
+    json["InputSourceType"] = "InputSource_Device";
+    json["InputSource_Device"] = INPUT;
+    json["OutputDevice"] = OUTPUT;
+    AudioOption option;
+    option.load_json(JsonValue(std::move(json)));
+
+    check(option.input_source()->type == AudioSourceType::Device, "the input stays a device");
+    const AudioDeviceInfo& input = static_cast<const AudioSourceDescriptor_Device&>(*option.input_source()).device_info();
+    check(!input, "an input that is not there is not a device");
+    check(input.device_name() == INPUT, "the input keeps its name");
+    check(input.display_name().empty(), "an input that is not there has no display name");
+    check(!option.output_device(), "an output that is not there is not a device");
+    check(option.output_device().device_name() == OUTPUT, "the output keeps its name");
+
+    //  Saved and loaded again: the same names.
+    const JsonValue saved = option.to_json();
+    const JsonObject* obj = saved.to_object();
+    check(obj != nullptr, "the settings are an object");
+    if (obj != nullptr){
+        const std::string* in = obj->get_string("InputSource_Device");
+        const std::string* out = obj->get_string("OutputDevice");
+        check(in != nullptr && *in == INPUT, "saving keeps the input");
+        check(out != nullptr && *out == OUTPUT, "saving keeps the output");
+    }
+    AudioOption again;
+    again.load_json(saved);
+    check(
+        static_cast<const AudioSourceDescriptor_Device&>(*again.input_source()).device_info().device_name() == INPUT &&
+        again.output_device().device_name() == OUTPUT,
+        "the saved settings load with the same devices"
+    );
+
+    //  A device that is there is still one.
+    for (const AudioDeviceInfo& info : AudioDeviceInfo::all_input_devices()){
+        check((bool)info && AudioDeviceInfo(info.device_name()), "a connected input is a device");
+    }
+    check(AudioDeviceInfo() == AudioDeviceInfo() && !AudioDeviceInfo(), "no device is no device");
+
+    //  What the dropdowns say.
+    const std::string label = missing_device_label(DeviceAliasType::AUDIO, INPUT);
+    check(label.find(" (not connected)") != std::string::npos, "the dropdown says \"not connected\"");
+
+    logger.log(
+        failed == 0
+            ? std::string("Missing device test: a saved audio input and output that are not connected are kept and shown as not connected.")
+            : "Missing device test: " + std::to_string(failed) + " checks failed.",
+        failed == 0 ? COLOR_BLUE : COLOR_RED
+    );
+    return failed;
+}
+
+
+
 //  The parts of the assistant that need no connection: reading the API's
 //  stream, the prices, line ends, and the file with the keys (on Windows:
 //  that it really is encrypted, and comes back).
@@ -1395,9 +1505,7 @@ int check_assistant(const QString& out, Logger& logger){
             wrong++;
             logger.log("Assistant test: failed: two games with the identifier " + profile.identifier, COLOR_RED);
         }
-        const ClaudePlays::PadLayout& layout = profile.pad == ClaudePlays::PadKind::RIGHT_JOYCON
-            ? ClaudePlays::right_joycon_layout()
-            : ClaudePlays::pro_controller_layout();
+        const ClaudePlays::PadLayout& layout = ClaudePlays::pad_layout(profile.pad);
         for (bool allowed : {false, true}){
             game_cases++;
             ClaudePlays::AnyGameOptions options;
@@ -1433,7 +1541,7 @@ int check_assistant(const QString& out, Logger& logger){
             facts.name = profile.name;
             facts.notes = profile.notes;
             const std::string instructions = ClaudePlays::any_game_instructions(layout, options, facts, profile.save_routine);
-            if (tools.size() < 8 || saves != (allowed && profile.save_routine) || home != allowed ||
+            if (tools.size() < 8 || saves != (allowed && profile.save_routine) || home != (allowed && layout.has_home) ||
                 (instructions.find("Do not save the game") != std::string::npos) == allowed ||
                 (instructions.find("does not know which game") != std::string::npos) != profile.name.empty()
             ){
@@ -6849,6 +6957,7 @@ int run_ui_screenshots(QApplication& application, MainWindow& window, const std:
         failed += check_text_colors(logger);
         failed += check_settings_file(window, logger);
         failed += check_older_audio_settings(logger);
+        failed += check_missing_audio_devices(logger);
         failed += check_assistant(out, logger);
         failed += check_name_mark(logger);
         failed += check_updates(logger);

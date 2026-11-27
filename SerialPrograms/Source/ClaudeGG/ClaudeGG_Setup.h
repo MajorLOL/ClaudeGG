@@ -146,7 +146,7 @@ struct SetupRequest{
     //  now. It belongs to the setup, so it goes with ask_board.
     bool ask_console = false;
 
-    //  The console that was chosen before ("switch", "switch2" or "mobile"),
+    //  The console that was chosen before ("switch", "switch2", "mobile", "ps3", "xbox" or "retro"),
     //  shown as picked; empty: none yet.
     QString console_code;
 
@@ -245,7 +245,7 @@ struct SetupResult{
     bool language_chosen = false;
     QString language_code = "en";
 
-    //  The console was chosen: its code ("switch", "switch2" or "mobile").
+    //  The console was chosen: its code ("switch", "switch2", "mobile", "ps3", "xbox" or "retro").
     bool console_chosen = false;
     QString console_code;
 
@@ -275,6 +275,56 @@ struct SetupResult{
     QString intro_note;
 };
 
+
+//  A controller of the program that is open, for the header of its page: which
+//  one it is and whether it is connected (see AppView::set_controllers()).
+struct AppController{
+    enum class Status{
+        NONE,           //  no controller is chosen in the program
+        CONNECTING,     //  chosen, not ready yet
+        READY,          //  connected: the program can press buttons
+        FAILED,         //  it could not connect
+    };
+    //  The console it belongs to: 1 is the first (programs with one console
+    //  only have 1).
+    int console = 1;
+    //  The device, as the program's own list names it ("COM3", a name that
+    //  was given to it, or the address of sys-botbase). Empty: none.
+    QString device;
+    //  How it is connected ("Serial: PABotBase2", "TCP: sys-botbase").
+    QString interface_name;
+    //  What it pretends to be ("NS1: Wired Pro Controller"). Empty: not known yet.
+    QString type;
+    Status status = Status::NONE;
+    //  Why it could not connect (FAILED), as the program says it, without
+    //  the markup. Empty otherwise.
+    QString error;
+
+    bool operator==(const AppController& x) const{
+        return console == x.console && device == x.device && interface_name == x.interface_name
+            && type == x.type && status == x.status && error == x.error;
+    }
+    bool operator!=(const AppController& x) const{
+        return !(*this == x);
+    }
+};
+
+//  The video of a console of the program that is open: the capture card or
+//  camera that is chosen, and whether pictures come in.
+struct AppVideo{
+    int console = 1;
+    //  The source as the program's own list names it. Empty: none chosen.
+    QString source;
+    //  Pictures come in (at least one a second).
+    bool live = false;
+
+    bool operator==(const AppVideo& x) const{
+        return console == x.console && source == x.source && live == x.live;
+    }
+    bool operator!=(const AppVideo& x) const{
+        return !(*this == x);
+    }
+};
 
 //  What the main window does for the screens when they are its own screen.
 //  Every action may be empty: the button is drawn, and does nothing.
@@ -342,6 +392,18 @@ public:
     //  The switch "Keep the screen on" is shown as set (or not), without the
     //  action: for the state that was kept from the last time.
     virtual void set_keep_on(bool on) = 0;
+    //  The controllers of the program that is open, as they are now: a chip in
+    //  the header says whether they are connected, the footer says which they
+    //  are. Empty: the program has none (the page of the games, the settings,
+    //  a program of the phone), and nothing is shown.
+    virtual void set_controllers(const std::vector<AppController>& controllers) = 0;
+    //  The videos of its consoles, in the footer after the controllers. Empty:
+    //  none (as above).
+    virtual void set_videos(const std::vector<AppVideo>& videos) = 0;
+    //  Why the program stopped the last time it ran, when that was an error
+    //  (or why it could not start): while it does not run, the state in the
+    //  header says it instead of "Ready". Empty: no error.
+    virtual void set_error(const QString& text) = 0;
 
     //  Claude's panel, over the right of the screen when it is shown. The
     //  panel stays the window's.
