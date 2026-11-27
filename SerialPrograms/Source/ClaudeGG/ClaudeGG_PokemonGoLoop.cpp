@@ -436,15 +436,16 @@ QString white_words(Host& host, const cv::Mat& pic, double x0, double y0, double
     return host.ocr_line(padded, lines);
 }
 
+//  The big words in the middle of the result screen: 'YOU WIN!' or 'GOOD EFFORT!' (two lines).
+QString result_words(Host& host, const cv::Mat& pic){
+    return white_words(host, pic, 0.12, 0.40, 0.88, 0.61, 2, 1100.0);
+}
+
 namespace{
 
 //  The banner at the top of a fight ('Mismagius used Dark Pulse!').
 QString banner_text(Host& host, const cv::Mat& pic){
     return white_words(host, pic, 0.05, 0.150, 0.95, 0.210);
-}
-//  The big words in the middle of the result screen: 'YOU WIN!' or 'GOOD EFFORT!' (two lines).
-QString result_words(Host& host, const cv::Mat& pic){
-    return white_words(host, pic, 0.12, 0.40, 0.88, 0.61, 2, 1100.0);
 }
 
 //  The name and the CP in one of the two name boxes at the top (mine on the left, the foe's on the right).
@@ -1859,6 +1860,18 @@ Result Battle_Loop::run(){
 
 }
 
+
+bool fight_on_screen(Host& host){
+    try{
+        const cv::Mat shot = host.screenshot();
+        cv::Mat small;
+        cv::resize(shot, small, cv::Size(VIEW_W, (int)std::nearbyint(shot.rows * 704.0 / shot.cols)), 0, 0, cv::INTER_AREA);
+        const QString state = Fight::state(fight_features(host.features(small)));
+        return state == "fight" || state == "prompt";
+    }catch (const std::exception&){
+        return false;                                   //  (gamebot: any error is "no")
+    }
+}
 
 Result fight_battle(Host& host, const std::vector<Battle::Mon>& team, const std::vector<Point>& use_spots){
     Battle_Loop loop(host, team, use_spots);

@@ -78,6 +78,10 @@ QString screen_kind(const Lines& lines, bool on_map = false, const QString& leag
 
 std::vector<Spot> menu_battle_spots(const Lines& lines, double k = 1.0);
 std::vector<Spot> home_battle_spots(const Lines& lines, double k = 1.0);
+//  Where the BATTLE button of the Battle screen is when it is not found (battle_nav.HOME_BUTTON_FALLBACK, on the 2208 high screen);
+//  home_battle_spots() ends with these, in this order.
+inline constexpr size_t HOME_BUTTON_FALLBACKS = 2;
+Spot home_button_fallback(size_t index);
 bool max_battles_today(const Lines& lines);
 std::vector<Spot> collect_spots(const Lines& lines, int height);
 QString claim_label(const Lines& lines, double k = 1.0);
@@ -90,7 +94,7 @@ std::vector<NextWord> next_words(const Lines& lines, double k = 1.0);
 bool keep_off_label(const QString& text);
 bool go_on_label(const QString& text);
 QStringList danger_words(const Lines& lines);
-bool premium_above(const Lines& lines, int y);
+bool premium_above(const Lines& lines, double y);       //  (y is a fraction of a height in pixels: a number with decimals)
 bool battle_words(const Lines& lines);
 struct ExitSpots{
     Spot yes;

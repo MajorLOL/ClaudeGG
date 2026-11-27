@@ -238,6 +238,10 @@ bool map_visible(const cv::Mat& canvas);
 
 //  The white words in a part of the picture (fractions of it): banners and the big words of a result screen, read on their own.
 QString white_words(Host& host, const cv::Mat& pic, double x0, double y0, double x1, double y1, int lines = 1, double wide = 1900.0);
+//  The big white words in the middle of the result screen of a battle: 'YOU WIN!' or 'GOOD EFFORT!' (two lines), read on their own.
+QString result_words(Host& host, const cv::Mat& pic);
+//  Does the screen show a running fight (name boxes, or a question with its countdown)?  (gamebot._fight_on_screen)
+bool fight_on_screen(Host& host);
 
 //  Reads the names in the name boxes and the labels under the buttons (and the banner of the foe's charged attack) next to
 //  the loop: the text reader takes seconds on a Pi, and a charged attack is worth more than a name.

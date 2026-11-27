@@ -406,7 +406,7 @@ cv::Mat AgentHost::screenshot(){
         m_width = screen.cols;
         m_height = screen.rows;
         m_fingers->set_screen(m_width, m_height);
-        log(QString("screen size is %1x%2").arg(m_width).arg(m_height));
+        log(QString("screen size is %1x%2").arg(m_width.load()).arg(m_height.load()));
     }
     return canvas_of(screen);
 }

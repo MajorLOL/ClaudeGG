@@ -33,6 +33,7 @@
 #include "ClaudeGG_PokemonGo.h"
 #include "ClaudeGG_PokemonGoBattle.h"
 #include "ClaudeGG_PokemonGoFight.h"
+#include "ClaudeGG_PokemonGoFlow.h"
 #include "ClaudeGG_PokemonGoMinigame.h"
 #include "ClaudeGG_PokemonGoLoop.h"
 #include "ClaudeGG_PokemonGoText.h"
@@ -751,6 +752,23 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             }
         }
         check(differ == 0, loop.isEmpty() ? QString("the fight loop plays a fight as gamebot.py plays it") : loop.last());
+    }
+    //  The walk around a fight, ported to C++ (issue #30): the menus to the party screen, the claim of a new rank, pop-ups, the
+    //  list of leagues, the way back to the map and a run of battles, played as gamebot.py walks them - every screenshot and reading
+    //  given, every tap, swipe, BACK, line of the log, sleep and saved picture of the walk the same, at the same moment.
+    {
+        QStringList flow;
+        const int differ = PokemonGo::Flow::run_flow_checks(
+            agent_folder + "/../tests/fixtures/flow_golden.json.qz",
+            agent_folder + "/../tests/fixtures",
+            flow
+        );
+        for (const QString& line : flow){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, flow.isEmpty() ? QString("the walk around a fight is walked as gamebot.py walks it") : flow.last());
     }
     //  The text reader, ported to C++ (issue #30): the table that Tesseract writes made into lines of words with their places, as
     //  gamebot.ocr_lines() makes them (354 tables, 36 of them read from frames of real fights), and - where the tesseract program is

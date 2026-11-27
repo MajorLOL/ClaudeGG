@@ -463,6 +463,10 @@ std::vector<Spot> home_battle_spots(const Lines& lines, double k){
     return spots;
 }
 
+Spot home_button_fallback(size_t index){
+    return HOME_BUTTON_FALLBACK[index];
+}
+
 bool max_battles_today(const Lines& lines){
     QStringList words;
     for (const Word& w : words_of(lines)){
@@ -577,7 +581,7 @@ QStringList danger_words(const Lines& lines){
     return out;
 }
 
-bool premium_above(const Lines& lines, int y){
+bool premium_above(const Lines& lines, double y){
     for (const Word& w : words_of(lines)){
         if (like(plain(w.text), "PREMIUM", 0.8) && w.y < y){
             return true;
