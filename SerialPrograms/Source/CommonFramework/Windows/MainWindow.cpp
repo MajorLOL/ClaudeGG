@@ -717,9 +717,9 @@ void MainWindow::update_wallpaper(){
         surface_color
     );
     //  ClaudeGG: the picture of the setting is drawn by the screens, which
-    //  cover this widget (WallpaperOption -> ClaudeGG::set_custom_background()).
-    //  Here it would be read for nothing, and its sheet would change the
-    //  program's widgets.
+    //  cover this widget (ClaudeGG::set_custom_background()). Here it would
+    //  be read for nothing, and its sheet would change the program's widgets.
+    apply_custom_background(settings.WALLPAPER);
     centralwidget->set_image(false, QString());
     const QString error = centralwidget->take_error();
 

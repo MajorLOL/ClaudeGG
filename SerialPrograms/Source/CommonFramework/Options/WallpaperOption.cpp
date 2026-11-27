@@ -5,8 +5,6 @@
  */
 
 //#include "CommonFramework/Globals.h"
-#include <QString>
-#include "ClaudeGG/ClaudeGG_Theme.h"
 #include "WallpaperOption.h"
 
 namespace PokemonAutomation{
@@ -64,35 +62,8 @@ WallpaperOption::WallpaperOption()
 }
 
 
-void WallpaperOption::load_json(const JsonValue& json){
-    GroupOption::load_json(json);
-    apply();
-}
 void WallpaperOption::on_config_value_changed(void* object){
-    apply();
     ConfigOption::report_value_changed(this);
-}
-void WallpaperOption::on_set_enabled(bool enabled){
-    apply();
-}
-void WallpaperOption::apply(){
-    ClaudeGG::BackgroundFit fit = ClaudeGG::BackgroundFit::FILL;
-    switch ((WallpaperImageFitMode)IMAGE_FIT){
-    case WallpaperImageFitMode::FILL:
-        fit = ClaudeGG::BackgroundFit::FILL;
-        break;
-    case WallpaperImageFitMode::FIT:
-        fit = ClaudeGG::BackgroundFit::FIT;
-        break;
-    case WallpaperImageFitMode::STRETCH:
-        fit = ClaudeGG::BackgroundFit::STRETCH;
-        break;
-    case WallpaperImageFitMode::TILE:
-        fit = ClaudeGG::BackgroundFit::TILE;
-        break;
-    }
-    const std::string path = enabled() ? (std::string)IMAGE_PATH : std::string();
-    ClaudeGG::set_custom_background(QString::fromStdString(path), fit, (int)(uint8_t)IMAGE_OVERLAY);
 }
 
 
