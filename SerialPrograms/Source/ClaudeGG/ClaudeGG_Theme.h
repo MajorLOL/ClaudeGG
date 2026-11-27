@@ -15,8 +15,10 @@
 #ifndef PokemonAutomation_ClaudeGG_Theme_H
 #define PokemonAutomation_ClaudeGG_Theme_H
 
+#include <stdint.h>
 #include <QColor>
 #include <QFont>
+#include <QImage>
 #include <QPalette>
 #include <QString>
 #include "Common/Cpp/ColoredText.h"
@@ -83,6 +85,33 @@ QColor mix_colors(const QColor& from, const QColor& to, double part);
 
 //  The contrast of two colors as WCAG 2 counts it, 1 to 21.
 double contrast_ratio(const QColor& a, const QColor& b);
+
+
+
+//  A picture of your own behind the screens (the games, the programs, the
+//  setup), instead of Claude GG's own background. Settings > "Background".
+enum class BackgroundFit{
+    FILL,       //  covers the screen, the edges cut off
+    FIT,        //  all of the picture, black around it
+    STRETCH,    //  to the size of the screen
+    TILE,       //  the picture in its own size, again and again
+};
+//  An empty path: Claude GG's own background. "darken" (0 to 100) darkens
+//  the picture so that the white texts on it stay readable. From any thread;
+//  the picture is read the next time a screen is drawn.
+void set_custom_background(const QString& path, BackgroundFit fit, int darken);
+
+struct CustomBackground{
+    //  Null: Claude GG's own background (none chosen, or it could not be read).
+    QImage image;
+    BackgroundFit fit = BackgroundFit::FILL;
+    double darken = 0;          //  0 to 1
+    //  Changes with every change of the setting: for the screens' caches.
+    uint64_t generation = 0;
+};
+//  The picture as it is set now, read when the setting changed. Only on the
+//  main thread.
+const CustomBackground& custom_background();
 
 
 

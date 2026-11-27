@@ -30,8 +30,15 @@ public:
     ~WallpaperOption();
     WallpaperOption();
 
+    virtual void load_json(const JsonValue& json) override;
+
 protected:
     virtual void on_config_value_changed(void* object) override;
+    virtual void on_set_enabled(bool enabled) override;
+
+private:
+    //  ClaudeGG: the picture goes behind the screens (ClaudeGG_Theme.h).
+    void apply();
 
 public:
     PathOption IMAGE_PATH;

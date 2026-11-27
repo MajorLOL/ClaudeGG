@@ -716,10 +716,11 @@ void MainWindow::update_wallpaper(){
         settings.WALLPAPER.IMAGE_OVERLAY,
         surface_color
     );
-    centralwidget->set_image(
-        settings.WALLPAPER.enabled(),
-        QString::fromStdString(static_cast<std::string>(settings.WALLPAPER.IMAGE_PATH))
-    );
+    //  ClaudeGG: the picture of the setting is drawn by the screens, which
+    //  cover this widget (WallpaperOption -> ClaudeGG::set_custom_background()).
+    //  Here it would be read for nothing, and its sheet would change the
+    //  program's widgets.
+    centralwidget->set_image(false, QString());
     const QString error = centralwidget->take_error();
 
     if (!error.isEmpty()){

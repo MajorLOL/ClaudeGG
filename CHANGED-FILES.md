@@ -1,6 +1,6 @@
 # Claude GG: the files that differ from Pokémon Automation
 
-Every file that was added (A), changed (M) or removed (D) compared with Pokémon Automation's Arduino-Source at commit `743ac0d225d1d7a756d4b861e901c0fc4217eaee` ("run distortion augmentation on test UI (#1949)", `main` of 21 November 2026), the base of this code; as of build 102. 270 added, 120 changed, 0 removed, 390 in all. The reasons are in [CHANGES.md](CHANGES.md). The lines of each change: `git remote add upstream https://github.com/PokemonAutomation/Arduino-Source.git`, `git fetch upstream`, then `git diff 743ac0d225d1d7a756d4b861e901c0fc4217eaee HEAD`.
+Every file that was added (A), changed (M) or removed (D) compared with Pokémon Automation's Arduino-Source at commit `743ac0d225d1d7a756d4b861e901c0fc4217eaee` ("run distortion augmentation on test UI (#1949)", `main` of 21 November 2026), the base of this code; as of build 102. 270 added, 121 changed, 0 removed, 391 in all. The reasons are in [CHANGES.md](CHANGES.md). The lines of each change: `git remote add upstream https://github.com/PokemonAutomation/Arduino-Source.git`, `git fetch upstream`, then `git diff 743ac0d225d1d7a756d4b861e901c0fc4217eaee HEAD`.
 
 | Where | Added | Changed | Removed |
 |---|---|---|---|
@@ -11,7 +11,7 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 | `IconResource` | 3 | 6 | 0 |
 | `SerialPrograms (build files)` | 0 | 1 | 0 |
 | `SerialPrograms/Scripts` | 76 | 0 | 0 |
-| `SerialPrograms/Source/CommonFramework` | 2 | 37 | 0 |
+| `SerialPrograms/Source/CommonFramework` | 2 | 38 | 0 |
 | `SerialPrograms/Source/CommonTools` | 0 | 3 | 0 |
 | `SerialPrograms/Source/ComputerPrograms` | 0 | 1 | 0 |
 | `SerialPrograms/Source/Controllers` | 0 | 2 | 0 |
@@ -187,6 +187,7 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 - M `SerialPrograms/Source/CommonFramework/Options/Environment/ThemeSelectorOption.cpp`
 - M `SerialPrograms/Source/CommonFramework/Options/Environment/ThemeSelectorOption.h`
 - M `SerialPrograms/Source/CommonFramework/Options/WallpaperOption.cpp`
+- M `SerialPrograms/Source/CommonFramework/Options/WallpaperOption.h`
 - M `SerialPrograms/Source/CommonFramework/Panels/OptionsPanelSession.h`
 - M `SerialPrograms/Source/CommonFramework/Panels/PanelDescriptor.cpp`
 - M `SerialPrograms/Source/CommonFramework/Panels/PanelDescriptor.h`

@@ -448,5 +448,11 @@
  "Connect the ESP32 to the computer with a USB cable. Keep it within 1 m (3 ft) of the BlueRetro adapter.": "Branchez l'ESP32 à l'ordinateur avec un câble USB. Gardez-le à moins de 1 m de l'adaptateur BlueRetro.",
  "Wireless, through a BlueRetro adapter. Experimental. Seven steps.": "Sans fil, via un adaptateur BlueRetro. Expérimental. Sept étapes.",
  "BlueRetro and your console": "BlueRetro et votre console",
- "Through BlueRetro: PS1, PS2, GameCube, N64, Dreamcast": "Via BlueRetro : PS1, PS2, GameCube, N64, Dreamcast"
+ "Through BlueRetro: PS1, PS2, GameCube, N64, Dreamcast": "Via BlueRetro : PS1, PS2, GameCube, N64, Dreamcast",
+ "Background: a picture of your own": "Arrière-plan : une image à vous",
+ "<b>Picture:</b><br>Shown behind the screens with the games and the programs. Empty, or turned off: Claude GG's own background.": "<b>Image :</b><br>Affichée derrière les écrans avec les jeux et les programmes. Vide, ou désactivé : l'arrière-plan de Claude GG.",
+ "<b>How the picture fits:</b>": "<b>Ajustement de l'image :</b>",
+ "<b>Darken the picture (%):</b><br>Increase this to keep the texts readable on a light or busy picture.": "<b>Assombrir l'image (%) :</b><br>Augmentez cette valeur pour garder les textes lisibles sur une image claire ou chargée.",
+ "Select a PNG, JPEG, BMP, or WebP image": "Choisissez une image PNG, JPEG, BMP ou WebP",
+ "Browse...": "Parcourir..."
 }
