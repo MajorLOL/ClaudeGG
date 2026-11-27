@@ -25,6 +25,7 @@
 #include "Common/Qt/UiStateQtWidget.h"
 #include "Controllers/ControllerSession.h"
 #include "Controllers/ControllerTypeStrings.h"
+#include "CommonFramework/ProgramSession.h"
 #include "CommonFramework/VideoPipeline/VideoSession.h"
 #include "CommonFramework/VideoPipeline/VideoSourceDescriptor.h"
 #include "PanelLists.h"
@@ -859,6 +860,13 @@ void MainWindow::update_controllers(){
         }
     }
     m_app->set_videos(videos);
+
+    //  Why the program stopped, when that was an error.
+    QString error;
+    if (const ProgramSession* program = dynamic_cast<const ProgramSession*>(m_current_panel.get())){
+        error = QString::fromStdString(program->last_error()).simplified();
+    }
+    m_app->set_error(error);
 }
 void MainWindow::set_sleep_label(const QString& text){
     if (m_app != nullptr){
