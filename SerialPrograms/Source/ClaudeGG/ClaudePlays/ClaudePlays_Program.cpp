@@ -26,6 +26,8 @@
 #include "NintendoSwitch/Controllers/PABotBase2/NintendoSwitch_PABotBase2_WiredController.h"
 #include "NintendoSwitch/Controllers/PABotBase2/NintendoSwitch_PABotBase2_ProController.h"
 #include "NintendoSwitch/Controllers/Procon/NintendoSwitch_ProController.h"
+#include "Controllers/StandardHid/StandardHid_Keyboard.h"
+#include "ControllerInput/Keyboard/KeyboardHidButtons.h"
 #include "NintendoSwitch/NintendoSwitch_ConsoleHandle.h"
 #include "PokemonBDSP/Programs/PokemonBDSP_GameNavigation.h"
 #include "VideoGames/PokemonLA/Programs/PokemonLA_GameSave.h"
@@ -70,7 +72,7 @@ GameProgram_Descriptor::GameProgram_Descriptor(GameId game)
         "",
         description_of(game_profile(game)),
         PanelQualityStanding::EXPERIMENTAL,
-        game_profile(game).pad == PadKind::RIGHT_JOYCON
+        game_profile(game).pad == PadKind::RIGHT_JOYCON || game_profile(game).pad == PadKind::IPHONE_KEYBOARD
             ? ProgramControllerClass::SpecializedController
             : ProgramControllerClass::StandardController_NoRestrictions,
         FeedbackType::REQUIRED,
@@ -479,6 +481,59 @@ bool dreamcast_button_of(const std::string& name, Button& button){
     return false;
 }
 
+//  The Xbox 360: the same board through a Pico with OGX-Mini in its XInput
+//  mode (only a console with UsbdSecPatch takes such a pad). OGX-Mini passes
+//  the Switch pad on by the places of the buttons, as for the original Xbox,
+//  with L and R to LB and RB and HOME to the Guide button.
+bool xbox360_button_of(const std::string& name, Button& button){
+    struct Entry{
+        const char* name;
+        Button button;
+    };
+    static const Entry ENTRIES[] = {
+        {"A",           BUTTON_B},
+        {"B",           BUTTON_A},
+        {"X",           BUTTON_Y},
+        {"Y",           BUTTON_X},
+        {"LB",          BUTTON_L},
+        {"RB",          BUTTON_R},
+        {"LT",          BUTTON_ZL},
+        {"RT",          BUTTON_ZR},
+        {"BACK",        BUTTON_MINUS},
+        {"START",       BUTTON_PLUS},
+        {"MENU",        BUTTON_PLUS},
+        {"VIEW",        BUTTON_MINUS},
+        {"LSTICK",      BUTTON_LCLICK},
+        {"RSTICK",      BUTTON_RCLICK},
+        {"HOME",        BUTTON_HOME},
+    };
+    for (const Entry& entry : ENTRIES){
+        if (name == entry.name){
+            button = entry.button;
+            return true;
+        }
+    }
+    return false;
+}
+
+//  Remote Play: the board is a USB gamepad of the computer, and the Remote
+//  Play client (chiaki-ng for a PlayStation, a browser on xbox.com/play for
+//  an Xbox) takes it as a standard gamepad, by the places of its buttons:
+//  the bottom one (B) is CROSS or A. The PlayStation 4 and 5 are laid out as
+//  the PlayStation 3, with OPTIONS for START and SHARE for SELECT; the Xbox
+//  One and Series as the Xbox 360 (xbox360_button_of(), MENU and VIEW).
+bool ps4_button_of(const std::string& name, Button& button){
+    if (name == "OPTIONS"){
+        button = BUTTON_PLUS;
+        return true;
+    }
+    if (name == "SHARE"){
+        button = BUTTON_MINUS;
+        return true;
+    }
+    return ps3_button_of(name, button);
+}
+
 //  A console that is played with a Switch controller under other names: the
 //  PlayStation 3 and the original Xbox (the wired controller), the retro
 //  consoles (the wireless Pro Controller, through BlueRetro).
@@ -632,6 +687,98 @@ private:
 };
 
 
+//  An iPhone, with the wired board as a keyboard (HID: Keyboard) and Full
+//  Keyboard Access turned on (Settings, Accessibility, Keyboards): the keys
+//  move a frame over the items on the screen and tap the one in it. HOME is
+//  Command-H. Not tried on an iPhone yet.
+bool iphone_keys_of(const std::string& name, std::vector<KeyboardKey>& keys){
+    struct Entry{
+        const char* name;
+        KeyboardKey first;
+        KeyboardKey second;
+    };
+    static const Entry ENTRIES[] = {
+        {"TAB",         KEY_TAB,        KEY_NONE},
+        {"SHIFT_TAB",   KEY_LEFT_SHIFT, KEY_TAB},
+        {"SPACE",       KEY_SPACE,      KEY_NONE},
+        {"ENTER",       KEY_ENTER,      KEY_NONE},
+        {"ESCAPE",      KEY_ESC,        KEY_NONE},
+        {"BACKSPACE",   KEY_BACKSPACE,  KEY_NONE},
+        {"UP",          KEY_UP,         KEY_NONE},
+        {"DOWN",        KEY_DOWN,       KEY_NONE},
+        {"LEFT",        KEY_LEFT,       KEY_NONE},
+        {"RIGHT",       KEY_RIGHT,      KEY_NONE},
+        {"HOME",        KEY_LEFT_META,  KEY_H},
+    };
+    for (const Entry& entry : ENTRIES){
+        if (name == entry.name){
+            keys.push_back(entry.first);
+            if (entry.second != KEY_NONE){
+                keys.push_back(entry.second);
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+class KeyboardConsole : public PlayConsole{
+public:
+    KeyboardConsole(SingleSwitchProgramEnvironment& env, StandardHid::KeyboardContext& context, Language language)
+        : m_env(env)
+        , m_context(context)
+        , m_language(language)
+    {}
+
+    virtual const PadLayout& layout() const override{
+        return iphone_keyboard_layout();
+    }
+    virtual void hold(const PadInput& input, std::chrono::milliseconds duration) override{
+        std::vector<KeyboardKey> keys;
+        for (const std::string& name : input.buttons){
+            iphone_keys_of(name, keys);
+        }
+        if (keys.empty()){
+            wait(duration);
+            return;
+        }
+        m_context->issue_keys(&m_context, duration, duration, std::chrono::milliseconds(0), keys);
+    }
+    virtual void mash(const std::string& name, std::chrono::milliseconds duration) override{
+        std::vector<KeyboardKey> keys;
+        if (!iphone_keys_of(name, keys)){
+            return;
+        }
+        //  A press and a let go, again and again.
+        const std::chrono::milliseconds STEP(60);
+        for (std::chrono::milliseconds done(0); done < duration; done += 2 * STEP){
+            m_context->issue_keys(&m_context, 2 * STEP, STEP, std::chrono::milliseconds(0), keys);
+        }
+    }
+    virtual void wait(std::chrono::milliseconds duration) override{
+        m_context->issue_nop(&m_context, duration);
+    }
+    virtual bool screen(const std::function<void(const ImageViewRGB32&)>& use) override{
+        m_context.wait_for_all_requests();
+        VideoSnapshot snapshot = m_env.console.video().snapshot();
+        if (!snapshot){
+            return false;
+        }
+        const ImageViewRGB32& frame = *snapshot.frame;
+        use(frame);
+        return true;
+    }
+    virtual std::string read_text(const ImageViewRGB32& picture) override{
+        return read_picture(picture, m_language);
+    }
+
+private:
+    SingleSwitchProgramEnvironment& m_env;
+    StandardHid::KeyboardContext& m_context;
+    const Language m_language;
+};
+
+
 //  The program a session runs in.
 class ProgramHost : public Host{
 public:
@@ -683,6 +830,7 @@ std::string setup_text(const GameProfile& profile){
     const bool ps3 = profile.pad == PadKind::PS3_CONTROLLER;
     const bool xbox = profile.pad == PadKind::XBOX_CONTROLLER;
     const bool retro = profile.console == "retro";
+    const std::string& console = profile.console;
     return
         "<b>Experimental:</b> this program is new. It has not been tested on a console, and not with a real "
         "API key either: the build machine has none. Watch it. <b>Many games save by themselves:</b> what "
@@ -714,6 +862,26 @@ std::string setup_text(const GameProfile& profile){
                 "Controller as the type, plugged into a Raspberry Pi Pico with OGX-Mini, which is plugged into "
                 "the Xbox. OGX-Mini takes the board as a Switch pad and plays an original Xbox controller. Not "
                 "tried on an Xbox yet: first check in its menu that the d-pad moves and that A picks")
+            : console == "xbox360"
+            ? std::string(
+                "an Xbox 360 with UsbdSecPatch (a modified console: an unmodified one takes only its own pads), "
+                "and the wired board (the ESP32-S3) with NS1: Wired Controller as the type, plugged into a "
+                "Raspberry Pi Pico with OGX-Mini in its XInput mode, which is plugged into the Xbox 360. Not "
+                "tried on an Xbox 360 yet: first check in its menu that the d-pad moves and that A picks")
+            : console == "psremote" || console == "xboxremote"
+            ? std::string(
+                "Remote Play of the console on this computer (") +
+              (console == "psremote" ? "chiaki-ng for a PlayStation 4 or 5" : "a browser on xbox.com/play for an Xbox One or Series") +
+              "), its window as the video (OBS Studio's virtual camera), and the wired board (the ESP32-S3) "
+              "with NS1: Wired Controller as the type, with both its cables in this computer: the Remote Play "
+              "client takes it as a USB gamepad. Not tried yet: first check that the d-pad moves in the "
+              "console's menu"
+            : console == "iphone"
+            ? std::string(
+                "an iPhone with Full Keyboard Access turned on (Settings, Accessibility, Keyboards), its screen "
+                "on the capture card through an HDMI adapter, and the wired board (the ESP32-S3) with HID: "
+                "Keyboard as the type, plugged into the iPhone. Not tried on an iPhone yet: first check that "
+                "TAB moves the frame and SPACE taps")
             : retro
             ? std::string("a ") + profile.category + " with a game on the screen, and a BlueRetro adapter (an "
                 "ESP32 with the BlueRetro firmware) in its first controller port. A wireless board (a Pico W, "
@@ -960,7 +1128,39 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
         send_program_finished_notification(env, NOTIFICATION_PROGRAM_FINISH, ending.summary);
     };
 
-    if (profile.pad == PadKind::PS3_CONTROLLER || profile.pad == PadKind::XBOX_CONTROLLER){
+    if (profile.pad == PadKind::IPHONE_KEYBOARD){
+        StandardHid::KeyboardContext context(scope, env.console.controller<StandardHid::Keyboard>());
+        if (!context->is_ready()){
+            throw UserSetupError(context->logger(), "Controller is not ready.");
+        }
+        KeyboardConsole console(env, context, text_language);
+        session(console, context);
+    }else if (
+        profile.pad == PadKind::XBOX360_CONTROLLER || profile.pad == PadKind::PS4_CONTROLLER ||
+        profile.pad == PadKind::XBOXONE_CONTROLLER
+    ){
+        //  The Xbox 360 (OGX-Mini) and Remote Play: the wired controller.
+        ProController& controller = env.console.controller<ProController>();
+        if (dynamic_cast<PABotBase2_WiredController*>(&controller) == nullptr){
+            throw UserSetupError(
+                env.console,
+                profile.pad == PadKind::XBOX360_CONTROLLER
+                    ? "The Pico with OGX-Mini takes a Switch pad: pick NS1: Wired Controller as the type of the "
+                      "controller (on a wired board, the ESP32-S3)."
+                    : "The Remote Play client takes a plain USB gamepad: pick NS1: Wired Controller as the type of "
+                      "the controller (on a wired board, the ESP32-S3)."
+            );
+        }
+        ProControllerContext context(scope, controller);
+        if (!context->is_ready()){
+            throw UserSetupError(context->logger(), "Controller is not ready.");
+        }
+        WiredPadConsole console(
+            env, context, text_language, pad_layout(profile.pad),
+            profile.pad == PadKind::PS4_CONTROLLER ? &ps4_button_of : &xbox360_button_of
+        );
+        session(console, context);
+    }else if (profile.pad == PadKind::PS3_CONTROLLER || profile.pad == PadKind::XBOX_CONTROLLER){
         const bool xbox = profile.pad == PadKind::XBOX_CONTROLLER;
         ProController& controller = env.console.controller<ProController>();
         if (dynamic_cast<PABotBase2_WiredController*>(&controller) == nullptr){
@@ -1102,6 +1302,14 @@ QRgb card_ground(GameId game){
         return qRgb(0x2f, 0x6b, 0x4a);
     case GameId::DREAMCAST:
         return qRgb(0xc0, 0x5a, 0x1e);
+    case GameId::XBOX_360:
+        return qRgb(0x5c, 0x9a, 0x2a);
+    case GameId::PS_REMOTE_PLAY:
+        return qRgb(0x1f, 0x3f, 0x8a);
+    case GameId::XBOX_REMOTE_PLAY:
+        return qRgb(0x1e, 0x6b, 0x2e);
+    case GameId::IPHONE:
+        return qRgb(0x4a, 0x4a, 0x52);
     default:
         return qRgb(0x44, 0x4a, 0x5c);
     }

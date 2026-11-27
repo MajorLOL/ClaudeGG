@@ -163,8 +163,74 @@ const PadLayout& dreamcast_controller_layout(){
     };
     return layout;
 }
+const PadLayout& xbox360_controller_layout(){
+    static const PadLayout layout{
+        "an Xbox 360 controller",
+        {
+            "A", "B", "X", "Y", "LB", "RB", "LT", "RT", "START", "BACK", "LSTICK", "RSTICK",
+            "UP", "DOWN", "LEFT", "RIGHT",
+        },
+        {"left_stick", "right_stick"},
+        false,
+        "a real Xbox 360",
+        "On an Xbox, A is usually yes and B usually no or back.",
+    };
+    return layout;
+}
+const PadLayout& ps4_controller_layout(){
+    static const PadLayout layout{
+        "a PlayStation 4 or 5 controller (without its touchpad)",
+        {
+            "CROSS", "CIRCLE", "SQUARE", "TRIANGLE", "L1", "R1", "L2", "R2", "OPTIONS", "SHARE", "L3", "R3",
+            "UP", "DOWN", "LEFT", "RIGHT",
+        },
+        {"left_stick", "right_stick"},
+        false,
+        "a real PlayStation 4 or 5, through Remote Play",
+        "On a PlayStation, CROSS is usually yes and CIRCLE usually no or back.",
+    };
+    return layout;
+}
+const PadLayout& xboxone_controller_layout(){
+    static const PadLayout layout{
+        "an Xbox One or Series controller",
+        {
+            "A", "B", "X", "Y", "LB", "RB", "LT", "RT", "MENU", "VIEW", "LSTICK", "RSTICK",
+            "UP", "DOWN", "LEFT", "RIGHT",
+        },
+        {"left_stick", "right_stick"},
+        false,
+        "a real Xbox One or Series, through Remote Play",
+        "On an Xbox, A is usually yes and B usually no or back.",
+        false,
+    };
+    return layout;
+}
+const PadLayout& iphone_keyboard_layout(){
+    static const PadLayout layout{
+        "a keyboard plugged into an iPhone (Full Keyboard Access)",
+        {
+            "TAB", "SHIFT_TAB", "SPACE", "ENTER", "ESCAPE", "BACKSPACE",
+            "UP", "DOWN", "LEFT", "RIGHT",
+        },
+        {},
+        false,
+        "a real iPhone, worked with a keyboard",
+        "On an iPhone with Full Keyboard Access, SPACE taps the item that has the focus and ESCAPE goes back; "
+        "TAB and the arrow keys move the focus.",
+    };
+    return layout;
+}
 const PadLayout& pad_layout(PadKind pad){
     switch (pad){
+    case PadKind::XBOX360_CONTROLLER:
+        return xbox360_controller_layout();
+    case PadKind::PS4_CONTROLLER:
+        return ps4_controller_layout();
+    case PadKind::XBOXONE_CONTROLLER:
+        return xboxone_controller_layout();
+    case PadKind::IPHONE_KEYBOARD:
+        return iphone_keyboard_layout();
     case PadKind::PS1_CONTROLLER:
         return ps1_controller_layout();
     case PadKind::PS2_CONTROLLER:
@@ -319,7 +385,70 @@ std::string button_name(const std::string& given, const PadLayout& layout){
         };
         for (const Alias& alias : ALIASES){
             if (name == alias.given){
-                return alias.button;
+                name = alias.button;
+                break;
+            }
+        }
+        if (layout.has_button("OPTIONS")){
+            //  A PlayStation 4 or 5 controller: OPTIONS and SHARE (CREATE on
+            //  a PlayStation 5) where the older ones have START and SELECT.
+            if (name == "START"){
+                return "OPTIONS";
+            }
+            if (name == "SELECT" || name == "CREATE"){
+                return "SHARE";
+            }
+        }
+        return name;
+    }
+    if (layout.has_button("TAB")){
+        //  A keyboard: the other names of its keys.
+        if (name == "ESC" || name == "BACK"){
+            return "ESCAPE";
+        }
+        if (name == "RETURN"){
+            return "ENTER";
+        }
+        if (name == "SHIFT+TAB" || name == "SHIFT-TAB" || name == "SHIFT TAB" || name == "BACKTAB"){
+            return "SHIFT_TAB";
+        }
+        if (name == " " || name == "SPACEBAR"){
+            return "SPACE";
+        }
+        for (const char* direction : DIRECTIONS){
+            const std::string d = direction;
+            if (name == "ARROW_" + d || name == "ARROW " + d || name == d + "_ARROW"){
+                return d;
+            }
+        }
+        return name;
+    }
+    if (layout.has_button("LB")){
+        //  An Xbox 360, One or Series controller: the other names of its
+        //  buttons. MENU and VIEW are START and BACK on the newer ones.
+        struct Alias{
+            const char* given;
+            const char* button;
+        };
+        static const Alias ALIASES[] = {
+            {"+", "START"}, {"PLUS", "START"}, {"-", "BACK"}, {"MINUS", "BACK"}, {"SELECT", "BACK"},
+            {"LS", "LSTICK"}, {"L3", "LSTICK"}, {"LCLICK", "LSTICK"}, {"RS", "RSTICK"}, {"R3", "RSTICK"}, {"RCLICK", "RSTICK"},
+            {"L", "LB"}, {"R", "RB"}, {"L1", "LB"}, {"R1", "RB"}, {"ZL", "LT"}, {"ZR", "RT"}, {"L2", "LT"}, {"R2", "RT"},
+            {"LEFT_BUMPER", "LB"}, {"RIGHT_BUMPER", "RB"}, {"LEFT_TRIGGER", "LT"}, {"RIGHT_TRIGGER", "RT"},
+            {"GUIDE", "HOME"}, {"XBOX", "HOME"},
+        };
+        for (const Alias& alias : ALIASES){
+            if (name == alias.given){
+                name = alias.button;
+                break;
+            }
+        }
+        if (layout.has_button("MENU")){
+            if (name == "START"){
+                return "MENU";
+            }
+            if (name == "BACK"){
+                return "VIEW";
             }
         }
         return name;

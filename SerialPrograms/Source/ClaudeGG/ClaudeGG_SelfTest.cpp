@@ -331,7 +331,15 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
             int retro_ok = 0;
             bool retro_wrong = false;
             bool switch_ok = true;
-            const char* const OTHERS[] = {"mobile", "ps3", "xbox", "retro"};
+            const char* const OTHERS[] = {"mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone"};
+            //  The lists of the Xbox 360, Remote Play and the iPhone, and their consoles.
+            const std::map<QString, const char*> LATER{
+                {"Xbox 360 games", "xbox360"},
+                {"PS4 and PS5 games", "psremote"},
+                {"Xbox One and Series games", "xboxremote"},
+                {"iPhone apps", "iphone"},
+            };
+            int later_ok = 0;
             const QStringList RETRO_LISTS{
                 "PlayStation games", "PlayStation 2 games", "GameCube games", "Nintendo 64 games", "Dreamcast games",
             };
@@ -356,6 +364,12 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     ps3_ok = listed_game.programs == 1 && only("ps3");
                 }else if (xbox){
                     xbox_ok = listed_game.programs == 1 && only("xbox");
+                }else if (LATER.count(listed_game.name) != 0){
+                    if (listed_game.programs == 1 && only(LATER.at(listed_game.name))){
+                        later_ok++;
+                    }else{
+                        retro_wrong = true;
+                    }
                 }else if (retro){
                     if (listed_game.programs == 1 && only("retro")){
                         retro_ok++;
@@ -372,9 +386,9 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     switch_ok = switch_ok && fine;
                 }
             }
-            if (!go_ok || !ps3_ok || !xbox_ok || retro_ok != 5 || retro_wrong || !switch_ok){
+            if (!go_ok || !ps3_ok || !xbox_ok || retro_ok != 5 || later_ok != (int)LATER.size() || retro_wrong || !switch_ok){
                 failed++;
-                logger.log("UI test: the games are not divided over the consoles (Pokemon GO for the phone, Claude Plays of the PlayStation 3, the original Xbox and the five retro consoles for them, the rest for the Switch)", COLOR_RED);
+                logger.log("UI test: the games are not divided over the consoles (Pokemon GO for the phone, Claude Plays of the PlayStation 3, the original Xbox, the five retro consoles, the Xbox 360, Remote Play and the iPhone for them, the rest for the Switch)", COLOR_RED);
             }
         }
         if (!window.open_game(QString::fromStdString(GAME))){
