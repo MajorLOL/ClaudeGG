@@ -32,6 +32,7 @@
 #include "ClaudeGG_PokemonGoBattle.h"
 #include "ClaudeGG_PokemonGoFight.h"
 #include "ClaudeGG_PokemonGoNav.h"
+#include "ClaudeGG_PokemonGoVision.h"
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -682,6 +683,21 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             }
         }
         check(differ == 0, fights.isEmpty() ? QString("the state of a fight is kept as battle_fight.py keeps it") : fights.last());
+    }
+    //  The readers of the picture of a fight, ported to C++ (issue #30): pictures read as battle_vision.py reads them.
+    {
+        QStringList pictures;
+        const int differ = PokemonGo::Vision::run_vision_checks(
+            agent_folder + "/../tests/fixtures/vision_golden.json.qz",
+            agent_folder + "/../tests/fixtures/fight",
+            pictures
+        );
+        for (const QString& line : pictures){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, pictures.isEmpty() ? QString("the picture of a fight is read as battle_vision.py reads it") : pictures.last());
     }
     if (wrong != 0){
         return finish();
