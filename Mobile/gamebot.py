@@ -218,7 +218,7 @@ class Brain:
         cls = scores[:, 1:].argmax(1) + 1
         sc = scores[np.arange(len(scores)), cls]
         idx = np.where(sc >= th)[0]
-        idx = idx[np.argsort(-sc[idx])][:200]
+        idx = idx[np.argsort(-sc[idx], kind="stable")][:200]    # stable: equal scores keep one order in every build (the C++ port)
         ax, ay, aw, ah = anchors[idx].T
         yc, xc, hh, ww = boxes[idx].T
         cx, cy = (xc * aw + ax) * w0, (yc * ah + ay) * h0

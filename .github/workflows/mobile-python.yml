@@ -6,6 +6,14 @@ name: Mobile Python tests
 # fight loop and the checks that a file of answers (Mobile/tests/fixtures/
 # *_golden.json.qz) is what the Python code says now. About four minutes.
 #
+# The networks of RegiBot are fetched from its repository (the files are LFS
+# files, the address is the one of Mobile/install.sh) and every file is checked
+# against its SHA-256 below, so that a changed file turns this red instead of
+# changing the answers. They are used twice: tools/make_models_golden.py --check
+# (the answers of the models are the ones in tests/fixtures/models_golden.json)
+# and tools/convert_models_to_onnx.py (the ONNX copies that the C++ port runs
+# agree with the TFLite originals).
+#
 # The versions are pinned, so that a new release of a library cannot turn this
 # red or green by itself. Python 3.12 on purpose, not the newest on the runner:
 # the first run, with Python 3.14.4 and NumPy 2.2.6, failed 17 tests that pass
@@ -50,7 +58,30 @@ jobs:
           "$RUNNER_TEMP/venv/bin/pip" install --quiet numpy==2.2.6 opencv-python-headless==4.12.0.88 ai-edge-litert==2.4.1
           "$RUNNER_TEMP/venv/bin/python" -c "import cv2, numpy; print('OpenCV', cv2.__version__, 'NumPy', numpy.__version__)"
 
+      - name: Fetch the models of RegiBot
+        run: |
+          mkdir -p "$RUNNER_TEMP/models"
+          cd "$RUNNER_TEMP/models"
+          base=https://media.githubusercontent.com/media/Juancavr6/RegiBot/main/app/app/src/main/assets
+          while read -r hash name; do
+            curl --fail --silent --show-error --location --retry 3 --output "$name" "$base/$name"
+            echo "$hash  $name" | sha256sum --check -
+          done <<'LIST'
+            6ef82b3185b39c1f777ac54db0a1498527c5d26f16eb575c2e21cb246172fa32  model_classifier_screen_v5.tflite
+            ec4e3aeb614cfaf58e7d5385aad0fc2a8cd97a689eb7e37f7be180771a746027  model_detector_clickable_v2.tflite
+            a6d282845cd09bd4d09d611493b33d87a614174d3baeb2387309710d81b0a352  model_detector_map_v2.tflite
+            6011bb3529b0726fb700bb82a7d89cb6e1e41bbc955a52f913de230bb0713874  predictor.tflite
+          LIST
+
       - name: Run the tests
         working-directory: Mobile
+        env:
+          CLAUDEGG_TFLITE: ${{ runner.temp }}/models
         run: |
           "$RUNNER_TEMP/venv/bin/python" -m unittest discover -s tests
+
+      - name: The ONNX copies of the models agree with the originals
+        working-directory: Mobile
+        run: |
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet tflite==2.18.0 tflite2onnx==0.4.1 onnx==1.23.2 onnxruntime==1.32.0
+          "$RUNNER_TEMP/venv/bin/python" tools/convert_models_to_onnx.py "$RUNNER_TEMP/models" "$RUNNER_TEMP/onnx"

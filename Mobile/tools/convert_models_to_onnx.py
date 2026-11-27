@@ -6,9 +6,14 @@ program already ships (the machine learning module), instead of adding TFLite as
 a second runtime. This script is the one place that says how the ONNX files are
 made and how close they are to the TFLite originals the Raspberry Pi runs.
 
-    python3 tools/convert_models_to_onnx.py <folder with the .tflite files> <output folder>
+    python3 tools/convert_models_to_onnx.py <folder with the .tflite files> <output folder> [--no-check]
 
-It needs: tflite2onnx, onnx, onnxruntime, ai-edge-litert and numpy.
+It needs: tflite2onnx, onnx, onnxruntime, ai-edge-litert and numpy (without --no-check, which only converts: LiteRT
+and ONNX Runtime are then not needed; the build on Windows uses it).
+
+Next to the .onnx files it writes the anchors of the two detectors (from models/anchors.npz) as plain floats,
+model_detector_map_v2_anchors.f32 and model_detector_clickable_v2_anchors.f32 (27,621 x 4 little-endian float32 each),
+which the C++ port reads without a library for .npz files.
 
 For each model it feeds the same seeded random picture to LiteRT (the original)
 and to ONNX Runtime (the copy) and fails when an output differs by more than
@@ -36,6 +41,17 @@ TOLERANCE = 1e-4
 SEED = 5
 
 
+ANCHORS = ("model_detector_map_v2_anchors", "model_detector_clickable_v2_anchors")
+
+
+def write_anchors(target: Path) -> None:
+    npz = np.load(Path(__file__).resolve().parent.parent / "models" / "anchors.npz")
+    for name in ANCHORS:
+        anchors = np.ascontiguousarray(npz[name], dtype="<f4")
+        assert anchors.shape == (27621, 4), anchors.shape
+        (target / f"{name}.f32").write_bytes(anchors.tobytes())
+
+
 def convert(tflite_path: Path, onnx_path: Path) -> None:
     import tflite2onnx
     tflite2onnx.convert(str(tflite_path), str(onnx_path))
@@ -60,16 +76,22 @@ def outputs_onnx(path: Path, x: np.ndarray) -> list:
 
 
 def main(argv: list) -> int:
+    check = "--no-check" not in argv
+    argv = [a for a in argv if a != "--no-check"]
     if len(argv) != 3:
         print(__doc__)
         return 2
     source, target = Path(argv[1]), Path(argv[2])
     target.mkdir(parents=True, exist_ok=True)
+    write_anchors(target)
     rng = np.random.default_rng(SEED)
     worst = 0.0
     for name, shape in MODELS.items():
         tflite_path, onnx_path = source / f"{name}.tflite", target / f"{name}.onnx"
         convert(tflite_path, onnx_path)
+        if not check:
+            print(f"{name}: converted")
+            continue
         x = rng.random(shape, dtype=np.float32)
         original, copy = outputs_tflite(tflite_path, x), outputs_onnx(onnx_path, x)
         if len(original) != len(copy):
@@ -82,6 +104,8 @@ def main(argv: list) -> int:
             diff = float(np.abs(a - b).max())
             worst = max(worst, diff)
             print(f"{name}: output {i} {a.shape} largest difference {diff:.3g}")
+    if not check:
+        return 0
     if worst > TOLERANCE:
         print(f"The largest difference {worst:.3g} is above {TOLERANCE}.")
         return 1

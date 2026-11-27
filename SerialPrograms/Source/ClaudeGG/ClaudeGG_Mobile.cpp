@@ -32,6 +32,7 @@
 #include "ClaudeGG_PokemonGoBattle.h"
 #include "ClaudeGG_PokemonGoFight.h"
 #include "ClaudeGG_PokemonGoMinigame.h"
+#include "ClaudeGG_PokemonGoModels.h"
 #include "ClaudeGG_PokemonGoNav.h"
 #include "ClaudeGG_PokemonGoVision.h"
 
@@ -714,6 +715,28 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             }
         }
         check(differ == 0, minigame.isEmpty() ? QString("the little game of a charged attack is played as battle_minigame.py plays it") : minigame.last());
+    }
+    //  The networks of the Pokémon GO bot (RegiBot), run with ONNX Runtime: what the screen classifier, the two detectors and
+    //  the throw predictor say is what gamebot.py says with LiteRT (issue #30).  The ONNX copies are not in the repository: the
+    //  build makes them (Mobile/tools/convert_models_to_onnx.py) and names their folder in CLAUDEGG_MODELS.  Without the
+    //  variable (a run on a computer that has no models) this part is left out.
+    {
+        const QString models = qEnvironmentVariable("CLAUDEGG_MODELS");
+        if (!models.isEmpty()){
+            QStringList lines;
+            const int differ = PokemonGo::Models::run_models_checks(
+                agent_folder + "/../tests/fixtures/models_golden.json",
+                agent_folder + "/../tests/fixtures",
+                models,
+                lines
+            );
+            for (const QString& line : lines){
+                if (line.startsWith("FAILED: ")){
+                    check(false, line.mid(8));
+                }
+            }
+            check(differ == 0, lines.isEmpty() ? QString("the models are run as gamebot.py runs them") : lines.last());
+        }
     }
     if (wrong != 0){
         return finish();

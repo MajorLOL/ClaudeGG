@@ -802,6 +802,59 @@ jobs:
           }
           Write-Host "The host test passed."
 
+      #  The networks of the Pokemon GO bot (RegiBot, Mobile/install.sh fetches the
+      #  same files): the program runs ONNX copies of them with its own ONNX Runtime
+      #  and the Mobile test holds them to what the TFLite originals say
+      #  (Mobile/tests/fixtures/models_golden.json). The files are checked against
+      #  their SHA-256, so that a changed file stops the step instead of changing
+      #  the answers; the copies are made here by tools/convert_models_to_onnx.py
+      #  (that they agree with the originals is checked by the workflow Mobile
+      #  Python tests). When this step fails the Mobile test leaves the models out
+      #  and the summary says so, so that a RegiBot that is down does not stop a build.
+      - name: Python 3.12 for the models
+        id: models_python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: '3.12'
+          update-environment: false
+
+      - name: Models of the Pokemon GO bot
+        id: models
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "models"
+          $tflite = Join-Path $dir "tflite"
+          $onnx = Join-Path $dir "onnx"
+          New-Item -ItemType Directory -Force -Path $tflite, $onnx | Out-Null
+          $base = "https://media.githubusercontent.com/media/Juancavr6/RegiBot/main/app/app/src/main/assets"
+          $files = [ordered]@{
+            "model_classifier_screen_v5.tflite" = "6ef82b3185b39c1f777ac54db0a1498527c5d26f16eb575c2e21cb246172fa32"
+            "model_detector_clickable_v2.tflite" = "ec4e3aeb614cfaf58e7d5385aad0fc2a8cd97a689eb7e37f7be180771a746027"
+            "model_detector_map_v2.tflite" = "a6d282845cd09bd4d09d611493b33d87a614174d3baeb2387309710d81b0a352"
+            "predictor.tflite" = "6011bb3529b0726fb700bb82a7d89cb6e1e41bbc955a52f913de230bb0713874"
+          }
+          foreach ($name in $files.Keys) {
+            Invoke-WebRequest -Uri "$base/$name" -OutFile (Join-Path $tflite $name) -MaximumRetryCount 3 -RetryIntervalSec 10
+            $hash = (Get-FileHash (Join-Path $tflite $name) -Algorithm SHA256).Hash.ToLower()
+            if ($hash -ne $files[$name]) {
+              throw "$name is not the file that was pinned (SHA-256 $hash)."
+            }
+          }
+          $python = "${{ steps.models_python.outputs.python-path }}"
+          & $python -m venv (Join-Path $dir "venv")
+          $venv = Join-Path $dir "venv/Scripts/python.exe"
+          & $venv -m pip install --disable-pip-version-check --quiet numpy==2.2.6 tflite==2.18.0 tflite2onnx==0.4.1 onnx==1.23.2
+          if ($LASTEXITCODE -ne 0) {
+            throw "The tools for the models could not be installed."
+          }
+          & $venv (Resolve-Path "Arduino-Source/Mobile/tools/convert_models_to_onnx.py").Path $tflite $onnx --no-check
+          if ($LASTEXITCODE -ne 0) {
+            throw "The models could not be converted to ONNX."
+          }
+          Add-Content -Path $env:GITHUB_ENV -Value "CLAUDEGG_MODELS=$($onnx -replace '\\', '/')"
+          Write-Host "The models are in $onnx."
+
       #  A phone through a Raspberry Pi (Mobile/agent, Source/ClaudeGG/ClaudeGG_Mobile.h):
       #  first the tests of the agent itself (Python, with a phone that is not
       #  there), then the program's side of the connection against that agent.
@@ -818,7 +871,7 @@ jobs:
           $dir = (Resolve-Path "Arduino-Source/SerialPrograms/bin/RelWithDebInfo").Path
           $process = Start-Process -FilePath "$dir/ClaudeGG.exe" -WorkingDirectory $dir -ArgumentList "--mobile-test", "`"$agent`"" -PassThru
           $handle = $process.Handle
-          if ($process.WaitForExit(240000)) {
+          if ($process.WaitForExit(480000)) {
             $code = $process.ExitCode
           } else {
             $process.Kill()
@@ -891,9 +944,10 @@ jobs:
           EMBEDDING: ${{ steps.embedding_test.outcome }}
           HOST: ${{ steps.host_test.outcome }}
           MOBILE: ${{ steps.mobile_test.outcome }}
+          MODELS: ${{ steps.models.outcome }}
           POKEMON: ${{ steps.pokemon_tests.outcome }}
         run: |
-          for pair in "Intro test=$INTRO" "Tutorial film test=$TUTORIAL" "Language test=$LANGUAGE" "Setup test=$SETUP" "Installations test=$INSTALLATIONS" "Embedding test=$EMBEDDING" "Host test=$HOST" "Mobile test=$MOBILE" "Pokemon Automation's tests=$POKEMON"; do
+          for pair in "Intro test=$INTRO" "Tutorial film test=$TUTORIAL" "Language test=$LANGUAGE" "Setup test=$SETUP" "Installations test=$INSTALLATIONS" "Embedding test=$EMBEDDING" "Host test=$HOST" "Mobile test=$MOBILE" "Models of the Pokemon GO bot=$MODELS" "Pokemon Automation's tests=$POKEMON"; do
             if [ "${pair#*=}" = "failure" ]; then
               echo "::warning::${pair%%=*} failed: see its step."
             fi
