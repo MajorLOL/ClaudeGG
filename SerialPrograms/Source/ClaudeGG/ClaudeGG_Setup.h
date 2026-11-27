@@ -400,6 +400,10 @@ public:
     //  The videos of its consoles, in the footer after the controllers. Empty:
     //  none (as above).
     virtual void set_videos(const std::vector<AppVideo>& videos) = 0;
+    //  Why the program stopped the last time it ran, when that was an error
+    //  (or why it could not start): while it does not run, the state in the
+    //  header says it instead of "Ready". Empty: no error.
+    virtual void set_error(const QString& text) = 0;
 
     //  Claude's panel, over the right of the screen when it is shown. The
     //  panel stays the window's.

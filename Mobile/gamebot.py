@@ -3176,8 +3176,10 @@ def _ring_colour_mask(crop):
 
 def _polar_cov(mask, cx, cy, rmax, band, n_theta=120):
     """Per radius: the share of directions in which the mask is set (within +-band px)."""
+    # WARP_FILL_OUTLIERS: where the circle leaves the crop (a Pokémon at the edge of the screen) the pixels are 0; without it
+    # warpPolar leaves them as they were in memory (a different measure every time)
     polar = cv2.warpPolar(mask, (int(rmax), n_theta), (float(cx), float(cy)), float(rmax),
-                          cv2.WARP_POLAR_LINEAR | cv2.INTER_NEAREST)
+                          cv2.WARP_POLAR_LINEAR | cv2.INTER_NEAREST | cv2.WARP_FILL_OUTLIERS)
     if band:
         polar = cv2.dilate(polar, np.ones((1, 2 * band + 1), np.uint8))
     return polar.mean(axis=0)

@@ -349,6 +349,7 @@
  "none chosen": "keiner gewählt",
  "Console %1:": "Konsole %1:",
  "Controller:": "Controller:",
+ "Stopped with an error: %1": "Mit einem Fehler gestoppt: %1",
  "In use: %1": "In Verwendung: %1",
  "Video %1:": "Video %1:",
  "Video:": "Video:",

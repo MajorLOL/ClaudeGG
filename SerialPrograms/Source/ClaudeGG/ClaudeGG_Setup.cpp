@@ -721,6 +721,16 @@ public:
     const std::vector<AppVideo>& app_videos() const{
         return m_app_videos;
     }
+    virtual void set_error(const QString& text) override{
+        if (text == m_app_error){
+            return;
+        }
+        m_app_error = text;
+        update();
+    }
+    const QString& app_error() const{
+        return m_app_error;
+    }
     virtual void set_claude(QWidget* panel) override;
     virtual void show_claude(bool show) override;
     virtual bool claude_shown() const override{
@@ -1150,6 +1160,7 @@ private:
     bool m_app_keep_on = false;
     std::vector<AppController> m_app_controllers;
     std::vector<AppVideo> m_app_videos;
+    QString m_app_error;
     QPointer<QWidget> m_claude;
     bool m_claude_shown = false;
     QString m_resume_game;
@@ -8749,8 +8760,16 @@ public:
         {
             //  The state: ready, or the program that runs.
             const bool busy = canvas.app_busy();
-            const QString text = canvas.app_state_text().isEmpty() ? (busy ? T("Running") : T("Ready")) : canvas.app_state_text();
-            const double w = draw_chip(painter, text, right, cy + 22, busy ? ChipKind::ORANGE_FILL : ChipKind::RING, a_head);
+            QString text = canvas.app_state_text().isEmpty() ? (busy ? T("Running") : T("Ready")) : canvas.app_state_text();
+            ChipKind state_kind = busy ? ChipKind::ORANGE_FILL : ChipKind::RING;
+            if (!busy && !canvas.app_error().isEmpty()){
+                //  It stopped with an error: that, instead of "Ready".
+                text = QFontMetricsF(ui_font(21, 600)).elidedText(
+                    T("Stopped with an error: %1").arg(canvas.app_error()), Qt::ElideRight, 760
+                );
+                state_kind = ChipKind::ORANGE_RING;
+            }
+            const double w = draw_chip(painter, text, right, cy + 22, state_kind, a_head);
             m_title_room = right - w - 24 - x;
             //  Left of it: whether the program's controller is connected.
             const std::vector<AppController>& controllers = canvas.app_controllers();
@@ -13606,6 +13625,18 @@ int run_setup_test(QApplication& application, const QString& folder){
         window_screen.set_state(false, "Ready");
         window_screen.wait(0.3);
         checker.check(window_screen.hit_enabled("host-back"), "when it stops the way back is open again");
+        //  It stopped with an error: the header says why.
+        {
+            const QImage ready = window_screen.picture();
+            window_screen.set_error("Unable to detect the overworld.");
+            window_screen.wait(0.3);
+            checker.check(window_screen.app_error() == "Unable to detect the overworld." && window_screen.picture() != ready,
+                "an error that stopped the program is shown in the header");
+            save(window_screen, folder, "setup-64b-window-error");
+            window_screen.set_error(QString());
+            window_screen.wait(0.3);
+            checker.check(window_screen.app_error().isEmpty(), "and goes when it is over");
+        }
 
         //  Back leads to the programs of the game.
         window_screen.click("host-back");
