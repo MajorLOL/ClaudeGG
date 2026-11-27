@@ -6,6 +6,8 @@
  */
 
 #include <chrono>
+#include <memory>
+#include <mutex>
 #include <QCoreApplication>
 #include <QDate>
 #include <QDir>
@@ -36,6 +38,7 @@
 #include "ClaudeGG_PokemonGoText.h"
 #include "ClaudeGG_PokemonGoModels.h"
 #include "ClaudeGG_PokemonGoNav.h"
+#include "ClaudeGG_PokemonGoPhone.h"
 #include "ClaudeGG_PokemonGoVision.h"
 
 namespace PokemonAutomation{
@@ -75,7 +78,7 @@ void MobileVideo::stop(){
     }
 }
 
-bool MobileVideo::latest(QImage& picture, quint64* serial) const{
+bool MobileVideo::latest(QImage& picture, quint64* serial, double* when) const{
     std::lock_guard<std::mutex> lock(m_lock);
     if (serial != nullptr){
         *serial = m_serial;
@@ -84,10 +87,13 @@ bool MobileVideo::latest(QImage& picture, quint64* serial) const{
         return false;
     }
     picture = m_picture;
+    if (when != nullptr){
+        *when = m_time;
+    }
     return true;
 }
 
-bool MobileVideo::wait_newer(QImage& picture, quint64 after, int msec, quint64* serial) const{
+bool MobileVideo::wait_newer(QImage& picture, quint64 after, int msec, quint64* serial, double* when) const{
     std::unique_lock<std::mutex> lock(m_lock);
     const bool came = m_changed.wait_for(lock, std::chrono::milliseconds(msec), [&]{
         return m_serial > after || m_stop.load();
@@ -98,6 +104,9 @@ bool MobileVideo::wait_newer(QImage& picture, quint64 after, int msec, quint64* 
     picture = m_picture;
     if (serial != nullptr){
         *serial = m_serial;
+    }
+    if (when != nullptr){
+        *when = m_time;
     }
     return true;
 }
@@ -232,6 +241,7 @@ QString MobileVideo::read_stream(){
                     std::lock_guard<std::mutex> lock(m_lock);
                     m_picture = picture;
                     m_serial++;
+                    m_time = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
                 }
                 m_changed.notify_all();
             }
@@ -424,10 +434,17 @@ bool MobileAgent::screen(QImage& picture, QString* error) const{
 }
 
 bool MobileAgent::tap(int x, int y, int ms, QString* error) const{
+    return touch("press", x, y, ms, error);
+}
+
+bool MobileAgent::touch(const QString& kind, int x, int y, int ms, QString* error) const{
     QJsonObject body;
     body["x"] = x;
     body["y"] = y;
     body["ms"] = ms;
+    if (kind != "press"){
+        body["kind"] = kind;                    //  (an agent from before "kind" takes every touch for a press)
+    }
     return post("/v1/tap", QJsonDocument(body).toJson(QJsonDocument::Compact), error);
 }
 
@@ -748,6 +765,18 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         }
         check(differ == 0, text.isEmpty() ? QString("the text reader reads the table of Tesseract as gamebot.py does") : text.mid(qMax<qsizetype>(0, text.size() - 2)).join("; "));
     }
+    //  The phone side of the fight loop (issue #30), what needs no phone: the pictures of the agent as pictures of OpenCV, the
+    //  canvas and the real screen, the files of what the bot learns (in the format of gamebot.py).
+    {
+        QStringList phone_report;
+        const int differ = PokemonGo::Phone::run_phone_checks(phone_report);
+        for (const QString& line : phone_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, phone_report.isEmpty() ? QString("the pictures, the coordinates and the files of the phone side are as they should be") : phone_report.last());
+    }
     //  The networks of the Pokémon GO bot (RegiBot), run with ONNX Runtime: what the screen classifier, the two detectors and
     //  the throw predictor say is what gamebot.py says with LiteRT (issue #30).  The ONNX copies are not in the repository: the
     //  build makes them (Mobile/tools/convert_models_to_onnx.py) and names their folder in CLAUDEGG_MODELS.  Without the
@@ -912,6 +941,136 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         error.clear();
         check(!phone.text("x; reboot", &error) && !error.isEmpty(), "a text that could be a command is refused (" + error + ")");
         check(read_lines(adb_log).size() == count, "none of them reached the phone");
+    }
+
+    //  The phone side of the fight loop (issue #30) against this agent and this made-up phone: the touches reach it as the loop asks
+    //  for them, the screenshot is the canvas, the live video gives pictures with the time they came in, and a phone that is off is
+    //  told in the log.
+    {
+        using namespace PokemonGo::Phone;
+        std::mutex told_lock;
+        QStringList told;
+        Options options;
+        options.folder = scratch.path() + "/loop";
+        AgentHost host("127.0.0.1", port, token, options, [&](const QString& line){
+            std::lock_guard<std::mutex> lock(told_lock);
+            told << line;
+        });
+        check(host.screen_width() == 1000 && host.screen_height() == 2200, "the host knows the size of the screen (1000 x 2200)");
+
+        {
+            const QStringList start = read_lines(adb_log);
+            std::unique_ptr<PokemonGo::Loop::Tapper> tapper = host.make_tapper(PokemonGo::Loop::Point{884, 1104}, 70);
+            tapper->tap(884, 1104, 120);
+            tapper->tap(884, 1104, 0);
+            tapper->touch(0, 884, 1104);
+            tapper->touch(1, 884, 1104);
+            tapper->touch(2, 884, 1104);
+            tapper->touch(3, 884, 1104);
+            tapper->close();
+            const QStringList got = read_lines(adb_log).mid(start.size());
+            const QStringList want{
+                "shell input swipe 500 1100 500 1100 120",
+                "shell input swipe 500 1100 500 1100 1",
+                "shell input tap 500 1100",
+                "shell input motionevent DOWN 500 1100; sleep 0.08; input motionevent UP 500 1100",
+                "shell input swipe 500 1100 500 1100 60",
+                "shell input swipe 500 1100 500 1100 220",
+            };
+            check(got == want, "the touches of the loop reach the phone on the real screen (" + QString::number(got.size()) + " commands)");
+            if (got != want){
+                for (const QString& line : got){
+                    report << "         it was asked: " + line;
+                }
+            }
+        }
+        {
+            const QStringList start = read_lines(adb_log);
+            AgentFingers fingers(phone, 1000, 2200, nullptr);
+            fingers.swipes({{884, 1104, 0, 0, 100}, {1768, 2208, 884, 1104, 0}});
+            std::vector<PokemonGo::Loop::Stroke> many;
+            for (int i = 0; i < 51; i++){
+                many.push_back(PokemonGo::Loop::Stroke{0, 0, 884, 1104, 50});
+            }
+            fingers.swipes(many);
+            const QStringList got = read_lines(adb_log).mid(start.size());
+            check(got.size() == 3 && got[0] == "shell input swipe 500 1100 0 0 100; input swipe 1000 2200 500 1100 1",
+                  "swipes go in one command (a swipe of no time takes a millisecond)");
+            check(got.size() == 3 && got[1].count("input swipe") == 50 && got[2].count("input swipe") == 1, "and 51 of them in a command of 50 and one of 1");
+        }
+        {
+            //  A phone that is off: the touch is not lost without a word.
+            QFile off(off_file);
+            check(off.open(QIODevice::WriteOnly), "the phone is switched off");
+            off.close();
+            std::unique_ptr<PokemonGo::Loop::Tapper> tapper = host.make_tapper(PokemonGo::Loop::Point{884, 1104}, 70);
+            tapper->tap(10, 10, 120);
+            tapper->close();
+            QFile::remove(off_file);
+            std::lock_guard<std::mutex> lock(told_lock);
+            check(!told.isEmpty() && told.last().contains("did not reach the phone") && told.last().contains("device offline"),
+                  "a touch that did not reach the phone is told in the log (" + (told.isEmpty() ? QString() : told.last()) + ")");
+        }
+        {
+            error.clear();
+            cv::Mat canvas;
+            try{
+                canvas = host.screenshot();
+            }catch (const std::exception& e){
+                error = e.what();
+            }
+            check(canvas.cols == 1768 && canvas.rows == 2208 && canvas.type() == CV_8UC3, "the screenshot is on the canvas of the bot: " + error);
+            const cv::Vec3b middle = canvas.empty() ? cv::Vec3b() : canvas.at<cv::Vec3b>(1000, 800);
+            check(middle[2] == 200 && middle[1] == 30 && middle[0] == 30, "with the colours of the phone (as blue, green, red)");
+            //  (the screenshot is 48 x 96: the real screen is what it says, as spin_stop._normalize does)
+            check(host.screen_width() == 48 && host.screen_height() == 96, "the size of the real screen is the size of the screenshot");
+            const QStringList start = read_lines(adb_log);
+            std::unique_ptr<PokemonGo::Loop::Tapper> tapper = host.make_tapper(PokemonGo::Loop::Point{884, 1104}, 70);
+            tapper->tap(884, 1104, 120);
+            tapper->close();
+            const QStringList got = read_lines(adb_log).mid(start.size());
+            check(got == QStringList{"shell input swipe 24 48 24 48 120"}, "and the touches go by it from then on");
+        }
+        {
+            PokemonGo::Loop::Stream* stream = host.stream();
+            check(stream != nullptr, "the host has the live video");
+            if (stream != nullptr){
+                long long serial = 0;
+                double when = 0;
+                cv::Mat small;
+                const double asked = now_seconds();
+                const bool came = stream->wait_new(0, 10.0, 0.0, serial, when, small);
+                check(came, "a picture of the live video comes");
+                check(came && small.cols == 704 && small.rows == 880 && serial >= 1, "on the size of the video of gamebot.py");
+                check(came && when >= asked && when <= now_seconds(), "stamped with the moment it came in");
+                const cv::Vec3b pixel = small.empty() ? cv::Vec3b() : small.at<cv::Vec3b>(400, 300);
+                check(std::abs(pixel[2] - 200) < 14 && std::abs(pixel[1] - 30) < 14 && std::abs(pixel[0] - 30) < 14, "with the colours of the phone");
+                check(stream->healthy() && !stream->describe().isEmpty(), "the video is healthy");
+                const double mark = now_seconds();
+                long long next = 0;
+                double next_when = 0;
+                cv::Mat next_small;
+                const bool newer = stream->wait_new(serial, 10.0, mark, next, next_when, next_small);
+                check(newer && next > serial && next_when >= mark, "a picture that is newer than one, and taken after the moment that is asked for, comes");
+                check(!stream->wait_new(serial + 1000000, 0.3, 0.0, next, next_when, next_small), "none comes out of the future");
+                stream->close();
+                check(!stream->healthy() && !stream->wait_new(0, 0.5, 0.0, next, next_when, next_small), "a video that is closed is none");
+                PokemonGo::Loop::Stream* again = host.stream();
+                long long third = 0;
+                double third_when = 0;
+                cv::Mat third_small;
+                check(again != nullptr && again->wait_new(0, 10.0, 0.0, third, third_when, third_small), "the next fight has a video of its own");
+                again->close();
+            }
+        }
+        {
+            PokemonGo::Fight::Known seen = {{"Lanturn", {{"Surf", 2}}}};
+            host.save_seen(seen);
+            check(host.load_seen() == seen && QFile::exists(options.folder + "/battle_seen.json"), "what is seen of the foes is kept in the folder of the bot");
+            cv::Mat picture(10, 10, CV_8UC3, cv::Scalar(1, 2, 3));
+            host.save_picture("g_battle_test.png", picture);
+            check(QFile::exists(options.folder + "/pictures/g_battle_test.png"), "a picture to look at afterwards is kept");
+        }
     }
 
     //  The Pokémon GO bot on the Pi (with a service that is not one).

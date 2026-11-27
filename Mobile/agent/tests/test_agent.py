@@ -183,6 +183,18 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(self.json("POST", "/v1/tap", {"x": 5, "y": 6, "ms": 80})[0], 200)
         self.assertEqual(self.agent.calls(), ["shell input swipe 300 400 300 400 120", "shell input swipe 5 6 5 6 80"])
 
+    def test_other_kinds_of_tap(self):
+        self.assertEqual(self.json("POST", "/v1/tap", {"x": 7, "y": 8, "kind": "tap"})[0], 200)
+        self.assertEqual(self.json("POST", "/v1/tap", {"x": 9, "y": 10, "ms": 80, "kind": "motion"})[0], 200)
+        self.assertEqual(self.json("POST", "/v1/tap", {"x": 11, "y": 12, "kind": "press"})[0], 200)
+        self.assertEqual(self.agent.calls(), ["shell input tap 7 8",
+                                              "shell input motionevent DOWN 9 10; sleep 0.08; input motionevent UP 9 10",
+                                              "shell input swipe 11 12 11 12 120"])
+        before = len(self.agent.calls())
+        self.assertEqual(self.json("POST", "/v1/tap", {"x": 1, "y": 2, "kind": "rm -rf"})[0], 400)
+        self.assertEqual(self.json("POST", "/v1/tap", {"x": 1, "y": 2, "kind": 5})[0], 400)
+        self.assertEqual(len(self.agent.calls()), before)                   # (a wrong kind reaches no phone)
+
     def test_swipe(self):
         self.assertEqual(self.json("POST", "/v1/swipe", {"x1": 1, "y1": 2, "x2": 3, "y2": 4})[0], 200)
         self.assertEqual(self.agent.calls(), ["shell input swipe 1 2 3 4 300"])

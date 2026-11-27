@@ -51,7 +51,7 @@ HTTP with JSON on the local network. Everything but `/v1/ping` and the status pa
 | `GET /v1/info` | `{model, android, width, height, display}`: the phone (`Override size` of `wm size` when set) |
 | `GET /v1/screen` | the screen as a PNG (`X-Screen-Width`, `X-Screen-Height`) |
 | `GET /v1/video?fps=10&width=540` | the screen live, about ten pictures a second (a screenshot takes one to three seconds): JPEG pictures in a `multipart/x-mixed-replace` stream (boundary `frame`, each part with its `Content-Length`). `screenrecord` (H.264) goes through `ffmpeg` on the Pi; one pipeline serves all who look, starts with the first and stops five seconds after the last, and is started again every 170 seconds (`screenrecord` ends after 180) without the viewer noticing. A screen that does not change gives the last picture again once a second. `fps` 1 to 30, `width` 100 to 2000 (a pipeline that is running keeps the values it started with) |
-| `POST /v1/tap` `{x, y, ms}` | a press of `ms` milliseconds (120): a very short tap is missed by Unity games |
+| `POST /v1/tap` `{x, y, ms, kind}` | a press of `ms` milliseconds (120): a very short tap is missed by Unity games. `kind`: `"press"` (the default), `"tap"` (a plain `input tap`, finger down and up at once: some screens of a game take this and not a press) or `"motion"` (finger down, `ms`, finger up as separate touch events, Android 11 and newer) |
 | `POST /v1/swipe` `{x1, y1, x2, y2, ms}` | a swipe (300 ms) |
 | `POST /v1/swipes` `{strokes: [[x1, y1, x2, y2, ms], ...]}` | up to 50 swipes one after the other in ONE `adb` command: the phone starts the next the moment one is done |
 | `POST /v1/key` `{key}` or `{keycode}` | `BACK`, `HOME`, `APP_SWITCH`, `POWER`, `WAKEUP`, `ENTER`, ... or a number 0 to 300 |

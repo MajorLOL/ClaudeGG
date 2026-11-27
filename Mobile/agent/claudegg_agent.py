@@ -18,7 +18,8 @@ do is the list of the endpoints below, and the arguments are checked before an `
     GET  /v1/info                       the phone: model, android, width, height
     GET  /v1/screen                     the screen as a PNG
     GET  /v1/video?fps=10&width=540     the screen live: JPEG pictures in a multipart/x-mixed-replace stream
-    POST /v1/tap     {x, y, ms}         a press of ms milliseconds (120)
+    POST /v1/tap     {x, y, ms, kind}   a press of ms milliseconds (120); kind "tap": a plain `input tap` (finger down and
+                                        up at once), "motion": finger down, ms, finger up as touch events (Android 11+)
     POST /v1/swipe   {x1, y1, x2, y2, ms}
     POST /v1/swipes  {strokes: [[x1, y1, x2, y2, ms], ...]}   one after the other, in ONE adb command
     POST /v1/key     {key: "BACK"}      or {keycode: 4}
@@ -394,8 +395,18 @@ class Phone:
         x = self._int(body.get("x"), "x")
         y = self._int(body.get("y"), "y")
         ms = self._int(body.get("ms", 120), "ms", 1, MAX_MS)
-        #  A press of a moment: Pokemon GO (Unity) misses a very short tap.
-        self.adb.run("shell", "input", "swipe", x, y, x, y, ms)
+        kind = body.get("kind", "press")
+        if kind == "tap":
+            #  Some screens of a game take this and not a press.
+            self.adb.run("shell", "input", "tap", x, y)
+        elif kind == "motion":
+            #  Finger down, a moment, finger up: separate touch events.
+            self.adb.run("shell", "input motionevent DOWN %d %d; sleep %.2f; input motionevent UP %d %d" % (x, y, ms / 1000.0, x, y))
+        elif kind == "press":
+            #  A press of a moment: Pokemon GO (Unity) misses a very short tap.
+            self.adb.run("shell", "input", "swipe", x, y, x, y, ms)
+        else:
+            raise AgentError(400, 'kind is "press", "tap" or "motion"')
 
     def swipe(self, body):
         x1 = self._int(body.get("x1"), "x1")

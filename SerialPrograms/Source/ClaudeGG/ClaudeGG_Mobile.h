@@ -111,6 +111,9 @@ public:
 
     //  A press of "ms" milliseconds (a very short tap is missed by games made with Unity).
     bool tap(int x, int y, int ms = 120, QString* error = nullptr) const;
+    //  A touch of another kind: "press" (as tap()), "tap" (a plain tap, finger down and up at once: some screens of a game
+    //  take this and not a press) or "motion" (finger down, "ms", finger up as separate touch events, Android 11 and newer).
+    bool touch(const QString& kind, int x, int y, int ms = 120, QString* error = nullptr) const;
     bool swipe(int x1, int y1, int x2, int y2, int ms = 300, QString* error = nullptr) const;
     //  Several swipes one after the other, in one command to the phone.
     bool swipes(const std::vector<MobileStroke>& strokes, QString* error = nullptr) const;
@@ -164,10 +167,11 @@ public:
     void stop();
 
     //  The newest picture; "serial" counts up with each one that came (0 before the
-    //  first). False: none yet.
-    bool latest(QImage& picture, quint64* serial = nullptr) const;
+    //  first). False: none yet.  "when": the moment it came in, in seconds of the steady clock
+    //  (std::chrono::steady_clock since its epoch).
+    bool latest(QImage& picture, quint64* serial = nullptr, double* when = nullptr) const;
     //  Waits up to "msec" milliseconds for a picture newer than "after". False: none came.
-    bool wait_newer(QImage& picture, quint64 after, int msec, quint64* serial = nullptr) const;
+    bool wait_newer(QImage& picture, quint64 after, int msec, quint64* serial = nullptr, double* when = nullptr) const;
     //  What went wrong the last time, in plain words; empty when the stream is fine.
     QString error() const;
 
@@ -186,6 +190,7 @@ private:
     mutable std::condition_variable m_changed;
     QImage m_picture;
     quint64 m_serial = 0;
+    double m_time = 0;
     QString m_error;
     std::atomic<bool> m_stop{false};
     std::thread m_thread;
