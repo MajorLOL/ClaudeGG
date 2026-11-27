@@ -37,6 +37,7 @@
 #include <string>
 #include <vector>
 #include "ClaudePlays_Engine.h"
+#include "ClaudePlays_Games.h"
 
 namespace PokemonAutomation{
 
@@ -59,11 +60,26 @@ struct PadLayout{
     //  UP, DOWN, LEFT and RIGHT are a short push of the (first) stick: the
     //  controller has no d-pad.
     bool directions_are_stick = false;
+    //  For Claude: the console it plays on, "a real Nintendo Switch".
+    std::string console = "a real Nintendo Switch";
+    //  For Claude: which button is usually yes and which no.
+    std::string yes_no = "On a Switch, A is usually yes and B usually no or back.";
+    //  It has a button for the console's menu (HOME; on a PlayStation the
+    //  PS button). The original Xbox has none.
+    bool has_home = true;
 
     bool has_button(const std::string& button) const;
 };
 const PadLayout& pro_controller_layout();
 const PadLayout& right_joycon_layout();
+//  A PlayStation 3 controller: CROSS, CIRCLE, SQUARE, TRIANGLE, L1 to R3,
+//  START, SELECT and the d-pad. HOME is its PS button.
+const PadLayout& ps3_controller_layout();
+//  An original Xbox controller: A, B, X, Y, WHITE, BLACK, LT, RT, START,
+//  BACK, LSTICK, RSTICK and the d-pad. No HOME.
+const PadLayout& xbox_controller_layout();
+//  The layout of a kind of pad.
+const PadLayout& pad_layout(PadKind pad);
 
 
 //  What is held on the controller at one moment.

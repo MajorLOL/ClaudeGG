@@ -320,22 +320,48 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
             failed++;
             logger.log("UI test: the games of the setup do not have " + GAME, COLOR_RED);
         }
-        //  Each console has its own games: Pokemon GO is the phone's, the others are the Switch's.
+        //  Each console has its own games: Pokemon GO is the phone's, the
+        //  Claude Plays of the PlayStation 3 and of the original Xbox those
+        //  consoles', the others are the Switch's.
         {
             bool go_ok = false;
+            bool ps3_ok = false;
+            bool xbox_ok = false;
             bool switch_ok = true;
+            const char* const OTHERS[] = {"mobile", "ps3", "xbox"};
             for (const HomeGame& listed_game : listed){
                 const bool go = listed_game.name.endsWith(" GO");
-                if (go){
-                    go_ok = listed_game.programs == 10 && game_is_for_console(listed_game, "mobile") &&
+                const bool ps3 = listed_game.name == "PlayStation 3 games";
+                const bool xbox = listed_game.name == "Original Xbox games";
+                const auto only = [&](const char* console){
+                    bool fine = game_is_for_console(listed_game, console) &&
                         !game_is_for_console(listed_game, "switch") && !game_is_for_console(listed_game, "switch2");
-                }else if (game_is_for_console(listed_game, "mobile") || !game_is_for_console(listed_game, "switch")){
-                    switch_ok = false;
+                    for (const char* other : OTHERS){
+                        if (QString(other) != QString(console) && game_is_for_console(listed_game, other)){
+                            fine = false;
+                        }
+                    }
+                    return fine;
+                };
+                if (go){
+                    go_ok = listed_game.programs == 10 && only("mobile");
+                }else if (ps3){
+                    ps3_ok = listed_game.programs == 1 && only("ps3");
+                }else if (xbox){
+                    xbox_ok = listed_game.programs == 1 && only("xbox");
+                }else{
+                    bool fine = game_is_for_console(listed_game, "switch");
+                    for (const char* other : OTHERS){
+                        if (game_is_for_console(listed_game, other)){
+                            fine = false;
+                        }
+                    }
+                    switch_ok = switch_ok && fine;
                 }
             }
-            if (!go_ok || !switch_ok){
+            if (!go_ok || !ps3_ok || !xbox_ok || !switch_ok){
                 failed++;
-                logger.log("UI test: the games are not divided over the consoles (Pokemon GO for the phone, the rest for the Switch)", COLOR_RED);
+                logger.log("UI test: the games are not divided over the consoles (Pokemon GO for the phone, Claude Plays of the PlayStation 3 and of the original Xbox for them, the rest for the Switch)", COLOR_RED);
             }
         }
         if (!window.open_game(QString::fromStdString(GAME))){
@@ -1466,9 +1492,7 @@ int check_assistant(const QString& out, Logger& logger){
             wrong++;
             logger.log("Assistant test: failed: two games with the identifier " + profile.identifier, COLOR_RED);
         }
-        const ClaudePlays::PadLayout& layout = profile.pad == ClaudePlays::PadKind::RIGHT_JOYCON
-            ? ClaudePlays::right_joycon_layout()
-            : ClaudePlays::pro_controller_layout();
+        const ClaudePlays::PadLayout& layout = ClaudePlays::pad_layout(profile.pad);
         for (bool allowed : {false, true}){
             game_cases++;
             ClaudePlays::AnyGameOptions options;
@@ -1504,7 +1528,7 @@ int check_assistant(const QString& out, Logger& logger){
             facts.name = profile.name;
             facts.notes = profile.notes;
             const std::string instructions = ClaudePlays::any_game_instructions(layout, options, facts, profile.save_routine);
-            if (tools.size() < 8 || saves != (allowed && profile.save_routine) || home != allowed ||
+            if (tools.size() < 8 || saves != (allowed && profile.save_routine) || home != (allowed && layout.has_home) ||
                 (instructions.find("Do not save the game") != std::string::npos) == allowed ||
                 (instructions.find("does not know which game") != std::string::npos) != profile.name.empty()
             ){

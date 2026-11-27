@@ -7,6 +7,7 @@
 
 #include <QColor>
 #include <QString>
+#include "ClaudePlays/ClaudePlays_Games.h"
 #include "ClaudeGG_Home.h"
 
 namespace PokemonAutomation{
@@ -26,6 +27,16 @@ bool is_pokemon_go(const QString& name){
 QStringList consoles_of_game(const QString& name){
     if (is_pokemon_go(name)){
         return QStringList{"mobile"};
+    }
+    //  The list of another console (the Claude Plays of the PlayStation 3 and
+    //  of the original Xbox).
+    const std::vector<std::string> others = ClaudePlays::consoles_of_list(name.toStdString());
+    if (!others.empty()){
+        QStringList consoles;
+        for (const std::string& console : others){
+            consoles.append(QString::fromStdString(console));
+        }
+        return consoles;
     }
     return QStringList{"switch", "switch2"};
 }

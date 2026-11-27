@@ -46,12 +46,23 @@ enum class GameId{
     MARIO_KART_8_DELUXE,
     SPLATOON_3,
     ANIMAL_CROSSING_NEW_HORIZONS,
+    //  Whatever game a PlayStation 3 shows: the list of that console.
+    PLAYSTATION_3,
+    //  Whatever game an original Xbox shows: the list of that console.
+    ORIGINAL_XBOX,
 };
 
 //  The controller the game's programs use.
 enum class PadKind{
     PRO_CONTROLLER,
     RIGHT_JOYCON,
+    //  A PlayStation 3 controller, by its own names: a wired board that the
+    //  console sees as a plain USB gamepad (ClaudePlays_AnyGame.h,
+    //  ps3_controller_layout()).
+    PS3_CONTROLLER,
+    //  An original Xbox controller, by its own names: the same board,
+    //  through a Raspberry Pi Pico with OGX-Mini (xbox_controller_layout()).
+    XBOX_CONTROLLER,
 };
 
 struct GameProfile{
@@ -72,6 +83,9 @@ struct GameProfile{
     //  The game's other programs have a routine that saves the game (the
     //  program wires it to the tool save_game).
     bool save_routine = false;
+    //  The console the game is played on: the code of the setup's console
+    //  ("switch" stands for both Switches, see ClaudeGG_Home.h).
+    std::string console = "switch";
 };
 
 const GameProfile& game_profile(GameId id);
@@ -82,6 +96,15 @@ const std::vector<GameId>& all_games();
 //  Plays (no program for the game itself yet): the list is made by
 //  GameOnlyList (ClaudePlays_Program.h).
 bool has_only_claude_plays(GameId id);
+
+//  The games of the Switch among those: the choices of the option "Game" of
+//  Other Games. (The list of another console is a tile of its own.)
+bool is_other_games_choice(GameId id);
+
+//  The consoles of a list of games by its name, when the list is one of a
+//  game here that is not played on the Switch: {"ps3"} or {"xbox"}. Empty:
+//  not one of them.
+std::vector<std::string> consoles_of_list(const std::string& list_name);
 
 //  The name of the list of games "Other Games".
 extern const char* const OTHER_GAMES_LIST;

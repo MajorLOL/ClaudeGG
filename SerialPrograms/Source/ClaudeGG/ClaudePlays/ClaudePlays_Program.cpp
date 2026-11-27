@@ -23,6 +23,7 @@
 #include "CommonTools/OCR/OCR_Routines.h"
 #include "NintendoSwitch/Commands/NintendoSwitch_Commands_PushButtons.h"
 #include "NintendoSwitch/Controllers/Joycon/NintendoSwitch_Joycon.h"
+#include "NintendoSwitch/Controllers/PABotBase2/NintendoSwitch_PABotBase2_WiredController.h"
 #include "NintendoSwitch/Controllers/Procon/NintendoSwitch_ProController.h"
 #include "NintendoSwitch/NintendoSwitch_ConsoleHandle.h"
 #include "PokemonBDSP/Programs/PokemonBDSP_GameNavigation.h"
@@ -307,6 +308,155 @@ private:
 };
 
 
+//  A PlayStation 3, with a board that plays the Switch's wired controller
+//  (NS1: Wired Controller, a HORIPAD S to the console). That is a plain USB
+//  gamepad, which the PlayStation 3 takes: its buttons come in the order of a
+//  PlayStation pad (square, cross, circle, triangle, L1, R1, L2, R2, SELECT,
+//  START, L3, R3, PS), which is the order of Y, B, A, X, L, R, ZL, ZR, MINUS,
+//  PLUS and the sticks of the Switch. Not tried on a PlayStation 3 yet.
+bool ps3_button_of(const std::string& name, Button& button){
+    struct Entry{
+        const char* name;
+        Button button;
+    };
+    static const Entry ENTRIES[] = {
+        {"SQUARE",      BUTTON_Y},
+        {"CROSS",       BUTTON_B},
+        {"CIRCLE",      BUTTON_A},
+        {"TRIANGLE",    BUTTON_X},
+        {"L1",          BUTTON_L},
+        {"R1",          BUTTON_R},
+        {"L2",          BUTTON_ZL},
+        {"R2",          BUTTON_ZR},
+        {"SELECT",      BUTTON_MINUS},
+        {"START",       BUTTON_PLUS},
+        {"L3",          BUTTON_LCLICK},
+        {"R3",          BUTTON_RCLICK},
+        {"HOME",        BUTTON_HOME},
+    };
+    for (const Entry& entry : ENTRIES){
+        if (name == entry.name){
+            button = entry.button;
+            return true;
+        }
+    }
+    return false;
+}
+
+//  An original Xbox, with the same board plugged into a Raspberry Pi Pico
+//  with OGX-Mini (MIT), which plays an original Xbox controller to the
+//  console. OGX-Mini takes the board as a Switch pad (a HORIPAD S is on its
+//  list) and passes it on by the places of the buttons: B to A, A to B, Y to
+//  X, X to Y, L to WHITE, R to BLACK, ZL and ZR to the triggers, MINUS to
+//  BACK and PLUS to START (its SwitchWired host driver and XboxOG device
+//  driver). Its first mode is the original Xbox. Not tried on an Xbox yet.
+bool xbox_button_of(const std::string& name, Button& button){
+    struct Entry{
+        const char* name;
+        Button button;
+    };
+    static const Entry ENTRIES[] = {
+        {"A",           BUTTON_B},
+        {"B",           BUTTON_A},
+        {"X",           BUTTON_Y},
+        {"Y",           BUTTON_X},
+        {"WHITE",       BUTTON_L},
+        {"BLACK",       BUTTON_R},
+        {"LT",          BUTTON_ZL},
+        {"RT",          BUTTON_ZR},
+        {"BACK",        BUTTON_MINUS},
+        {"START",       BUTTON_PLUS},
+        {"LSTICK",      BUTTON_LCLICK},
+        {"RSTICK",      BUTTON_RCLICK},
+    };
+    for (const Entry& entry : ENTRIES){
+        if (name == entry.name){
+            button = entry.button;
+            return true;
+        }
+    }
+    return false;
+}
+
+//  A console that is played with the Switch's wired controller under other
+//  names: the PlayStation 3 and the original Xbox.
+class WiredPadConsole : public PlayConsole{
+public:
+    using ButtonOf = bool (*)(const std::string& name, Button& button);
+
+    WiredPadConsole(
+        SingleSwitchProgramEnvironment& env, ProControllerContext& context, Language language,
+        const PadLayout& layout, ButtonOf button_of
+    )
+        : m_env(env)
+        , m_context(context)
+        , m_language(language)
+        , m_layout(layout)
+        , m_button_of(button_of)
+    {}
+
+    virtual const PadLayout& layout() const override{
+        return m_layout;
+    }
+    virtual void hold(const PadInput& input, std::chrono::milliseconds duration) override{
+        Button buttons = BUTTON_NONE;
+        bool up = false;
+        bool down = false;
+        bool left = false;
+        bool right = false;
+        for (const std::string& name : input.buttons){
+            Button button = BUTTON_NONE;
+            if (m_button_of(name, button)){
+                buttons |= button;
+            }else if (name == "UP"){
+                up = true;
+            }else if (name == "DOWN"){
+                down = true;
+            }else if (name == "LEFT"){
+                left = true;
+            }else if (name == "RIGHT"){
+                right = true;
+            }
+        }
+        pbf_controller_state(
+            m_context, buttons, dpad_of(up, down, left, right),
+            JoystickPosition(input.stick_x, input.stick_y),
+            JoystickPosition(input.stick2_x, input.stick2_y),
+            duration
+        );
+    }
+    virtual void mash(const std::string& name, std::chrono::milliseconds duration) override{
+        Button button = BUTTON_NONE;
+        if (m_button_of(name, button)){
+            pbf_mash_button(m_context, button, duration);
+        }
+    }
+    virtual void wait(std::chrono::milliseconds duration) override{
+        pbf_wait(m_context, duration);
+    }
+    virtual bool screen(const std::function<void(const ImageViewRGB32&)>& use) override{
+        m_context.wait_for_all_requests();
+        VideoSnapshot snapshot = m_env.console.video().snapshot();
+        if (!snapshot){
+            return false;
+        }
+        const ImageViewRGB32& frame = *snapshot.frame;
+        use(frame);
+        return true;
+    }
+    virtual std::string read_text(const ImageViewRGB32& picture) override{
+        return read_picture(picture, m_language);
+    }
+
+private:
+    SingleSwitchProgramEnvironment& m_env;
+    ProControllerContext& m_context;
+    const Language m_language;
+    const PadLayout& m_layout;
+    const ButtonOf m_button_of;
+};
+
+
 //  The console with a single right Joy-Con. A direction is its stick.
 class JoyconConsole : public PlayConsole{
 public:
@@ -407,6 +557,8 @@ private:
 
 std::string setup_text(const GameProfile& profile){
     const bool other = profile.id == GameId::OTHER_GAMES;
+    const bool ps3 = profile.pad == PadKind::PS3_CONTROLLER;
+    const bool xbox = profile.pad == PadKind::XBOX_CONTROLLER;
     return
         "<b>Experimental:</b> this program is new. It has not been tested on a console, and not with a real "
         "API key either: the build machine has none. Watch it. <b>Many games save by themselves:</b> what "
@@ -426,6 +578,18 @@ std::string setup_text(const GameProfile& profile){
         "<b>Setup:</b> " +
         (other
             ? std::string("a game on the screen that is played with a Pro Controller")
+            : ps3
+            ? std::string(
+                "a PlayStation 3 with a game on the screen, and a wired board (the ESP32-S3) plugged into "
+                "it, with NS1: Wired Controller as the type. The PlayStation 3 takes that as a plain USB "
+                "gamepad. Not tried on a PlayStation 3 yet: first check in its menu that the d-pad moves "
+                "and that CROSS picks")
+            : xbox
+            ? std::string(
+                "an original Xbox with a game on the screen, and a wired board (the ESP32-S3) with NS1: Wired "
+                "Controller as the type, plugged into a Raspberry Pi Pico with OGX-Mini, which is plugged into "
+                "the Xbox. OGX-Mini takes the board as a Switch pad and plays an original Xbox controller. Not "
+                "tried on an Xbox yet: first check in its menu that the d-pad moves and that A picks")
             : std::string("the game on the screen, with the controller its other programs use") +
               (profile.pad == PadKind::RIGHT_JOYCON ? " (a right Joy-Con)" : "")) +
         ". Text is read in the language set under \"Language of the text\" (English unless you change it).";
@@ -438,7 +602,7 @@ EnumDropdownDatabase<GameId> other_games_database(){
     EnumDropdownDatabase<GameId> database;
     database.add(GameId::OTHER_GAMES, "other", "Whatever is on the screen", true);
     for (GameId id : all_games()){
-        if (has_only_claude_plays(id)){
+        if (is_other_games_choice(id)){
             const GameProfile& profile = game_profile(id);
             database.add(id, profile.identifier, profile.title, true);
         }
@@ -471,7 +635,7 @@ GameProgram::GameProgram(GameId game)
         "For example: Open the menu, look at the first Pokemon of the party and tell me its moves."
     )
     , ABOUT(
-        game == GameId::OTHER_GAMES
+        game_profile(game).name.empty()
             ? "<b>About the game (optional):</b><br>Which game it is and what Claude should know about it: "
               "its controls, where the save is, what to stay away from. Without it Claude finds out from the "
               "screen."
@@ -665,7 +829,29 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
         send_program_finished_notification(env, NOTIFICATION_PROGRAM_FINISH, ending.summary);
     };
 
-    if (profile.pad == PadKind::RIGHT_JOYCON){
+    if (profile.pad == PadKind::PS3_CONTROLLER || profile.pad == PadKind::XBOX_CONTROLLER){
+        const bool xbox = profile.pad == PadKind::XBOX_CONTROLLER;
+        ProController& controller = env.console.controller<ProController>();
+        if (dynamic_cast<PABotBase2_WiredController*>(&controller) == nullptr){
+            throw UserSetupError(
+                env.console,
+                xbox
+                    ? "The Pico with OGX-Mini takes a Switch pad: pick NS1: Wired Controller as the type of the "
+                      "controller (on a wired board, the ESP32-S3)."
+                    : "A PlayStation 3 takes a plain USB gamepad: pick NS1: Wired Controller as the type of the "
+                      "controller (on a wired board, the ESP32-S3)."
+            );
+        }
+        ProControllerContext context(scope, controller);
+        if (!context->is_ready()){
+            throw UserSetupError(context->logger(), "Controller is not ready.");
+        }
+        WiredPadConsole console(
+            env, context, text_language,
+            pad_layout(profile.pad), xbox ? &xbox_button_of : &ps3_button_of
+        );
+        session(console, context);
+    }else if (profile.pad == PadKind::RIGHT_JOYCON){
         JoyconContext context(scope, env.console.controller<RightJoycon>());
         if (!context->is_ready()){
             throw UserSetupError(context->logger(), "Controller is not ready.");
@@ -744,6 +930,10 @@ QRgb card_ground(GameId game){
         return qRgb(0x9a, 0x2f, 0x8c);
     case GameId::ANIMAL_CROSSING_NEW_HORIZONS:
         return qRgb(0x3a, 0x86, 0x58);
+    case GameId::PLAYSTATION_3:
+        return qRgb(0x2a, 0x4f, 0x9a);
+    case GameId::ORIGINAL_XBOX:
+        return qRgb(0x3c, 0x7a, 0x34);
     default:
         return qRgb(0x44, 0x4a, 0x5c);
     }
