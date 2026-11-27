@@ -327,8 +327,9 @@ std::map<GameId, GameProfile> make_profiles(){
         GameId::IPHONE, "iPhone:ClaudePlays", "iPhone", "iPhone apps",
         "The device is an iPhone, worked with a keyboard through Full Keyboard Access (an accessibility "
         "setting): a frame shows which item has the focus. TAB goes to the next item and SHIFT_TAB back, the "
-        "arrow keys move between items, SPACE taps the item that has the focus, ESCAPE goes back, HOME goes "
-        "to the home screen. Games that want touches on the screen itself cannot be played this way: this is "
+        "arrow keys move between items, SPACE taps the item that has the focus, ESCAPE often goes back or closes "
+        "a sheet (where it does not, move the frame to the app's Back button and press SPACE), HOME goes to the "
+        "home screen. Games that want touches on the screen itself cannot be played this way: this is "
         "for apps and their menus.",
         PadKind::IPHONE_KEYBOARD, "iphone"
     );

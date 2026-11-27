@@ -2514,7 +2514,7 @@ const BoardSpec& spec_for(const QString& board, const QString& console){
         {"Restart the board", "Press the EN or RESET button, or unplug both cables and plug them in again.", Action::NONE},
         {"Prepare the Pico with OGX-Mini", "Copy the Pi Pico file of OGX-Mini onto the Pico, as for the original Xbox. Then put it in its Xbox 360 mode once: plug any USB controller into it and hold START and UP for 3 seconds.", Action::NONE},
         {"Connect the Pico", "Plug the USB or OTG port of the ESP32-S3 into the Pico's port for a controller, and the Pico into the computer: Windows sees an Xbox 360 controller.", Action::NONE},
-        {"Start Remote Play", "Turn on remote features on the Xbox. In Edge or Chrome, open xbox.com/remoteplay, sign in and start Remote Play of your console.", Action::NONE},
+        {"Start Remote Play", "Turn on remote features on the Xbox. In Edge or Chrome, open xbox.com/remoteplay, sign in and start Remote Play of your console. Keep that window in front while Claude plays: the browser may read the pad only then, and the program needs no focus.", Action::NONE},
         {OBS_TITLE, OBS_SUB, Action::NONE},
         {"Select the controller and the port", "In the program, pick Serial: PABotBase2 in the first dropdown, then your device as the serial port. Click Reset Ctrl if it is not listed.", Action::PORTS},
         {"Pick the type and test", "Pick NS1: Wired Controller as the type. Click the video and press the arrow keys: they should move through the menu of the console. This has not been tried with Remote Play yet.", Action::NONE},
