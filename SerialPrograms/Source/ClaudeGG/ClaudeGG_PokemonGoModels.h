@@ -9,6 +9,7 @@
  *                    is this, and how sure is it
  *    map_objects()   the map detector: Pokémon, gyms and PokéStops on a map
  *    buttons()       the detector of what can be clicked
+ *    encounter_objects()  the encounter detector: the ring of a Pokémon, its box, the ball
  *    throw_params()  the throw predictor: where and how long to swipe for a ball
  *
  *  The Raspberry Pi runs the TFLite files with LiteRT; this program runs ONNX
@@ -24,12 +25,19 @@
  *  The two runtimes do not give the same bits, so the check has a margin:
  *  certainties and scores differ by at most 1e-4, a position or a size by at
  *  most one pixel, a throw by 0.01.  Mobile/tools/make_models_golden.py makes
- *  a file with what the TFLite models say on 110 pictures (and on 200 throws)
+ *  a file with what the TFLite models say on 110 pictures, on 18 made-up answers of a network (and on 200 throws)
  *  and run_models_checks() holds this port to it in every build (--mobile-test,
  *  when the models are there: see CLAUDEGG_MODELS).
  *
- *  Not here yet: the encounter detector (it ends in an operation that ONNX has
- *  no name for), and the loop that takes the pictures and acts on the answers.
+ *  The encounter detector ends in an operation that ONNX has no name for
+ *  (TFLite_Detection_PostProcess), so its network is cut in front of it (see
+ *  Mobile/tools/convert_models_to_onnx.py) and this port does what that
+ *  operation did: decode the 51,150 boxes with the anchors, take the best class
+ *  of every box, and keep the 10 best boxes that do not cover each other (the
+ *  fast variant of non-maximum suppression, as TensorFlow Lite does it, down to
+ *  the order of equal certainties).
+ *
+ *  Not here yet: the loop that takes the pictures and acts on the answers.
  *
  */
 
@@ -57,9 +65,11 @@ extern const int FRAME_H;
 extern const char* const FILE_CLASSIFIER;       //  model_classifier_screen_v5.onnx
 extern const char* const FILE_MAP;              //  model_detector_map_v2.onnx
 extern const char* const FILE_CLICKABLE;        //  model_detector_clickable_v2.onnx
+extern const char* const FILE_ENCOUNTER;        //  model_detector_encounter.onnx (cut in front of the post-processing)
 extern const char* const FILE_PREDICTOR;        //  predictor.onnx
 extern const char* const FILE_MAP_ANCHORS;      //  model_detector_map_v2_anchors.f32 (27,621 x 4 floats)
 extern const char* const FILE_CLICKABLE_ANCHORS;
+extern const char* const FILE_ENCOUNTER_ANCHORS;    //  model_detector_encounter_anchors.f32 (51,150 x 4 floats: y, x, h, w)
 
 
 //  A box a detector found: the label, how sure it is (0 - 1), the middle and the size in pixels of the picture it looked at.
@@ -110,6 +120,12 @@ public:
     std::vector<Detection> map_objects(const cv::Mat& bgr, double threshold = 0.2, int top = 10) const;
     std::vector<Detection> buttons(const cv::Mat& bgr, double threshold = 0.2, int top = 10) const;
 
+    //  Brain.encounter_objects: the network once (encounter_raw: 51,150 boxes and 51,150 x 4 certainties, the background and
+    //  three classes) and what TensorFlow Lite's post-processing and gamebot.py make of it (decode_encounter).
+    RawBoxes encounter_raw(const cv::Mat& bgr) const;
+    std::vector<Detection> decode_encounter(const RawBoxes& raw, double threshold) const;
+    std::vector<Detection> encounter_objects(const cv::Mat& bgr, double threshold = 0.2) const;
+
     ThrowParams throw_params(double cx, double cy, double w, double h) const;
 
 private:
@@ -125,6 +141,11 @@ std::vector<Detection> decode_detections(
     const std::vector<std::string>& labels,
     double threshold, int top
 );
+
+
+//  The post-processing of the encounter detector on its own: the anchors are (y, x, h, w) per box.  Returns what gamebot.py's
+//  Brain.encounter_objects returns: the best of the 10 boxes at the threshold or above, best first.
+std::vector<Detection> decode_encounter_detections(const RawBoxes& raw, const std::vector<float>& anchors, double threshold);
 
 
 //  Holds the port to models_golden.json (the files of the models are in `models`, the pictures in `fixtures`

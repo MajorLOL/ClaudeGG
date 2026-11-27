@@ -15,6 +15,11 @@ the non-maximum suppression; at three thresholds, the last two so low that the d
 do on pictures that show no map), and the throw predictor.  The pictures are the frames of the fights, the home screens
 and the little game in tests/fixtures/, whole and in one cut-out each (a fixed seed makes it the same every time).
 
+The encounter detector (Brain.encounter_objects) is in it too, with its own post-processing: the C++ port runs the network cut
+in front of that (convert_models_to_onnx.cut_encounter) and does the rest itself, so this tool has a second way to the same
+answers, a NumPy version of TensorFlow Lite's post-processing, and makes sure that it agrees with the whole model on every
+picture before it is used for the made-up answers.
+
 The choice from a detector's boxes is held on its own too: "decode" has the answers of Brain._ssd to made-up answers of
 a network (27,621 boxes and certainties from a little generator of numbers that both sides have, with many equal
 certainties, so the order of the equal ones counts).
@@ -26,6 +31,7 @@ import json
 import os
 import random
 import sys
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -33,6 +39,7 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
+sys.path.insert(0, HERE)
 
 FIXTURES = os.path.join(ROOT, "tests", "fixtures")
 OUT = os.path.join(FIXTURES, "models_golden.json")
@@ -40,6 +47,7 @@ SEED = 20261129
 SCORE_TOL = 1e-4
 PIXEL_TOL = 1
 THROW_TOL = 0.01
+ENCOUNTER_LOOKS = [0.2, 0.0]                       # thresholds of Brain.encounter_objects: its own, and none
 LOOKS = [(0.2, 10), (0.01, 10), (0.01, 200)]      # (threshold, how many) of Brain._ssd: its own, and two low ones
 BOXES = 27621
 MASK = (1 << 64) - 1
@@ -48,6 +56,9 @@ DECODES = [(kind, seed, w, h, th, top)
            for kind in ("map", "clickable")
            for seed, (w, h) in ((11, (772, 618)), (12, (1768, 2208)))
            for th, top in ((0.2, 10), (0.0, 200), (0.05, 5))]
+DECODES += [("encounter", seed, w, h, th, 10)
+            for seed, (w, h) in ((21, (772, 618)), (22, (437, 360)), (23, (1768, 2208)))
+            for th in ENCOUNTER_LOOKS]
 
 
 class Lcg:
@@ -60,18 +71,20 @@ class Lcg:
         return self.state >> 33
 
 
-def made_up_answer(seed, classes):
+def made_up_answer(seed, classes, count=BOXES):
     """(boxes [N, 4], certainties [N, classes]) of a network that never was: most certainties low, a few high, and all of
-    them from short lists of values, so that many are equal."""
+    them from short lists of values, so that many are equal (also the ones of the classes of one box)."""
     g = Lcg(seed)
-    boxes = np.empty((BOXES, 4), np.float32)
-    scores = np.empty((BOXES, classes), np.float32)
-    for n in range(BOXES):
+    boxes = np.empty((count, 4), np.float32)
+    scores = np.empty((count, classes), np.float32)
+    for n in range(count):
         for j in range(4):
             boxes[n, j] = ((g.next() % 2001) - 1000) / 10000.0 if j < 2 else ((g.next() % 1001) - 500) / 1000.0
         for c in range(classes):
             r = g.next()
             scores[n, c] = (r % 100) / 100.0 if (r >> 10) % 25 == 0 else (r % 16) / 160.0
+            if c > 0 and (r >> 4) % 5 == 0:         # now and then a class is exactly as sure as the one before it
+                scores[n, c] = scores[n, c - 1]
     return boxes, scores
 
 
@@ -119,7 +132,60 @@ def make_brain(folder):
     brain.map_anchors = anchors["model_detector_map_v2_anchors"]
     brain.clk_anchors = anchors["model_detector_clickable_v2_anchors"]
     brain.pred = dict(np.load(os.path.join(ROOT, "models", "predictor_weights.npz")))
+    brain.enc = load("model_detector_encounter.tflite")
+    # the same network cut in front of its post-processing (what the C++ port runs), and its anchors
+    import convert_models_to_onnx as C
+    cut, brain.enc_anchors = C.cut_encounter(Path(folder) / "model_detector_encounter.tflite")
+    brain.enc_cut = Interpreter(model_content=cut, num_threads=1)
+    brain.enc_cut.allocate_tensors()
     return G, brain
+
+
+def encounter_reference(G, boxes, certainties, anchors, w0, h0, th):
+    """TensorFlow Lite's TFLite_Detection_PostProcess in its fast variant with the settings of the encounter detector
+    (y and x scale 10, h and w scale 5, 10 detections, one class per box, overlap 0.6, no threshold), then the end of
+    Brain.encounter_objects.  The box decoding is in double and then float as TensorFlow Lite does it, the rest in float32;
+    equal certainties keep the order of the boxes."""
+    n = len(boxes)
+    be, an = boxes.astype(np.float64), anchors.astype(np.float64)
+    y_center = (be[:, 0] / 10.0 * an[:, 2] + an[:, 0]).astype(np.float32)
+    x_center = (be[:, 1] / 10.0 * an[:, 3] + an[:, 1]).astype(np.float32)
+    half_h = (0.5 * np.exp(be[:, 2] / 5.0) * an[:, 2]).astype(np.float32)
+    half_w = (0.5 * np.exp(be[:, 3] / 5.0) * an[:, 3]).astype(np.float32)
+    ymin, xmin, ymax, xmax = y_center - half_h, x_center - half_w, y_center + half_h, x_center + half_w
+    classes = certainties[:, 1:]
+    best = classes.argmax(axis=1)
+    top = classes[np.arange(n), best]
+    order = np.flatnonzero(~(top < 0.0))
+    order = order[np.argsort(-top[order], kind="stable")]
+    area = (ymax - ymin) * (xmax - xmin)
+    selected, active = [], np.ones(len(order), bool)
+    zero = np.float32(0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        for i in range(len(order)):
+            if len(selected) >= 10:
+                break
+            if not active[i]:
+                continue
+            a = order[i]
+            selected.append(a)
+            active[i] = False
+            rest = np.flatnonzero(active[i + 1:]) + i + 1
+            if not len(rest):
+                continue
+            b = order[rest]
+            inter = (np.maximum(np.minimum(ymax[a], ymax[b]) - np.maximum(ymin[a], ymin[b]), zero)
+                     * np.maximum(np.minimum(xmax[a], xmax[b]) - np.maximum(xmin[a], xmin[b]), zero))
+            iou = np.where((area[a] <= 0) | (area[b] <= 0), zero, inter / (area[a] + area[b] - inter))
+            active[rest[iou > np.float32(0.6)]] = False
+    found = []
+    for a in selected:
+        score = top[a]
+        if score >= np.float32(th):
+            y1, x1, y2, x2 = ymin[a], xmin[a], ymax[a], xmax[a]
+            found.append((G.ENC_LABELS[int(best[a])], float(score), int((x1 + x2) / 2 * w0), int((y1 + y2) / 2 * h0),
+                          int((x2 - x1) * w0), int((y2 - y1) * h0)))
+    return sorted(found, key=lambda t: -t[1])
 
 
 def pictures():
@@ -159,6 +225,16 @@ def read(G, brain, folder_picture):
                        "found": [[o[0], o[1], o[2], o[3], o[4], o[5]]
                                  for o in brain._ssd(it, anchors, labels, img, th=th, top=top)]}
                       for th, top in LOOKS]
+    # the encounter detector: the whole model, and the NumPy post-processing on the cut network (they must agree)
+    rgb = cv2.cvtColor(cv2.resize(img, (640, 640)), cv2.COLOR_BGR2RGB)
+    cut = G.Brain._run(brain.enc_cut, (rgb.astype(np.float32) - 127.5) / 127.5)
+    case["encounter"] = []
+    for th in ENCOUNTER_LOOKS:
+        found = [[o[0], o[1], o[2], o[3], o[4], o[5]] for o in brain.encounter_objects(img, th=th)]
+        mine = encounter_reference(G, cut["concat"], cut["convert_scores"], brain.enc_anchors, img.shape[1], img.shape[0], th)
+        why = found_differ(found, [list(o) for o in mine])
+        assert why is None, f"the NumPy post-processing is not what the model does ({name}, {th}): {why}"
+        case["encounter"].append({"th": th, "found": found})
     return case
 
 
@@ -175,6 +251,14 @@ def throws(G, brain):
 def decodes(G, brain):
     out, cache = [], {}
     for kind, seed, w, h, th, top in DECODES:
+        if kind == "encounter":
+            if (kind, seed) not in cache:
+                cache[(kind, seed)] = made_up_answer(seed, 4, len(brain.enc_anchors))
+            boxes, certainties = cache[(kind, seed)]
+            found = encounter_reference(G, boxes, certainties, brain.enc_anchors, w, h, th)
+            out.append({"kind": kind, "seed": seed, "w": w, "h": h, "th": th, "top": top,
+                        "found": [[o[0], o[1], o[2], o[3], o[4], o[5]] for o in found]})
+            continue
         anchors, labels = ((brain.map_anchors, G.MAP_LABELS) if kind == "map" else (brain.clk_anchors, G.CLICK_LABELS))
         if (kind, seed) not in cache:
             cache[(kind, seed)] = made_up_answer(seed, len(labels))
@@ -225,6 +309,10 @@ def differences(a, b):
                 why = found_differ(u["found"], v["found"])
                 if why:
                     out.append(f"case {n}: {kind} at {u['th']}: {why}")
+        for u, v in zip(x["encounter"], y["encounter"]):
+            why = found_differ(u["found"], v["found"])
+            if why:
+                out.append(f"case {n}: encounter at {u['th']}: {why}")
     for n, (x, y) in enumerate(zip(a["decode"], b["decode"])):
         why = found_differ(x["found"], y["found"])
         if why:
@@ -237,7 +325,7 @@ def differences(a, b):
 
 def main(argv):
     folder = models_dir(argv)
-    for name in ("model_classifier_screen_v5", "model_detector_map_v2", "model_detector_clickable_v2"):
+    for name in ("model_classifier_screen_v5", "model_detector_map_v2", "model_detector_clickable_v2", "model_detector_encounter"):
         if not os.path.isfile(os.path.join(folder, name + ".tflite")):
             print(f"{name}.tflite is not in {folder} (--models DIR)")
             return 2

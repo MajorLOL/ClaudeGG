@@ -831,6 +831,7 @@ jobs:
           $files = [ordered]@{
             "model_classifier_screen_v5.tflite" = "6ef82b3185b39c1f777ac54db0a1498527c5d26f16eb575c2e21cb246172fa32"
             "model_detector_clickable_v2.tflite" = "ec4e3aeb614cfaf58e7d5385aad0fc2a8cd97a689eb7e37f7be180771a746027"
+            "model_detector_encounter.tflite" = "02ca77129978855dedb57dbaa01e59b8e48ddcaadff0b5a6944c1e68268633ae"
             "model_detector_map_v2.tflite" = "a6d282845cd09bd4d09d611493b33d87a614174d3baeb2387309710d81b0a352"
             "predictor.tflite" = "6011bb3529b0726fb700bb82a7d89cb6e1e41bbc955a52f913de230bb0713874"
           }
@@ -844,7 +845,7 @@ jobs:
           $python = "${{ steps.models_python.outputs.python-path }}"
           & $python -m venv (Join-Path $dir "venv")
           $venv = Join-Path $dir "venv/Scripts/python.exe"
-          & $venv -m pip install --disable-pip-version-check --quiet numpy==2.2.6 tflite==2.18.0 tflite2onnx==0.4.1 onnx==1.23.2
+          & $venv -m pip install --disable-pip-version-check --quiet numpy==2.2.6 ai-edge-litert==2.4.1 tflite==2.18.0 tflite2onnx==0.4.1 onnx==1.23.2
           if ($LASTEXITCODE -ne 0) {
             throw "The tools for the models could not be installed."
           }

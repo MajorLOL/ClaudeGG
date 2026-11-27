@@ -13,7 +13,8 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOL = os.path.join(HERE, "..", "tools", "make_models_golden.py")
-NEEDED = ("model_classifier_screen_v5.tflite", "model_detector_map_v2.tflite", "model_detector_clickable_v2.tflite")
+NEEDED = ("model_classifier_screen_v5.tflite", "model_detector_map_v2.tflite", "model_detector_clickable_v2.tflite",
+          "model_detector_encounter.tflite")
 
 
 def models_folder():

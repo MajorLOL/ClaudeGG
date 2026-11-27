@@ -37,9 +37,11 @@ const int FRAME_H = 2208;
 const char* const FILE_CLASSIFIER = "model_classifier_screen_v5.onnx";
 const char* const FILE_MAP = "model_detector_map_v2.onnx";
 const char* const FILE_CLICKABLE = "model_detector_clickable_v2.onnx";
+const char* const FILE_ENCOUNTER = "model_detector_encounter.onnx";
 const char* const FILE_PREDICTOR = "predictor.onnx";
 const char* const FILE_MAP_ANCHORS = "model_detector_map_v2_anchors.f32";
 const char* const FILE_CLICKABLE_ANCHORS = "model_detector_clickable_v2_anchors.f32";
+const char* const FILE_ENCOUNTER_ANCHORS = "model_detector_encounter_anchors.f32";
 
 
 namespace{
@@ -53,11 +55,17 @@ const std::vector<std::string> MAP_LABELS = {
     "background", "gym", "pokemon", "pokestop", "rocket_pokestop", "unable_pokestop",
 };
 const std::vector<std::string> CLICK_LABELS = {"background", "clickable", "passenger"};
+const std::vector<std::string> ENCOUNTER_LABELS = {"pokeball", "dynamicBox", "boundingBox"};
 
 const size_t ANCHORS = 27621;               //  boxes of both detectors
 const int DETECTOR_SIZE = 384;              //  the picture of a detector, in pixels, both ways
 const int CLASSIFIER_SIZE = 224;
 const int CLASSIFIER_FIRST_SIZE = 256;      //  the classifier's picture is made 256 x 256 first
+const size_t ENCOUNTER_BOXES = 51150;       //  boxes of the encounter detector
+const int ENCOUNTER_SIZE = 640;
+const size_t ENCOUNTER_CLASSES = 4;         //  the background and three
+const size_t ENCOUNTER_MOST = 10;           //  max_detections of its post-processing
+const float ENCOUNTER_OVERLAP = 0.6f;       //  nms_iou_threshold
 const size_t MOST_BEFORE_NMS = 200;
 const double TOO_BIG = 0.6;                 //  a box wider or higher than this share of the picture is nonsense
 const double NMS_OVERLAP = 0.5;
@@ -215,6 +223,26 @@ RawBoxes run_detector(Net& net, const cv::Mat& bgr){
 }
 
 
+RawBoxes run_encounter(Net& net, const cv::Mat& bgr){
+    require_picture(bgr);
+    cv::Mat small;
+    cv::resize(bgr, small, cv::Size(ENCOUNTER_SIZE, ENCOUNTER_SIZE));
+    std::vector<float> input = network_input(small, true);
+    std::vector<Net::Output> out = net.run(input, {1, 3, ENCOUNTER_SIZE, ENCOUNTER_SIZE});
+    //  The network was cut in front of its post-processing: the box encodings, then the certainties.
+    if (out.size() != 2 || out[0].data.size() != ENCOUNTER_BOXES * 4 || out[1].data.size() != ENCOUNTER_BOXES * ENCOUNTER_CLASSES){
+        throw std::runtime_error("the encounter detector did not answer with box encodings and certainties");
+    }
+    RawBoxes raw;
+    raw.picture_w = bgr.cols;
+    raw.picture_h = bgr.rows;
+    raw.classes = static_cast<int>(ENCOUNTER_CLASSES);
+    raw.boxes = std::move(out[0].data);
+    raw.scores = std::move(out[1].data);
+    return raw;
+}
+
+
 //  _nms of gamebot.py: the boxes (best first) without the ones that mostly cover a better box of the same label.
 std::vector<Detection> nms(const std::vector<Detection>& boxes){
     std::vector<Detection> keep;
@@ -250,23 +278,28 @@ struct Models::Impl{
     Net classifier;
     Net map;
     Net clickable;
+    Net encounter;
     Net predictor;
     std::vector<float> map_anchors;
     std::vector<float> clickable_anchors;
+    std::vector<float> encounter_anchors;
 
     explicit Impl(const QString& folder)
         : classifier(folder + "/" + FILE_CLASSIFIER)
         , map(folder + "/" + FILE_MAP)
         , clickable(folder + "/" + FILE_CLICKABLE)
+        , encounter(folder + "/" + FILE_ENCOUNTER)
         , predictor(folder + "/" + FILE_PREDICTOR)
         , map_anchors(read_floats(folder + "/" + FILE_MAP_ANCHORS, ANCHORS * 4))
         , clickable_anchors(read_floats(folder + "/" + FILE_CLICKABLE_ANCHORS, ANCHORS * 4))
+        , encounter_anchors(read_floats(folder + "/" + FILE_ENCOUNTER_ANCHORS, ENCOUNTER_BOXES * 4))
     {}
 };
 
 
 Models::Models(const QString& folder){
-    for (const char* name : {FILE_CLASSIFIER, FILE_MAP, FILE_CLICKABLE, FILE_PREDICTOR, FILE_MAP_ANCHORS, FILE_CLICKABLE_ANCHORS}){
+    for (const char* name : {FILE_CLASSIFIER, FILE_MAP, FILE_CLICKABLE, FILE_ENCOUNTER, FILE_PREDICTOR,
+                             FILE_MAP_ANCHORS, FILE_CLICKABLE_ANCHORS, FILE_ENCOUNTER_ANCHORS}){
         if (!QFile::exists(folder + "/" + name)){
             throw std::runtime_error(std::string(name) + " is not in " + folder.toStdString());
         }
@@ -327,6 +360,19 @@ std::vector<Detection> Models::map_objects(const cv::Mat& bgr, double threshold,
 
 std::vector<Detection> Models::buttons(const cv::Mat& bgr, double threshold, int top) const{
     return decode_clickable(clickable_raw(bgr), threshold, top);
+}
+
+
+RawBoxes Models::encounter_raw(const cv::Mat& bgr) const{
+    return run_encounter(m_impl->encounter, bgr);
+}
+
+std::vector<Detection> Models::decode_encounter(const RawBoxes& raw, double threshold) const{
+    return decode_encounter_detections(raw, m_impl->encounter_anchors, threshold);
+}
+
+std::vector<Detection> Models::encounter_objects(const cv::Mat& bgr, double threshold) const{
+    return decode_encounter(encounter_raw(bgr), threshold);
 }
 
 
@@ -407,6 +453,103 @@ std::vector<Detection> decode_detections(
 }
 
 
+//  The post-processing of the encounter detector, TFLite_Detection_PostProcess of TensorFlow Lite in its fast variant
+//  (use_regular_nms is off) with the settings of the model (y and x scale 10, h and w scale 5, 10 detections, one class per box,
+//  overlap 0.6, no threshold on the certainty), and then the end of Brain.encounter_objects of gamebot.py.  The arithmetic is
+//  the one of TensorFlow Lite: the box decoding in double and then a float, the rest in float.
+std::vector<Detection> decode_encounter_detections(const RawBoxes& raw, const std::vector<float>& anchors, double threshold){
+    std::vector<Detection> found;
+    const size_t boxes = raw.boxes.size() / 4;
+    if (raw.classes != static_cast<int>(ENCOUNTER_CLASSES) || boxes == 0 || raw.scores.size() != boxes * ENCOUNTER_CLASSES ||
+        anchors.size() != raw.boxes.size()
+    ){
+        return found;
+    }
+
+    struct Corners{
+        float ymin, xmin, ymax, xmax;
+    };
+    std::vector<Corners> corners(boxes);
+    for (size_t n = 0; n < boxes; n++){
+        const double by = static_cast<double>(raw.boxes[4 * n]), bx = static_cast<double>(raw.boxes[4 * n + 1]);
+        const double bh = static_cast<double>(raw.boxes[4 * n + 2]), bw = static_cast<double>(raw.boxes[4 * n + 3]);
+        const double ay = static_cast<double>(anchors[4 * n]), ax = static_cast<double>(anchors[4 * n + 1]);
+        const double ah = static_cast<double>(anchors[4 * n + 2]), aw = static_cast<double>(anchors[4 * n + 3]);
+        const float y_center = static_cast<float>(by / 10.0 * ah + ay);
+        const float x_center = static_cast<float>(bx / 10.0 * aw + ax);
+        const float half_h = static_cast<float>(0.5 * std::exp(bh / 5.0) * ah);
+        const float half_w = static_cast<float>(0.5 * std::exp(bw / 5.0) * aw);
+        corners[n] = {y_center - half_h, x_center - half_w, y_center + half_h, x_center + half_w};
+    }
+
+    //  the best class of every box (class 0 is the background; of equal certainties the first), the boxes in order of their
+    //  certainty (equal ones in the order of the boxes)
+    std::vector<size_t> best_class(boxes);
+    std::vector<float> best_score(boxes);
+    std::vector<size_t> sorted;
+    for (size_t n = 0; n < boxes; n++){
+        const float* row = &raw.scores[n * ENCOUNTER_CLASSES];
+        size_t best = 1;
+        for (size_t c = 2; c < ENCOUNTER_CLASSES; c++){
+            if (row[c] > row[best]){
+                best = c;
+            }
+        }
+        best_class[n] = best;
+        best_score[n] = row[best];
+        if (!(row[best] < 0.0f)){       //  nms_score_threshold is 0
+            sorted.push_back(n);
+        }
+    }
+    std::stable_sort(sorted.begin(), sorted.end(), [&](size_t a, size_t b){
+        return best_score[a] > best_score[b];
+    });
+
+    const auto overlap = [&](size_t i, size_t j){
+        const Corners& a = corners[i];
+        const Corners& b = corners[j];
+        const float area_a = (a.ymax - a.ymin) * (a.xmax - a.xmin);
+        const float area_b = (b.ymax - b.ymin) * (b.xmax - b.xmin);
+        if (area_a <= 0 || area_b <= 0){
+            return 0.0f;
+        }
+        const float ymin = std::max(a.ymin, b.ymin), xmin = std::max(a.xmin, b.xmin);
+        const float ymax = std::min(a.ymax, b.ymax), xmax = std::min(a.xmax, b.xmax);
+        const float area = std::max(ymax - ymin, 0.0f) * std::max(xmax - xmin, 0.0f);
+        return area / (area_a + area_b - area);
+    };
+    std::vector<size_t> selected;
+    std::vector<uint8_t> active(sorted.size(), 1);
+    for (size_t i = 0; i < sorted.size() && selected.size() < ENCOUNTER_MOST; i++){
+        if (!active[i]){
+            continue;
+        }
+        selected.push_back(sorted[i]);
+        active[i] = 0;
+        for (size_t j = i + 1; j < sorted.size(); j++){
+            if (active[j] && overlap(sorted[i], sorted[j]) > ENCOUNTER_OVERLAP){
+                active[j] = 0;
+            }
+        }
+    }
+
+    const float limit = static_cast<float>(threshold);
+    const float w0 = static_cast<float>(raw.picture_w), h0 = static_cast<float>(raw.picture_h);
+    for (size_t n : selected){
+        if (!(best_score[n] >= limit)){
+            continue;
+        }
+        const Corners& box = corners[n];
+        found.push_back(Detection{
+            ENCOUNTER_LABELS[best_class[n] - 1], static_cast<double>(best_score[n]),
+            to_int((box.xmin + box.xmax) / 2 * w0), to_int((box.ymin + box.ymax) / 2 * h0),
+            to_int((box.xmax - box.xmin) * w0), to_int((box.ymax - box.ymin) * h0),
+        });
+    }
+    return found;
+}
+
+
 //  ---- the check against models_golden.json ---------------------------------------------------------------------------
 
 namespace{
@@ -475,16 +618,16 @@ private:
 
 
 //  The answer of a network that never was (see made_up_answer() in make_models_golden.py): most certainties low, a few
-//  high, all from short lists of values, so that many are equal.
-RawBoxes made_up_answer(uint64_t seed, int classes, int picture_w, int picture_h){
+//  high, all from short lists of values, so that many are equal (also the ones of the classes of one box).
+RawBoxes made_up_answer(uint64_t seed, int classes, int picture_w, int picture_h, size_t count){
     Lcg g(seed);
     RawBoxes raw;
     raw.picture_w = picture_w;
     raw.picture_h = picture_h;
     raw.classes = classes;
-    raw.boxes.resize(ANCHORS * 4);
-    raw.scores.resize(ANCHORS * static_cast<size_t>(classes));
-    for (size_t n = 0; n < ANCHORS; n++){
+    raw.boxes.resize(count * 4);
+    raw.scores.resize(count * static_cast<size_t>(classes));
+    for (size_t n = 0; n < count; n++){
         for (size_t j = 0; j < 4; j++){
             raw.boxes[4 * n + j] = j < 2
                 ? static_cast<float>((static_cast<double>(g.next() % 2001) - 1000.0) / 10000.0)
@@ -492,9 +635,13 @@ RawBoxes made_up_answer(uint64_t seed, int classes, int picture_w, int picture_h
         }
         for (size_t c = 0; c < static_cast<size_t>(classes); c++){
             const uint32_t r = g.next();
-            raw.scores[n * static_cast<size_t>(classes) + c] = static_cast<float>(
+            const size_t at = n * static_cast<size_t>(classes) + c;
+            raw.scores[at] = static_cast<float>(
                 (r >> 10) % 25 == 0 ? static_cast<double>(r % 100) / 100.0 : static_cast<double>(r % 16) / 160.0
             );
+            if (c > 0 && (r >> 4) % 5 == 0){        //  now and then a class is exactly as sure as the one before it
+                raw.scores[at] = raw.scores[at - 1];
+            }
         }
     }
     return raw;
@@ -591,6 +738,21 @@ int run_models_checks(const QString& golden, const QString& fixtures, const QStr
                 }
             }
 
+            //  the encounter detector
+            {
+                const RawBoxes raw = net->encounter_raw(img);
+                for (const QJsonValue& look_value : one.value("encounter").toArray()){
+                    const QJsonObject look = look_value.toObject();
+                    const double th = look.value("th").toDouble();
+                    const QString difference = detections_differ(
+                        detections_of(look.value("found").toArray()), net->decode_encounter(raw, th), margins
+                    );
+                    if (!difference.isEmpty()){
+                        fail(QString("%1: the encounter detector at %2: %3").arg(where).arg(th).arg(difference));
+                    }
+                }
+            }
+
             //  the detectors: one run, then every look at it
             for (const char* kind : {"map", "clickable"}){
                 const bool is_map = std::strcmp(kind, "map") == 0;
@@ -611,14 +773,17 @@ int run_models_checks(const QString& golden, const QString& fixtures, const QStr
         const QJsonArray decode = root.value("decode").toArray();
         for (qsizetype index = 0; index < decode.size(); index++){
             const QJsonObject one = decode[index].toObject();
-            const bool is_map = one.value("kind").toString() == "map";
+            const QString decode_kind = one.value("kind").toString();
+            const bool is_map = decode_kind == "map";
+            const bool is_encounter = decode_kind == "encounter";
             const RawBoxes raw = made_up_answer(
-                static_cast<uint64_t>(one.value("seed").toDouble()), is_map ? 6 : 3,
-                one.value("w").toInt(), one.value("h").toInt()
+                static_cast<uint64_t>(one.value("seed").toDouble()), is_encounter ? 4 : is_map ? 6 : 3,
+                one.value("w").toInt(), one.value("h").toInt(), is_encounter ? ENCOUNTER_BOXES : ANCHORS
             );
             const double th = one.value("th").toDouble();
             const int top = one.value("top").toInt();
-            const std::vector<Detection> got = is_map ? net->decode_map(raw, th, top) : net->decode_clickable(raw, th, top);
+            const std::vector<Detection> got = is_encounter ? net->decode_encounter(raw, th)
+                : is_map ? net->decode_map(raw, th, top) : net->decode_clickable(raw, th, top);
             const QString difference = detections_differ(detections_of(one.value("found").toArray()), got, margins);
             if (!difference.isEmpty()){
                 fail(QString("made-up answer %1 (%2, seed %3, threshold %4, best %5): %6")
