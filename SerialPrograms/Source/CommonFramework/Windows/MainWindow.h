@@ -127,6 +127,9 @@ private:
     void make_app_view(bool test);
     //  The program of the last time, for "Continue with ..." on the games.
     void update_resume();
+    //  ClaudeGG: which controller the open program has and whether it is
+    //  connected, for the header of its page (asked twice a second).
+    void update_controllers();
     void set_sleep_label(const QString& text);
     void make_assistant(
         std::unique_ptr<ClaudeGG::Assistant::HttpTransport> transport,
