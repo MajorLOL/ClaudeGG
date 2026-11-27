@@ -517,8 +517,9 @@ bool xbox360_button_of(const std::string& name, Button& button){
 }
 
 //  Remote Play: the board is a USB gamepad of the computer, and the Remote
-//  Play client (chiaki-ng for a PlayStation, a browser on xbox.com/play for
-//  an Xbox) takes it as a standard gamepad, by the places of its buttons:
+//  Play client (chiaki-ng for a PlayStation; for an Xbox a browser on
+//  xbox.com/remoteplay, through a Pico with OGX-Mini, which makes it an Xbox
+//  360 controller) takes it as a standard gamepad, by the places of its buttons:
 //  the bottom one (B) is CROSS or A. The PlayStation 4 and 5 are laid out as
 //  the PlayStation 3, with OPTIONS for START and SHARE for SELECT; the Xbox
 //  One and Series as the Xbox 360 (xbox360_button_of(), MENU and VIEW).
@@ -871,11 +872,14 @@ std::string setup_text(const GameProfile& profile){
             : console == "psremote" || console == "xboxremote"
             ? std::string(
                 "Remote Play of the console on this computer (") +
-              (console == "psremote" ? "chiaki-ng for a PlayStation 4 or 5" : "a browser on xbox.com/play for an Xbox One or Series") +
+              (console == "psremote" ? "chiaki-ng for a PlayStation 4 or 5" : "a browser on xbox.com/remoteplay for an Xbox One or Series") +
               "), its window as the video (OBS Studio's virtual camera), and the wired board (the ESP32-S3) "
-              "with NS1: Wired Controller as the type, with both its cables in this computer: the Remote Play "
-              "client takes it as a USB gamepad. Not tried yet: first check that the d-pad moves in the "
-              "console's menu"
+              "with NS1: Wired Controller as the type, " +
+              (console == "psremote"
+                  ? "with both its cables in this computer: chiaki-ng takes it as a USB gamepad"
+                  : "plugged into a Raspberry Pi Pico with OGX-Mini in its XInput mode, which is plugged into this "
+                    "computer: the browser takes it as an Xbox 360 controller") +
+              ". Not tried yet: first check that the d-pad moves in the console's menu"
             : console == "iphone"
             ? std::string(
                 "an iPhone with Full Keyboard Access turned on (Settings, Accessibility, Keyboards), its screen "

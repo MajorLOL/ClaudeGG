@@ -319,8 +319,8 @@ std::map<GameId, GameProfile> make_profiles(){
         "The console is an Xbox One or an Xbox Series X|S, played through Remote Play: the picture is its "
         "stream on the computer, and comes a moment late. A usually confirms and B goes back. MENU opens a "
         "game's menu, VIEW its map or a second screen in many games. The Xbox button is not passed on. The "
-        "pad is a USB gamepad of the computer that the Remote Play client passes on: LT and RT are only "
-        "pressed fully, and there is no rumble.",
+        "pad is an Xbox 360 controller of the computer (a board through an adapter) that Remote Play passes "
+        "on: LT and RT are only pressed fully, and there is no rumble.",
         PadKind::XBOXONE_CONTROLLER, "xboxremote"
     );
     other(

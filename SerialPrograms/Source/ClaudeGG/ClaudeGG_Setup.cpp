@@ -2505,15 +2505,19 @@ const BoardSpec& spec_for(const QString& board, const QString& console){
         {"Pick the type", "Pick NS1: Wired Controller as the type, not the Wired Pro Controller. In the settings of chiaki-ng it shows up as a gamepad.", Action::NONE},
         {"Test", "Click the video and press the arrow keys: they should move through the menu of the console. This has not been tried with Remote Play yet.", Action::NONE},
     };
+    //  The Xbox: its Remote Play takes the controllers it lists, so the board
+    //  goes through a Pico with OGX-Mini in its XInput mode, which Windows
+    //  and the browser take as an Xbox 360 controller.
     static const StepText ESP32S3_XBOX_REMOTE[] = {
-        {"Connect both cables", REMOTE_CABLES_SUB, Action::DEVICE},
+        {"Connect the ESP32-S3", "Plug the port labeled COM or UART into the computer. The port labeled USB or OTG goes into the Pico, in a later step. They are not interchangeable.", Action::DEVICE},
         {"Flash the firmware", "Pick the port of the ESP32-S3 and the firmware version, then press Flash now.", Action::FIRMWARE},
         {"Restart the board", "Press the EN or RESET button, or unplug both cables and plug them in again.", Action::NONE},
-        {"Start Remote Play", "Turn on remote features on the Xbox. In Edge or Chrome, open xbox.com/play, sign in and start Remote Play of your console.", Action::NONE},
+        {"Prepare the Pico with OGX-Mini", "Copy the Pi Pico file of OGX-Mini onto the Pico, as for the original Xbox. Then put it in its Xbox 360 mode once: plug any USB controller into it and hold START and UP for 3 seconds.", Action::NONE},
+        {"Connect the Pico", "Plug the USB or OTG port of the ESP32-S3 into the Pico's port for a controller, and the Pico into the computer: Windows sees an Xbox 360 controller.", Action::NONE},
+        {"Start Remote Play", "Turn on remote features on the Xbox. In Edge or Chrome, open xbox.com/remoteplay, sign in and start Remote Play of your console.", Action::NONE},
         {OBS_TITLE, OBS_SUB, Action::NONE},
         {"Select the controller and the port", "In the program, pick Serial: PABotBase2 in the first dropdown, then your device as the serial port. Click Reset Ctrl if it is not listed.", Action::PORTS},
-        {"Pick the type", "Pick NS1: Wired Controller as the type, not the Wired Pro Controller. The browser sees it as a gamepad.", Action::NONE},
-        {"Test", "Click the video and press the arrow keys: they should move through the menu of the console. This has not been tried with Remote Play yet.", Action::NONE},
+        {"Pick the type and test", "Pick NS1: Wired Controller as the type. Click the video and press the arrow keys: they should move through the menu of the console. This has not been tried with Remote Play yet.", Action::NONE},
     };
     static const BoardSpec ESP32S3_PS_REMOTE_SPEC = {
         ESP32S3_PS_REMOTE, sizeof(ESP32S3_PS_REMOTE) / sizeof(ESP32S3_PS_REMOTE[0]),
@@ -2522,8 +2526,8 @@ const BoardSpec& spec_for(const QString& board, const QString& console){
     };
     static const BoardSpec ESP32S3_XBOX_REMOTE_SPEC = {
         ESP32S3_XBOX_REMOTE, sizeof(ESP32S3_XBOX_REMOTE) / sizeof(ESP32S3_XBOX_REMOTE[0]),
-        "Wired to the computer, through Remote Play in a browser. Experimental. Eight steps.", "NS1: Wired Controller",
-        1, -1, 5, 6, 6, true
+        "Wired, through a Pico with OGX-Mini, to Remote Play in a browser. Experimental. Nine steps.", "NS1: Wired Controller",
+        1, -1, 7, 8, 8, true
     };
     if (console == "psremote" && board == "esp32s3"){
         return ESP32S3_PS_REMOTE_SPEC;
@@ -2538,7 +2542,7 @@ const BoardSpec& spec_for(const QString& board, const QString& console){
         {"Connect both cables", "Plug the port labeled COM or UART into the computer, and the port labeled USB or OTG into the iPhone (USB-C, or Lightning with a USB camera adapter). They are not interchangeable.", Action::DEVICE},
         {"Flash the firmware", "Pick the port of the ESP32-S3 and the firmware version, then press Flash now.", Action::FIRMWARE},
         {"Restart the board", "Press the EN or RESET button, or unplug both cables and plug them in again.", Action::NONE},
-        {"Turn on Full Keyboard Access", "On the iPhone, open Settings, then Accessibility, then Keyboards, and turn on Full Keyboard Access.", Action::NONE},
+        {"Turn on Full Keyboard Access", "On the iPhone, open Settings, then Accessibility, then Keyboards, and turn on Full Keyboard Access. Under Commands, set Home to Command-H: its own key, Fn-H, needs an Apple keyboard.", Action::NONE},
         {"Connect the screen", "Plug the iPhone into the capture card with an HDMI adapter. With USB-C, a hub with HDMI and a USB port takes the board too.", Action::NONE},
         {"Select the controller and the port", "In the program, pick Serial: PABotBase2 in the first dropdown, then your device as the serial port. Click Reset Ctrl if it is not listed.", Action::PORTS},
         {"Pick the type", "Pick HID: Keyboard as the type. The iPhone sees a keyboard.", Action::NONE},
@@ -7834,7 +7838,7 @@ constexpr ConsoleInfo CONSOLES[] = {
     //  Remote Play client passes on (the consoles themselves take only pads
     //  that pass their check). Experimental.
     {"psremote",    "PS4 and PS5",          "Remote Play on the computer",  true},
-    {"xboxremote",  "Xbox One and Series",  "Remote Play in a browser",     true},
+    {"xboxremote",  "Xbox One and Series",  "Remote Play, through a Pico with OGX-Mini", true},
     //  The ESP32-S3 as a keyboard, with Full Keyboard Access. Experimental.
     {"iphone",      "iPhone",               "As a keyboard, with Full Keyboard Access", true},
     //  What the gamepad adapters of the community already speak (the
@@ -12602,7 +12606,7 @@ int run_setup_test(QApplication& application, const QString& folder){
         WiredConsole{"console:4", "xbox", "the original Xbox", "steps=8"},
         WiredConsole{"console:6", "xbox360", "the Xbox 360", "steps=8"},
         WiredConsole{"console:7", "psremote", "Remote Play of a PlayStation", "steps=8"},
-        WiredConsole{"console:8", "xboxremote", "Remote Play of an Xbox", "steps=8"},
+        WiredConsole{"console:8", "xboxremote", "Remote Play of an Xbox", "steps=9"},
         WiredConsole{"console:9", "iphone", "the iPhone", "steps=8", "type=HID: Keyboard"},
     }){
         const QString code = QString::fromLatin1(wired.code);
