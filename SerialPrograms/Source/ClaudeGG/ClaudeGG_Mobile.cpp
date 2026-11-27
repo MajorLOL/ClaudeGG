@@ -31,6 +31,7 @@
 #include "ClaudeGG_PokemonGo.h"
 #include "ClaudeGG_PokemonGoBattle.h"
 #include "ClaudeGG_PokemonGoFight.h"
+#include "ClaudeGG_PokemonGoMinigame.h"
 #include "ClaudeGG_PokemonGoNav.h"
 #include "ClaudeGG_PokemonGoVision.h"
 
@@ -698,6 +699,21 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             }
         }
         check(differ == 0, pictures.isEmpty() ? QString("the picture of a fight is read as battle_vision.py reads it") : pictures.last());
+    }
+    //  The little game of a charged attack, ported to C++ (issue #30): icons found and swipes planned as battle_minigame.py does.
+    {
+        QStringList minigame;
+        const int differ = PokemonGo::Minigame::run_minigame_checks(
+            agent_folder + "/../tests/fixtures/minigame_golden.json.qz",
+            agent_folder + "/../tests/fixtures/minigame",
+            minigame
+        );
+        for (const QString& line : minigame){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, minigame.isEmpty() ? QString("the little game of a charged attack is played as battle_minigame.py plays it") : minigame.last());
     }
     if (wrong != 0){
         return finish();

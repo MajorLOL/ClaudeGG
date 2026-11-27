@@ -144,13 +144,23 @@ def groups(points, link=0.26):
     return out
 
 
+def _axis(c):
+    """The main direction of the points `c` (centred, one per row) as a unit vector.  Of its two senses the one
+    that points to the right is taken (to the bottom when it is vertical): what a library gives back is either
+    one, and what is swiped from which end depends on it."""
+    axis = np.linalg.svd(c, full_matrices=False)[2][0]
+    if axis[0] < -1e-12 or (abs(axis[0]) <= 1e-12 and axis[1] < 0):
+        axis = -axis
+    return axis
+
+
 def _in_line(grp):
     """The points of a group sorted along its longest direction."""
     if len(grp) < 3:
         return sorted(grp)
     pts = np.array([(x, y * ASPECT) for x, y in grp], np.float64)
     c = pts - pts.mean(axis=0)
-    axis = np.linalg.svd(c, full_matrices=False)[2][0]
+    axis = _axis(c)
     order = np.argsort(c @ axis)
     return [grp[i] for i in order]
 
@@ -435,7 +445,7 @@ class Game:
         pts = np.array([(x, y * ASPECT) for x, y in grp], np.float64)
         mid = pts.mean(axis=0)
         c = pts - mid
-        axis = np.linalg.svd(c, full_matrices=False)[2][0]           # the direction of the group (in widths)
+        axis = _axis(c)                                              # the direction of the group (in widths)
         across = np.array([-axis[1], axis[0]])
         along, side = c @ axis, c @ across
         a0, a1 = float(along.min()) - reach, float(along.max()) + reach

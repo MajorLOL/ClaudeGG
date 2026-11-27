@@ -7,6 +7,7 @@
 
 #include <vector>
 #include "Common/Cpp/Color.h"
+#include "Common/Cpp/Exceptions.h"
 #include "CommonFramework/ImageTypes/ImageViewRGB32.h"
 #include "VideoGames/PokemonLZA/Inference/PokemonLZA_DialogDetector.h"
 #include "VideoGames/PokemonLZA/Inference/PokemonLZA_MainMenuDetector.h"
@@ -74,7 +75,13 @@ std::string legends_za_words(const LegendsZaFindings& findings){
 std::string game_sees(GameId game, const ImageViewRGB32& frame){
     switch (game){
     case GameId::LEGENDS_ZA:
-        return legends_za_words(legends_za_findings(frame));
+        try{
+            return legends_za_words(legends_za_findings(frame));
+        }catch (FileException&){
+            //  A picture a detector compares with is not there: the detectors
+            //  are a hint, and play does not stop for a hint.
+            return std::string();
+        }
     default:
         return std::string();
     }
