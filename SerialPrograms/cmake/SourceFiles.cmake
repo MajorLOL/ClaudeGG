@@ -1545,6 +1545,12 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_PokemonGoStartCheck.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoText.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoText.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoThrow.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoThrow.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoThrowCheck.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoThrowPlay.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoThrowPlay.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoThrowPlayCheck.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoVision.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoVision.h
     Source/ClaudeGG/ClaudeGG_Instances.cpp
