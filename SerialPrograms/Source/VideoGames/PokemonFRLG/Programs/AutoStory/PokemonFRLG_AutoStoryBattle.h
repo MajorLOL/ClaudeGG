@@ -25,6 +25,7 @@
 namespace PokemonAutomation{
 
 template <typename Type> class ControllerContext;
+class ImageViewRGB32;
 
 namespace NintendoSwitch{
 
@@ -408,6 +409,24 @@ std::string read_story_text(
 //  man's words are blue, a woman's red (dark text is read as well). For the
 //  log: nothing is decided by it yet.
 std::string read_people_text(ConsoleHandle& console, const ImageFloatBox& box);
+
+
+//  The picture readers of the battle loop. They read a whole capture frame
+//  (the game screen is cut out of it like everywhere in FRLG) and are
+//  declared here so the unit tests can run them on the pictures of the test
+//  repository (PokemonFRLG_AutoStoryReaders_Tests.cpp).
+//
+//  An HP bar of a single battle: the filled part (0 to 1) of the 48 pixel
+//  bar that starts at "left" (GBA pixels) in rows "top" to "bottom", or -1:
+//  no such bar shows there.
+double read_hp_bar(const ImageViewRGB32& frame, double left, double top, double bottom);
+//  The player's Pokemon (its box at the bottom right) and the foe's (top
+//  left). 1 is a full bar, -1: no bar to be read.
+double read_player_hp(const ImageViewRGB32& frame);
+double read_foe_hp(const ImageViewRGB32& frame);
+//  The ball mark in the foe's box (the species is caught already): 1 the mark,
+//  0 the box without it, -1 no box to be read.
+int read_caught_mark(const ImageViewRGB32& frame);
 
 
 }

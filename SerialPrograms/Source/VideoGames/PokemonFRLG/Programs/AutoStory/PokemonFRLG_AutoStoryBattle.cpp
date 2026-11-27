@@ -92,6 +92,9 @@ ImageViewRGB32 game_box(const ImageViewRGB32& frame, const ImageFloatBox& box){
     return extract_box_reference(game_screen, box);
 }
 
+}   //  namespace (readers below are declared in the header: tests read pictures with them)
+
+
 //  An HP bar in a single battle: 48 GBA pixels from x = "left", rows "top"
 //  to "bottom". Each column is filled (green, yellow or red) or empty (dark
 //  grey-green), filled ones first. Returns the filled part, or -1 if no
@@ -212,6 +215,9 @@ int read_caught_mark(const ImageViewRGB32& frame){
     }
     return -1;
 }
+
+
+namespace{
 
 
 //  Dictionary of all move names (English). Tokens are "m<index>".

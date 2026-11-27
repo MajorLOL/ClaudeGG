@@ -32,6 +32,7 @@
 #include "Inference/PokemonFRLG_TrainerIdReader.h"
 #include "Inference/PokemonFRLG_TypeReader.h"
 #include "Inference/PokemonFRLG_WildEncounterReader.h"
+#include "Programs/AutoStory/PokemonFRLG_AutoStoryReaders_Tests.h"
 #include "Programs/BoxOrganization/PokemonFRLG_BoxSorter_Tests.h"
 #include "Programs/RngManipulation/PokemonFRLG_RngPlanTracker_Tests.h"
 #include "Programs/RngManipulation/PokemonFRLG_RngTargetSearch_Tests.h"
@@ -46,6 +47,7 @@ namespace PokemonFRLG{
 void add_tests(UnitTestDatabase& database){
     add_tests_AdvanceWhiteDialogDetector(database);
     add_tests_AdvanceBattleDialogDetector(database);
+    add_tests_AutoStoryReaders(database);
     add_tests_BagDetector(database);
     add_tests_BallReader(database);
     add_tests_BattleLevelUpReader(database);
