@@ -5135,32 +5135,37 @@ class FightLooker(threading.Thread):
             if not self._wake.wait(0.3):
                 continue
             self._wake.clear()
-            shot, self._shot = self._shot, None
-            if shot is None:
-                self._busy = False
-                continue
-            try:
-                if self._what == "banner":
-                    text = _banner_text(shot)
-                    if text:
-                        with self.lock:
-                            move = self.fight.foe_used(text)
-                        if move is not None:
-                            self.used_at = time.monotonic()
-                    continue
-                if self.empty >= 2 and self.video:     # (the video picture is too small for this text: a real one)
-                    self.empty = 0
-                    try:
-                        shot = S.screenshot()
-                    except Exception:  # noqa: BLE001
-                        pass
-                found = _fight_look(shot, self.fight, self.lock)
-                if found is not None:
-                    self.empty = 0 if found else self.empty + 1
-            except Exception as e:  # noqa: BLE001
-                log(f"battle: reading the name boxes failed: {type(e).__name__}: {e}")
-            finally:
-                self._busy = False
+            self._work()
+
+    def _work(self):
+        """Reads the picture that waits (run() does this when it is woken; the tests of the C++ port do it
+        at once, without the thread)."""
+        shot, self._shot = self._shot, None
+        if shot is None:
+            self._busy = False
+            return
+        try:
+            if self._what == "banner":
+                text = _banner_text(shot)
+                if text:
+                    with self.lock:
+                        move = self.fight.foe_used(text)
+                    if move is not None:
+                        self.used_at = time.monotonic()
+                return
+            if self.empty >= 2 and self.video:     # (the video picture is too small for this text: a real one)
+                self.empty = 0
+                try:
+                    shot = S.screenshot()
+                except Exception:  # noqa: BLE001
+                    pass
+            found = _fight_look(shot, self.fight, self.lock)
+            if found is not None:
+                self.empty = 0 if found else self.empty + 1
+        except Exception as e:  # noqa: BLE001
+            log(f"battle: reading the name boxes failed: {type(e).__name__}: {e}")
+        finally:
+            self._busy = False
 
     def close(self):
         self._quit = True

@@ -32,6 +32,7 @@
 #include "ClaudeGG_PokemonGoBattle.h"
 #include "ClaudeGG_PokemonGoFight.h"
 #include "ClaudeGG_PokemonGoMinigame.h"
+#include "ClaudeGG_PokemonGoLoop.h"
 #include "ClaudeGG_PokemonGoModels.h"
 #include "ClaudeGG_PokemonGoNav.h"
 #include "ClaudeGG_PokemonGoVision.h"
@@ -715,6 +716,23 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             }
         }
         check(differ == 0, minigame.isEmpty() ? QString("the little game of a charged attack is played as battle_minigame.py plays it") : minigame.last());
+    }
+    //  The fight loop, ported to C++ (issue #30): fights played on it as gamebot.py played them, picture by picture - every tap,
+    //  swipe, line of the log and moment the same.
+    {
+        QStringList loop;
+        const int differ = PokemonGo::Loop::run_loop_checks(
+            agent_folder + "/../tests/fixtures/loop_golden.json.qz",
+            agent_folder + "/../tests/fixtures",
+            agent_folder + "/../models/battle_data.json",
+            loop
+        );
+        for (const QString& line : loop){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, loop.isEmpty() ? QString("the fight loop plays a fight as gamebot.py plays it") : loop.last());
     }
     //  The networks of the Pokémon GO bot (RegiBot), run with ONNX Runtime: what the screen classifier, the two detectors and
     //  the throw predictor say is what gamebot.py says with LiteRT (issue #30).  The ONNX copies are not in the repository: the
