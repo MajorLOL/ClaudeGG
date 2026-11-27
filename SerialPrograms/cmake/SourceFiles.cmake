@@ -1530,6 +1530,8 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_PokemonGoMinigame.h
     Source/ClaudeGG/ClaudeGG_PokemonGoModels.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoModels.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoText.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoText.h
     Source/ClaudeGG/ClaudeGG_PokemonGoVision.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoVision.h
     Source/ClaudeGG/ClaudeGG_Instances.cpp

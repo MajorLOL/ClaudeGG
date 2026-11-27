@@ -33,6 +33,7 @@
 #include "ClaudeGG_PokemonGoFight.h"
 #include "ClaudeGG_PokemonGoMinigame.h"
 #include "ClaudeGG_PokemonGoLoop.h"
+#include "ClaudeGG_PokemonGoText.h"
 #include "ClaudeGG_PokemonGoModels.h"
 #include "ClaudeGG_PokemonGoNav.h"
 #include "ClaudeGG_PokemonGoVision.h"
@@ -733,6 +734,19 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             }
         }
         check(differ == 0, loop.isEmpty() ? QString("the fight loop plays a fight as gamebot.py plays it") : loop.last());
+    }
+    //  The text reader, ported to C++ (issue #30): the table that Tesseract writes made into lines of words with their places, as
+    //  gamebot.ocr_lines() makes them (354 tables, 36 of them read from frames of real fights), and - where the tesseract program is
+    //  found - a picture with words drawn on it read with it.
+    {
+        QStringList text;
+        const int differ = PokemonGo::Text::run_text_checks(agent_folder + "/../tests/fixtures/text_golden.json.qz", text);
+        for (const QString& line : text){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, text.isEmpty() ? QString("the text reader reads the table of Tesseract as gamebot.py does") : text.mid(qMax<qsizetype>(0, text.size() - 2)).join("; "));
     }
     //  The networks of the Pokémon GO bot (RegiBot), run with ONNX Runtime: what the screen classifier, the two detectors and
     //  the throw predictor say is what gamebot.py says with LiteRT (issue #30).  The ONNX copies are not in the repository: the
