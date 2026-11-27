@@ -209,7 +209,28 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $out = "Arduino-Source/SerialPrograms/bin/RelWithDebInfo"
-          windeployqt --release --dir $out "$out/ClaudeGG.exe"
+          #  The Visual C++ runtime goes in as its DLLs next to the program
+          #  (about 1.5 MB, so it runs without installing anything), not as
+          #  the 18 MB installer vc_redist.x64.exe that windeployqt adds.
+          #  No translations of Qt itself (7.5 MB): the program loads none.
+          $crt = $null
+          if ($env:VCToolsRedistDir) {
+            $crt = Get-ChildItem "$env:VCToolsRedistDir/x64" -Directory -Filter "Microsoft.VC*.CRT" -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+          }
+          if ($null -ne $crt) {
+            windeployqt --release --no-translations --no-compiler-runtime --dir $out "$out/ClaudeGG.exe"
+            Copy-Item "$($crt.FullName)/*.dll" $out
+            Write-Host "The Visual C++ runtime from $($crt.FullName):"
+            Get-ChildItem "$($crt.FullName)/*.dll" | Format-Table Name, Length
+          } else {
+            Write-Host "::warning::No Visual C++ runtime DLLs in VCToolsRedistDir: the package has vc_redist.x64.exe instead."
+            windeployqt --release --no-translations --dir $out "$out/ClaudeGG.exe"
+          }
+          #  What only a developer needs: the QML debugger, and the debug
+          #  build of the Qt Multimedia QML plugin (the CMake project copies
+          #  the folder whole).
+          Remove-Item -Recurse -Force "$out/qmltooling" -ErrorAction SilentlyContinue
+          Remove-Item "$out/qml/QtMultimedia/quickmultimediaplugind.dll" -ErrorAction SilentlyContinue
           #  What Windows shows for the program (Task Manager, the file's
           #  properties) comes from IconResource/IconResource.rc.
           $info = (Get-Item "$out/ClaudeGG.exe").VersionInfo
@@ -287,6 +308,13 @@ jobs:
             Write-Host "esptool.exe: $($exe.FullName)"
             & $exe.FullName version
             if ($LASTEXITCODE -ne 0) { throw "esptool.exe version failed with exit code $LASTEXITCODE." }
+            #  Claude GG starts only esptool.exe. The other programs of the
+            #  release (espefuse, espsecure, esp_rfc2217_server) are each a
+            #  whole Python of their own: 51 MB in the zip for nothing.
+            Get-ChildItem $exe.DirectoryName -Filter "*.exe" | Where-Object { $_.Name -ne "esptool.exe" } | ForEach-Object {
+              Write-Host "Left out: $($_.Name) ($($_.Length) bytes)"
+              Remove-Item $_.FullName
+            }
             #  Its license (GPL-2.0-or-later) goes with it, with where its source is.
             Get-ChildItem $tools -Recurse -File | Where-Object { $_.Name -match '^(LICENSE|COPYING)' } | Select-Object -First 1 | ForEach-Object {
               Copy-Item $_.FullName "$out/Licenses/esptool-LICENSE.txt"
@@ -310,10 +338,24 @@ jobs:
             $banned | ForEach-Object { Write-Host "::error::In the package, but left out of the build on purpose: $($_.FullName)" }
             throw "Files of the Discord bot are in the package."
           }
+          #  Debug builds do not belong in the package (the debug OpenCV alone
+          #  was 127 MB): a release build does not load them.
+          $debug = Get-ChildItem $out -Recurse -File -Filter "*d.dll" | Where-Object {
+            Test-Path (Join-Path $_.DirectoryName ($_.Name -replace 'd\.dll$', '.dll'))
+          }
+          if ($debug) {
+            $debug | ForEach-Object { Write-Host "::error::A debug build in the package: $($_.FullName)" }
+            throw "Debug builds are in the package."
+          }
           New-Item -ItemType Directory -Path "package" | Out-Null
           Copy-Item -Recurse $out "package/ClaudeGG"
           Compress-Archive -Path "package/ClaudeGG" -DestinationPath "ClaudeGG-Windows.zip"
           Get-Item "ClaudeGG-Windows.zip" | Format-List Name, Length
+          #  What takes the room, so that a change in size can be traced.
+          Get-ChildItem "package/ClaudeGG" -Recurse -File | Sort-Object Length -Descending | Select-Object -First 15 |
+            Format-Table @{ n = "MB"; e = { [math]::Round($_.Length / 1MB, 1) } }, @{ n = "File"; e = { $_.FullName.Substring((Resolve-Path "package/ClaudeGG").Path.Length + 1) } } -AutoSize
+          $total = (Get-ChildItem "package/ClaudeGG" -Recurse -File | Measure-Object Length -Sum).Sum
+          Write-Host "Unpacked: $([math]::Round($total / 1MB)) MB; the zip: $([math]::Round((Get-Item 'ClaudeGG-Windows.zip').Length / 1MB)) MB."
 
       #  The hash of the zip, made here and checked again by the job that
       #  publishes it: what goes on the release is what was built and tested.
