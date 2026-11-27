@@ -686,6 +686,16 @@ QString play(const QJsonObject& test_case, double start, double mono, std::vecto
 }
 
 
+//  An array of arrays.  (QJsonArray{QJsonArray{...}} with a single row is, with some compilers - MSVC - a copy of that row and not an array
+//  that holds it: the Windows build made the file of what was learned look different from what the check wanted.)
+static QJsonArray rows_of(std::initializer_list<QJsonArray> list){
+    QJsonArray out;
+    for (const QJsonArray& row : list){
+        out.append(row);
+    }
+    return out;
+}
+
 //  The file of what was learned (save_cal() and load_cal() of gamebot.py): not in the stories, so held to what Python writes and reads here.
 static int check_cal_file(QStringList& report){
     int failed = 0;
@@ -705,11 +715,10 @@ static int check_cal_file(QStringList& report){
     cal.c_live = -0.08;
     cal.obs_live = {{0.6, 1.1, 0.2}};
     //  json.dump(dict(cal, v=CAL_VERSION)): the numbers, and the version; no_curve only when it is set.
-    //  (A row alone in a list is wrapped in QJsonValue: MSVC takes QJsonArray{QJsonArray{...}} for a copy of the inner array.)
     QJsonObject want{
         {"k", 0.61}, {"c", 0.12}, {"lat", 47.5}, {"rel", 0.28}, {"aim", -130.5},
-        {"obs", QJsonArray{QJsonArray{0.9, 1.0, 0.5}, QJsonArray{0.7, 1.2, 0.3}}},
-        {"c_live", -0.08}, {"obs_live", QJsonArray{QJsonValue(QJsonArray{0.6, 1.1, 0.2})}}, {"v", 5},
+        {"obs", rows_of({{0.9, 1.0, 0.5}, {0.7, 1.2, 0.3}})},
+        {"c_live", -0.08}, {"obs_live", rows_of({{0.6, 1.1, 0.2}})}, {"v", 5},
     };
     expect(same(cal_file(cal), want), "what is written is " + describe(cal_file(cal)));
     cal.no_curve = true;
@@ -719,10 +728,10 @@ static int check_cal_file(QStringList& report){
     Cal odd;
     odd.aim = 0.1234567;
     odd.obs = {{0.12345678, 1.0, 0.5}};
-    expect(same(cal_json(odd, true).value("aim"), 0.123457) && same(cal_json(odd, true).value("obs"), QJsonArray{QJsonValue(QJsonArray{0.123457, 1.0, 0.5})}),
+    expect(same(cal_json(odd, true).value("aim"), 0.123457) && same(cal_json(odd, true).value("obs"), rows_of({{0.123457, 1.0, 0.5}})),
            "the numbers rounded to six places");
     expect(!cal_json(odd, true).contains("no_curve"), "no_curve is only there when it is set");
-    expect(same(cal_json(odd, false).value("aim"), 0.1234567) && same(cal_json(odd, false).value("obs"), QJsonArray{QJsonValue(QJsonArray{0.12345678, 1.0, 0.5})}),
+    expect(same(cal_json(odd, false).value("aim"), 0.1234567) && same(cal_json(odd, false).value("obs"), rows_of({{0.12345678, 1.0, 0.5}})),
            "the numbers of the file are not rounded (the numbers of the stories are)");
 
     //  load_cal(): values of the right version come in, no_curve does not (it is not in the cal that is there to be filled in).
