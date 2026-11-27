@@ -7,6 +7,7 @@
 #ifndef PokemonAutomation_PanelSession_H
 #define PokemonAutomation_PanelSession_H
 
+#include <stddef.h>
 #include "Common/Cpp/UiWrapper.h"
 #include "PanelDescriptor.h"
 
@@ -16,6 +17,7 @@ namespace PokemonAutomation{
 
 class JsonValue;
 class ConfigOption;
+class VideoFeed;
 
 // Class to represent one instance of a pokemon automation program.
 // Since programs are listed in the program panels, so this class is called PanelSession.
@@ -43,6 +45,11 @@ public:
     //  next to its list of programs without opening the panel. Null: the panel
     //  has no options of its own.
     virtual ConfigOption* config_options(){ return nullptr; }
+
+    //  ClaudeGG: the video of console number "index" (0 is the first) of the
+    //  panel, for the chat, which can be asked to look at the game. Null: the
+    //  panel has no console, or not that many (or none is started).
+    virtual VideoFeed* console_video(size_t index){ (void)index; return nullptr; }
 
 
 protected:

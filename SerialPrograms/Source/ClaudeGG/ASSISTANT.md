@@ -32,6 +32,7 @@ Claude does not get the whole program with every question. It looks up what it n
 | `list_programs` | The games and their programs, with what each does. | none |
 | `get_open_program` | The program that is open and its options as they are set. Options that look private (a token, a webhook address) are left out. | none |
 | `read_log` | The last lines of the program's log: 80, or as many as Claude asks for up to 400, or only the lines with a word. | none |
+| `look_at_game` | A picture of what a console of the open program shows now: the whole screen (800 pixels wide) or a part of it at twice the detail (top, bottom, left, right, center, a corner), from the console you name when the program has several. It is the video the program itself gets, so a phone shows the phone. It says what a program is stuck on, which screen of the game it is in, or that the video is wrong. Claude is told that a picture costs tokens in every later request, and to ask for one only when the log and the code do not answer. With no program open, or one without a video, the answer is the reason why there is no picture. | none (the picture goes to Claude) |
 | `find_files`, `read_file`, `outline_file`, `search_text` | The source, as it is on GitHub: at most 400 lines of a file at a time, the outline of a file, or the lines that match in a folder. | GitHub |
 | `branch_status`, `branches` | A `claude/...` branch: how it differs from the base branch, its pull request, and its last build with the compiler's errors. | GitHub |
 
@@ -127,7 +128,7 @@ Set a spending limit in Anthropic's console as well: that one holds whatever thi
 
 ## What is sent where
 
-- **To Anthropic:** what you write, the line about the open program, and what the tools returned (lines of the log, the open program's options, parts of the source). From Claude Plays: the goal and what you wrote about the game, what the program read from the screen, and the pictures of the game Claude asked for. The log can have the name of your Windows account in a path. How Anthropic handles what the API receives is in its own terms.
+- **To Anthropic:** what you write, the line about the open program, and what the tools returned (lines of the log, the open program's options, parts of the source). From the chat, when Claude asks for it with `look_at_game`: a picture of the game, as a JPEG. From Claude Plays: the goal and what you wrote about the game, what the program read from the screen, and the pictures of the game Claude asked for. The log can have the name of your Windows account in a path. How Anthropic handles what the API receives is in its own terms.
 - **To GitHub:** the requests to read the repository and, with your token, the commits. A commit is public, like the repository.
 - **Nowhere else.** Nothing of a conversation goes to Pokemon Automation or to anyone else, and this fork's builds send no error reports.
 
@@ -138,6 +139,7 @@ Set a spending limit in Anthropic's console as well: that one holds whatever thi
 - holds a conversation with a made-up Claude and a made-up GitHub behind the same connection the real ones use (a question that reads the log and the source, then a change that ends in a commit), and checks that the change is on a branch `claude/...` and the base branch is as it was;
 - checks the parts that need no connection: reading the API's stream (cut into pieces, with thinking blocks and errors), the prices, the headers of a request with and without a workspace ID and what the panel says when the API misses one, the line ends and byte order mark of changed files, the errors of a build's log, and that the file with the keys is encrypted and comes back after a new start;
 - checks that the build can make secure connections at all;
+- checks the picture the chat gets when it looks at the game (the parts of the screen by name, the right part of a frame of four colours in each, the size, JPEG), and asks the tool `look_at_game` with the real hook of the window: it gives a picture or says why there is none, and refuses a part that does not exist;
 - plays three turns from a thread of its own, as Claude Plays does (a look with its picture, a press, the end);
 - plays a whole session of the Claude Plays of every list on a console that is made up for the test (a look as a JPEG, presses with the text read after them, a stick held, a note, done), and checks what the program says about the screen after each action;
 - checks that every tool of Claude Plays has a schema the API takes: those of FireRed and LeafGreen, and those of every other list with its controller, with and without saving and HOME.

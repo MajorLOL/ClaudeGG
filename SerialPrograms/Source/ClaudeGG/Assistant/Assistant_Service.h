@@ -23,6 +23,7 @@
 #include <map>
 #include <memory>
 #include <vector>
+#include <QByteArray>
 #include <QString>
 #include <QStringList>
 #include "Assistant_Agent.h"
@@ -57,6 +58,14 @@ struct OpenProgramInfo{
     QString settings;
 };
 
+//  What a look at the game gave: a picture (a JPEG) and a line on what it
+//  shows, or the reason there is none.
+struct GameLook{
+    QByteArray image;
+    QString note;
+    QString error;
+};
+
 //  What the main window hands over.
 struct AppHooks{
     QString name;               //  The program's name.
@@ -70,6 +79,10 @@ struct AppHooks{
     std::function<OpenProgramInfo()> open_program;
     //  The last lines of the log, oldest first.
     std::function<QStringList(int lines)> recent_log;
+    //  A picture of what a console of the open program shows now: "area" is
+    //  a name of find_look_area() (Assistant_Play.h), "console" counts from
+    //  1. Null: this program cannot be asked to look.
+    std::function<GameLook(const QString& area, int console)> look_at_game;
 };
 
 

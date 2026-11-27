@@ -113,6 +113,32 @@ std::string play_picture(
 );
 
 
+//  A part of the screen, as fractions of its width and height. The names are
+//  the ones the "look" of Claude Plays uses, and the chat uses them for
+//  "look_at_game".
+struct LookArea{
+    const char* name;
+    double x;
+    double y;
+    double width;
+    double height;
+};
+//  The area with this name ("full", "top", "bottom", "left", "right",
+//  "center", "top-left", "top-right", "bottom-left", "bottom-right"), in any
+//  case. Null if there is none.
+const LookArea* find_look_area(const std::string& name);
+//  The names, separated by commas, for a message.
+std::string look_area_names();
+
+//  The picture of an area of one frame as it goes to Claude, as a JPEG (a PNG
+//  where Qt cannot pack one): the whole screen is "width" pixels wide, a part
+//  of it at twice the detail, never wider than the frame itself, and the
+//  height follows. The size of the picture goes to "picture_width" and
+//  "picture_height" (when given; 0 without a picture). Empty if there is no
+//  frame.
+std::string look_picture(const ImageViewRGB32& frame, const LookArea& area, int width, int* picture_width = nullptr, int* picture_height = nullptr);
+
+
 class PlaySession{
 public:
     struct Setup{

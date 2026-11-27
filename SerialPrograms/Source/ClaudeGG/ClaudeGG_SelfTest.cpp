@@ -596,6 +596,45 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
             logger.log("Assistant test: the conversation did not end in the commit it should have made.", COLOR_RED);
         }
 
+        //  The chat can be asked to look at the game (the tool look_at_game).
+        //  Here the real hook of the window answers, with whatever program
+        //  is open and whatever its video gives: a picture (a JPEG) or, with
+        //  no video, the reason why not, and a name that is no part of the
+        //  screen is refused with the list of the parts.
+        {
+            const Assistant::Tool* look = service.tools().find("look_at_game");
+            const auto ask = [&](const QJsonObject& input){
+                Assistant::ToolResult answer = Assistant::ToolResult::error("The tool did not answer.");
+                if (look != nullptr){
+                    look->run(input, Assistant::ToolCallContext(), [&](Assistant::ToolResult result){
+                        answer = std::move(result);
+                    });
+                }
+                return answer;
+            };
+            const Assistant::ToolResult any = ask(QJsonObject());
+            const bool picture = !any.is_error && any.image.size() > 3 &&
+                (unsigned char)any.image[0] == 0xff && (unsigned char)any.image[1] == 0xd8 && !any.text.isEmpty();
+            const Assistant::ToolResult wrong_area = ask(QJsonObject{{"area", "the moon"}});
+            const Assistant::ToolResult no_console = ask(QJsonObject{{"console", 99}});
+            const bool fine =
+                look != nullptr &&
+                (picture || (any.is_error && !any.text.isEmpty() && any.image.isEmpty())) &&
+                wrong_area.is_error && wrong_area.text.contains("bottom-right") && wrong_area.image.isEmpty() &&
+                (no_console.is_error ? no_console.image.isEmpty() && !no_console.text.isEmpty() : false);
+            if (fine){
+                logger.log(
+                    std::string("Assistant test: the chat's look at the game ") +
+                    (picture ? "gave a picture of the open program's video." : "said why there is no picture: ") +
+                    (picture ? "" : any.text.left(110).toStdString()),
+                    COLOR_BLUE
+                );
+            }else{
+                failed++;
+                logger.log("Assistant test: the chat's look at the game did not answer as it should have.", COLOR_RED);
+            }
+        }
+
         //  A program in which Claude plays (Assistant/Assistant_Play.h): it
         //  talks to Claude from a thread of its own, through this same
         //  connection. Here the "program" is a task that answers a look and

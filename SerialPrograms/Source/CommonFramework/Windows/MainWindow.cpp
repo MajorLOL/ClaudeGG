@@ -30,6 +30,8 @@
 #include "CommonFramework/Options/ResolutionOption.h"
 #include "CommonFramework/Options/Environment/ThemeSelectorOption.h"
 #include "CommonFramework/Options/QtWidget/WallpaperWidget.h"
+#include "CommonFramework/ImageTypes/ImageViewRGB32.h"
+#include "CommonFramework/VideoPipeline/VideoFeed.h"
 #include "CommonFramework/Windows/DpiScaler.h"
 #include "ClaudeGG/ClaudeGG_About.h"
 #include "ClaudeGG/ClaudeGG_Embed.h"
@@ -41,6 +43,7 @@
 #include "ClaudeGG/ClaudeGG_Setup.h"
 #include "ClaudeGG/Assistant/Assistant_Http.h"
 #include "ClaudeGG/Assistant/Assistant_Panel.h"
+#include "ClaudeGG/Assistant/Assistant_Play.h"
 #include "ClaudeGG/Assistant/Assistant_Service.h"
 #include "WindowTracker.h"
 #include "ButtonDiagram.h"
@@ -339,6 +342,49 @@ void MainWindow::make_assistant(
             text += (line.color == COLOR_RED ? "(red) " : "") + QString::fromStdString(line.text);
         }
         return text;
+    };
+    //  What the console of the open program shows now, for the chat (the
+    //  tool look_at_game). In the thread of the interface, like the video's
+    //  own "save a screenshot".
+    hooks.look_at_game = [this](const QString& area_name, int console){
+        Assistant::GameLook look;
+        const Assistant::LookArea* area = Assistant::find_look_area(area_name.toStdString());
+        if (area == nullptr){
+            look.error = "That is not a part of the screen.";
+            return look;
+        }
+        if (m_current_panel == nullptr){
+            look.error = "No program is open: there is no game to look at. The user has to open a program of a game first.";
+            return look;
+        }
+        const size_t index = (size_t)std::max(console - 1, 0);
+        VideoFeed* video = m_current_panel->console_video(index);
+        if (video == nullptr){
+            look.error = "The open program (\"" + QString::fromStdString(m_current_panel->descriptor().display_name()) +
+                "\") has no console " + QString::number(console) + " with a video. Programs of the Nintendo Switch have one, "
+                "or as many as the user set; the page with the games and the settings have none.";
+            return look;
+        }
+        const VideoSnapshot snapshot = video->snapshot();
+        if (!snapshot){
+            look.error = "The console gives no video: no capture card or camera is chosen, the video is off, or it shows "
+                "nothing yet. The user can look at the video's own source in the program.";
+            return look;
+        }
+        const ImageViewRGB32 frame(*snapshot.frame);
+        int width = 0;
+        int height = 0;
+        const std::string jpeg = Assistant::look_picture(frame, *area, 800, &width, &height);
+        if (jpeg.empty()){
+            look.error = "The picture could not be made.";
+            return look;
+        }
+        look.image = QByteArray(jpeg.data(), (qsizetype)jpeg.size());
+        look.note = "Console " + QString::number(console) + " of \"" + QString::fromStdString(m_current_panel->descriptor().display_name()) +
+            "\": " + (QString(area->name) == "full" ? QString("the whole screen") : QString("the ") + area->name + " of the screen") +
+            ", " + QString::number(width) + " x " + QString::number(height) + " pixels (the video is " +
+            QString::number(frame.width()) + " x " + QString::number(frame.height()) + ").";
+        return look;
     };
 
     m_assistant = std::make_unique<Assistant::Service>(std::move(hooks), std::move(transport));

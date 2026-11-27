@@ -35,6 +35,7 @@ public:
     ConfigOption& options();
     //  ClaudeGG: the options without the panel (see PanelSession).
     virtual ConfigOption* config_options() override{ return &options(); }
+    virtual VideoFeed* console_video(size_t index) override{ return index == 0 ? &m_system.video() : nullptr; }
 
 
 public:

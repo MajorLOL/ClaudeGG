@@ -13,6 +13,7 @@
 #include <utility>
 #include <QRegularExpression>
 #include "../ClaudeGG_Scrub.h"
+#include "Assistant_Play.h"
 #include "Assistant_Service.h"
 
 namespace PokemonAutomation{
@@ -272,6 +273,56 @@ void add_chat_tools(ToolSet& tools, Service& service){
                 return;
             }
             done(ToolResult::ok(lines.join("\n")));
+        };
+        tools.add(std::move(tool));
+    }
+
+    //  The game.
+    {
+        Tool tool;
+        tool.name = "look_at_game";
+        tool.description =
+            "A picture of what the console of the open program shows right now (the video the program gets), "
+            "so that you can say what a program is stuck on, which screen of the game it is in or whether "
+            "the video is right at all. \"area\": the whole screen (full, the default) or a part of it at "
+            "twice the detail: " + QString::fromStdString(look_area_names()) + ". \"console\": which "
+            "console of a program that has several, from 1. It only shows the moment it is called: a program "
+            "that runs has moved on by the time you answer. A picture costs tokens in every later request of "
+            "the conversation: ask for one when the log and the code do not tell enough, and take a part of "
+            "the screen when a part is enough.";
+        tool.input_schema = tool_schema({
+            {"area", "string", "The part of the screen; the whole screen if not given."},
+            {"console", "integer", "The console, counted from 1; the first if not given."},
+        });
+        tool.describe = [](const QJsonObject& input){
+            const QString area = tool_string(input, "area", "full");
+            return area.isEmpty() || area == "full"
+                ? QString("Looked at the game")
+                : "Looked at the game (" + one_line(area, 20) + ")";
+        };
+        tool.run = [&service](const QJsonObject& input, const ToolCallContext&, std::function<void(ToolResult)> done){
+            if (!service.hooks().look_at_game){
+                done(ToolResult::error("The game cannot be looked at from here."));
+                return;
+            }
+            const QString area_name = tool_string(input, "area", "full").trimmed();
+            const QString name = area_name.isEmpty() ? QString("full") : area_name;
+            if (find_look_area(name.toStdString()) == nullptr){
+                done(ToolResult::error(
+                    "\"" + one_line(name, 40) + "\" is not a part of the screen. The parts are: " +
+                    QString::fromStdString(look_area_names()) + "."
+                ));
+                return;
+            }
+            const int console = std::clamp(tool_integer(input, "console", 1), 1, 8);
+            const GameLook look = service.hooks().look_at_game(name.toLower(), console);
+            if (!look.error.isEmpty() || look.image.isEmpty()){
+                done(ToolResult::error(look.error.isEmpty() ? QString("There is no picture of the game.") : look.error));
+                return;
+            }
+            ToolResult result = ToolResult::ok(look.note);
+            result.image = look.image;
+            done(std::move(result));
         };
         tools.add(std::move(tool));
     }

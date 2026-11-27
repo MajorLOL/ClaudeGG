@@ -8,9 +8,12 @@
 #include <deque>
 #include <map>
 #include <utility>
+#include <cstdlib>
+#include <QColor>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
+#include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QObject>
@@ -19,7 +22,9 @@
 #include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
+#include "CommonFramework/ImageTypes/ImageRGB32.h"
 #include "Assistant_Claude.h"
+#include "Assistant_Play.h"
 #include "Assistant_Settings.h"
 #include "Assistant_Workspace.h"
 #include "Assistant_SelfTest.h"
@@ -905,6 +910,63 @@ CheckResult run_checks(const QString& folder, const std::function<void(const QSt
             "the workspace ID is back after a new start, and empty unless set"
         );
         QFile::remove(settings_path);
+    }
+
+    //  The picture the chat gets when it looks at the game: the parts of the
+    //  screen by name, and the right part of the frame in the picture. A
+    //  frame whose left half is red and right half blue, and whose top is
+    //  lighter than its bottom.
+    {
+        check(find_look_area("full") != nullptr && find_look_area("Top-Left") != nullptr, "the parts of the screen are found by name, in any case");
+        check(find_look_area("middle") == nullptr && find_look_area("") == nullptr, "a name that is not one is not found");
+        check(look_area_names().find("bottom-right") != std::string::npos, "the names of the parts are listed");
+        check(look_picture(ImageViewRGB32(), *find_look_area("full"), 400).empty(), "no frame, no picture");
+
+        ImageRGB32 frame(400, 200);
+        for (size_t y = 0; y < 200; y++){
+            for (size_t x = 0; x < 400; x++){
+                const uint32_t red = x < 200 ? (y < 100 ? 255 : 150) : 0;
+                const uint32_t blue = x < 200 ? 0 : (y < 100 ? 255 : 150);
+                frame.pixel(x, y) = 0xff000000 | (red << 16) | blue;
+            }
+        }
+        const auto look = [&](const char* name, int width, int& w, int& h){
+            const std::string bytes = look_picture(frame, *find_look_area(name), width, &w, &h);
+            return QImage::fromData(QByteArray(bytes.data(), (qsizetype)bytes.size()));
+        };
+        const auto near_colour = [](const QImage& image, int x, int y, int red, int blue){
+            const QColor c = image.pixelColor(x, y);
+            return std::abs(c.red() - red) < 24 && std::abs(c.blue() - blue) < 24 && c.green() < 24;
+        };
+        int w = 0;
+        int h = 0;
+        const std::string whole_bytes = look_picture(frame, *find_look_area("full"), 200, &w, &h);
+        check(whole_bytes.size() > 3 && (unsigned char)whole_bytes[0] == 0xff && (unsigned char)whole_bytes[1] == 0xd8, "the picture is a JPEG");
+        QImage whole = look("full", 200, w, h);
+        check(w == 200 && h == 100 && whole.width() == 200 && whole.height() == 100, "the whole screen is as wide as asked, and as high as it is in proportion");
+        check(near_colour(whole, 20, 20, 255, 0) && near_colour(whole, 180, 20, 0, 255) && near_colour(whole, 20, 80, 150, 0) && near_colour(whole, 180, 80, 0, 150), "the whole screen shows all four quarters where they are");
+        QImage left = look("left", 200, w, h);
+        check(w == 200 && h == 200 && left.width() == 200 && left.height() == 200, "a part of the screen comes at twice the detail, up to the size of the frame itself");
+        check(near_colour(left, 20, 20, 255, 0) && near_colour(left, 180, 20, 255, 0) && near_colour(left, 20, 180, 150, 0) && near_colour(left, 180, 180, 150, 0), "the left half is the left half of the frame");
+        QImage right = look("right", 200, w, h);
+        check(near_colour(right, 20, 20, 0, 255) && near_colour(right, 180, 180, 0, 150), "the right half is the right half of the frame");
+        QImage bottom_right = look("bottom-right", 200, w, h);
+        check(w == 200 && h == 100 && near_colour(bottom_right, 100, 50, 0, 150) && near_colour(bottom_right, 5, 5, 0, 150), "the bottom right is a quarter of the frame");
+        QImage top_left = look("top-left", 200, w, h);
+        QImage top_right = look("top-right", 200, w, h);
+        QImage bottom_left = look("bottom-left", 200, w, h);
+        QImage top = look("top", 200, w, h);
+        QImage bottom = look("bottom", 200, w, h);
+        check(near_colour(top_left, 100, 50, 255, 0) && near_colour(top_right, 100, 50, 0, 255) && near_colour(bottom_left, 100, 50, 150, 0), "each quarter of the screen is where its name says");
+        check(
+            near_colour(top, 20, 20, 255, 0) && near_colour(top, 380, 20, 0, 255) &&
+            near_colour(bottom, 20, 80, 150, 0) && near_colour(bottom, 380, 80, 0, 150),
+            "the top and the bottom are the upper and the lower half"
+        );
+        QImage tiny = look("full", 4, w, h);
+        check(w == 16 && h == 16 && !tiny.isNull(), "a picture is never smaller than 16 pixels");
+        QImage wide = look("full", 4000, w, h);
+        check(w == 400 && h == 200 && !wide.isNull(), "a picture is never larger than the frame");
     }
     return result;
 }

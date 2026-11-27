@@ -6,6 +6,7 @@
  */
 
 #include <chrono>
+#include <algorithm>
 #include <deque>
 #include <functional>
 #include <limits>
@@ -80,6 +81,80 @@ std::string play_picture(
         }
     }
     return packed("PNG", -1);
+}
+
+
+
+namespace{
+
+const LookArea LOOK_AREAS[] = {
+    {"full",            0.00, 0.00, 1.00, 1.00},
+    {"top",             0.00, 0.00, 1.00, 0.50},
+    {"bottom",          0.00, 0.50, 1.00, 0.50},
+    {"left",            0.00, 0.00, 0.50, 1.00},
+    {"right",           0.50, 0.00, 0.50, 1.00},
+    {"center",          0.25, 0.25, 0.50, 0.50},
+    {"top-left",        0.00, 0.00, 0.50, 0.50},
+    {"top-right",       0.50, 0.00, 0.50, 0.50},
+    {"bottom-left",     0.00, 0.50, 0.50, 0.50},
+    {"bottom-right",    0.50, 0.50, 0.50, 0.50},
+};
+
+}
+
+const LookArea* find_look_area(const std::string& name){
+    std::string lower;
+    for (char c : name){
+        lower += (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+    }
+    for (const LookArea& area : LOOK_AREAS){
+        if (lower == area.name){
+            return &area;
+        }
+    }
+    return nullptr;
+}
+
+std::string look_area_names(){
+    std::string names;
+    for (const LookArea& area : LOOK_AREAS){
+        names += (names.empty() ? "" : ", ") + std::string(area.name);
+    }
+    return names;
+}
+
+std::string look_picture(const ImageViewRGB32& frame, const LookArea& area, int width, int* picture_width, int* picture_height){
+    if (picture_width != nullptr){
+        *picture_width = 0;
+    }
+    if (picture_height != nullptr){
+        *picture_height = 0;
+    }
+    if (!frame || frame.width() == 0 || frame.height() == 0){
+        return std::string();
+    }
+    const size_t x = std::min((size_t)((double)frame.width() * area.x), frame.width() - 1);
+    const size_t y = std::min((size_t)((double)frame.height() * area.y), frame.height() - 1);
+    const size_t part_width = std::max<size_t>(1, std::min(frame.width() - x, (size_t)((double)frame.width() * area.width + 0.5)));
+    const size_t part_height = std::max<size_t>(1, std::min(frame.height() - y, (size_t)((double)frame.height() * area.height + 0.5)));
+    const ImageViewRGB32 part = frame.sub_image(x, y, part_width, part_height);
+    const bool whole = area.width >= 1.0 && area.height >= 1.0;
+    double out_width = (double)width * area.width * (whole ? 1.0 : 2.0);
+    out_width = std::min(out_width, (double)part_width);
+    out_width = std::max(out_width, 16.0);
+    const double out_height = std::max(16.0, out_width * (double)part_height / (double)part_width);
+    const int w = (int)(out_width + 0.5);
+    const int h = (int)(out_height + 0.5);
+    std::string picture = play_picture(part, w, h, 1, PlayPictureFormat::JPEG);
+    if (!picture.empty()){
+        if (picture_width != nullptr){
+            *picture_width = w;
+        }
+        if (picture_height != nullptr){
+            *picture_height = h;
+        }
+    }
+    return picture;
 }
 
 
