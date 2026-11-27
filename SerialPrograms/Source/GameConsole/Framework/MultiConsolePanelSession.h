@@ -34,6 +34,9 @@ public:
     virtual VideoFeed* console_video(size_t index) override{
         return index < m_system.active_consoles() ? &m_system[index].video() : nullptr;
     }
+    virtual VideoSession* console_video_session(size_t index) override{
+        return index < m_system.active_consoles() ? &m_system[index].video() : nullptr;
+    }
     virtual std::vector<ConsoleController> console_controllers() override{
         std::vector<ConsoleController> out;
         for (size_t console = 0; console < m_system.active_consoles(); console++){

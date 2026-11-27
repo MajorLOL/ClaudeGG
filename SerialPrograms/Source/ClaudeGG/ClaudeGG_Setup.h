@@ -296,12 +296,32 @@ struct AppController{
     //  What it pretends to be ("NS1: Wired Pro Controller"). Empty: not known yet.
     QString type;
     Status status = Status::NONE;
+    //  Why it could not connect (FAILED), as the program says it, without
+    //  the markup. Empty otherwise.
+    QString error;
 
     bool operator==(const AppController& x) const{
         return console == x.console && device == x.device && interface_name == x.interface_name
-            && type == x.type && status == x.status;
+            && type == x.type && status == x.status && error == x.error;
     }
     bool operator!=(const AppController& x) const{
+        return !(*this == x);
+    }
+};
+
+//  The video of a console of the program that is open: the capture card or
+//  camera that is chosen, and whether pictures come in.
+struct AppVideo{
+    int console = 1;
+    //  The source as the program's own list names it. Empty: none chosen.
+    QString source;
+    //  Pictures come in (at least one a second).
+    bool live = false;
+
+    bool operator==(const AppVideo& x) const{
+        return console == x.console && source == x.source && live == x.live;
+    }
+    bool operator!=(const AppVideo& x) const{
         return !(*this == x);
     }
 };
@@ -377,6 +397,9 @@ public:
     //  are. Empty: the program has none (the page of the games, the settings,
     //  a program of the phone), and nothing is shown.
     virtual void set_controllers(const std::vector<AppController>& controllers) = 0;
+    //  The videos of its consoles, in the footer after the controllers. Empty:
+    //  none (as above).
+    virtual void set_videos(const std::vector<AppVideo>& videos) = 0;
 
     //  Claude's panel, over the right of the screen when it is shown. The
     //  panel stays the window's.

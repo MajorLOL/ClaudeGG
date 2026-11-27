@@ -711,6 +711,16 @@ public:
     const std::vector<AppController>& app_controllers() const{
         return m_app_controllers;
     }
+    virtual void set_videos(const std::vector<AppVideo>& videos) override{
+        if (videos == m_app_videos){
+            return;
+        }
+        m_app_videos = videos;
+        update();
+    }
+    const std::vector<AppVideo>& app_videos() const{
+        return m_app_videos;
+    }
     virtual void set_claude(QWidget* panel) override;
     virtual void show_claude(bool show) override;
     virtual bool claude_shown() const override{
@@ -1139,6 +1149,7 @@ private:
     QString m_app_sleep;
     bool m_app_keep_on = false;
     std::vector<AppController> m_app_controllers;
+    std::vector<AppVideo> m_app_videos;
     QPointer<QWidget> m_claude;
     bool m_claude_shown = false;
     QString m_resume_game;
@@ -3887,6 +3898,10 @@ LogoGround logo_ground(const QPixmap& logo){
     return ground;
 }
 
+//  The name of a console by its code ("switch" is "Nintendo Switch"); the code
+//  itself when it is not known. (After the list of the consoles, further down.)
+QString console_display_name(const QString& code);
+
 class GamesPage : public Page{
 public:
     explicit GamesPage(Canvas& canvas, int selected = -1)
@@ -3956,6 +3971,14 @@ public:
             const double w = draw_button(canvas, painter, "console", T("Choose another console"), x + 26, 960, ButtonKind::LINK, std::min(1.0, b * 1.35));
             draw_chevron_back(painter, QPointF(x + 8, 982), white(0.7 * b));
             x += 26 + w + 34;
+        }
+        if (canvas.app_mode()){
+            //  Which console the games are of: the button alone does not say.
+            const QString console = canvas.console_code().isEmpty() ? QString("switch") : canvas.console_code();
+            const QFont font = ui_font(26, 500);
+            const QString text = T("In use: %1").arg(console_display_name(console));
+            draw_text_cy(painter, text, x, 982, font, white(0.55 * b));
+            x += text_width(font, text) + 34;
         }
         if (!canvas.app_mode()){
             //  (As the main window's own screen there is nothing to leave.)
@@ -7133,6 +7156,15 @@ constexpr ConsoleInfo CONSOLES[] = {
 };
 constexpr int CONSOLE_COUNT = (int)(sizeof(CONSOLES) / sizeof(CONSOLES[0]));
 
+QString console_display_name(const QString& code){
+    for (int c = 0; c < CONSOLE_COUNT; c++){
+        if (code == CONSOLES[c].code){
+            return CONSOLES[c].name;
+        }
+    }
+    return code;
+}
+
 class ConsolePage : public Page{
 public:
     explicit ConsolePage(Canvas& canvas){
@@ -7940,21 +7972,31 @@ public:
             return with_alpha(ORANGE, alpha);
         }
     }
-    //  "Controller: COM3 (NS1: Wired Pro Controller) - connected", a dot of
-    //  its color before each; with more consoles their numbers.
+    //  "Controller: COM3 (NS1: Wired Pro Controller) - connected", then
+    //  "Video: USB Capture - live", a dot of its color before each; with more
+    //  consoles their numbers. What does not fit is cut short.
     static void paint_controllers(
         Canvas& canvas, QPainter& painter, double x, double end, double cy, const QFont& font, double alpha
     ){
         const std::vector<AppController>& controllers = canvas.app_controllers();
-        if (controllers.empty() || end - x < 120){
+        const std::vector<AppVideo>& videos = canvas.app_videos();
+        if ((controllers.empty() && videos.empty()) || end - x < 120){
             return;
         }
+        int first_console = controllers.empty() ? videos[0].console : controllers[0].console;
         bool several = false;
         for (const AppController& controller : controllers){
-            several |= controller.console != controllers[0].console;
+            several |= controller.console != first_console;
         }
-        for (size_t c = 0; c < controllers.size(); c++){
-            const AppController& controller = controllers[c];
+        for (const AppVideo& video : videos){
+            several |= video.console != first_console;
+        }
+        struct Entry{
+            QString text;
+            QColor color;
+        };
+        std::vector<Entry> entries;
+        for (const AppController& controller : controllers){
             QString text = several ? T("Console %1:").arg(controller.console) + " " : T("Controller:") + " ";
             text += controller.device.isEmpty() ? T("none chosen") : controller.device;
             if (!controller.type.isEmpty()){
@@ -7962,17 +8004,34 @@ public:
             }
             if (!controller.device.isEmpty()){
                 text += " - " + controller_state(controller.status);
+                if (!controller.error.isEmpty()){
+                    text += ": " + controller.error;
+                }
             }
+            entries.push_back({text, controller_color(controller.status, alpha)});
+        }
+        for (const AppVideo& video : videos){
+            QString text = several ? T("Video %1:").arg(video.console) + " " : T("Video:") + " ";
+            QColor color = white(0.3 * alpha);
+            if (video.source.isEmpty()){
+                text += T("none chosen");
+            }else{
+                text += video.source + " - " + (video.live ? T("live") : T("no picture"));
+                color = video.live ? with_alpha(GREEN, alpha) : with_alpha(ORANGE, alpha);
+            }
+            entries.push_back({text, color});
+        }
+        for (const Entry& entry : entries){
             const double room = end - x - 18;
             if (room < 60){
                 return;
             }
             painter.save();
             painter.setPen(Qt::NoPen);
-            painter.setBrush(controller_color(controller.status, alpha));
+            painter.setBrush(entry.color);
             painter.drawEllipse(QPointF(x + 6, cy + 1), 6, 6);
             painter.restore();
-            const QString shown = QFontMetricsF(font).elidedText(text, Qt::ElideRight, room);
+            const QString shown = QFontMetricsF(font).elidedText(entry.text, Qt::ElideRight, room);
             draw_text_cy(painter, shown, x + 18, cy, font, white(0.6 * alpha));
             x += 18 + text_width(font, shown) + 36;
         }
@@ -12500,12 +12559,23 @@ int run_setup_test(QApplication& application, const QString& folder){
             second.device = "COM4";
             second.status = AppController::Status::FAILED;
             pico.console = 1;
+            second.error = "Unable to open the port.";
             window_screen.set_controllers({pico, second});
+            AppVideo capture;
+            capture.source = "USB Video";
+            capture.live = true;
+            AppVideo none;
+            none.console = 2;
+            window_screen.set_videos({capture, none});
             window_screen.wait(0.3);
+            checker.check(window_screen.app_videos().size() == 2 && window_screen.app_videos()[0] == capture,
+                "the page knows the videos of the consoles");
             save(window_screen, folder, "setup-63c-window-controllers");
             window_screen.set_controllers({});
+            window_screen.set_videos({});
             window_screen.wait(0.3);
-            checker.check(window_screen.app_controllers().empty(), "a program without a controller shows none");
+            checker.check(window_screen.app_controllers().empty() && window_screen.app_videos().empty(),
+                "a program without a controller shows none");
         }
 
         //  A program that runs: the state, and no way back.

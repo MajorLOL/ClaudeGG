@@ -20,6 +20,7 @@ class JsonValue;
 class ConfigOption;
 class VideoFeed;
 class ControllerSession;
+class VideoSession;
 
 // Class to represent one instance of a pokemon automation program.
 // Since programs are listed in the program panels, so this class is called PanelSession.
@@ -62,6 +63,11 @@ public:
         ControllerSession* session;
     };
     virtual std::vector<ConsoleController> console_controllers(){ return {}; }
+
+    //  ClaudeGG: the video of console number "index" (0 is the first) with its
+    //  source, for that header: which capture card is chosen and whether
+    //  pictures come in. Null as console_video().
+    virtual VideoSession* console_video_session(size_t index){ (void)index; return nullptr; }
 
 
 protected:

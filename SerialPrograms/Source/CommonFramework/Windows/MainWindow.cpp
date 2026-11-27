@@ -8,6 +8,7 @@
 #include <utility>
 //#include <QStatusBar>
 #include <QApplication>
+#include <QTextDocumentFragment>
 #include <QTimer>
 #include <QDialog>
 #include <QVBoxLayout>
@@ -23,6 +24,8 @@
 #include "Common/Qt/UiStateQtWidget.h"
 #include "Controllers/ControllerSession.h"
 #include "Controllers/ControllerTypeStrings.h"
+#include "CommonFramework/VideoPipeline/VideoSession.h"
+#include "CommonFramework/VideoPipeline/VideoSourceDescriptor.h"
 #include "PanelLists.h"
 #include "CommonFramework/Globals.h"
 #include "CommonFramework/GlobalAutoPaths.h"
@@ -794,9 +797,14 @@ void MainWindow::update_controllers(){
                 case ControllerConnection::Status::READY:
                     controller.status = ClaudeGG::AppController::Status::READY;
                     break;
-                case ControllerConnection::Status::FAILED_TO_CONNECT:
+                case ControllerConnection::Status::FAILED_TO_CONNECT:{
                     controller.status = ClaudeGG::AppController::Status::FAILED;
+                    //  The program says why in markup, for its own page.
+                    controller.error = QTextDocumentFragment::fromHtml(
+                        QString::fromStdString(session.status_text())
+                    ).toPlainText().simplified();
                     break;
+                }
                 default:
                     controller.status = ClaudeGG::AppController::Status::CONNECTING;
                     break;
@@ -806,6 +814,28 @@ void MainWindow::update_controllers(){
         }
     }
     m_app->set_controllers(list);
+
+    std::vector<ClaudeGG::AppVideo> videos;
+    if (m_current_panel != nullptr){
+        for (size_t index = 0; index < 16; index++){
+            VideoSession* session = m_current_panel->console_video_session(index);
+            if (session == nullptr){
+                break;
+            }
+            ClaudeGG::AppVideo video;
+            video.console = (int)index + 1;
+            const std::shared_ptr<const VideoSourceDescriptor> descriptor = session->descriptor();
+            if (descriptor != nullptr){
+                const std::string name = descriptor->display_name();
+                if (!name.empty() && name != "(none)"){
+                    video.source = QString::fromStdString(name);
+                }
+            }
+            video.live = !video.source.isEmpty() && session->fps_source() >= 1.0;
+            videos.push_back(std::move(video));
+        }
+    }
+    m_app->set_videos(videos);
 }
 void MainWindow::set_sleep_label(const QString& text){
     if (m_app != nullptr){
