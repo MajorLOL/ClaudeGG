@@ -8,12 +8,16 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <stdexcept>
+#include <QDir>
 #include <QFile>
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonParseError>
 #include <QRegularExpression>
+#include <QTemporaryDir>
 #include "ClaudeGG_PokemonGoNav.h"
 #include "ClaudeGG_PokemonGoBattle.h"
 
@@ -877,6 +881,202 @@ std::vector<Mon> build_team(const std::vector<TeamEntry>& entries){
     return team;
 }
 
+QString team_file(){
+    return QDir::homePath() + "/battle_team.json";
+}
+
+std::vector<TeamEntry> default_team(){
+    std::vector<TeamEntry> team(3);
+    team[0].species = "noctowl";
+    team[0].cp = 1497;
+    team[0].hp = 162;
+    team[0].fast = "WING_ATTACK";
+    team[0].charged = QStringList{"SHADOW_BALL", "SKY_ATTACK"};
+    team[1].species = "lapras";
+    team[1].shadow = true;
+    team[1].cp = 1489;
+    team[1].hp = 174;
+    team[1].fast = "ICE_SHARD";
+    team[1].charged = QStringList{"FRUSTRATION", "SURF"};
+    team[2].species = "lanturn";
+    team[2].cp = 1494;
+    team[2].hp = 186;
+    team[2].fast = "SPARK";
+    team[2].charged = QStringList{"SURF", "THUNDERBOLT"};
+    return team;
+}
+
+namespace{
+
+[[noreturn]] void unusable(const QString& what){
+    throw std::runtime_error(("the team file has " + what).toStdString());
+}
+
+//  What Python takes for true.
+bool py_true(const QJsonValue& value){
+    switch (value.type()){
+    case QJsonValue::Bool:
+        return value.toBool();
+    case QJsonValue::Double:
+        return value.toDouble() != 0;
+    case QJsonValue::String:
+        return !value.toString().isEmpty();
+    case QJsonValue::Array:
+        return !value.toArray().isEmpty();
+    case QJsonValue::Object:
+        return !value.toObject().isEmpty();
+    default:
+        return false;
+    }
+}
+
+//  int(value) of Python: a number is cut at the point, a text is a number with nothing else (white space around it is no matter),
+//  true is 1.  (Numbers that are too big for the CP of a Pokémon are made as big as it can hold: they fit nothing either way.)
+int py_int(const QJsonValue& value){
+    constexpr double BIG = 2000000000.0;
+    switch (value.type()){
+    case QJsonValue::Bool:
+        return value.toBool() ? 1 : 0;
+    case QJsonValue::Double:{
+        const double number = value.toDouble();
+        if (!std::isfinite(number)){
+            unusable("a number that is none");
+        }
+        return (int)std::clamp(std::trunc(number), -BIG, BIG);
+    }
+    case QJsonValue::String:{
+        static const QRegularExpression WHOLE("^[+-]?[0-9]+$");
+        const QString text = value.toString().trimmed();
+        if (!WHOLE.match(text).hasMatch()){
+            unusable("a number that is a text that is no number");
+        }
+        bool ok = false;
+        const double number = text.toDouble(&ok);
+        return ok ? (int)std::clamp(number, -BIG, BIG) : 0;
+    }
+    default:
+        unusable("a number that is a list or a table");
+    }
+}
+
+QStringList move_ids(const QJsonValue& value){
+    if (!value.isArray()){
+        unusable("charged moves that are no list");
+    }
+    QStringList ids;
+    for (const QJsonValue& id : value.toArray()){
+        if (!id.isString()){
+            unusable("a move that is no name");
+        }
+        ids << id.toString();
+    }
+    return ids;
+}
+
+//  One entry of the team as Mon() of Python is given it by build_team().
+TeamEntry team_entry(const QJsonValue& item){
+    if (!item.isObject()){
+        unusable("an entry that is no table");
+    }
+    const QJsonObject e = item.toObject();
+    if (!e.contains("species")){
+        unusable("an entry without a species");
+    }
+    if (!e.value("species").isString()){
+        unusable("an entry whose species is no name");
+    }
+    TeamEntry out;
+    out.species = e.value("species").toString();
+    out.shadow = py_true(e.value("shadow"));
+
+    //  cp and hp (both true): the stats are fitted from them; the level and the IVs only count when that gives nothing.
+    bool fitted = false;
+    if (py_true(e.value("cp")) && py_true(e.value("hp"))){
+        out.cp = py_int(e.value("cp"));
+        out.hp = py_int(e.value("hp"));
+        Fit fit;
+        fitted = fit_stats(out.species, *out.cp, *out.hp, fit);
+    }
+    if (!fitted && py_true(e.value("level"))){
+        if (!e.value("level").isDouble()){
+            unusable("a level that is no number");
+        }
+        out.level = e.value("level").toDouble();
+        const QJsonValue ivs = e.value("ivs");
+        if (!ivs.isNull() && !ivs.isUndefined()){
+            if (!ivs.isArray() || ivs.toArray().size() < 3){
+                unusable("IVs that are not three numbers");
+            }
+            std::vector<int> numbers;
+            for (const QJsonValue& number : ivs.toArray()){
+                if (!number.isDouble()){
+                    unusable("an IV that is no number");
+                }
+                numbers.push_back((int)number.toDouble());
+            }
+            out.ivs = numbers;
+        }
+    }
+
+    //  The moves: without a fast move, or without charged moves, the usual ones are used for what is not there; a fast move that is
+    //  there but empty next to charged moves is a move that is not in the data (Mon() raises there).
+    const QJsonValue fast = e.value("fast");
+    const QJsonValue charged = e.value("charged");
+    if (fast.isNull() || fast.isUndefined() || !py_true(charged)){
+        if (py_true(fast)){
+            if (!fast.isString()){
+                unusable("a fast move that is no name");
+            }
+            out.fast = fast.toString();
+        }
+        if (py_true(charged)){
+            out.charged = move_ids(charged);
+        }
+    }else{
+        if (!fast.isString() || fast.toString().isEmpty()){
+            unusable("charged moves and a fast move that is none");
+        }
+        out.fast = fast.toString();
+        out.charged = move_ids(charged);
+    }
+    return out;
+}
+
+}
+
+
+std::vector<Mon> load_team(const QString& given){
+    const QString path = given.isEmpty() ? team_file() : given;
+    std::vector<TeamEntry> entries = default_team();
+    QFile file(path);
+    if (QFile::exists(path) && file.open(QIODevice::ReadOnly)){
+        //  (Python's json.load reads a value of any kind; the parser of Qt wants a list or a table at the top, so the text is
+        //  read as the one thing in a list.  Text that is no value, or more than one, is not JSON.)
+        QJsonParseError error;
+        const QJsonDocument document = QJsonDocument::fromJson("[" + file.readAll() + "]", &error);
+        if (error.error == QJsonParseError::NoError && document.isArray() && document.array().size() == 1){
+            const QJsonValue top = document.array().at(0);
+            entries.clear();
+            //  (enumerate() of Python also goes over a table, which gives its keys, and over a text, which gives its letters:
+            //  both are entries that are no tables; empty, they are no entries.)
+            const bool empty_text = top.isString() && top.toString().isEmpty();
+            const bool empty_table = top.isObject() && top.toObject().isEmpty();
+            if (top.isArray()){
+                for (const QJsonValue& item : top.toArray()){
+                    entries.push_back(team_entry(item));
+                }
+            }else if (!empty_text && !empty_table){
+                unusable("something that is no list of entries");
+            }
+        }
+    }
+    const std::vector<Mon> team = build_team(entries);
+    if (team.size() != entries.size()){
+        unusable("a Pokémon or a move that is not in the data");
+    }
+    return team;
+}
+
 bool foe_from_text(const QString& name, bool shadow, Mon& out){
     const QString species = find_species(name);
     if (species.isEmpty()){
@@ -1668,6 +1868,29 @@ QJsonValue answer(const QString& fn, const QJsonObject& in, bool& known){
             out.append(mon_json(m));
         }
         return out;
+    }
+    if (fn == "load_team"){
+        //  a file of the folder of the test: none, a folder, or the text that the file has (Base64)
+        QTemporaryDir folder;
+        const QString path = folder.filePath("battle_team.json");
+        const QString kind = in.value("kind").toString();
+        if (kind == "dir"){
+            QDir().mkpath(path);
+        }else if (kind == "file"){
+            QFile written(path);
+            if (!written.open(QIODevice::WriteOnly) || written.write(QByteArray::fromBase64(in.value("b64").toString().toLatin1())) < 0){
+                return QJsonValue(QString("the file of the test could not be written"));
+            }
+        }
+        try{
+            QJsonArray out;
+            for (const Mon& m : load_team(path)){
+                out.append(mon_json(m));
+            }
+            return out;
+        }catch (const std::runtime_error&){
+            return QJsonObject{{"error", true}};
+        }
     }
     if (fn == "mon"){
         Mon m;

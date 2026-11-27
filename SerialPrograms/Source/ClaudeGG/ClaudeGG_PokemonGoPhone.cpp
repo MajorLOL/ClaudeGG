@@ -548,6 +548,10 @@ bool AgentHost::battles_done_today() const{
     return ok && object.value("day").toString() == today_text();
 }
 
+std::vector<Battle::Mon> AgentHost::load_team() const{
+    return Battle::load_team(m_options.folder + "/battle_team.json");
+}
+
 QString AgentHost::day_count(const QString& key){
     return m_hooks.day_count ? m_hooks.day_count(key) : QString();
 }

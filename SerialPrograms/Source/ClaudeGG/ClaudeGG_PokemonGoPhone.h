@@ -35,10 +35,12 @@
 #include <mutex>
 #include <optional>
 #include <utility>
+#include <vector>
 #include <opencv2/core.hpp>
 #include <QString>
 #include <QStringList>
 #include "ClaudeGG_Mobile.h"
+#include "ClaudeGG_PokemonGoBattle.h"
 #include "ClaudeGG_PokemonGoLoop.h"
 #include "ClaudeGG_PokemonGoModels.h"
 #include "ClaudeGG_PokemonGoStart.h"
@@ -182,6 +184,9 @@ public:
     void set_hooks(const Hooks& hooks){ m_hooks = hooks; }
     //  Did the Battle screen show a grey BATTLE button today (battle_done.json of the folder of the bot)?
     bool battles_done_today() const;
+    //  The team to fight with: battle_team.json of the folder of the bot (the preset when there is none; Battle::load_team() says what
+    //  a file that cannot be used does).  What Start::auto_battle() is given as its TeamLoader: [&]{ return host.load_team(); }.
+    std::vector<Battle::Mon> load_team() const;
 
     //  The size of the real screen the agent told (0: not known).
     int screen_width() const{ return m_width; }

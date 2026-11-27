@@ -8,11 +8,14 @@ the C++ port of it (SerialPrograms/Source/ClaudeGG/ClaudeGG_PokemonGoBattle.cpp)
 The questions are made from models/battle_data.json with a fixed seed: the type chart, the names of moves and of
 species (as they are and as OCR misreads them), the movesets, the fit of CP and HP to level and IVs, the damage,
 the charged attack to throw, the shield to use (the rule of a duel and the rule of a real battle), whole duels
-and the choice of who comes in after a faint."""
+the choice of who comes in after a faint, and the team file (load_team: what the engine makes of a file, as a list of Pokémon or as an error,
+for a hundred files that are cut off, no team, not JSON, not UTF-8, or written the way a person might)."""
+import base64
 import json
 import os
 import random
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -49,7 +52,7 @@ def mutate(text, rnd):
 
 def mon_out(m):
     return {"species": m.species, "name": m.name, "label": m.label, "types": list(m.types), "shadow": m.shadow,
-            "cp": m.cp, "level": m.level, "ivs": list(m.ivs), "atk": m.atk, "dfn": m.dfn, "max_hp": m.max_hp,
+            "cp": m.cp, "level": m.level, "ivs": list(m.ivs)[:3], "atk": m.atk, "dfn": m.dfn, "max_hp": m.max_hp,
             "hp": m.hp, "fast": m.fast.id, "charged": [c.id for c in m.charged], "pos": m.pos}
 
 
@@ -288,6 +291,128 @@ def build():
                 e["charged"] = list(moves[1])
             entries.append(e)
         add("build_team", {"entries": entries}, [mon_out(m) for m in be.build_team(entries)])
+
+    # ---- the team file (load_team): what the engine makes of a file, or that it raises
+    def team_file_case(label, content):
+        """content: the bytes of the file, None (no file) or "dir" (a folder where the file should be)."""
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "battle_team.json")
+            kind = "none"
+            if content == "dir":
+                os.mkdir(path)
+                kind = "dir"
+            elif content is not None:
+                with open(path, "wb") as f:
+                    f.write(content)
+                kind = "file"
+            try:
+                out = [mon_out(m) for m in be.load_team(path)]
+            except Exception:  # noqa: BLE001  (the bot catches every kind of them)
+                out = {"error": True}
+        inp = {"label": label, "kind": kind}
+        if kind == "file":
+            inp["b64"] = base64.b64encode(content).decode("ascii")
+        add("load_team", inp, out)
+
+    def text(value):
+        return json.dumps(value).encode()
+
+    noctowl = {"species": "noctowl", "cp": 1497, "hp": 162, "fast": "WING_ATTACK", "charged": ["SHADOW_BALL", "SKY_ATTACK"]}
+    lapras = {"species": "lapras", "shadow": True, "cp": 1489, "hp": 174, "fast": "ICE_SHARD", "charged": ["FRUSTRATION", "SURF"]}
+    lanturn = {"species": "lanturn", "cp": 1494, "hp": 186}
+    team_file_case("no file", None)
+    team_file_case("a folder in its place", "dir")
+    team_file_case("an empty file", b"")
+    team_file_case("not JSON", b"{not json")
+    team_file_case("a file that is cut off", b'[{"species": "noctowl", "cp": 14')
+    team_file_case("a byte order mark", b"\xef\xbb\xbf" + text([noctowl]))
+    team_file_case("not UTF-8", b'[{"species": "noct\xffowl"}]')
+    team_file_case("more than one value", text([noctowl]) + b" " + text([lapras]))
+    team_file_case("a comma too many", b"[" + text(noctowl) + b",]")
+    team_file_case("two lists with a comma", b"[],[]")
+    team_file_case("two Pokemon with a comma and no list", text(noctowl) + b"," + text(lapras))
+    team_file_case("text after the list", text([noctowl]) + b" x")
+    team_file_case("the preset written out", text(be.DEFAULT_TEAM))
+    team_file_case("three Pokemon with CP and HP", text([noctowl, lapras, lanturn]))
+    team_file_case("white space around it", b"\n  \t" + text([lanturn]) + b"  \n\n")
+    team_file_case("a letter written as an escape", b'[{"species": "\\u006eoctowl"}]')
+    team_file_case("a key twice", b'[{"species": "lapras", "species": "noctowl"}]')
+    team_file_case("an empty list", b"[]")
+    team_file_case("an empty table", b"{}")
+    team_file_case("a table with a key", b'{"species": "noctowl"}')
+    team_file_case("an empty text", b'""')
+    team_file_case("a text", b'"noctowl"')
+    team_file_case("a number", b"5")
+    team_file_case("null", b"null")
+    team_file_case("true", b"true")
+    team_file_case("an entry that is a number", b"[1]")
+    team_file_case("an entry that is null", b"[null]")
+    team_file_case("an entry that is a list", b'[["noctowl"]]')
+    team_file_case("an entry that is a text", b'["noctowl"]')
+    team_file_case("an entry without a species", text([{"cp": 1497, "hp": 162}]))
+    team_file_case("an entry with a species that is a number", text([{"species": 5}]))
+    team_file_case("an entry with a species that is not in the data", text([{"species": "missingno"}]))
+    team_file_case("one of three that is not in the data", text([noctowl, {"species": "missingno"}, lapras]))
+    team_file_case("a fast move that is not in the data", text([{"species": "noctowl", "fast": "NO_SUCH_MOVE"}]))
+    team_file_case("a charged move that is not in the data", text([{"species": "noctowl", "charged": ["SKY_ATTACK", "NO_SUCH_MOVE"]}]))
+    # the numbers
+    team_file_case("CP and HP as text", text([{"species": "noctowl", "cp": "1497", "hp": " 162 "}]))
+    team_file_case("CP and HP with signs", text([{"species": "noctowl", "cp": "+1497", "hp": "162"}]))
+    team_file_case("CP and HP with a point", text([{"species": "noctowl", "cp": 1497.0, "hp": 162.9}]))
+    team_file_case("CP as a text with a point", text([{"species": "noctowl", "cp": "1497.5", "hp": 162}]))
+    team_file_case("CP as a text with nothing", text([{"species": "noctowl", "cp": "many", "hp": 162}]))
+    team_file_case("CP as a text with an exponent", text([{"species": "noctowl", "cp": "1e3", "hp": 162}]))
+    team_file_case("CP as a list", text([{"species": "noctowl", "cp": [1497], "hp": 162}]))
+    team_file_case("CP as a table", text([{"species": "noctowl", "cp": {"a": 1}, "hp": 162}]))
+    team_file_case("CP as true", text([{"species": "noctowl", "cp": True, "hp": 162, "level": 25, "ivs": [1, 2, 3]}]))
+    team_file_case("a bad CP next to an HP that is nothing", text([{"species": "noctowl", "cp": [1], "hp": 0}]))
+    team_file_case("a CP that is nothing next to a bad HP", text([{"species": "noctowl", "cp": 0, "hp": [162]}]))
+    team_file_case("CP 0 and a level", text([{"species": "noctowl", "cp": 0, "hp": 162, "level": 25, "ivs": [1, 2, 3]}]))
+    team_file_case("CP as 0 in a text and a level", text([{"species": "noctowl", "cp": "0", "hp": "0", "level": 25}]))
+    team_file_case("CP and HP that fit nothing, and a level", text([{"species": "noctowl", "cp": 99999, "hp": 1, "level": 20.5, "ivs": [4, 5, 6]}]))
+    team_file_case("CP and HP that are far too big", text([{"species": "noctowl", "cp": 1e30, "hp": 1e30, "level": 20, "ivs": [4, 5, 6]}]))
+    team_file_case("CP and HP that fit nothing and no level", text([{"species": "noctowl", "cp": 99999, "hp": 1}]))
+    team_file_case("CP and HP that fit, and a level that is a text", text([{"species": "noctowl", "cp": 1497, "hp": 162, "level": "twenty"}]))
+    team_file_case("only a CP", text([{"species": "noctowl", "cp": 1497}]))
+    team_file_case("only an HP and a level", text([{"species": "noctowl", "hp": 162, "level": 30}]))
+    team_file_case("a level and IVs", text([{"species": "noctowl", "level": 25.5, "ivs": [1, 2, 3]}]))
+    team_file_case("a level without IVs", text([{"species": "noctowl", "level": 25.5}]))
+    team_file_case("a level and IVs that are null", text([{"species": "noctowl", "level": 25, "ivs": None}]))
+    team_file_case("a level and four IVs", text([{"species": "noctowl", "level": 25, "ivs": [1, 2, 3, 4]}]))
+    team_file_case("a level and two IVs", text([{"species": "noctowl", "level": 25, "ivs": [1, 2]}]))
+    team_file_case("a level and no IVs at all", text([{"species": "noctowl", "level": 25, "ivs": []}]))
+    team_file_case("a level and IVs that are a text", text([{"species": "noctowl", "level": 25, "ivs": "123"}]))
+    team_file_case("a level and an IV that is a text", text([{"species": "noctowl", "level": 25, "ivs": [1, "2", 3]}]))
+    team_file_case("a level that is a text", text([{"species": "noctowl", "level": "25"}]))
+    team_file_case("a level that is 0", text([{"species": "noctowl", "level": 0, "ivs": [1, 2, 3]}]))
+    team_file_case("IVs and no level", text([{"species": "noctowl", "ivs": [1, 2, 3]}]))
+    # shadow: what Python takes for true
+    for label, value in (("true", True), ("false", False), ("1", 1), ("0", 0), ("0.0", 0.0), ("a text", "yes"), ("an empty text", ""),
+                         ("minus one", -1), ("a small number", 0.25), ("a list", [0]), ("an empty list", []), ("a table", {"a": 0}), ("an empty table", {}), ("null", None)):
+        team_file_case("shadow is " + label, text([{"species": "lapras", "shadow": value, "cp": 1489, "hp": 174}]))
+    # the moves
+    team_file_case("a fast move only", text([{"species": "noctowl", "fast": "WING_ATTACK"}]))
+    team_file_case("charged moves only", text([{"species": "noctowl", "charged": ["SKY_ATTACK"]}]))
+    team_file_case("one charged move", text([{"species": "noctowl", "fast": "WING_ATTACK", "charged": ["SKY_ATTACK"]}]))
+    team_file_case("three charged moves", text([{"species": "noctowl", "fast": "WING_ATTACK", "charged": ["SKY_ATTACK", "SHADOW_BALL", "PSYCHIC"]}]))
+    team_file_case("a fast move that is null and charged moves", text([{"species": "noctowl", "fast": None, "charged": ["SKY_ATTACK"]}]))
+    team_file_case("a fast move that is empty and charged moves", text([{"species": "noctowl", "fast": "", "charged": ["SKY_ATTACK"]}]))
+    team_file_case("a fast move that is empty and no charged moves", text([{"species": "noctowl", "fast": "", "charged": []}]))
+    team_file_case("a fast move that is empty and nothing else", text([{"species": "noctowl", "fast": ""}]))
+    team_file_case("a fast move that is 0 and no charged moves", text([{"species": "noctowl", "fast": 0, "charged": []}]))
+    team_file_case("a fast move that is false and charged moves", text([{"species": "noctowl", "fast": False, "charged": ["SKY_ATTACK"]}]))
+    team_file_case("a fast move that is a number", text([{"species": "noctowl", "fast": 5}]))
+    team_file_case("a fast move that is a number and no charged moves", text([{"species": "noctowl", "fast": 5, "charged": []}]))
+    team_file_case("a fast move that is a list", text([{"species": "noctowl", "fast": ["WING_ATTACK"]}]))
+    team_file_case("charged moves that are empty", text([{"species": "noctowl", "fast": "WING_ATTACK", "charged": []}]))
+    team_file_case("charged moves that are null", text([{"species": "noctowl", "fast": "WING_ATTACK", "charged": None}]))
+    team_file_case("charged moves that are an empty text", text([{"species": "noctowl", "fast": "WING_ATTACK", "charged": ""}]))
+    team_file_case("charged moves that are 0", text([{"species": "noctowl", "fast": "WING_ATTACK", "charged": 0}]))
+    team_file_case("charged moves that are a text", text([{"species": "noctowl", "fast": "WING_ATTACK", "charged": "SKY_ATTACK"}]))
+    team_file_case("charged moves that are a number", text([{"species": "noctowl", "charged": 5}]))
+    team_file_case("charged moves with a number in them", text([{"species": "noctowl", "charged": ["SKY_ATTACK", 5]}]))
+    team_file_case("charged moves with an empty name", text([{"species": "noctowl", "charged": ["SKY_ATTACK", ""]}]))
+    team_file_case("a team of six", text([noctowl, lapras, lanturn, noctowl, lapras, lanturn]))
 
     return {"about": "Made by tools/make_engine_golden.py from battle_engine.py: what it answers. Do not edit.",
             "cases": cases}

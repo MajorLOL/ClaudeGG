@@ -148,6 +148,18 @@ struct TeamEntry{
 };
 std::vector<Mon> build_team(const std::vector<TeamEntry>& entries);
 
+//  The team to fight with, as battle_engine.load_team() has it: battle_team.json (team_file(): in the home folder, or the
+//  file that is given) when it is there and can be read, else the preset (default_team(): Noctowl, Shadow Lapras, Lanturn).
+//  A file that is not JSON, or cannot be read, is no file.  A file that is JSON but no team that can be fought with - an
+//  entry without a species, a Pokémon or a move that is not in the data, a number that is no number - is an error:
+//  std::runtime_error (the Python code raises an exception there, and the bot then fights no battles).  The way the entries
+//  are read is that of Python's (what is true, what int() makes of a text), tested by the file of Mobile/tools/make_engine_golden.py.
+//  (Python's json also reads NaN and Infinity; Qt's does not: a file with those is no file here.  Charged moves that are a table, whose
+//  keys Python takes for the moves, are an error here.)
+QString team_file();
+std::vector<TeamEntry> default_team();
+std::vector<Mon> load_team(const QString& path = QString());
+
 //  A guessed opponent from the name on the screen; false when it is not known.
 bool foe_from_text(const QString& name, bool shadow, Mon& out);
 

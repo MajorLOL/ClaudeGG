@@ -1296,6 +1296,26 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             host.save_picture("g_battle_test.png", picture);
             check(QFile::exists(options.folder + "/pictures/g_battle_test.png"), "a picture to look at afterwards is kept");
         }
+        {
+            //  the team: the preset where the folder has no file, the team of the file where it has one, an error where it has a file that cannot be used
+            QFile::remove(options.folder + "/battle_team.json");
+            check(host.load_team().size() == 3, "the team is the preset where the folder of the bot has no file");
+            QFile team(options.folder + "/battle_team.json");
+            check(team.open(QIODevice::WriteOnly) && team.write("[{\"species\": \"lanturn\", \"cp\": 1494, \"hp\": 186}]") > 0, "a team file is written");
+            team.close();
+            const std::vector<PokemonGo::Battle::Mon> mine = host.load_team();
+            check(mine.size() == 1 && mine[0].species == "lanturn", "the team is the one of battle_team.json in the folder of the bot");
+            check(team.open(QIODevice::WriteOnly) && team.write("[{\"species\": \"missingno\"}]") > 0, "another team file is written");
+            team.close();
+            bool refused = false;
+            try{
+                host.load_team();
+            }catch (const std::runtime_error&){
+                refused = true;
+            }
+            check(refused, "a team with a Pokémon that is not in the data is refused");
+            QFile::remove(options.folder + "/battle_team.json");
+        }
     }
 
     //  The Pokémon GO bot on the Pi (with a service that is not one).
