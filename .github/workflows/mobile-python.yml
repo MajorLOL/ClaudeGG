@@ -8,10 +8,12 @@ name: Mobile Python tests
 #
 # The versions are pinned, so that a new release of a library cannot turn this
 # red or green by itself. Python 3.12 on purpose, not the newest on the runner:
-# with Python 3.14.4 and NumPy 2.2.6 an expression like `np.abs(a - b)` in a
-# function changes `a` (NumPy takes a name that Python 3.14 does not count as
-# held for a temporary and works in place on it), which made 17 of these tests
-# fail on the runner and nowhere else. The Raspberry Pi runs 3.11 to 3.13.
+# the first run, with Python 3.14.4 and NumPy 2.2.6, failed 17 tests that pass
+# with 3.12 to 3.14.6 on the machine this was written on, and an expression
+# like `np.abs(a - b)` inside a function gave other numbers than the same one
+# outside it. (The likely cause is NumPy working in place on a name that that
+# Python does not count as held; this was not looked into further.) The
+# Raspberry Pi runs 3.11 to 3.13.
 
 on:
   push:
@@ -36,10 +38,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
+      - name: Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: '3.12'
+
       - name: Install what the tests need
         run: |
-          python3.12 --version
-          python3.12 -m venv "$RUNNER_TEMP/venv"
+          python --version
+          python -m venv "$RUNNER_TEMP/venv"
           "$RUNNER_TEMP/venv/bin/pip" install --quiet numpy==2.2.6 opencv-python-headless==4.12.0.88 ai-edge-litert==2.4.1
           "$RUNNER_TEMP/venv/bin/python" -c "import cv2, numpy; print('OpenCV', cv2.__version__, 'NumPy', numpy.__version__)"
 
