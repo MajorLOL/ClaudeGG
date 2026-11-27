@@ -27,6 +27,7 @@
 #include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLibraryInfo>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
@@ -43,6 +44,7 @@
 #include <QTableWidget>
 #include <QTextEdit>
 #include <QTimer>
+#include <QTranslator>
 #include <QTreeWidget>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -630,8 +632,37 @@ std::vector<ChangeListener>& change_listeners(){
     return instance;
 }
 
+//  Qt's own texts (the buttons of a message box such as OK, Cancel, Yes and
+//  No, the file dialog): the translations that come with Qt. The package
+//  has them for the languages of the program (windeployqt --translations).
+void use_qt_translation(const QString& code){
+    static QTranslator* current = nullptr;
+    if (current != nullptr){
+        QCoreApplication::removeTranslator(current);
+        delete current;
+        current = nullptr;
+    }
+    if (code == "en" || QCoreApplication::instance() == nullptr){
+        return;
+    }
+    const QStringList folders{
+        QCoreApplication::applicationDirPath() + "/translations",
+        QLibraryInfo::path(QLibraryInfo::TranslationsPath),
+    };
+    std::unique_ptr<QTranslator> translator = std::make_unique<QTranslator>();
+    for (const QString& folder : folders){
+        if (translator->load("qt_" + code, folder) || translator->load("qtbase_" + code, folder)){
+            QCoreApplication::installTranslator(translator.get());
+            global_logger_tagged().log("Language: Qt's own texts from " + translator->filePath().toStdString(), COLOR_BLUE);
+            current = translator.release();
+            return;
+        }
+    }
+}
+
 //  Puts a language into use: its dictionary, and every window that is open.
 void use_language(const QString& code){
+    use_qt_translation(code);
     QHash<QString, QString> words = load_language(code);
     const size_t count = (size_t)words.size();
     QSet<QString> translated;

@@ -212,19 +212,21 @@ jobs:
           #  The Visual C++ runtime goes in as its DLLs next to the program
           #  (about 1.5 MB, so it runs without installing anything), not as
           #  the 18 MB installer vc_redist.x64.exe that windeployqt adds.
-          #  No translations of Qt itself (7.5 MB): the program loads none.
+          #  Of Qt's own translations (7.5 MB for 30 languages) only the
+          #  languages the program has: it loads them for the buttons of
+          #  message boxes and the file dialog (ClaudeGG_Language.cpp).
           $crt = $null
           if ($env:VCToolsRedistDir) {
             $crt = Get-ChildItem "$env:VCToolsRedistDir/x64" -Directory -Filter "Microsoft.VC*.CRT" -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
           }
           if ($null -ne $crt) {
-            windeployqt --release --no-translations --no-compiler-runtime --dir $out "$out/ClaudeGG.exe"
+            windeployqt --release --translations nl,de,fr,es --no-compiler-runtime --dir $out "$out/ClaudeGG.exe"
             Copy-Item "$($crt.FullName)/*.dll" $out
             Write-Host "The Visual C++ runtime from $($crt.FullName):"
             Get-ChildItem "$($crt.FullName)/*.dll" | Format-Table Name, Length
           } else {
             Write-Host "::warning::No Visual C++ runtime DLLs in VCToolsRedistDir: the package has vc_redist.x64.exe instead."
-            windeployqt --release --no-translations --dir $out "$out/ClaudeGG.exe"
+            windeployqt --release --translations nl,de,fr,es --dir $out "$out/ClaudeGG.exe"
           }
           #  What only a developer needs: the QML debugger, and the debug
           #  build of the Qt Multimedia QML plugin (the CMake project copies
