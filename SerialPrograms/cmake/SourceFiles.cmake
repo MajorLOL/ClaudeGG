@@ -1465,6 +1465,10 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/Assistant/Assistant_GitHub.h
     Source/ClaudeGG/Assistant/Assistant_Http.cpp
     Source/ClaudeGG/Assistant/Assistant_Http.h
+    Source/ClaudeGG/Assistant/Assistant_Mcp.cpp
+    Source/ClaudeGG/Assistant/Assistant_Mcp.h
+    Source/ClaudeGG/Assistant/Assistant_McpServer.cpp
+    Source/ClaudeGG/Assistant/Assistant_McpServer.h
     Source/ClaudeGG/Assistant/Assistant_Panel.cpp
     Source/ClaudeGG/Assistant/Assistant_Panel.h
     Source/ClaudeGG/Assistant/Assistant_Play.cpp
@@ -1483,6 +1487,8 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudePlays/ClaudePlays_AnyGame.h
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Engine.cpp
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Engine.h
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_External.cpp
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_External.h
     Source/ClaudeGG/ClaudePlays/ClaudePlays_GameCard.cpp
     Source/ClaudeGG/ClaudePlays/ClaudePlays_GameCard.h
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Games.cpp

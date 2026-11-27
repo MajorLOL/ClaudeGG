@@ -105,6 +105,20 @@ What to expect: it is slow next to a program made for one task, since every deci
 
 Saving is off unless you allow it: Claude is told not to save and has no tool for it, and in FireRed and LeafGreen the program does not press A while the game asks whether to save. Claude still presses the buttons, so this cannot rule a save out altogether, and **many games save by themselves** (Scarlet and Violet, Legends: Arceus and Tears of the Kingdom among them): what Claude does there can be final. Save the game yourself before you start the program, or back it up, where that matters. HOME, which leaves the game for the console's menu, is not pressed unless you allow that.
 
+## Playing with Claude Code, without a key
+
+The API is billed per token, and a subscription to the Claude apps does not pay for it. If you have a subscription and Claude Code, it can do the playing instead: in every Claude Plays (FireRed and LeafGreen too) set **Who plays** to "Claude Code plays". The program then starts a small server on this computer, offers the game's tools to it (the tools in the tables above, and `done`, but not `note`: Claude Code has its own memory), and does what Claude Code calls. It asks nobody and needs no key; the goal is the one you give Claude Code in its own conversation, not the one in the options.
+
+1. Start the program. Its log says that it listens, and where the file `ClaudeGG-Mcp-Connect.txt` is (in the settings folder, `UserSettings`). The file holds the command that adds the server to Claude Code, once: `claude mcp add --transport http claude-gg http://127.0.0.1:28417/mcp --header "Authorization: Bearer <token>"`. The token is in the file and not in the log, which people post when they ask for help.
+2. Start Claude Code and tell it what to do: "Use the claude-gg tools to play the game on the screen: ...". Claude Code asks before it uses a tool; allow the tools of claude-gg, or every press waits for you.
+3. It ends when Claude Code calls `done`, after the number of actions you set, after the minutes without a call you set (30 unless you change it), or when you stop the program. Start the program again for another goal.
+
+Who can use the server: only this computer, and only with the token. The server listens on 127.0.0.1, and every request must carry the token as a bearer token and a Host and Origin of this computer, so a web page in your browser cannot use it either. The token is made once, at random, and kept encrypted like the key; to make a new one, delete `ClaudeGG-Mcp-Token.json` and add the server to Claude Code again. A program that runs as you can read the token from Claude Code's own settings, where `claude mcp add` puts it: the same as any key on your computer.
+
+What is sent where: the pictures of the game and the text the program reads go to whatever Claude Code is set to use (Anthropic, on a subscription), not from this program. What the session costs counts against your subscription's limits; the program shows no cost for it, and the limit on actions is the one that holds.
+
+What to know: the server follows the MCP specification for Streamable HTTP as far as a program that answers every call with one JSON body needs it (no streaming, no sessions, no GET). It has been tried with Claude Code's `claude mcp add` and `claude mcp list` (connected with the right token, refused with a wrong one) and with the official MCP SDK for Python as a client, and every build runs a whole session through a real socket on a made-up console. It has **not** been tried with a Claude Code that is signed in to a subscription, with a console, or with a game.
+
 ## What it costs
 
 Claude's use is counted in tokens (about four characters each) and billed by Anthropic. Under the box you write in, the panel shows what the conversation used so far and what that costs at the public prices this build knows (November 2026, per million tokens of input / output):
@@ -129,6 +143,7 @@ Set a spending limit in Anthropic's console as well: that one holds whatever thi
 ## What is sent where
 
 - **To Anthropic:** what you write, the line about the open program, and what the tools returned (lines of the log, the open program's options, parts of the source). From the chat, when Claude asks for it with `look_at_game`: a picture of the game, as a JPEG. From Claude Plays: the goal and what you wrote about the game, what the program read from the screen, and the pictures of the game Claude asked for. The log can have the name of your Windows account in a path. How Anthropic handles what the API receives is in its own terms.
+- **To Claude Code (when it plays):** the tools' results, pictures of the game included, on a connection to 127.0.0.1 that only this computer can make. What Claude Code sends on is Claude Code's, not this program's.
 - **To GitHub:** the requests to read the repository and, with your token, the commits. A commit is public, like the repository.
 - **Nowhere else.** Nothing of a conversation goes to Pokemon Automation or to anyone else, and this fork's builds send no error reports.
 
@@ -142,7 +157,8 @@ Set a spending limit in Anthropic's console as well: that one holds whatever thi
 - checks the picture the chat gets when it looks at the game (the parts of the screen by name, the right part of a frame of four colours in each, the size, JPEG), and asks the tool `look_at_game` with the real hook of the window: it gives a picture or says why there is none, and refuses a part that does not exist;
 - plays three turns from a thread of its own, as Claude Plays does (a look with its picture, a press, the end);
 - plays a whole session of the Claude Plays of every list on a console that is made up for the test (a look as a JPEG, presses with the text read after them, a stick held, a note, done), and checks what the program says about the screen after each action;
-- checks that every tool of Claude Plays has a schema the API takes: those of FireRed and LeafGreen, and those of every other list with its controller, with and without saving and HOME.
+- checks that every tool of Claude Plays has a schema the API takes: those of FireRed and LeafGreen, and those of every other list with its controller, with and without saving and HOME, and what Claude Code is told in each;
+- checks the server that Claude Code plays through: the protocol (the handshake, the tools, a call with a picture, errors, batches, a call that takes time), the HTTP side (what is read from a socket, and what is refused: another host, a web page's origin, a missing or wrong token, another path or method), and the token and the file that tells how to connect; and plays a session of the game of the test through a real socket of this computer, with a client that is made up (the refusals first, then the handshake, a look as a JPEG, a press, a hold, done, and the port closed afterwards).
 
 It uses no key and sends nothing. The pictures `night-fire-claude-*.png` of a release show the panel and the pages of Claude Plays (of FireRed and LeafGreen, and of Other Games) as that build draws them.
 

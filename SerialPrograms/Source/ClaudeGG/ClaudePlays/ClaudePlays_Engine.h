@@ -22,10 +22,12 @@
 #define PokemonAutomation_ClaudeGG_ClaudePlays_Engine_H
 
 #include <stdint.h>
+#include <chrono>
 #include <string>
 #include <vector>
 #include "Common/Cpp/Color.h"
 #include "ClaudeGG/Assistant/Assistant_Play.h"
+#include "ClaudeGG/Assistant/Assistant_Mcp.h"
 
 namespace PokemonAutomation{
 
@@ -34,6 +36,7 @@ class CancellableScope;
 namespace ClaudeGG{
 namespace ClaudePlays{
 
+using Assistant::McpSession;
 using Assistant::PlayCall;
 using Assistant::PlayEvent;
 using Assistant::PlayResult;
@@ -136,6 +139,28 @@ struct Ending{
 Ending play(
     Host& host, Game& game, PlaySession& claude,
     const std::string& goal, const Limits& limits
+);
+
+
+//  The other way to play: the Claude is the user's own (Claude Code, say, on
+//  a Claude subscription) and calls the tools through the program's MCP
+//  server (Assistant_Mcp.h) instead of the program calling the Claude API.
+//  The goal is the one the user gave that Claude in its own conversation;
+//  the conversation is theirs, so nothing is started over and no notes are
+//  kept for it (it has its own). What is the same: each call is run on the
+//  console by the game, the limit on actions holds, "done" ends it.
+
+//  The tools the client is told about: the game's, and "done".
+std::vector<PlayTool> external_tools(const Game& game);
+
+//  Runs the calls that come in on "mcp" (already listening) until the client
+//  calls done, the limit on actions is reached ("max_cost" does not apply:
+//  the program pays for nothing), or no call comes for "idle" (counted from
+//  the start for the first call; 0: waits for ever). Throws as the host's
+//  scope does once the program is stopped.
+Ending serve_external(
+    Host& host, Game& game, McpSession& mcp,
+    const Limits& limits, std::chrono::seconds idle
 );
 
 

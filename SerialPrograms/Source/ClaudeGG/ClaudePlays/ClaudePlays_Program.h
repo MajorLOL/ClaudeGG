@@ -30,6 +30,7 @@
 #include "CommonFramework/Panels/PanelList.h"
 #include "NintendoSwitch/NintendoSwitch_SingleSwitchProgram.h"
 #include "ClaudePlays_Engine.h"
+#include "ClaudePlays_External.h"
 #include "ClaudePlays_Games.h"
 
 namespace PokemonAutomation{
@@ -83,6 +84,8 @@ private:
     //  Only shown in Other Games: which of the games that have no list of
     //  their own it is (see has_only_claude_plays()).
     EnumDropdownOption<GameId> GAME;
+    //  Who plays: the program asks Claude, or Claude Code does.
+    WhoPlays WHO;
     TextEditOption GOAL;
     TextEditOption ABOUT;
     //  The language of the text that read_text reads (OCR), and that Claude is

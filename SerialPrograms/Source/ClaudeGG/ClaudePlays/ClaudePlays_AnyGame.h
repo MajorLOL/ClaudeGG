@@ -132,6 +132,10 @@ struct AnyGameOptions{
     bool allow_save = false;
     //  The user lets Claude press HOME.
     bool allow_home = false;
+    //  The Claude that plays is one the user runs (Claude Code, through the
+    //  program's MCP server), not the program's own conversation: it has the
+    //  goal from the user already, and nobody starts its conversation over.
+    bool external = false;
 };
 
 //  The tools and the instructions for a controller and these options.

@@ -28,6 +28,7 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QKeyEvent>
 #include <QLabel>
@@ -41,6 +42,7 @@
 #include <QScrollBar>
 #include <QStyle>
 #include <QStyleOptionSlider>
+#include <QTcpSocket>
 #include <QTextEdit>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -856,6 +858,227 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     logger.log("Assistant test:   an input: " + line, COLOR_RED);
                 }
             }
+
+            //  The same game, played by Claude Code: through the program's
+            //  server, on a real socket of this computer, with a client that
+            //  is made up here and speaks as one does. The program's thread
+            //  serves, this thread is the client and the interface at once.
+            {
+                const std::string gate_token = "5f2c9a41d07e3b86a1c4e95d2f08b7a63c1de4f9082a7b5c6d3e1f0a9b8c7d6e";
+                MadeUpConsole gate_console;
+                TestHost gate_host;
+                ClaudePlays::Ending gate_ending;
+                std::atomic<int> gate_port(0);
+                std::string gate_start_error;
+                AsyncTask gate_task = GlobalThreadPools::unlimited_normal().dispatch_now_blocking([&]{
+                    try{
+                        ClaudePlays::GameFacts facts;
+                        facts.name = "a game made up for the test";
+                        ClaudePlays::AnyGameOptions options;
+                        options.external = true;
+                        ClaudePlays::AnyGame game(gate_console, facts, options);
+                        Assistant::McpSession::Setup setup;
+                        setup.version = "self-test";
+                        setup.instructions = game.instructions();
+                        setup.tools = ClaudePlays::external_tools(game);
+                        setup.token = gate_token;
+                        Assistant::McpSession server(std::move(setup));
+                        gate_start_error = server.start(gate_host.scope());
+                        if (!gate_start_error.empty()){
+                            return;
+                        }
+                        gate_port = server.port();
+                        gate_ending = ClaudePlays::serve_external(
+                            gate_host, game, server, ClaudePlays::Limits(), std::chrono::seconds(60)
+                        );
+                    }catch (...){
+                        //  Stopped by the scope: what was done so far tells.
+                    }
+                });
+                for (int waited = 0; waited < 10000 && gate_port == 0 && !gate_task.is_finished(); waited += 20){
+                    let_run(20);
+                }
+
+                std::vector<std::string> gate_wrong;
+                const auto gate = [&](bool fine, const std::string& what){
+                    if (!fine){
+                        gate_wrong.push_back(what);
+                    }
+                };
+                struct Response{
+                    bool connected = false;
+                    int status = 0;
+                    QByteArray body;
+                };
+                //  One request on a connection of its own, answered and closed.
+                const auto talk = [&](const std::string& raw){
+                    Response response;
+                    QTcpSocket socket;
+                    socket.connectToHost(QString("127.0.0.1"), (quint16)gate_port.load());
+                    for (int waited = 0; waited < 3000 && socket.state() != QAbstractSocket::ConnectedState; waited += 10){
+                        let_run(10);
+                    }
+                    response.connected = socket.state() == QAbstractSocket::ConnectedState;
+                    if (!response.connected){
+                        return response;
+                    }
+                    socket.write(raw.data(), (qint64)raw.size());
+                    QByteArray all;
+                    for (int waited = 0; waited < 8000; waited += 10){
+                        let_run(10);
+                        all += socket.readAll();
+                        if (socket.state() == QAbstractSocket::UnconnectedState){
+                            all += socket.readAll();
+                            break;
+                        }
+                    }
+                    const qsizetype end = all.indexOf("\r\n\r\n");
+                    if (all.startsWith("HTTP/1.1 ")){
+                        response.status = all.mid(9, 3).toInt();
+                    }
+                    response.body = end < 0 ? QByteArray() : all.mid(end + 4);
+                    return response;
+                };
+                const auto post = [&](
+                    const std::string& path, const std::string& host_name, const std::string& token,
+                    const std::string& body, const std::string& more = std::string()
+                ){
+                    std::string text = "POST " + path + " HTTP/1.1\r\nHost: " + host_name + "\r\n";
+                    if (!token.empty()){
+                        text += "Authorization: Bearer " + token + "\r\n";
+                    }
+                    text += "Content-Type: application/json\r\nAccept: application/json, text/event-stream\r\n"
+                        "Connection: close\r\n" + more + "Content-Length: " + std::to_string(body.size()) + "\r\n\r\n" + body;
+                    return text;
+                };
+                const std::string own_host = "127.0.0.1:" + std::to_string(gate_port.load());
+                const auto rpc = [&](const std::string& body){
+                    return talk(post("/mcp", own_host, gate_token, body, "MCP-Protocol-Version: 2025-06-18\r\n"));
+                };
+                const auto object_of = [](const Response& response){
+                    return QJsonDocument::fromJson(response.body).object();
+                };
+                const auto text_of = [&](const Response& response){
+                    return object_of(response).value("result").toObject().value("content").toArray()[0].toObject()
+                        .value("text").toString().toStdString();
+                };
+
+                gate(gate_port > 0 && gate_start_error.empty(), "the server listens: " + gate_start_error);
+                if (gate_port > 0){
+                    //  Whatever is refused does not reach the console.
+                    gate(talk(post("/mcp", own_host, "", "{}")).status == 401, "no token: 401");
+                    gate(talk(post("/mcp", own_host, "not-the-token", "{}")).status == 401, "a wrong token: 401");
+                    gate(talk(post("/mcp", "evil.example:" + std::to_string(gate_port.load()), gate_token, "{}")).status == 403, "another host: 403");
+                    gate(talk(post("/mcp", own_host, gate_token, "{}", "Origin: https://evil.example\r\n")).status == 403, "a web page's origin: 403");
+                    gate(talk(post("/other", own_host, gate_token, "{}")).status == 404, "another path: 404");
+                    gate(talk("GET /mcp HTTP/1.1\r\nHost: " + own_host + "\r\nAuthorization: Bearer " + gate_token + "\r\nConnection: close\r\n\r\n").status == 405, "a GET: 405");
+                    gate(talk("this is not http\r\n\r\n").status == 400, "something that is no request: 400");
+                    gate(talk(post("/mcp", own_host, gate_token, "this is not json")).status == 400, "a body that is no JSON: 400");
+                    gate(gate_console.did.empty(), "nothing that was refused reached the console");
+
+                    const Response init = rpc(
+                        R"({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"self-test","version":"1"}}})"
+                    );
+                    const QJsonObject init_result = object_of(init).value("result").toObject();
+                    const QString instructions = init_result.value("instructions").toString();
+                    gate(
+                        init.status == 200 && init_result.value("serverInfo").toObject().value("name").toString() == "claude-gg" &&
+                        init_result.value("protocolVersion").toString() == "2025-06-18",
+                        "the handshake is answered"
+                    );
+                    gate(
+                        instructions.contains("gave you the goal in this conversation") &&
+                        !instructions.contains("starts the conversation over"),
+                        "Claude Code is told the goal is its own and that nothing starts over"
+                    );
+                    gate(rpc(R"({"jsonrpc":"2.0","method":"notifications/initialized"})").status == 202, "the client's notification is accepted");
+
+                    const Response list = rpc(R"({"jsonrpc":"2.0","id":2,"method":"tools/list"})");
+                    std::set<std::string> listed;
+                    for (const QJsonValue& tool : object_of(list).value("result").toObject().value("tools").toArray()){
+                        listed.insert(tool.toObject().value("name").toString().toStdString());
+                    }
+                    gate(
+                        listed.count("look") == 1 && listed.count("press") == 1 && listed.count("hold") == 1 &&
+                        listed.count("done") == 1 && listed.count("note") == 0,
+                        "the tools are the game's and done, without note (Claude Code keeps its own)"
+                    );
+
+                    const Response looked = rpc(R"({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"look","arguments":{}}})");
+                    const QJsonArray looked_content = object_of(looked).value("result").toObject().value("content").toArray();
+                    gate(
+                        text_of(looked) == "Screen: still now. [A picture of the screen.]" && looked_content.size() == 2 &&
+                        looked_content[1].toObject().value("mimeType").toString() == "image/jpeg" &&
+                        QByteArray::fromBase64(looked_content[1].toObject().value("data").toString().toLatin1()).startsWith("\xff\xd8\xff"),
+                        "a look comes back as text and a JPEG"
+                    );
+                    const Response pressed = rpc(
+                        R"({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"press","arguments":{"buttons":["A","DOWN"],"read":"bottom"}}})"
+                    );
+                    gate(
+                        text_of(pressed) ==
+                            "Pressed A, DOWN. Screen: 22% of the picture differs from before the action; still now.\n"
+                            "Text in its bottom part, as the program reads it:\nStart Game",
+                        "a press comes back with what it did to the screen and the text read after it: " + text_of(pressed)
+                    );
+                    const Response held = rpc(
+                        R"({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"hold","arguments":{"left_stick":"up","buttons":["B"],"ms":400}}})"
+                    );
+                    gate(
+                        text_of(held).rfind("Held left stick up + B for 400 ms. Screen: 22% of the picture differs", 0) == 0,
+                        "a hold with a stick: " + text_of(held)
+                    );
+                    gate(
+                        gate_console.did == std::vector<std::string>{"hold A 150", "hold DOWN 110", "hold B stick-up 400"},
+                        "the console did what was called, in order"
+                    );
+                    const Response unknown = rpc(R"({"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"launch_missiles"}})");
+                    gate(
+                        object_of(unknown).value("error").toObject().value("code").toInt() == -32602 && gate_console.did.size() == 3,
+                        "a tool that does not exist is refused and nothing is done"
+                    );
+
+                    const Response done = rpc(
+                        R"({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"done","arguments":{"reached":true,"summary":"Played through the server."}}})"
+                    );
+                    gate(text_of(done).find("The session is over") != std::string::npos, "done is answered, and says it is over");
+                }
+                for (int waited = 0; waited < 10000 && !gate_task.is_finished(); waited += 20){
+                    let_run(20);
+                }
+                if (!gate_task.is_finished()){
+                    gate_host.cancel.cancel(nullptr);
+                }
+                gate_task.wait_and_ignore_exceptions();
+                let_run(300);
+                gate(
+                    gate_ending.reached && gate_ending.actions == 3 && gate_host.actions == 3 &&
+                    gate_ending.summary.rfind("Claude says the goal is reached. Played through the server.", 0) == 0,
+                    "the session ended as Claude Code said: " + gate_ending.summary
+                );
+                bool connected_log = false;
+                for (const std::string& line : gate_host.lines){
+                    connected_log = connected_log || line.find("a client connected") != std::string::npos;
+                }
+                gate(connected_log, "the log says that a client connected");
+                if (gate_port > 0){
+                    gate(!talk(post("/mcp", own_host, gate_token, "{}")).connected, "the port is closed once the session is over");
+                }
+
+                if (gate_wrong.empty()){
+                    logger.log(
+                        "Assistant test: Claude Code played a session of any game through the program's server, on a "
+                        "real socket (refusals of a stranger, a stranger's host and a web page's origin, the "
+                        "handshake, a look as a JPEG, a press, a hold, done).",
+                        COLOR_BLUE
+                    );
+                }else{
+                    failed++;
+                    for (const std::string& what : gate_wrong){
+                        logger.log("Assistant test: the server of Claude Code did not do as it should: " + what, COLOR_RED);
+                    }
+                }
+            }
         }
 
         panel.show_page(Assistant::Panel::Page::SETTINGS);
@@ -1099,6 +1322,18 @@ int check_assistant(const QString& out, Logger& logger){
             wrong++;
             logger.log("Assistant test: failed: saving in Claude Plays, allowed or not", COLOR_RED);
         }
+        //  Played by Claude Code: its goal is its own, and nothing is started
+        //  over; the rest (saving) is as it is.
+        const std::string external = NintendoSwitch::PokemonFRLG::claude_plays_instructions(allow_save, true);
+        if (external.find("gave you the goal in this conversation") == std::string::npos ||
+            external.find("starts the conversation over") != std::string::npos ||
+            instructions.find("starts the conversation over") == std::string::npos ||
+            instructions.find("gave you the goal in this conversation") != std::string::npos ||
+            (external.find("Do not save the game") != std::string::npos) == allow_save
+        ){
+            wrong++;
+            logger.log("Assistant test: failed: what Claude Code is told in Claude Plays of FireRed and LeafGreen", COLOR_RED);
+        }
     }
     //  The same for the Claude Plays of the other games: for each game its
     //  controller, with and without saving and HOME.
@@ -1154,6 +1389,21 @@ int check_assistant(const QString& out, Logger& logger){
             ){
                 wrong++;
                 logger.log("Assistant test: failed: what Claude gets for " + profile.identifier, COLOR_RED);
+            }
+            //  Played by Claude Code: its goal is its own and nothing is
+            //  started over, in every list.
+            ClaudePlays::AnyGameOptions external_options = options;
+            external_options.external = true;
+            const std::string external_instructions =
+                ClaudePlays::any_game_instructions(layout, external_options, facts, profile.save_routine);
+            if (external_instructions.find("gave you the goal in this conversation") == std::string::npos ||
+                external_instructions.find("starts the conversation over") != std::string::npos ||
+                instructions.find("starts the conversation over") == std::string::npos ||
+                instructions.find("gave you the goal in this conversation") != std::string::npos ||
+                (external_instructions.find("Do not save the game") != std::string::npos) == allowed
+            ){
+                wrong++;
+                logger.log("Assistant test: failed: what Claude Code is told in Claude Plays for " + profile.identifier, COLOR_RED);
             }
             //  A game whose text is not English: Claude is told (and only then).
             ClaudePlays::GameFacts japanese = facts;

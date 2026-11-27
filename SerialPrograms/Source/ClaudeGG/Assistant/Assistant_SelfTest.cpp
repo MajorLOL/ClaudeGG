@@ -16,6 +16,7 @@
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QObject>
 #include <QSslSocket>
 #include <QStringList>
@@ -24,6 +25,8 @@
 #include <QUrlQuery>
 #include "CommonFramework/ImageTypes/ImageRGB32.h"
 #include "Assistant_Claude.h"
+#include "Assistant_Mcp.h"
+#include "Assistant_McpServer.h"
 #include "Assistant_Play.h"
 #include "Assistant_Settings.h"
 #include "Assistant_Workspace.h"
@@ -968,6 +971,435 @@ CheckResult run_checks(const QString& folder, const std::function<void(const QSt
         QImage wide = look("full", 4000, w, h);
         check(w == 400 && h == 200 && !wide.isNull(), "a picture is never larger than the frame");
     }
+
+    //  The server that Claude Code plays through (Assistant_McpServer.h):
+    //  what it answers, and what it refuses. No network: the protocol and the
+    //  HTTP side are checked as functions, the sockets by the test of the
+    //  interface.
+    {
+        struct FakeMcpBackend : public McpBackend{
+            int started = 0;
+            std::string last_call;
+            //  A call is held until "held" is called, not answered at once.
+            bool hold = false;
+            std::function<void(PlayResult)> held;
+            PlayResult next;
+
+            virtual std::string server_name() const override{ return "check-server"; }
+            virtual std::string server_version() const override{ return "9.9"; }
+            virtual std::string instructions() const override{ return "Play well."; }
+            virtual std::vector<PlayTool> tools() const override{
+                return {
+                    PlayTool{"look", "Looks at the screen.", R"({"type":"object","properties":{"area":{"type":"string"}}})"},
+                    PlayTool{"done", "Ends the session.", ""},
+                };
+            }
+            virtual void initialized() override{ started++; }
+            virtual void call(
+                const std::string& name, const std::string& arguments,
+                std::function<void(PlayResult result)> done
+            ) override{
+                last_call = name + " " + arguments;
+                PlayResult made = next;
+                if (made.text.empty()){
+                    made.text = "did " + name;
+                }
+                if (hold){
+                    held = std::move(done);
+                    held_result = made;
+                    return;
+                }
+                done(std::move(made));
+            }
+            PlayResult held_result;
+        };
+        struct Reply{
+            bool got = false;
+            int status = 0;
+            QByteArray body;
+            QJsonObject object() const{
+                return QJsonDocument::fromJson(body).object();
+            }
+            QJsonArray array() const{
+                return QJsonDocument::fromJson(body).array();
+            }
+        };
+
+        FakeMcpBackend backend;
+        McpProtocol protocol(backend);
+        const auto send = [&](const char* body, const std::string& version = std::string()){
+            const std::shared_ptr<Reply> reply = std::make_shared<Reply>();
+            protocol.handle(QByteArray(body), version, [reply](McpReply answer){
+                reply->got = true;
+                reply->status = answer.status;
+                reply->body = answer.body;
+            });
+            return reply;
+        };
+        const auto error_code = [](const Reply& reply){
+            return reply.object().value("error").toObject().value("code").toInt();
+        };
+
+        //  The handshake.
+        {
+            const auto reply = send(
+                R"({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"x","version":"1"}}})"
+            );
+            const QJsonObject init_result = reply->object().value("result").toObject();
+            check(reply->got && reply->status == 200, "the server answers a handshake");
+            check(
+                init_result.value("protocolVersion").toString() == "2025-06-18" &&
+                init_result.value("serverInfo").toObject().value("name").toString() == "check-server" &&
+                init_result.value("serverInfo").toObject().value("version").toString() == "9.9" &&
+                init_result.value("capabilities").toObject().contains("tools") &&
+                init_result.value("instructions").toString() == "Play well." && backend.started == 1,
+                "the handshake names the server, its tools and its instructions, and counts the client"
+            );
+            check(reply->object().value("id").toInt() == 1 && reply->object().value("jsonrpc").toString() == "2.0", "the answer carries the id of the request");
+
+            const auto text_id = send(R"({"jsonrpc":"2.0","id":"abc","method":"ping"})");
+            check(text_id->object().value("id").toString() == "abc" && text_id->object().contains("result"), "an id that is text is answered as text");
+
+            const auto newer = send(R"({"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2099-01-01"}})");
+            check(
+                newer->object().value("result").toObject().value("protocolVersion").toString() ==
+                    QString::fromStdString(mcp_protocol_versions().back()),
+                "a revision that is not known gets the newest one this server speaks"
+            );
+            const auto older = send(R"({"jsonrpc":"2.0","id":3,"method":"initialize","params":{"protocolVersion":"2024-11-05"}})");
+            check(
+                older->object().value("result").toObject().value("protocolVersion").toString() == "2024-11-05",
+                "an older revision that is known is spoken as it is"
+            );
+            const auto none = send(R"({"jsonrpc":"2.0","id":4,"method":"initialize","params":{}})");
+            check(error_code(*none) == -32602, "a handshake without a revision is refused");
+
+            const auto notification = send(R"({"jsonrpc":"2.0","method":"notifications/initialized"})");
+            check(notification->got && notification->status == 202 && notification->body.isEmpty(), "a notification gets 202 and no body");
+            const auto answer_of_client = send(R"({"jsonrpc":"2.0","id":9,"result":{}})");
+            check(answer_of_client->got && answer_of_client->status == 202, "an answer of the client (there is no request of the server to answer) is let go");
+        }
+
+        //  The tools.
+        {
+            const auto list = send(R"({"jsonrpc":"2.0","id":5,"method":"tools/list"})", "2025-06-18");
+            const QJsonArray tools = list->object().value("result").toObject().value("tools").toArray();
+            check(
+                tools.size() == 2 && tools[0].toObject().value("name").toString() == "look" &&
+                tools[1].toObject().value("name").toString() == "done",
+                "the tools are listed, in order"
+            );
+            check(
+                tools[0].toObject().value("inputSchema").toObject().value("properties").toObject().contains("area") &&
+                tools[0].toObject().value("description").toString() == "Looks at the screen.",
+                "a tool has its schema and its description"
+            );
+            check(
+                tools[1].toObject().value("inputSchema").toObject().value("type").toString() == "object",
+                "a tool without a schema is given an empty object's"
+            );
+
+            backend.next = PlayResult();
+            backend.next.image = std::string("\xff\xd8\xff\xe0", 4) + "jpeg-bytes";
+            const auto looked = send(
+                R"({"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"look","arguments":{"area":"top"}}})",
+                "2025-06-18"
+            );
+            const QJsonObject look_result = looked->object().value("result").toObject();
+            const QJsonArray content = look_result.value("content").toArray();
+            check(looked->status == 200 && backend.last_call == R"(look {"area":"top"})", "a call reaches the program with its arguments");
+            check(
+                content.size() == 2 && content[0].toObject().value("type").toString() == "text" &&
+                content[0].toObject().value("text").toString() == "did look" && !look_result.value("isError").toBool(true),
+                "the result of a call is its text"
+            );
+            const QByteArray picture = QByteArray::fromBase64(content[1].toObject().value("data").toString().toLatin1());
+            check(
+                content.size() == 2 && content[1].toObject().value("type").toString() == "image" &&
+                content[1].toObject().value("mimeType").toString() == "image/jpeg" &&
+                picture.startsWith("\xff\xd8\xff") && picture.endsWith("jpeg-bytes"),
+                "a picture comes as an image, with its type, the bytes back as they were"
+            );
+
+            backend.next = PlayResult();
+            backend.next.is_error = true;
+            backend.next.text = "Not pressed.";
+            backend.next.image = "not a picture at all";
+            const auto failed_call = send(R"({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"done"}})");
+            const QJsonObject failed_result = failed_call->object().value("result").toObject();
+            check(
+                backend.last_call == "done {}" && failed_result.value("isError").toBool(false) &&
+                failed_result.value("content").toArray().size() == 1 &&
+                failed_result.value("content").toArray()[0].toObject().value("text").toString() == "Not pressed.",
+                "a call without arguments gets an empty object, an error is flagged, bytes that are no picture are not sent as one"
+            );
+            backend.next = PlayResult();
+
+            const std::string before = backend.last_call;
+            const auto unknown = send(R"({"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"launch_missiles"}})");
+            check(error_code(*unknown) == -32602 && backend.last_call == before, "a tool that does not exist is refused and not called");
+            const auto no_name = send(R"({"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"arguments":{}}})");
+            check(error_code(*no_name) == -32602 && backend.last_call == before, "a call without a name is refused");
+            const auto array_arguments = send(R"({"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"look","arguments":[1]}})");
+            check(error_code(*array_arguments) == -32602 && backend.last_call == before, "arguments that are not an object are refused");
+
+            //  A call takes as long as the program takes: the answer comes later.
+            backend.hold = true;
+            const auto slow = send(R"({"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"look"}})");
+            check(!slow->got && backend.held, "a call that takes time has no answer yet");
+            PlayResult late = backend.held_result;
+            late.text = "late but there";
+            backend.held(late);
+            check(slow->got && slow->status == 200 && slow->object().value("id").toInt() == 10, "the answer comes when the program has it");
+            backend.hold = false;
+        }
+
+        //  What is not a request it can serve.
+        {
+            const auto unknown_method = send(R"({"jsonrpc":"2.0","id":11,"method":"resources/list"})");
+            check(unknown_method->status == 200 && error_code(*unknown_method) == -32601, "a method it does not have is not found");
+            const auto discover = send(R"({"jsonrpc":"2.0","id":12,"method":"server/discover"})", "2026-07-28");
+            check(discover->status == 200 && error_code(*discover) == -32601, "a newer client that asks what the server is first is told it is not found, and goes on with the handshake");
+            const auto ping = send(R"({"jsonrpc":"2.0","id":13,"method":"ping"})");
+            check(ping->object().contains("result"), "a ping is answered");
+            const auto not_json = send("this is not json");
+            check(not_json->status == 400 && error_code(*not_json) == -32700, "a body that is not JSON is a bad request");
+            const auto number = send("5");
+            check(number->status == 400, "JSON that is no message is a bad request");
+            const auto not_object = send(R"([5])");
+            check(not_object->status == 400 && !not_object->array().isEmpty() &&
+                not_object->array()[0].toObject().value("error").toObject().value("code").toInt() == -32600,
+                "a batch with something in it that is no message is told so");
+            const auto future = send(R"({"jsonrpc":"2.0","id":14,"method":"tools/list"})", "1999-01-01");
+            check(future->status == 400, "a revision in the header that is not known is refused once the handshake is past");
+            const auto handshake_under_future = send(R"({"jsonrpc":"2.0","id":15,"method":"initialize","params":{"protocolVersion":"2025-06-18"}})", "1999-01-01");
+            check(handshake_under_future->status == 200 && handshake_under_future->object().contains("result"), "but the handshake itself is answered");
+            const auto no_method = send(R"({"jsonrpc":"2.0","id":16})");
+            check(no_method->status == 400, "a message without a method is a bad request");
+        }
+
+        //  A batch (revisions before 2025-06-18).
+        {
+            const auto batch = send(
+                R"([{"jsonrpc":"2.0","id":20,"method":"ping"},{"jsonrpc":"2.0","method":"notifications/initialized"},{"jsonrpc":"2.0","id":21,"method":"tools/list"}])"
+            );
+            const QJsonArray answers = batch->array();
+            check(batch->status == 200 && answers.size() == 2 && answers[0].toObject().value("id").toInt() == 20 && answers[1].toObject().value("id").toInt() == 21, "a batch is answered in one: one answer for each request, none for a notification");
+            const auto only_notes = send(R"([{"jsonrpc":"2.0","method":"notifications/initialized"}])");
+            check(only_notes->status == 202 && only_notes->body.isEmpty(), "a batch of notifications gets 202");
+            const auto empty = send("[]");
+            check(empty->status == 400, "an empty batch is a bad request");
+            backend.hold = true;
+            const auto held_batch = send(
+                R"([{"jsonrpc":"2.0","id":22,"method":"ping"},{"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"look"}}])"
+            );
+            check(!held_batch->got, "a batch waits for its slowest call");
+            backend.held(backend.held_result);
+            check(held_batch->got && held_batch->array().size() == 2, "and goes out once all its answers are there");
+            backend.hold = false;
+        }
+
+        //  The pictures' types.
+        check(mcp_image_mime(std::string("\x89PNG\r\n\x1a\n") + "rest") == "image/png", "a PNG is told by its signature");
+        check(mcp_image_mime(std::string("\xff\xd8\xff\xdb", 4)) == "image/jpeg", "a JPEG is told by its signature");
+        check(mcp_image_mime("GIF89a....").empty() && mcp_image_mime("").empty() && mcp_image_mime("\xff\xd8").empty(), "bytes that are neither are no picture");
+    }
+
+    //  The HTTP side: what is read off the socket, and what is refused.
+    {
+        const auto parse = [](const QByteArray& raw, McpHttpRequest& request, bool& wants_continue, QByteArray& left){
+            left = raw;
+            return parse_mcp_http_request(left, request, wants_continue);
+        };
+        McpHttpRequest request;
+        bool wants_continue = false;
+        QByteArray left;
+
+        check(
+            parse("POST /mcp HTTP/1.1\r\nHOST: 127.0.0.1:1\r\nContent-Length: 2\r\nAuthorization: Bearer t\r\n\r\n{}", request, wants_continue, left) == McpHttpParse::COMPLETE &&
+            request.method == "POST" && request.target == "/mcp" && request.body == "{}" &&
+            request.header("host") == "127.0.0.1:1" && request.header("authorization") == "Bearer t" && left.isEmpty(),
+            "a request is read: its method, target, headers (in any case) and body, and its bytes are taken"
+        );
+        const QByteArray two = "POST /mcp HTTP/1.1\r\nContent-Length: 1\r\n\r\nAPOST /mcp HTTP/1.1\r\nContent-Length: 1\r\n\r\nB";
+        McpHttpRequest second;
+        check(
+            parse(two, request, wants_continue, left) == McpHttpParse::COMPLETE && request.body == "A" &&
+            parse_mcp_http_request(left, second, wants_continue) == McpHttpParse::COMPLETE && second.body == "B" && left.isEmpty(),
+            "two requests that came together are read one after the other"
+        );
+        check(parse("POST /mcp HTTP/1.1\r\nContent-Le", request, wants_continue, left) == McpHttpParse::INCOMPLETE, "headers that are not all there are waited for");
+        check(
+            parse("POST /mcp HTTP/1.1\r\nContent-Length: 5\r\n\r\nab", request, wants_continue, left) == McpHttpParse::INCOMPLETE &&
+            left.endsWith("ab") && !wants_continue,
+            "a body that is not all there is waited for, and nothing is taken"
+        );
+        check(
+            parse("POST /mcp HTTP/1.1\r\nContent-Length: 5\r\nExpect: 100-continue\r\n\r\n", request, wants_continue, left) == McpHttpParse::INCOMPLETE &&
+            wants_continue,
+            "a client that waits for 100 Continue is told to go on"
+        );
+        check(parse("POST /mcp HTTP/1.1\r\n\r\n", request, wants_continue, left) == McpHttpParse::COMPLETE && request.body.isEmpty(), "no length is no body");
+        check(parse("GARBAGE\r\n\r\n", request, wants_continue, left) == McpHttpParse::BAD, "something that is no request line is bad");
+        check(parse("post /mcp HTTP/1.1\r\n\r\n", request, wants_continue, left) == McpHttpParse::BAD, "a method in lower case is bad");
+        check(parse("POST /mcp HTTP/2.0\r\n\r\n", request, wants_continue, left) == McpHttpParse::BAD, "a version that is not HTTP/1.x is bad");
+        check(parse("POST /mcp HTTP/1.1\r\nNoColonHere\r\n\r\n", request, wants_continue, left) == McpHttpParse::BAD, "a header without a colon is bad");
+        check(parse("POST /mcp HTTP/1.1\r\nHost : x\r\n\r\n", request, wants_continue, left) == McpHttpParse::BAD, "a space in front of a colon is bad");
+        check(parse("POST /mcp HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 2\r\n\r\nab", request, wants_continue, left) == McpHttpParse::BAD, "two lengths are bad: two readers could read them differently");
+        check(parse("POST /mcp HTTP/1.1\r\nHost: a\r\nHost: b\r\n\r\n", request, wants_continue, left) == McpHttpParse::BAD, "two hosts are bad");
+        check(parse("POST /mcp HTTP/1.1\r\nAuthorization: Bearer a\r\nAuthorization: Bearer b\r\n\r\n", request, wants_continue, left) == McpHttpParse::BAD, "two authorizations are bad");
+        check(
+            parse("POST /mcp HTTP/1.1\r\nAccept: a\r\nAccept: b\r\n\r\n", request, wants_continue, left) == McpHttpParse::COMPLETE &&
+            request.header("accept") == "a, b",
+            "another header that is said twice is joined"
+        );
+        for (const char* length : {"-1", "abc", "+5", "1x", ""}){
+            const QByteArray raw = QByteArray("POST /mcp HTTP/1.1\r\nContent-Length: ") + length + "\r\n\r\n";
+            check(parse(raw, request, wants_continue, left) == McpHttpParse::BAD, (std::string("a length of \"") + length + "\" is bad").c_str());
+        }
+        check(parse("POST /mcp HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n", request, wants_continue, left) == McpHttpParse::LENGTH_REQUIRED, "a body without a length (chunked) is told to have one");
+        check(parse("POST /mcp HTTP/1.1\r\nContent-Length: 99999999\r\n\r\n", request, wants_continue, left) == McpHttpParse::BODY_TOO_LARGE, "a body that is too large is refused before it is read");
+        check(parse("POST /mcp HTTP/1.1\r\nX: " + QByteArray(20000, 'a'), request, wants_continue, left) == McpHttpParse::HEADERS_TOO_LARGE, "headers that never end are cut off");
+
+        //  What may be served.
+        const std::string token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        const int port = 4321;
+        const auto make = [&](const char* method, const char* target, const QByteArray& host, const QByteArray& authorization){
+            McpHttpRequest made;
+            made.method = method;
+            made.target = target;
+            if (!host.isNull()){
+                made.headers["host"] = host;
+            }
+            if (!authorization.isNull()){
+                made.headers["authorization"] = authorization;
+            }
+            return made;
+        };
+        const QByteArray good_host = "127.0.0.1:4321";
+        const QByteArray good_auth = "Bearer " + QByteArray::fromStdString(token);
+        check(check_mcp_request(make("POST", "/mcp", good_host, good_auth), port, token) == 0, "a request with the right host and token is served");
+        check(check_mcp_request(make("POST", "/mcp", "localhost:4321", good_auth), port, token) == 0, "localhost is this computer");
+        check(check_mcp_request(make("POST", "/mcp", "LocalHost:4321", good_auth), port, token) == 0, "in any case");
+        check(check_mcp_request(make("POST", "/mcp", "[::1]:4321", good_auth), port, token) == 0, "so is [::1]");
+        check(check_mcp_request(make("POST", "/mcp", good_host, "bearer " + QByteArray::fromStdString(token)), port, token) == 0, "the scheme of the token may be in lower case");
+        check(check_mcp_request(make("POST", "/mcp", QByteArray(), good_auth), port, token) == 400, "no host is a bad request");
+        check(check_mcp_request(make("POST", "/mcp", "evil.example:4321", good_auth), port, token) == 403, "another host is refused, even with the right token (a web page that points its own name at this port)");
+        check(check_mcp_request(make("POST", "/mcp", "127.0.0.1:4322", good_auth), port, token) == 403, "another port is another host");
+        check(check_mcp_request(make("POST", "/mcp", "127.0.0.1", good_auth), port, token) == 403, "no port is another host");
+        check(check_mcp_request(make("POST", "/mcp", "127.0.0.1.evil.example:4321", good_auth), port, token) == 403, "a host that only begins like this computer's is refused");
+        {
+            McpHttpRequest from_page = make("POST", "/mcp", good_host, good_auth);
+            from_page.headers["origin"] = "https://evil.example";
+            check(check_mcp_request(from_page, port, token) == 403, "a request that a web page sends is refused (its origin)");
+            from_page.headers["origin"] = "null";
+            check(check_mcp_request(from_page, port, token) == 403, "also from a page with no origin of its own");
+            from_page.headers["origin"] = "http://127.0.0.1:4321";
+            check(check_mcp_request(from_page, port, token) == 0, "a page of this very server is no stranger");
+        }
+        check(check_mcp_request(make("POST", "/mcp", good_host, QByteArray()), port, token) == 401, "no token is refused");
+        check(check_mcp_request(make("POST", "/mcp", good_host, "Bearer wrong"), port, token) == 401, "a wrong token is refused");
+        check(check_mcp_request(make("POST", "/mcp", good_host, good_auth + "x"), port, token) == 401, "a token with something after it is refused");
+        check(check_mcp_request(make("POST", "/mcp", good_host, good_auth.left(good_auth.size() - 1)), port, token) == 401, "a token that lacks its last character is refused");
+        check(check_mcp_request(make("POST", "/mcp", good_host, "Basic " + QByteArray::fromStdString(token)), port, token) == 401, "another scheme is refused");
+        check(check_mcp_request(make("POST", "/mcp", good_host, "Bearer "), port, token) == 401, "an empty token is refused");
+        check(check_mcp_request(make("POST", "/mcp", good_host, "Bearer x"), port, std::string()) == 401, "a server that has no token serves nobody");
+        check(check_mcp_request(make("POST", "/mcp", good_host, "Bearer "), port, std::string()) == 401, "not even an empty one");
+        check(check_mcp_request(make("POST", "/mcp", good_host, "Bearer  "), port, std::string()) == 401, "nor one that is only spaces: an empty token is no token");
+        check(check_mcp_request(make("POST", "/other", good_host, good_auth), port, token) == 404, "another path is not found");
+        check(check_mcp_request(make("POST", "/mcp?x=1", good_host, good_auth), port, token) == 404, "the path is exact");
+        check(check_mcp_request(make("POST", "/mcp/", good_host, good_auth), port, token) == 404, "also with a slash after it");
+        check(check_mcp_request(make("GET", "/mcp", good_host, good_auth), port, token) == 405, "a GET is not allowed (there is no stream of events)");
+        check(check_mcp_request(make("DELETE", "/mcp", good_host, good_auth), port, token) == 405, "a DELETE is not allowed (there are no sessions)");
+        check(check_mcp_request(make("POST", "/other", good_host, "Bearer wrong"), port, token) == 401, "a stranger is told nothing of what is there: 401 before 404");
+        check(check_mcp_request(make("GET", "/mcp", good_host, QByteArray()), port, token) == 401, "a stranger is told nothing of the method either");
+
+        const QByteArray ok = mcp_http_response(200, "{}", false);
+        check(ok.startsWith("HTTP/1.1 200 OK\r\n") && ok.contains("Content-Length: 2\r\n") && ok.contains("Connection: close\r\n") && ok.endsWith("\r\n\r\n{}") && ok.contains("Content-Type: application/json\r\n"), "a response is a response");
+        check(mcp_http_response(401, "", true).contains("WWW-Authenticate: Bearer\r\n") && mcp_http_response(401, "", true).contains("Connection: keep-alive\r\n"), "a 401 says what is wanted");
+        check(mcp_http_response(405, "", false).contains("Allow: POST\r\n"), "a 405 says what is allowed");
+        check(!mcp_http_response(202, "", false).contains("Content-Type: "), "a 202 has no type: it has no body");
+        check(mcp_http_response(202, "", false).contains("Content-Length: 0\r\n"), "but it has a length");
+    }
+
+    //  The token of the server and the file that says how to use it.
+    {
+        const QString token_file = folder + "/ClaudeGG-Mcp-Token.json";
+        QFile::remove(token_file);
+        const std::string folder_path = (folder + "/").toStdString();
+        const auto is_hex = [](const std::string& text){
+            if (text.size() != 64){
+                return false;
+            }
+            for (char c : text){
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))){
+                    return false;
+                }
+            }
+            return true;
+        };
+        std::string error;
+        const std::string first = mcp_token(folder_path, false, error);
+        check(is_hex(first) && error.empty(), "a token is made: 32 bytes, as 64 hex digits");
+        check(mcp_token(folder_path, false, error) == first, "it is kept: the same at the next start");
+        QByteArray content;
+        {
+            QFile file(token_file);
+            if (file.open(QIODevice::ReadOnly)){
+                content = file.readAll();
+            }
+        }
+        check(!content.isEmpty() && !content.contains(QByteArray::fromStdString(first)), "the file of the token does not show it");
+        const std::string renewed = mcp_token(folder_path, true, error);
+        check(is_hex(renewed) && renewed != first, "a new one is a different one");
+        check(mcp_token(folder_path, false, error) == renewed, "and it is the one that is kept from then on");
+        {
+            SecretStore store(token_file);
+            QString store_error;
+            check(store.set(Secret::MCP_TOKEN, "short", store_error), "a short token is written into the file");
+            check(!store.has(Secret::CLAUDE_API_KEY) && !store.has(Secret::GITHUB_TOKEN) && !store.has(Secret::MOBILE_TOKEN), "the token is not any of the other keys");
+        }
+        const std::string replaced = mcp_token(folder_path, false, error);
+        check(is_hex(replaced) && replaced != "short", "a token that is not what this makes is not trusted: a new one is made");
+        check(is_hex(mcp_token(folder_path, true, error)) && mcp_token(folder_path, true, error) != mcp_token(folder_path, true, error), "tokens do not repeat");
+
+        //  A folder that cannot be written: the token holds for the run, and
+        //  says so.
+        const QString not_a_folder = folder + "/Assistant-SelfTest-NotAFolder";
+        {
+            QFile file(not_a_folder);
+            if (file.open(QIODevice::WriteOnly)){
+                file.write("a file where a folder should be");
+            }
+        }
+        std::string unwritable_error;
+        const std::string unwritable = mcp_token((not_a_folder + "/inside/").toStdString(), false, unwritable_error);
+        check(is_hex(unwritable) && !unwritable_error.empty(), "when the file cannot be written the token is still made, and the error says so");
+
+        //  The file that tells how to connect.
+        const std::string text = mcp_connect_text(4321, first);
+        check(
+            text.find("claude mcp add --transport http claude-gg http://127.0.0.1:4321/mcp --header \"Authorization: Bearer " + first + "\"") != std::string::npos,
+            "the file tells the command that adds the server to Claude Code"
+        );
+        check(text.find("\r\n") != std::string::npos && text.find("Port 4321") != std::string::npos, "with the line ends of Windows, and the port");
+        std::string write_error;
+        const std::string written = write_mcp_connect_file(folder_path, 4321, first, write_error);
+        QByteArray read_back;
+        {
+            QFile file(QString::fromStdString(written));
+            if (file.open(QIODevice::ReadOnly)){
+                read_back = file.readAll();
+            }
+        }
+        check(!written.empty() && write_error.empty() && read_back.toStdString() == text, "the file is written, as it is");
+        QFile::remove(QString::fromStdString(written));
+        std::string no_error;
+        check(write_mcp_connect_file((not_a_folder + "/inside/").toStdString(), 1, first, no_error).empty() && !no_error.empty(), "a file that cannot be written says so");
+        QFile::remove(not_a_folder);
+        QFile::remove(token_file);
+    }
+
     return result;
 }
 

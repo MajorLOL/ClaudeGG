@@ -31,8 +31,11 @@ enum class Secret{
     //  The token of the agent on the Raspberry Pi of a phone (ClaudeGG_Mobile.h):
     //  kept in a file of its own, by a store that holds nothing else.
     MOBILE_TOKEN,
+    //  What a client of the program's MCP server has to show (Assistant_Mcp.h):
+    //  also in a file of its own.
+    MCP_TOKEN,
 };
-constexpr int SECRET_COUNT = 3;
+constexpr int SECRET_COUNT = 4;
 
 class SecretStore{
 public:
@@ -70,7 +73,7 @@ private:
 private:
     QString m_path;
     QString m_values[SECRET_COUNT];
-    bool m_unreadable[SECRET_COUNT] = {false, false, false};
+    bool m_unreadable[SECRET_COUNT] = {false, false, false, false};
     bool m_remember = true;
 };
 

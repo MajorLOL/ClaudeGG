@@ -300,11 +300,14 @@ std::vector<PlayTool> claude_plays_tools(bool allow_save){
     return tools;
 }
 
-std::string claude_plays_instructions(bool allow_save){
+std::string claude_plays_instructions(bool allow_save, bool external){
     std::string text =
-        "You are Claude, playing Pokemon FireRed or LeafGreen (in English) on a real Nintendo Switch through "
-        "the program " + PROGRAM_NAME + ". The program sees the game through a capture card and presses the "
-        "buttons you ask for. The user who started it gave you a goal and reads along in the program's log.\n"
+        "You are Claude, playing Pokemon FireRed or LeafGreen (in English) on a real Nintendo Switch through " +
+        std::string(external ? "the tools of the program " : "the program ") + PROGRAM_NAME + ". The program sees the "
+        "game through a capture card and presses the buttons you ask for. " +
+        (external
+            ? "The user who runs it gave you the goal in this conversation and reads along in the program's log.\n"
+            : "The user who started it gave you a goal and reads along in the program's log.\n") +
         "\n"
         "How to play\n"
         "- You act only through the tools. Each returns, after \"Screen:\", what the program itself reads from "
@@ -318,8 +321,10 @@ std::string claude_plays_instructions(bool allow_save){
         "advance_text gets through text and scenes, walk takes several steps and fights what comes on the way, "
         "close_menus gets back to the overworld. Use press for everything else, several buttons in one call "
         "when you are sure of them.\n"
-        "- The program starts the conversation over now and then to save tokens. Only your notes and the last "
-        "few actions come along, so keep the notes up to date.\n"
+        + std::string(external
+            ? ""
+            : "- The program starts the conversation over now and then to save tokens. Only your notes and the "
+              "last few actions come along, so keep the notes up to date.\n") +
         "\n"
         "Rules\n"
         "- Work toward the goal in steps you can check. Before each tool call, say in one short sentence what "
@@ -330,8 +335,11 @@ std::string claude_plays_instructions(bool allow_save){
         : "- Do not save the game: the user has not allowed it in this session.\n";
     text +=
         "- Never start a new game, delete the save file or release a Pokemon. Do not sell or throw away an "
-        "item, or teach a move over another, unless the goal says so.\n"
-        "- When the goal is reached, or you see that it cannot be reached from here, call done.\n";
+        "item, or teach a move over another, unless the goal says so.\n";
+    text += external
+        ? "- When the goal is reached, or you see that it cannot be reached from here, call done: the program "
+          "stops listening for calls then, and the user starts it again for another goal.\n"
+        : "- When the goal is reached, or you see that it cannot be reached from here, call done.\n";
     return text;
 }
 
@@ -354,6 +362,8 @@ struct Session{
     int enlarge = 2;
     bool allow_save = false;
     bool overlay = true;
+    //  Claude Code plays, through the program's server.
+    bool external = false;
 
     void show(const std::string& text, Color color = COLOR_WHITE) const{
         if (overlay){
@@ -672,7 +682,7 @@ public:
         return game_tools(m_session.allow_save);
     }
     virtual std::string instructions() const override{
-        return claude_plays_instructions(m_session.allow_save);
+        return claude_plays_instructions(m_session.allow_save, m_session.external);
     }
     virtual std::string screen() override{
         return read_screen(m_session.rt).text;
@@ -741,20 +751,23 @@ ClaudePlays::ClaudePlays()
         "and it can get lost: it is for things no program exists for.<br>"
         "<b>What it needs:</b> your Claude API key in the panel \"Claude\" (along the top of the window). Each request is billed "
         "to you by Anthropic; the pictures of the game and the text read from it are sent to Anthropic. What "
-        "a session used is in the log and under the video.<br>"
+        "a session used is in the log and under the video. Without a key: set \"Who plays\" to Claude Code, "
+        "and play with a Claude Code of your own, which calls this program's tools (see that option).<br>"
         "<b>Setup:</b> as for the AutoStory. In the game options: Text Speed: Fast. Battle Scene: Off. Battle "
         "Style: Set. Button Mode: not L=A. The game in English."
     )
+    , WHO()
     , GOAL(
         "<b>Goal:</b><br>What Claude should do, in your own words (any language). Say where the player is "
-        "if that helps, and when it is done.",
+        "if that helps, and when it is done. (Not used when \"Claude Code plays\": give the goal to Claude "
+        "Code.)",
         LockMode::LOCK_WHILE_RUNNING,
         "Look at the screen and say where the player is and what could be done from here. Do not press "
         "anything.",
         "For example: Walk to the Pokemon Center of this town and heal the party."
     )
     , MODEL(
-        "<b>Model:</b><br>The smallest model is the fastest and by far the cheapest, and enough for simple "
+        "<b>Model:</b><br>(Only when the program asks Claude.) The smallest model is the fastest and by far the cheapest, and enough for simple "
         "goals. A larger one finds its way better and costs many times more.",
         {
             {Model::HAIKU,  "haiku",    "Claude Haiku 5.5 (fastest, cheapest)"},
@@ -772,7 +785,7 @@ ClaudePlays::ClaudePlays()
         100, 1, 100000
     )
     , MAX_COST(
-        "<b>Stop at a cost of (US dollars):</b><br>Estimated from Anthropic's public prices; the invoice is "
+        "<b>Stop at a cost of (US dollars):</b><br>(Only when the program asks Claude.) Estimated from Anthropic's public prices; the invoice is "
         "what counts. 0: no limit. A spending limit in Anthropic's console holds whatever this program does.",
         LockMode::LOCK_WHILE_RUNNING,
         0.50, 0, 1000
@@ -808,6 +821,9 @@ ClaudePlays::ClaudePlays()
     })
 {
     PA_ADD_STATIC(SETUP_TEXT);
+    add_option(WHO.PLAYER, "PLAYER");
+    add_option(WHO.PORT, "MCP_PORT");
+    add_option(WHO.IDLE, "MCP_IDLE");
     PA_ADD_OPTION(GOAL);
     PA_ADD_OPTION(MODEL);
     PA_ADD_OPTION(MAX_ACTIONS);
@@ -825,13 +841,18 @@ void ClaudePlays::program(SingleSwitchProgramEnvironment& env, ProControllerCont
 
     env.log(PROGRAM_NAME + " build " + PROGRAM_BUILD + " (FRLG Claude Plays, experimental)", COLOR_BLUE);
 
+    //  Claude Code plays: it has its own goal, and the program has no key to
+    //  ask for.
+    const bool external = WHO.claude_code();
     const std::string goal = trimmed(GOAL);
-    if (goal.empty()){
-        throw UserSetupError(env.console, "Write down a goal for Claude first.");
-    }
-    const std::string unavailable = PlaySession::why_unavailable(context);
-    if (!unavailable.empty()){
-        throw UserSetupError(env.console, unavailable);
+    if (!external){
+        if (goal.empty()){
+            throw UserSetupError(env.console, "Write down a goal for Claude first.");
+        }
+        const std::string unavailable = PlaySession::why_unavailable(context);
+        if (!unavailable.empty()){
+            throw UserSetupError(env.console, unavailable);
+        }
     }
 
     const Model model = MODEL;
@@ -855,6 +876,7 @@ void ClaudePlays::program(SingleSwitchProgramEnvironment& env, ProControllerCont
     Session session(env, context, rt);
     session.allow_save = ALLOW_SAVE;
     session.overlay = OVERLAY_NOTES;
+    session.external = external;
     switch ((Picture)PICTURE){
     case Picture::SMALL:    session.enlarge = 1; break;
     case Picture::NORMAL:   session.enlarge = 2; break;
@@ -867,6 +889,19 @@ void ClaudePlays::program(SingleSwitchProgramEnvironment& env, ProControllerCont
 
     FrlgGame game(session);
     FrlgHost host(session, stats);
+
+    if (external){
+        Plays::Limits external_limits;
+        external_limits.max_actions = max_actions;
+        const Plays::Ending ending = Plays::serve_claude_code(env.console, host, game, WHO, external_limits);
+        story_log_memory(rt, true);
+        env.log("Claude Plays: " + ending.summary, ending.reached ? COLOR_BLUE : COLOR_ORANGE);
+        session.show(ending.summary, ending.reached ? COLOR_GREEN : COLOR_ORANGE);
+        send_program_finished_notification(env, NOTIFICATION_PROGRAM_FINISH, ending.summary);
+        GO_HOME_WHEN_DONE.run_end_of_program(context);
+        return;
+    }
+
     PlaySession claude(Plays::make_setup(game, model));
 
     env.log(

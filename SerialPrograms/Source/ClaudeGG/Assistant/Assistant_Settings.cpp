@@ -33,7 +33,7 @@ namespace Assistant{
 
 namespace{
 
-const char* const SECRET_NAMES[SECRET_COUNT] = {"claude_api_key", "github_token", "mobile_token"};
+const char* const SECRET_NAMES[SECRET_COUNT] = {"claude_api_key", "github_token", "mobile_token", "mcp_token"};
 
 #ifdef _WIN32
 

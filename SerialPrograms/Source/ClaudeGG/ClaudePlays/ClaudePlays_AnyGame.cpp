@@ -811,12 +811,18 @@ std::vector<PlayTool> any_game_tools(
 std::string any_game_instructions(
     const PadLayout& layout, const AnyGameOptions& options, const GameFacts& facts, bool save_routine
 ){
-    std::string text =
-        "You are Claude, playing a game on a real Nintendo Switch through the program " + PROGRAM_NAME +
-        ". The program sees the console's screen through a capture card and works " + layout.name +
-        " for you. The user who started it gave you a goal and reads along in the program's log.\n"
-        "\n"
-        "The game\n";
+    std::string text = options.external
+        ? "You are Claude, playing a game on a real Nintendo Switch through the tools of the program " + PROGRAM_NAME +
+          ". The program sees the console's screen through a capture card and works " + layout.name +
+          " for you. The user who runs it gave you the goal in this conversation and reads along in the "
+          "program's log.\n"
+          "\n"
+          "The game\n"
+        : "You are Claude, playing a game on a real Nintendo Switch through the program " + PROGRAM_NAME +
+          ". The program sees the console's screen through a capture card and works " + layout.name +
+          " for you. The user who started it gave you a goal and reads along in the program's log.\n"
+          "\n"
+          "The game\n";
     if (facts.name.empty()){
         text +=
             "- The program does not know which game is on the screen. Find that out first (look), and say "
@@ -853,8 +859,10 @@ std::string any_game_instructions(
         "- Ask for less: several buttons in one press when you are sure of them, mash for a long text, "
         "wait with \"until\" for a loading screen, \"look\" or \"read\" with the action instead of a call "
         "of its own.\n"
-        "- The program starts the conversation over now and then to save tokens. Only your notes and the "
-        "last few actions come along, so keep the notes up to date.\n"
+        + std::string(options.external
+            ? ""
+            : "- The program starts the conversation over now and then to save tokens. Only your notes and the "
+              "last few actions come along, so keep the notes up to date.\n") +
         "\n"
         "Rules\n"
         "- Work toward the goal in steps you can check. Before each tool call, say in one short sentence "
@@ -879,8 +887,10 @@ std::string any_game_instructions(
         text +=
             "- HOME leaves the game for the console's menu. Press it only when the goal needs that.\n";
     }
-    text +=
-        "- When the goal is reached, or you see that it cannot be reached from here, call done.\n";
+    text += options.external
+        ? "- When the goal is reached, or you see that it cannot be reached from here, call done: the program "
+          "stops listening for calls then, and the user starts it again for another goal.\n"
+        : "- When the goal is reached, or you see that it cannot be reached from here, call done.\n";
     return text;
 }
 

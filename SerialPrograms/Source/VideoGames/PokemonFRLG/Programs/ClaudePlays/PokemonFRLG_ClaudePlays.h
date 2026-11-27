@@ -24,6 +24,7 @@
 #include "NintendoSwitch/Options/NintendoSwitch_GoHomeWhenDoneOption.h"
 #include "ClaudeGG/Assistant/Assistant_Play.h"
 #include "ClaudeGG/ClaudePlays/ClaudePlays_Engine.h"
+#include "ClaudeGG/ClaudePlays/ClaudePlays_External.h"
 
 namespace PokemonAutomation{
 namespace NintendoSwitch{
@@ -32,10 +33,12 @@ namespace PokemonFRLG{
 
 //  What Claude gets in this program: its tools (with the session's own two,
 //  "note" and "done") and its instructions. "allow_save": the user lets
-//  Claude save the game. (Here for the test of the interface as well, which
+//  Claude save the game. "external": the Claude is the user's own (Claude
+//  Code, through the program's server), whose conversation the program
+//  does not start over. (Here for the test of the interface as well, which
 //  checks that they are what the API takes.)
 std::vector<ClaudeGG::Assistant::PlayTool> claude_plays_tools(bool allow_save);
-std::string claude_plays_instructions(bool allow_save);
+std::string claude_plays_instructions(bool allow_save, bool external = false);
 
 
 class ClaudePlays_Descriptor : public SingleSwitchProgramDescriptor{
@@ -67,6 +70,8 @@ public:
 
 private:
     StaticTextOption SETUP_TEXT;
+    //  Who plays: the program asks Claude, or Claude Code does.
+    ClaudeGG::ClaudePlays::WhoPlays WHO;
     TextEditOption GOAL;
     EnumDropdownOption<Model> MODEL;
     SimpleIntegerOption<uint32_t> MAX_ACTIONS;

@@ -104,6 +104,17 @@ std::vector<PlayTool> session_tools(){
     return tools;
 }
 
+std::vector<PlayTool> external_tools(const Game& game){
+    std::vector<PlayTool> tools = game.tools();
+    for (PlayTool& tool : session_tools()){
+        //  The client keeps its own notes.
+        if (tool.name != "note"){
+            tools.push_back(std::move(tool));
+        }
+    }
+    return tools;
+}
+
 PlaySession::Setup make_setup(const Game& game, Model model){
     PlaySession::Setup setup;
     setup.model = model_id(model);
@@ -336,6 +347,79 @@ Ending play(
         summary += " " + std::to_string(kept.actions) + (kept.actions == 1 ? " action, " : " actions, ") +
             usage_line(ending.usage) + ".";
     }
+    ending.summary = summary;
+    return ending;
+}
+
+
+Ending serve_external(
+    Host& host, Game& game, McpSession& mcp,
+    const Limits& limits, std::chrono::seconds idle
+){
+    using Clock = std::chrono::steady_clock;
+    Ending ending;
+    uint64_t actions = 0;
+    uint64_t clients_seen = 0;
+    Clock::time_point last = Clock::now();
+    bool called = false;
+
+    std::string summary;
+    while (summary.empty()){
+        const uint64_t clients = mcp.clients();
+        if (clients != clients_seen){
+            clients_seen = clients;
+            host.log("Claude Plays: a client connected (" + std::to_string(clients) + " so far).", COLOR_BLUE);
+            //  Somebody is there: the wait for the first call starts over.
+            last = Clock::now();
+        }
+        PlayCall call;
+        if (!mcp.wait(host.scope(), std::chrono::milliseconds(250), call)){
+            if (idle.count() > 0 && Clock::now() - last >= idle){
+                const int64_t minutes = (idle.count() + 59) / 60;
+                summary = std::string(called ? "No call came for " : "No call came in ") + std::to_string(minutes) +
+                    (minutes == 1 ? " minute" : " minutes") + ": the program stopped listening.";
+            }
+            continue;
+        }
+        last = Clock::now();
+        called = true;
+
+        if (call.name == "done"){
+            const QJsonObject input = input_of(call);
+            ending.reached = input.value("reached").toBool(false);
+            summary = std::string(ending.reached ? "Claude says the goal is reached. " : "Claude says the goal is not reached. ") +
+                one_line(input.value("summary").toString().toStdString(), 600);
+            PlayResult result;
+            result.text = "The session is over: the program stops listening. Start it again for another goal.";
+            mcp.finish(call, std::move(result));
+            break;
+        }
+
+        host.log("Claude Plays: " + call_words(call));
+        host.show(call_words(call), COLOR_CYAN);
+        PlayResult result = game.run(call);
+        actions++;
+        host.count(actions, PlayUsage());
+        host.log(
+            std::string("Claude Plays:   ") + (result.is_error ? "(not done) " : "") + one_line(result.text, 500) +
+            (result.image.empty() ? "" : " [with a picture]"),
+            result.is_error ? COLOR_ORANGE : Color()
+        );
+        if (actions % 10 == 0){
+            host.log("Claude Plays: " + std::to_string(actions) + " actions so far.", COLOR_BLUE);
+        }
+
+        if (actions >= limits.max_actions){
+            summary = "Stopped after " + std::to_string(actions) + " actions, the most this session may take.";
+            //  The client is told, so that it does not call into nothing.
+            result.text += "\nThe program stops here: the most actions for this session (" +
+                std::to_string(limits.max_actions) + ") is reached. Nothing more will be done.";
+        }
+        mcp.finish(call, std::move(result));
+    }
+
+    ending.actions = actions;
+    summary += " " + std::to_string(actions) + (actions == 1 ? " action." : " actions.");
     ending.summary = summary;
     return ending;
 }
