@@ -221,8 +221,27 @@ const PadLayout& iphone_keyboard_layout(){
     };
     return layout;
 }
+//  The PlayStation Classic's pad: the first PlayStation's, without sticks
+//  (L3 and R3 too) and without a button for the console's menu.
+const PadLayout& psclassic_controller_layout(){
+    static const PadLayout layout{
+        "a PlayStation Classic controller",
+        {
+            "CROSS", "CIRCLE", "SQUARE", "TRIANGLE", "L1", "R1", "L2", "R2", "START", "SELECT",
+            "UP", "DOWN", "LEFT", "RIGHT",
+        },
+        {},
+        false,
+        "a real PlayStation Classic",
+        "On a PlayStation Classic, CROSS is usually yes and CIRCLE usually no or back.",
+        false,
+    };
+    return layout;
+}
 const PadLayout& pad_layout(PadKind pad){
     switch (pad){
+    case PadKind::PSCLASSIC_CONTROLLER:
+        return psclassic_controller_layout();
     case PadKind::XBOX360_CONTROLLER:
         return xbox360_controller_layout();
     case PadKind::PS4_CONTROLLER:

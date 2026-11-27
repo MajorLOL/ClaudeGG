@@ -92,6 +92,7 @@ GlobalSettings::GlobalSettings()
             {SetupConsole::PS_REMOTE,   "psremote",   "PS4 and PS5 (Remote Play)"},
             {SetupConsole::XBOX_REMOTE, "xboxremote", "Xbox One and Series (Remote Play)"},
             {SetupConsole::IPHONE,  "iphone",  "iPhone"},
+            {SetupConsole::PS_CLASSIC,  "psclassic",  "PlayStation Classic"},
         },
         LockMode::UNLOCK_WHILE_RUNNING,
         SetupConsole::NONE

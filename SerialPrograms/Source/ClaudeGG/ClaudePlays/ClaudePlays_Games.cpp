@@ -291,7 +291,8 @@ std::map<GameId, GameProfile> make_profiles(){
         "console's menu.") + BLUERETRO,
         PadKind::DREAMCAST_CONTROLLER
     );
-    //  The Xbox 360, Remote Play and the iPhone: a console of the setup each.
+    //  The Xbox 360, Remote Play, the iPhone and the PlayStation Classic: a
+    //  console of the setup each.
     auto other = [&](GameId id, const char* identifier, const char* category, const char* title, std::string notes, PadKind pad, const char* console){
         GameProfile profile{id, identifier, category, "", title, std::move(notes), pad, false};
         profile.console = console;
@@ -333,6 +334,15 @@ std::map<GameId, GameProfile> make_profiles(){
         "for apps and their menus.",
         PadKind::IPHONE_KEYBOARD, "iphone"
     );
+    other(
+        GameId::PS_CLASSIC, "PSClassic:ClaudePlays", "PlayStation Classic", "PlayStation Classic games",
+        "The console is a PlayStation Classic, which plays games of the first PlayStation. In most games CROSS "
+        "confirms and CIRCLE goes back (in Japanese games often the other way round), START opens the game's "
+        "menu or pauses. Its pad has no sticks and no button for the console's menu: that is the RESET button "
+        "on the console itself, which only a person can press. The pad is played through an adapter (a board "
+        "that is a Switch pad, passed on as the PlayStation Classic's own): there is no rumble.",
+        PadKind::PSCLASSIC_CONTROLLER, "psclassic"
+    );
     return profiles;
 }
 
@@ -363,6 +373,7 @@ bool has_only_claude_plays(GameId id){
     case GameId::PS_REMOTE_PLAY:
     case GameId::XBOX_REMOTE_PLAY:
     case GameId::IPHONE:
+    case GameId::PS_CLASSIC:
         return true;
     default:
         return false;
@@ -411,6 +422,7 @@ const std::vector<GameId>& all_games(){
         GameId::PS_REMOTE_PLAY,
         GameId::XBOX_REMOTE_PLAY,
         GameId::IPHONE,
+        GameId::PS_CLASSIC,
     };
     return games;
 }

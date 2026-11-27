@@ -101,6 +101,9 @@ const PadLayout& xboxone_controller_layout();
 //  SPACE, ENTER, ESCAPE, BACKSPACE and the arrow keys; no sticks. HOME is
 //  Command-H, which goes to the home screen.
 const PadLayout& iphone_keyboard_layout();
+//  The PlayStation Classic's pad: CROSS, CIRCLE, SQUARE, TRIANGLE, L1, R1,
+//  L2, R2, START, SELECT and the d-pad. No sticks, no HOME.
+const PadLayout& psclassic_controller_layout();
 //  The layout of a kind of pad.
 const PadLayout& pad_layout(PadKind pad);
 

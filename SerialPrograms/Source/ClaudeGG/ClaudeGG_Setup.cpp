@@ -1937,10 +1937,11 @@ QString short_board_name(const QString& id){
 //  the original Xbox through a Pico with OGX-Mini.
 //  The Xbox 360 through a Pico with OGX-Mini as well, Remote Play (the
 //  board as a USB gamepad of the computer) and the iPhone (the board as a
-//  keyboard) too.
+//  keyboard) too, and the PlayStation Classic through a Pico with OGX-Mini.
 bool console_wired_only(const QString& console){
     return console == "ps3" || console == "xbox" || console == "xbox360" ||
-        console == "psremote" || console == "xboxremote" || console == "iphone";
+        console == "psremote" || console == "xboxremote" || console == "iphone" ||
+        console == "psclassic";
 }
 //  The consoles that take only a wireless board (a Switch Pro Controller over
 //  Bluetooth): the retro consoles, through a BlueRetro adapter, which takes a
@@ -1957,6 +1958,7 @@ QPixmap retro_picture();
 QPixmap xbox360_picture();
 QPixmap remote_picture(bool xbox);
 QPixmap iphone_picture();
+QPixmap psclassic_picture();
 QPixmap console_picture(const QString& console){
     return console == "xbox" ? xbox_picture()
         : console == "retro" ? retro_picture()
@@ -1964,6 +1966,7 @@ QPixmap console_picture(const QString& console){
         : console == "psremote" ? remote_picture(false)
         : console == "xboxremote" ? remote_picture(true)
         : console == "iphone" ? iphone_picture()
+        : console == "psclassic" ? psclassic_picture()
         : ps3_picture();
 }
 //  A console that is not a Switch and not the Android phone: its picture is
@@ -2555,6 +2558,28 @@ const BoardSpec& spec_for(const QString& board, const QString& console){
     };
     if (console == "iphone" && board == "esp32s3"){
         return ESP32S3_IPHONE_SPEC;
+    }
+
+    //  The PlayStation Classic: as the original Xbox, with OGX-Mini in its
+    //  PlayStation Classic mode (START and the lowest face button held for 3
+    //  seconds, kept after that). The console takes that pad as its own.
+    static const StepText ESP32S3_PS_CLASSIC[] = {
+        {"Connect the ESP32-S3", "Plug the port labeled COM or UART into the computer. The port labeled USB or OTG goes into the Pico, in a later step. They are not interchangeable.", Action::DEVICE},
+        {"Flash the firmware", "Pick the port of the ESP32-S3 and the firmware version, then press Flash now.", Action::FIRMWARE},
+        {"Restart the board", "Press the EN or RESET button, or unplug both cables and plug them in again.", Action::NONE},
+        {"Prepare the Pico with OGX-Mini", "Copy the Pi Pico file of OGX-Mini onto the Pico, as for the original Xbox. Then put it in its PlayStation Classic mode once: plug any USB controller into it and hold START and the lowest face button (A on an Xbox pad, CROSS on a PlayStation pad, B on a Switch pad) for 3 seconds.", Action::NONE},
+        {"Connect the Pico", "Plug the USB or OTG port of the ESP32-S3 into the Pico's port for a controller, and the Pico into the first controller port of the PlayStation Classic. Its picture goes into the capture card over HDMI.", Action::NONE},
+        {"Select the controller and the port", "In the program, pick Serial: PABotBase2 in the first dropdown, then your device as the serial port. Click Reset Ctrl if it is not listed.", Action::PORTS},
+        {"Connect to the PlayStation Classic", "Pick NS1: Wired Controller as the type, not the Wired Pro Controller. The Pico sees it as a Switch pad and passes it on to the PlayStation Classic.", Action::NONE},
+        {"Test", "Click the video and press the arrow keys: they should move through the menu of the PlayStation Classic. This has not been tried on a PlayStation Classic yet.", Action::NONE},
+    };
+    static const BoardSpec ESP32S3_PS_CLASSIC_SPEC = {
+        ESP32S3_PS_CLASSIC, sizeof(ESP32S3_PS_CLASSIC) / sizeof(ESP32S3_PS_CLASSIC[0]),
+        "Wired, through a Pico with OGX-Mini, on a PlayStation Classic. Experimental. Eight steps.", "NS1: Wired Controller",
+        1, -1, 5, 6, 6, true
+    };
+    if (console == "psclassic" && board == "esp32s3"){
+        return ESP32S3_PS_CLASSIC_SPEC;
     }
 
     //  The retro consoles: the wireless board plays a Switch Pro Controller
@@ -7790,6 +7815,102 @@ QPixmap iphone_picture(){
     return cache;
 }
 
+//  A small grey console with the round lid of a disc drive, and in front of
+//  it a grey pad of the first PlayStation's kind, without sticks: the picture
+//  of the console "psclassic". Drawn here, as the picture of the Switch 2 is.
+QPixmap psclassic_picture(){
+    static QPixmap cache;
+    if (!cache.isNull()){
+        return cache;
+    }
+    constexpr int W = 520;
+    constexpr int H = 380;
+    QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter p(&image);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(Qt::NoPen);
+
+    //  The console, behind: a flat box, with the lid and two buttons.
+    QLinearGradient box(0, 10, 0, 170);
+    box.setColorAt(0, QColor(212, 212, 218));
+    box.setColorAt(1, QColor(160, 162, 170));
+    p.setBrush(box);
+    p.drawRoundedRect(QRectF(110, 10, 300, 160), 14, 14);
+    p.setBrush(QColor(140, 142, 150));
+    p.drawEllipse(QPointF(300, 84), 62, 62);
+    p.setBrush(QColor(186, 188, 196));
+    p.drawEllipse(QPointF(300, 84), 52, 52);
+    p.setBrush(QColor(120, 122, 130));
+    p.drawRoundedRect(QRectF(138, 40, 64, 20), 8, 8);
+    p.drawRoundedRect(QRectF(138, 74, 64, 20), 8, 8);
+
+    //  The pad, in front: a bar and two short grips.
+    QPainterPath body;
+    body.addRoundedRect(QRectF(70, 190, 380, 120), 56, 56);
+    QPainterPath left;
+    left.moveTo(92, 240);
+    left.cubicTo(52, 290, 36, 360, 80, 372);
+    left.cubicTo(124, 384, 150, 330, 190, 300);
+    left.closeSubpath();
+    QPainterPath right;
+    right.moveTo(428, 240);
+    right.cubicTo(468, 290, 484, 360, 440, 372);
+    right.cubicTo(396, 384, 370, 330, 330, 300);
+    right.closeSubpath();
+    const QPainterPath shape = body.united(left).united(right);
+    QLinearGradient shade(0, 190, 0, 380);
+    shade.setColorAt(0, QColor(204, 205, 212));
+    shade.setColorAt(1, QColor(150, 152, 160));
+    p.setBrush(shade);
+    p.drawPath(shape);
+    p.setPen(QPen(QColor(110, 112, 122), 2));
+    p.setBrush(Qt::NoBrush);
+    p.drawPath(shape);
+    p.setPen(Qt::NoPen);
+
+    //  The d-pad.
+    p.setBrush(QColor(80, 82, 92));
+    p.drawRoundedRect(QRectF(118, 222, 22, 66), 5, 5);
+    p.drawRoundedRect(QRectF(96, 244, 66, 22), 5, 5);
+
+    //  The four buttons with their symbols: triangle, circle, cross, square.
+    const QColor dark(70, 72, 82);
+    const QPointF top(388, 224);
+    const QPointF right_button(420, 255);
+    const QPointF bottom(388, 286);
+    const QPointF left_button(356, 255);
+    p.setBrush(dark);
+    for (const QPointF& center : {top, right_button, bottom, left_button}){
+        p.drawEllipse(center, 18, 18);
+    }
+    p.setBrush(Qt::NoBrush);
+    QPen symbol(QColor(96, 200, 150), 3.5);
+    symbol.setJoinStyle(Qt::RoundJoin);
+    symbol.setCapStyle(Qt::RoundCap);
+    p.setPen(symbol);
+    p.drawPolygon(QPolygonF({QPointF(top.x(), top.y() - 9), QPointF(top.x() + 9, top.y() + 7), QPointF(top.x() - 9, top.y() + 7)}));
+    symbol.setColor(QColor(232, 96, 96));
+    p.setPen(symbol);
+    p.drawEllipse(right_button, 8.5, 8.5);
+    symbol.setColor(QColor(110, 160, 236));
+    p.setPen(symbol);
+    p.drawLine(QPointF(bottom.x() - 8, bottom.y() - 8), QPointF(bottom.x() + 8, bottom.y() + 8));
+    p.drawLine(QPointF(bottom.x() - 8, bottom.y() + 8), QPointF(bottom.x() + 8, bottom.y() - 8));
+    symbol.setColor(QColor(226, 132, 196));
+    p.setPen(symbol);
+    p.drawRect(QRectF(left_button.x() - 8, left_button.y() - 8, 16, 16));
+    p.setPen(Qt::NoPen);
+
+    //  SELECT and START in the middle.
+    p.setBrush(QColor(90, 92, 102));
+    p.drawRoundedRect(QRectF(218, 262, 34, 12), 6, 6);
+    p.drawRoundedRect(QRectF(268, 262, 34, 12), 6, 6);
+    p.end();
+    cache = QPixmap::fromImage(image);
+    return cache;
+}
+
 struct ConsoleInfo{
     //  The value of the setting "console" (GlobalSettings::GAME_CONSOLE).
     const char* code;
@@ -7841,9 +7962,11 @@ constexpr ConsoleInfo CONSOLES[] = {
     {"xboxremote",  "Xbox One and Series",  "Remote Play, through a Pico with OGX-Mini", true},
     //  The ESP32-S3 as a keyboard, with Full Keyboard Access. Experimental.
     {"iphone",      "iPhone",               "As a keyboard, with Full Keyboard Access", true},
+    //  The ESP32-S3 through a Pico with OGX-Mini in its PlayStation Classic
+    //  mode. Experimental.
+    {"psclassic",   "PlayStation Classic",  "Through a Pico with OGX-Mini", true},
     //  What the gamepad adapters of the community already speak (the
     //  platforms of OGX-Mini) and what the commercial ones list.
-    {"psclassic",   "PlayStation Classic",  nullptr,    false},
     {"wiiu",        "Nintendo Wii U",       nullptr,    false},
 };
 constexpr int CONSOLE_COUNT = (int)(sizeof(CONSOLES) / sizeof(CONSOLES[0]));
@@ -7985,6 +8108,7 @@ private:
     static constexpr double BIG_HEIGHT = 236;
     //  (Lower again if the small tiles ever need two rows: they have one.)
     static constexpr double TWO_ROW_HEIGHT = 150;
+    static constexpr double SIX_COLUMN_HEIGHT = 164;
     static constexpr double ROW_GAP = 20;
     static constexpr int SMALL_COLUMNS = 5;
     bool m_again = false;                   //  chosen again, from the games
@@ -8011,7 +8135,8 @@ private:
         return (supported_count() + columns - 1) / columns;
     }
     static double large_height(){
-        return large_rows() > 1 ? TWO_ROW_HEIGHT : BIG_HEIGHT;
+        //  Six to a row: narrower still, so the text gets a line more.
+        return large_rows() > 1 ? (large_columns() >= 6 ? SIX_COLUMN_HEIGHT : TWO_ROW_HEIGHT) : BIG_HEIGHT;
     }
     //  The height of all the large tiles together.
     static double large_block(){
@@ -8101,6 +8226,7 @@ private:
         const bool narrow = large_columns() >= 3;
         const bool narrower = large_columns() >= 4;
         const bool narrowest = large_columns() >= 5;
+        const bool tightest = large_columns() >= 6;
         const bool low = large_rows() > 1;
         const QString code = QString::fromLatin1(info.code);
         const QPixmap picture =
@@ -8111,8 +8237,8 @@ private:
             : console_is_other(code) ? console_picture(code)
             : phone_picture();
         const QRectF room(
-            box.left() + (narrowest ? 14 : narrower ? 18 : narrow ? 26 : 36), box.top() + (low ? 22 : 30),
-            narrowest ? 92 : narrower ? 120 : low ? 150 : narrow ? 200 : 360, box.height() - (low ? 44 : 60)
+            box.left() + (tightest ? 10 : narrowest ? 14 : narrower ? 18 : narrow ? 26 : 36), box.top() + (low ? 22 : 30),
+            tightest ? 64 : narrowest ? 92 : narrower ? 120 : low ? 150 : narrow ? 200 : 360, box.height() - (low ? 44 : 60)
         );
         if (!picture.isNull()){
             const double scale = std::min(room.width() / picture.width(), room.height() / picture.height());
@@ -8120,10 +8246,10 @@ private:
             const double h = picture.height() * scale;
             draw_picture(painter, picture, QRectF(room.center().x() - w / 2.0, room.center().y() - h / 2.0, w, h), a);
         }
-        const double text_x = room.right() + (narrowest ? 12 : narrower ? 16 : narrow ? 22 : 36);
-        const double text_w = box.right() - (narrowest ? 16 : narrower ? 20 : 28) - text_x;
-        const double name_px = narrowest ? 23 : narrower ? 25 : narrow ? 28 : 36;
-        const double note_px = narrowest ? 17 : narrower ? 19 : narrow ? 21 : 23;
+        const double text_x = room.right() + (tightest ? 10 : narrowest ? 12 : narrower ? 16 : narrow ? 22 : 36);
+        const double text_w = box.right() - (tightest ? 12 : narrowest ? 16 : narrower ? 20 : 28) - text_x;
+        const double name_px = tightest ? 21 : narrowest ? 23 : narrower ? 25 : narrow ? 28 : 36;
+        const double note_px = tightest ? 16 : narrowest ? 17 : narrower ? 19 : narrow ? 21 : 23;
         const QFont name_font = ui_font(name_px, 600);
         const QStringList name_lines = wrap_text(name_font, QString::fromLatin1(info.name), text_w);
         const double name_line = name_px * 1.22;
@@ -10860,6 +10986,7 @@ std::vector<HomeGame> test_games_with_consoles(){
         {"PS4 and PS5 games", "psremote"},
         {"Xbox One and Series games", "xboxremote"},
         {"iPhone apps", "iphone"},
+        {"PlayStation Classic games", "psclassic"},
     }){
         HomeGame game;
         game.name = other.first;
@@ -11503,18 +11630,18 @@ int run_setup_test(QApplication& application, const QString& folder){
     checker.check(has_content(canvas.picture()), "the console screen has something on it");
     {
         bool all = true;
-        for (int c = 0; c < 10; c++){
+        for (int c = 0; c < 11; c++){
             const QString tile = "console:" + QString::number(c);
             all = all && canvas.has_hit(tile) && canvas.hit_enabled(tile);
         }
         checker.check(all,
-            "the ten supported consoles (the two Switches, the phone, the PlayStation 3, the original Xbox, the retro "
-            "consoles, the Xbox 360, the two of Remote Play and the iPhone) are tiles that can be picked"
+            "the eleven supported consoles (the two Switches, the phone, the PlayStation 3, the original Xbox, the retro "
+            "consoles, the Xbox 360, the two of Remote Play, the iPhone and the PlayStation Classic) are tiles that can be picked"
         );
     }
-    checker.check(canvas.has_hit("console:10") && !canvas.hit_enabled("console:10") && canvas.has_hit("console:11") && !canvas.hit_enabled("console:11"),
-        "the other consoles are on the screen already, and cannot be picked");
-    checker.check(!canvas.click("console:10") && canvas.page_state() == "selected=", "a console that is not supported yet does nothing when it is clicked");
+    checker.check(canvas.has_hit("console:11") && !canvas.hit_enabled("console:11"),
+        "the other console is on the screen already, and cannot be picked");
+    checker.check(!canvas.click("console:11") && canvas.page_state() == "selected=", "a console that is not supported yet does nothing when it is clicked");
     checker.check(canvas.has_hit("skip") && canvas.has_hit("continue"), "the console screen has Skip setup and Continue");
     checker.check(!canvas.hit_enabled("continue"), "no console, no way on");
     checker.check(canvas.page_state() == "selected=", "nothing is picked at first");
@@ -11534,18 +11661,18 @@ int run_setup_test(QApplication& application, const QString& folder){
     checker.check(canvas.focus_id() == "console:4", "to the original Xbox");
     canvas.press_key(Qt::Key_Right);
     checker.check(canvas.focus_id() == "console:5", "to the retro consoles");
-    for (int c = 6; c < 10; c++){
+    for (int c = 6; c < 11; c++){
         canvas.press_key(Qt::Key_Right);
     }
-    checker.check(canvas.focus_id() == "console:9", "to the iPhone, over the second row");
+    checker.check(canvas.focus_id() == "console:10", "to the PlayStation Classic, over the second row");
     canvas.press_key(Qt::Key_Right);
-    checker.check(canvas.focus_id() == "console:9", "and skip the ones that are not supported yet");
+    checker.check(canvas.focus_id() == "console:10", "and skip the ones that are not supported yet");
     canvas.press_key(Qt::Key_Tab);
     canvas.press_key(Qt::Key_Tab);
     checker.check(!canvas.focus_id().startsWith("console:") || canvas.focus_id() == "console:0" || canvas.focus_id() == "console:1" ||
         canvas.focus_id() == "console:2" || canvas.focus_id() == "console:3" || canvas.focus_id() == "console:4" ||
         canvas.focus_id() == "console:5" || canvas.focus_id() == "console:6" || canvas.focus_id() == "console:7" ||
-        canvas.focus_id() == "console:8" || canvas.focus_id() == "console:9",
+        canvas.focus_id() == "console:8" || canvas.focus_id() == "console:9" || canvas.focus_id() == "console:10",
         "Tab does not stop on them either");
     canvas.set_focus_id("console:1");
     canvas.move_to("console:1");
@@ -12608,6 +12735,7 @@ int run_setup_test(QApplication& application, const QString& folder){
         WiredConsole{"console:7", "psremote", "Remote Play of a PlayStation", "steps=8"},
         WiredConsole{"console:8", "xboxremote", "Remote Play of an Xbox", "steps=9"},
         WiredConsole{"console:9", "iphone", "the iPhone", "steps=8", "type=HID: Keyboard"},
+        WiredConsole{"console:10", "psclassic", "the PlayStation Classic", "steps=8"},
     }){
         const QString code = QString::fromLatin1(wired.code);
         const QString name = QString::fromLatin1(wired.name);
@@ -12689,8 +12817,8 @@ int run_setup_test(QApplication& application, const QString& folder){
     {
         //  The consoles of the lists before Pokemon GO, in their order in
         //  test_games_with_consoles().
-        const QStringList OTHERS{"ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone"};
-        for (const QString console : {"switch", "switch2", "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone"}){
+        const QStringList OTHERS{"ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic"};
+        for (const QString console : {"switch", "switch2", "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic"}){
             SetupRequest request_games;
             request_games.ask_game = true;
             request_games.games = test_games_with_consoles();

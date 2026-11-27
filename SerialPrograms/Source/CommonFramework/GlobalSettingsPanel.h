@@ -71,8 +71,9 @@ enum class SetupConsole{
     RETRO,      //  PlayStation, PlayStation 2, GameCube, Nintendo 64, Dreamcast: a wireless board and BlueRetro.
     XBOX360,    //  An Xbox 360 with UsbdSecPatch: the wired board and a Pico with OGX-Mini (XInput).
     PS_REMOTE,  //  PlayStation 4 and 5 through Remote Play on the computer (chiaki-ng).
-    XBOX_REMOTE,//  Xbox One and Series through Remote Play on the computer (xbox.com/play).
+    XBOX_REMOTE,//  Xbox One and Series through Remote Play on the computer (xbox.com/remoteplay).
     IPHONE,     //  An iPhone, with the wired board as a keyboard (Full Keyboard Access).
+    PS_CLASSIC, //  The PlayStation Classic: the wired board and a Pico with OGX-Mini (its PS Classic mode).
 };
 
 

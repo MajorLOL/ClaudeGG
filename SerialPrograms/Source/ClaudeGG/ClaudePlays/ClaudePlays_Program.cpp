@@ -886,6 +886,12 @@ std::string setup_text(const GameProfile& profile){
                 "on the capture card through an HDMI adapter, and the wired board (the ESP32-S3) with HID: "
                 "Keyboard as the type, plugged into the iPhone. Not tried on an iPhone yet: first check that "
                 "TAB moves the frame and SPACE taps")
+            : console == "psclassic"
+            ? std::string(
+                "a PlayStation Classic with a game on the screen, and the wired board (the ESP32-S3) with NS1: "
+                "Wired Controller as the type, plugged into a Raspberry Pi Pico with OGX-Mini in its PlayStation "
+                "Classic mode, which is plugged into a controller port of the console. Not tried on a "
+                "PlayStation Classic yet: first check in its menu that the d-pad moves and that CROSS picks")
             : retro
             ? std::string("a ") + profile.category + " with a game on the screen, and a BlueRetro adapter (an "
                 "ESP32 with the BlueRetro firmware) in its first controller port. A wireless board (a Pico W, "
@@ -1141,14 +1147,15 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
         session(console, context);
     }else if (
         profile.pad == PadKind::XBOX360_CONTROLLER || profile.pad == PadKind::PS4_CONTROLLER ||
-        profile.pad == PadKind::XBOXONE_CONTROLLER
+        profile.pad == PadKind::XBOXONE_CONTROLLER || profile.pad == PadKind::PSCLASSIC_CONTROLLER
     ){
-        //  The Xbox 360 (OGX-Mini) and Remote Play: the wired controller.
+        //  The Xbox 360 and the PlayStation Classic (OGX-Mini) and Remote
+        //  Play: the wired controller.
         ProController& controller = env.console.controller<ProController>();
         if (dynamic_cast<PABotBase2_WiredController*>(&controller) == nullptr){
             throw UserSetupError(
                 env.console,
-                profile.pad == PadKind::XBOX360_CONTROLLER
+                profile.pad == PadKind::XBOX360_CONTROLLER || profile.pad == PadKind::PSCLASSIC_CONTROLLER
                     ? "The Pico with OGX-Mini takes a Switch pad: pick NS1: Wired Controller as the type of the "
                       "controller (on a wired board, the ESP32-S3)."
                     : "The Remote Play client takes a plain USB gamepad: pick NS1: Wired Controller as the type of "
@@ -1161,7 +1168,12 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
         }
         WiredPadConsole console(
             env, context, text_language, pad_layout(profile.pad),
-            profile.pad == PadKind::PS4_CONTROLLER ? &ps4_button_of : &xbox360_button_of
+            profile.pad == PadKind::PS4_CONTROLLER ? &ps4_button_of
+            //  OGX-Mini passes the Switch pad on by the places of the buttons,
+            //  as the PlayStation 3 takes it (B is CROSS: its mode is START and
+            //  B on a Switch pad, START and CROSS on a PlayStation pad).
+            : profile.pad == PadKind::PSCLASSIC_CONTROLLER ? &ps3_button_of
+            : &xbox360_button_of
         );
         session(console, context);
     }else if (profile.pad == PadKind::PS3_CONTROLLER || profile.pad == PadKind::XBOX_CONTROLLER){
@@ -1314,6 +1326,8 @@ QRgb card_ground(GameId game){
         return qRgb(0x1e, 0x6b, 0x2e);
     case GameId::IPHONE:
         return qRgb(0x4a, 0x4a, 0x52);
+    case GameId::PS_CLASSIC:
+        return qRgb(0x6a, 0x6e, 0x7c);
     default:
         return qRgb(0x44, 0x4a, 0x5c);
     }

@@ -93,11 +93,12 @@ std::vector<std::unique_ptr<PanelListDescriptor>> make_all_lists(){
         ClaudeGG::ClaudePlays::GameId::DREAMCAST,
         //  ClaudeGG: the Xbox 360 (OGX-Mini), Remote Play of the PlayStation 4
         //  and 5 and of the Xbox One and Series, and the iPhone (a keyboard):
-        //  a console of the setup each.
+        //  a console of the setup each. The PlayStation Classic (OGX-Mini) too.
         ClaudeGG::ClaudePlays::GameId::XBOX_360,
         ClaudeGG::ClaudePlays::GameId::PS_REMOTE_PLAY,
         ClaudeGG::ClaudePlays::GameId::XBOX_REMOTE_PLAY,
         ClaudeGG::ClaudePlays::GameId::IPHONE,
+        ClaudeGG::ClaudePlays::GameId::PS_CLASSIC,
     }){
         lists.emplace_back(std::make_unique<ClaudeGG::ClaudePlays::GameOnlyList>(id));
     }
