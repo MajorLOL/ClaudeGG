@@ -43,25 +43,29 @@ jobs:
         working-directory: Mobile
         run: |
           "$RUNNER_TEMP/venv/bin/python" - <<'PY'
-          import sys
+          import inspect, sys
           sys.path.insert(0, "tests")
           sys.path.insert(0, ".")
           import numpy as np, cv2
           import spin_stop as S
           from test_spin_stop import scene
+          print(inspect.getsource(S.compare_shots).split('"""')[2][:900])
           png = scene()
-          print("picture", png.shape, png.dtype, "sum", int(png.astype(np.int64).sum()))
-          print("constants", S.SHOT_SAME, S.SHOT_STILL, S.SHOT_STILL_SHARE)
+          raw, png2 = png.copy(), png.copy()
           small = lambda im: cv2.resize(im, (221, 276), interpolation=cv2.INTER_AREA).astype(np.int16)
-          a, r = small(png), small(png.copy())
-          print("small", a.shape, a.dtype, "a - r largest", int(np.abs(a - r).max()))
-          still = np.abs(a - a).max(axis=2) <= S.SHOT_STILL
-          print("still share", float(still.mean()))
-          print("diff", float(np.abs(a - r)[still].mean()))
-          print("result", S.compare_shots(png, png.copy(), png.copy()))
+          a, b, r = small(png), small(png2), small(raw)
+          print("a-b", int(np.abs(a - b).max()), "a-r", int(np.abs(a - r).max()), "b-r", int(np.abs(b - r).max()))
+          print("moved", float(np.abs(a - b).mean()), "still", float((np.abs(a - b).max(axis=2) <= S.SHOT_STILL).mean()))
+          for n in range(4):
+              res = S.compare_shots(png, png.copy(), png.copy())
+              print("compare_shots", n, res["same"], round(res["diff"], 3), round(res["moved"], 3), res["still"])
+          x = np.zeros((276, 221, 3), np.int16)
+          print("zeros: abs mean", float(np.abs(x - x).mean()), "numpy", np.__version__)
+          y = a.copy()
+          print("copy of a: abs mean of a - y", float(np.abs(a - y).mean()))
           PY
 
       - name: Run the tests
         working-directory: Mobile
         run: |
-          "$RUNNER_TEMP/venv/bin/python" -m unittest tests.test_spin_stop tests.test_battle_vision tests.test_vision_golden
+          "$RUNNER_TEMP/venv/bin/python" -m unittest tests.test_spin_stop.CompareShots
