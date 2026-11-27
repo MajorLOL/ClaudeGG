@@ -1,7 +1,11 @@
+import base64
+import hashlib
 import http.client
 import json
 import os
+import re
 import shutil
+import subprocess
 import struct
 import sys
 import tempfile
@@ -220,6 +224,62 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(self.json("POST", "/v1/tap", raw=b"[1, 2]")[0], 400)
         self.assertEqual(self.json("POST", "/v1/tap", raw=b"x" * (agent.MAX_BODY + 1))[0], 413)
 
+    def test_the_status_page_is_served_without_a_token(self):
+        for path in ("/", "/status", "/status?x=1"):
+            status, data, headers = self.agent.ask("GET", path, token=None)
+            self.assertEqual(status, 200, path)
+            self.assertEqual(headers["Content-Type"], "text/html; charset=utf-8")
+            self.assertTrue(data.startswith(b"<!DOCTYPE html>"))
+            self.assertNotIn(self.agent.token.encode(), data, "the page holds nothing secret")
+        #  What it reads is as closed as before: the page is open, the phone and the bot are not.
+        for path in ("/v1/info", "/v1/screen", "/v1/bot", "/v1/bot/tests"):
+            self.assertEqual(self.agent.ask("GET", path, token=None)[0], 401, path)
+        self.assertEqual(self.agent.calls(), [])
+        self.assertEqual(self.json("POST", "/", {})[0], 404)
+
+    def test_the_status_page_runs_nothing_but_itself(self):
+        status, data, headers = self.agent.ask("GET", "/", token=None)
+        html = data.decode("utf-8")
+        policy = headers["Content-Security-Policy"]
+        #  The policy names the hash of the one script and the one style the page has: nothing else may run.
+        for tag, directive in (("script", "script-src"), ("style", "style-src")):
+            parts = re.findall(r"<%s>(.*?)</%s>" % (tag, tag), html, re.S)
+            self.assertEqual(len(parts), 1, tag)
+            digest = base64.b64encode(hashlib.sha256(parts[0].encode("utf-8")).digest()).decode("ascii")
+            self.assertIn("%s 'sha256-%s'" % (directive, digest), policy)
+        self.assertIn("default-src 'none'", policy)
+        self.assertIn("connect-src 'self'", policy)
+        self.assertIn("frame-ancestors 'none'", policy)
+        self.assertNotIn("unsafe", policy)
+        self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
+        self.assertEqual(headers["Referrer-Policy"], "no-referrer")
+        self.assertEqual(headers["X-Frame-Options"], "DENY")
+        #  No address of anywhere else, no markup made from what the agent says, no handler in an attribute.
+        self.assertNotRegex(html, r"https?://|//[a-z]")
+        self.assertNotRegex(html, r"\son[a-z]+\s*=")
+        self.assertNotRegex(html, r"style\s*=\s*[\"']")
+        for forbidden in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function", "localStorage"):
+            self.assertNotIn(forbidden, html, forbidden)
+        #  It asks for the token with the one header the agent wants, and sends it nowhere else.
+        self.assertIn('"Authorization": "Bearer " + token', html)
+        self.assertEqual(html.count("fetch("), 1)
+
+    def test_the_status_page_script_is_valid_javascript(self):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        script = re.search(r"<script>(.*?)</script>", agent.STATUS_HTML, re.S).group(1)
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "page.js")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(script)
+            done = subprocess.run([node, "--check", path], capture_output=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr.decode(errors="ignore"))
+
+    def test_every_answer_says_what_it_is(self):
+        for path in ("/v1/ping", "/v1/bot/tests", "/nothing"):
+            self.assertEqual(self.agent.ask("GET", path)[2]["X-Content-Type-Options"], "nosniff", path)
+
     def test_other_things_are_not_there(self):
         self.assertEqual(self.json("GET", "/v1/shell")[0], 404)
         self.assertEqual(self.json("POST", "/v1/info", {})[0], 404)
@@ -407,12 +467,45 @@ class BotTest(unittest.TestCase):
         self.assertFalse(state["options"]["teams_weekly"], "the weekly round of the teams is off until it is switched on")
         self.assertEqual((state["battle_app"], state["battle_league"], state["battle_count"]), ("", "Great League", 5))
         self.assertEqual(state["battles"], {"won": 0, "lost": 0, "list": []})
+        self.assertEqual(state["today"], {"caught": 0, "fled": 0, "stops": 0, "won": 0, "lost": 0, "day": time.strftime("%Y-%m-%d")})
         self.assertFalse(state["test"]["running"])
         self.assertEqual((state["daily_time"], state["throw_target"], state["daily_max_min"]), ("06:45", "great", 480))
         self.assertEqual([line.split("  ")[1] for line in state["log"]], ["line 97", "line 98", "line 99"])
         self.assertEqual(self.json("GET", "/v1/bot?lines=0")[0], 400)
         self.assertEqual(self.json("GET", "/v1/bot?lines=201")[0], 400)
         self.assertEqual(self.json("GET", "/v1/bot?lines=x")[0], 400)
+
+    def write_log(self, *lines):
+        with open(os.path.join(self.home, "spin.log"), "w", encoding="utf-8") as handle:
+            handle.write("".join(line + "\n" for line in lines))
+
+    def test_the_counters_of_today_are_the_last_ones_the_bot_wrote(self):
+        today = time.strftime("%Y-%m-%d")
+        self.install()
+        self.write_log(
+            "2020-01-01 10:00:00  Pokémon CAUGHT (today: 50 caught, 1 fled, 9 stops)",
+            today + " 09:00:00  Pokémon CAUGHT (today: 1 caught, 0 fled, 0 stops)",
+            today + " 09:30:00  spun a stop (today: 6 caught, 2 fled, 30 stops)",
+            today + " 10:00:00  battle: battle 2 done: win (today: 6 caught, 2 fled, 31 stops, 2 won, 1 lost)",
+            today + " 10:05:00  nothing was counted on this line",
+            "a line of a crash, with no date",
+        )
+        self.assertEqual(self.json("GET", "/v1/bot")[1]["today"],
+                         {"caught": 6, "fled": 2, "stops": 31, "won": 2, "lost": 1, "day": today})
+
+    def test_the_counters_of_today_begin_at_nothing(self):
+        today = time.strftime("%Y-%m-%d")
+        nothing = {"caught": 0, "fled": 0, "stops": 0, "won": 0, "lost": 0, "day": today}
+        self.install()
+        #  No log, a log of an older day, an empty log: nothing is counted yet, and the agent says so.
+        self.assertEqual(self.json("GET", "/v1/bot")[1]["today"], nothing)
+        self.write_log("2020-01-01 10:00:00  Pokémon CAUGHT (today: 50 caught, 1 fled, 9 stops)")
+        self.assertEqual(self.json("GET", "/v1/bot")[1]["today"], nothing)
+        self.write_log()
+        self.assertEqual(self.json("GET", "/v1/bot")[1]["today"], nothing)
+        #  A counter the agent does not know is left out, and the known ones before it still count.
+        self.write_log(today + " 08:00:00  x (today: 3 caught, 7 eggs, 4 stops)")
+        self.assertEqual(self.json("GET", "/v1/bot")[1]["today"], dict(nothing, caught=3, stops=4))
 
     def test_start_sets_what_is_asked_and_keeps_the_rest(self):
         self.install()

@@ -41,11 +41,12 @@ runs unattended.
 
 ## The protocol (version 1)
 
-HTTP with JSON on the local network. Everything but `/v1/ping` needs the header
+HTTP with JSON on the local network. Everything but `/v1/ping` and the status page needs the header
 `Authorization: Bearer <token>`. It is plain HTTP: use it on a network you trust, not over the internet.
 
 | Request | What it does |
 |---|---|
+| `GET /` or `GET /status` | the status page, for a browser on the network (no token: the page holds nothing secret, it asks for the token and keeps it in the tab until the tab is closed; a bookmark with `#token=...` opens it at once and takes the token out of the address). It shows whether the bot runs, the last screenshot (every ten seconds, not while the tab is hidden), today's counters (caught, fled, stops, won, lost), the GO Battle League matches of today, the switches that are on, and the end of the log. It only looks: it starts and stops nothing. One file with no address of anywhere else in it; the browser is told (`Content-Security-Policy`) to run nothing but that script and to speak to nobody but the agent, and what the agent says is put on the screen as text, never as markup |
 | `GET /v1/ping` | `{"ok": true}`: is it there (no token) |
 | `GET /v1/info` | `{model, android, width, height, display}`: the phone (`Override size` of `wm size` when set) |
 | `GET /v1/screen` | the screen as a PNG (`X-Screen-Width`, `X-Screen-Height`) |
@@ -56,7 +57,7 @@ HTTP with JSON on the local network. Everything but `/v1/ping` needs the header
 | `POST /v1/key` `{key}` or `{keycode}` | `BACK`, `HOME`, `APP_SWITCH`, `POWER`, `WAKEUP`, `ENTER`, ... or a number 0 to 300 |
 | `POST /v1/text` `{text}` | letters, digits, spaces and `. , _ @ : / + -`, up to 200 |
 | `POST /v1/wake` | wakes the screen |
-| `GET /v1/bot?lines=40` | the Pokémon GO bot of `Mobile/` (`gamebot.py`, installed in the home folder as the service `spin-stop`): `{installed, running, options, throw_target, daily_time, daily_max_min, battle_app, battle_league, battle_count, battles, test, log}`, with the last `lines` (1 to 200) of `~/spin.log`. `battles` are the GO Battle League matches of today as the log tells them: `{won, lost, list: [{time, league, result, gave_up}]}`; `test` is the part of the bot that runs or ran last: `{key, title, running, ok, result, seconds}` |
+| `GET /v1/bot?lines=40` | the Pokémon GO bot of `Mobile/` (`gamebot.py`, installed in the home folder as the service `spin-stop`): `{installed, running, options, throw_target, daily_time, daily_max_min, battle_app, battle_league, battle_count, today, battles, test, log}`, with the last `lines` (1 to 200) of `~/spin.log`. `today` are the counters the bot keeps for the day, as its last `(today: ...)` line of today says: `{caught, fled, stops, won, lost, day}` (zero until the bot has counted). `battles` are the GO Battle League matches of today as the log tells them: `{won, lost, list: [{time, league, result, gave_up}]}`; `test` is the part of the bot that runs or ran last: `{key, title, running, ok, result, seconds}` |
 | `POST /v1/bot/start` `{options, throw_target, daily_time, daily_max_min, daily_now, battle_app, battle_league, battle_count}` | sets what is asked in the bot's control file (`~/gamebot_control.json`, as its web interface does) and starts the service (restarts it when it runs). `options` are only switches of this list, true or false: `spin`, `catch`, `gifts_open`, `gifts_send`, `daily_cycle`, `curveball`, `fast_catch`, `spin_only_when_full`, `close_when_full`, `rocket_fight`, `quests`, `bag_clean`, `buddy`, `fast_look`, `heat_pause`, `live_look`, `battle` (the daily run fights GO Battle League battles first), `battle_give_up`, `teams_weekly`. `battle_app` is empty (the Play Store app) or a Pokémon GO package, `battle_league` the league as the game names it, `battle_count` 1 to 50. `daily_now` makes the daily run begin at once. 409: the bot is not installed, or a test of it runs |
 | `POST /v1/bot/stop` | stops the service, and a test of the bot that runs |
 | `GET /v1/bot/tests` | the parts of the bot that run on their own, `{tests: [{key, group, title, start, what}]}`, as the bot's own `chapters.py` in the home folder lists them (empty without it) |

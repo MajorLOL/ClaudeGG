@@ -11,6 +11,9 @@ in ~/.claudegg-agent/token) in the header "Authorization: Bearer <token>". It op
 do is the list of the endpoints below, and the arguments are checked before an `adb` command is made
 (a list of arguments, never a line for a shell).
 
+    GET  /  or  /status                 a page for a browser on the network: what runs, the screen, today's
+                                        counters (no token for the page itself; it asks for the token and
+                                        reads the endpoints below with it)
     GET  /v1/ping                       {"ok": true}                            (no token)
     GET  /v1/info                       the phone: model, android, width, height
     GET  /v1/screen                     the screen as a PNG
@@ -23,7 +26,8 @@ do is the list of the endpoints below, and the arguments are checked before an `
     POST /v1/wake                       wakes the screen
     GET  /v1/bot?lines=40               the Pokemon GO bot (gamebot.py, installed in the home folder as the service
                                         spin-stop): installed, running, its options, the end of its log, the
-                                        GO Battle League matches of today, and the test that runs or ran last
+                                        counters of today, the GO Battle League matches of today, and the
+                                        test that runs or ran last
     POST /v1/bot/start {options, throw_target, daily_time, daily_max_min, daily_now,
                         battle_app, battle_league, battle_count}
                                         sets what is asked in the bot's control file and starts it
@@ -37,6 +41,8 @@ Only the standard library is used, so it runs on the Pi as it is. Part of Claude
 """
 
 import argparse
+import base64
+import hashlib
 import hmac
 import importlib.util
 import json
@@ -89,6 +95,8 @@ BOT_BATTLE_SET = re.compile(r"battle: \d+ battle\(s\) in '([^']*)'")
 BOT_TEST_DONE = r"TEST %s: (done|failed) - (.*)$"
 BOT_THROW_TARGETS = ("realistic", "off", "nice", "great", "excellent")
 BOT_LOG_LINES = (1, 200, 40)
+BOT_TODAY = re.compile(r"\(today: ([^)]*)\)")
+BOT_TODAY_COUNTERS = ("caught", "fled", "stops", "won", "lost")
 BOT_DAILY_TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 #  The keys a program may press (Android's key events). Others by their number, 0 to 300.
@@ -492,10 +500,36 @@ class Bot:
             "battle_app": control.get("battle_app", ""),
             "battle_league": control.get("battle_league", "Great League"),
             "battle_count": control.get("battle_count", 5),
+            "today": self.today(),
             "battles": self.battles(),
             "test": self.test_state(),
             "log": self.log_lines(lines),
         }
+
+    def today(self):
+        """The counters of today as the bot keeps them: the last '(today: 6 caught, 0 fled, 3 stops, 2 won,
+        1 lost)' of today's lines in its log (zero for the ones it has not counted yet, all zero on a new day)."""
+        day = time.strftime("%Y-%m-%d")
+        counters = dict.fromkeys(BOT_TODAY_COUNTERS, 0)
+        try:
+            with open(self._path("spin.log"), "rb") as handle:
+                handle.seek(0, 2)
+                handle.seek(max(handle.tell() - 400000, 0))
+                lines = handle.read().decode("utf-8", errors="ignore").splitlines()
+        except OSError:
+            return dict(counters, day=day)
+        for line in reversed(lines):
+            if not line.startswith(day):
+                if line[:4].isdigit():
+                    break                       #  an older day: nothing of today yet
+                continue
+            found = BOT_TODAY.search(line)
+            if found:
+                for number, name in re.findall(r"(\d+) (\w+)", found.group(1)):
+                    if name in counters:
+                        counters[name] = int(number)
+                break
+        return dict(counters, day=day)
 
     def battles(self):
         """The GO Battle League matches of today, as the bot's log tells them: how many were won and lost, and
@@ -745,6 +779,291 @@ def read_or_make_token(path):
     return token
 
 
+#  The page of GET / and GET /status. It holds nothing secret (the token is typed in the browser, kept in the
+#  tab, and sent in a header to the endpoints above), so it is served without one. It is one file, with no
+#  address of anywhere else in it; the browser is told (Content-Security-Policy) to run nothing but this
+#  script and style and to speak to nobody but this agent, and the page puts what the agent says on the screen
+#  as text, never as markup.
+STATUS_HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Claude GG phone</title>
+<style>
+:root { color-scheme: dark; --bg: #16181e; --panel: #20232b; --line: #313644; --text: #eceef3; --muted: #a3a9ba; --ok: #74d38f; --warn: #ff8f61; --accent: #6ab8ff; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 20px 16px 40px; }
+h1 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 1.5rem; font-weight: 650; letter-spacing: -0.01em; }
+h2 { margin: 0 0 12px; font-size: 1rem; font-weight: 600; }
+p { margin: 0 0 10px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin-bottom: 20px; }
+.who { margin: 0 0 0 auto; color: var(--muted); }
+.dot { flex: none; width: 12px; height: 12px; border-radius: 50%; background: var(--muted); }
+.dot.run { background: var(--ok); box-shadow: 0 0 0 4px rgba(116, 211, 143, 0.18); }
+.dot.stop { background: var(--warn); }
+.grid { display: grid; grid-template-columns: minmax(220px, 320px) 1fr; gap: 24px; align-items: start; }
+.phone { position: sticky; top: 12px; margin: 0; padding: 10px; border: 2px solid var(--line); border-radius: 28px; background: #0b0c10; }
+.phone img { display: block; width: 100%; height: auto; border-radius: 18px; background: #000; }
+.phone figcaption { margin: 8px 4px 0; color: var(--muted); font-size: 0.85rem; text-align: center; }
+section { margin-bottom: 16px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.counts { display: flex; flex-wrap: wrap; gap: 12px 28px; margin: 0; }
+.counts div { display: flex; flex-direction: column-reverse; min-width: 64px; }
+.counts dt { color: var(--muted); font-size: 0.85rem; }
+.counts dd { margin: 0; font-size: 2rem; font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.list, .chips { margin: 0; padding: 0; list-style: none; }
+.list li { display: flex; gap: 12px; padding: 3px 0; font-variant-numeric: tabular-nums; }
+.list .time { color: var(--muted); }
+.list .win { color: var(--ok); }
+.list .loss { color: var(--warn); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips li { padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 0.85rem; }
+pre { margin: 0; max-height: 320px; overflow: auto; color: #cfd3df; font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+#login { max-width: 420px; margin: 8vh auto 0; }
+#login label { display: block; margin: 16px 0 4px; color: var(--muted); }
+#login input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; }
+#login button { margin-top: 12px; padding: 10px 18px; border: 0; border-radius: 8px; background: var(--accent); color: #0b0c10; font: inherit; font-weight: 600; cursor: pointer; }
+#login-error { min-height: 1.5em; margin-top: 10px; color: var(--warn); }
+@media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .phone { position: static; max-width: 300px; margin: 0 auto; } }
+</style>
+</head>
+<body>
+<main>
+<form id="login" hidden>
+<h1>Claude GG phone</h1>
+<p class="muted">Type the token of this agent. It stays in this tab until the tab is closed. On the Raspberry Pi it is printed by <code>claudegg_agent.py --print-token</code>.</p>
+<label for="token">Token</label>
+<input id="token" type="password" autocomplete="off" required>
+<button type="submit">Open</button>
+<p id="login-error" role="alert"></p>
+</form>
+<div id="app" hidden>
+<header>
+<h1><span id="dot" class="dot"></span><span id="state">Connecting</span></h1>
+<p id="phone-name" class="who"></p>
+</header>
+<div class="grid">
+<figure class="phone">
+<img id="screen" alt="The screen of the phone" hidden>
+<figcaption id="screen-note">Waiting for the first picture</figcaption>
+</figure>
+<div>
+<section>
+<h2>Today</h2>
+<dl class="counts">
+<div><dt>caught</dt><dd id="n-caught">0</dd></div>
+<div><dt>fled</dt><dd id="n-fled">0</dd></div>
+<div><dt>stops</dt><dd id="n-stops">0</dd></div>
+<div><dt>won</dt><dd id="n-won">0</dd></div>
+<div><dt>lost</dt><dd id="n-lost">0</dd></div>
+</dl>
+</section>
+<section>
+<h2>GO Battle League</h2>
+<p id="battle-plan" class="muted"></p>
+<ul id="battle-list" class="list"></ul>
+</section>
+<section>
+<h2>Switched on</h2>
+<ul id="options" class="chips"></ul>
+</section>
+<section>
+<h2>Log</h2>
+<pre id="log"></pre>
+</section>
+</div>
+</div>
+</div>
+</main>
+<script>
+(function () {
+  "use strict";
+  const KEY = "claudegg-agent-token";
+  const BOT_EVERY = 4000, SCREEN_EVERY = 10000, INFO_EVERY = 60000;
+  const $ = (id) => document.getElementById(id);
+  let token = "";
+  let timers = [];
+  const shot = { url: "", at: 0, busy: false };
+  let bot = { busy: false }, info = { busy: false };
+
+  function put(id, value) { $(id).textContent = String(value); }
+
+  function api(path) {
+    return fetch(path, { headers: { "Authorization": "Bearer " + token }, cache: "no-store" }).then((answer) => {
+      if (answer.status === 401) {
+        const error = new Error("The token is wrong.");
+        error.auth = true;
+        throw error;
+      }
+      if (!answer.ok) {
+        return answer.json().catch(() => ({})).then((body) => { throw new Error(body.error || ("HTTP " + answer.status)); });
+      }
+      return answer;
+    });
+  }
+
+  function needToken(message) {
+    timers.forEach(clearInterval);
+    timers = [];
+    try { sessionStorage.removeItem(KEY); } catch (e) { /* no storage: the token is asked again next time */ }
+    token = "";
+    $("app").hidden = true;
+    $("login").hidden = false;
+    put("login-error", message || "");
+    $("token").value = "";
+    $("token").focus();
+  }
+
+  function setState(text, kind) {
+    put("state", text);
+    $("dot").className = "dot" + (kind ? " " + kind : "");
+  }
+
+  function renderBot(state) {
+    if (!state.installed) {
+      setState("The bot is not installed", "");
+    } else if (state.test && state.test.running) {
+      setState("Testing: " + state.test.title, "run");
+    } else if (state.running) {
+      setState("Running", "run");
+    } else {
+      setState("Stopped", "stop");
+    }
+    const today = state.today || {};
+    ["caught", "fled", "stops", "won", "lost"].forEach((name) => put("n-" + name, today[name] || 0));
+
+    const battles = state.battles || { won: 0, lost: 0, list: [] };
+    const on = state.options && state.options.battle;
+    put("battle-plan", on
+      ? state.battle_league + ", " + state.battle_count + " battles a run. Today: " + battles.won + " won, " + battles.lost + " lost."
+      : "Battles are switched off.");
+    const list = $("battle-list");
+    list.textContent = "";
+    battles.list.slice().reverse().forEach((entry) => {
+      const item = document.createElement("li");
+      const time = document.createElement("span");
+      time.className = "time";
+      time.textContent = entry.time;
+      const result = document.createElement("span");
+      result.className = entry.result === "win" ? "win" : "loss";
+      result.textContent = (entry.result === "win" ? "Won" : "Lost") + (entry.gave_up ? " (given up)" : "");
+      const league = document.createElement("span");
+      league.textContent = entry.league;
+      item.append(time, result, league);
+      list.append(item);
+    });
+
+    const options = $("options");
+    options.textContent = "";
+    Object.keys(state.options || {}).filter((key) => state.options[key]).forEach((key) => {
+      const item = document.createElement("li");
+      item.textContent = key.replace(/_/g, " ");
+      options.append(item);
+    });
+
+    const log = $("log");
+    const atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 8;
+    log.textContent = (state.log || []).join("\n");
+    if (atEnd) { log.scrollTop = log.scrollHeight; }
+  }
+
+  function guarded(slot, work, failed) {
+    if (slot.busy || document.hidden) { return; }
+    slot.busy = true;
+    work().catch((error) => {
+      if (error.auth) { needToken(error.message); } else { failed(error); }
+    }).then(() => { slot.busy = false; });
+  }
+
+  function refreshBot() {
+    guarded(bot, () => api("/v1/bot?lines=15").then((a) => a.json()).then(renderBot),
+      (error) => setState("The agent does not answer: " + error.message, ""));
+  }
+
+  function refreshInfo() {
+    guarded(info, () => api("/v1/info").then((a) => a.json()).then((phone) => {
+      put("phone-name", [phone.model, phone.android ? "Android " + phone.android : "", phone.width + " x " + phone.height].filter(Boolean).join(", "));
+    }), () => put("phone-name", "The phone does not answer"));
+  }
+
+  function refreshScreen() {
+    guarded(shot, () => api("/v1/screen").then((a) => a.blob()).then((blob) => {
+      const image = $("screen");
+      const before = shot.url;
+      shot.url = URL.createObjectURL(blob);
+      shot.at = Date.now();
+      image.src = shot.url;
+      image.hidden = false;
+      if (before) { URL.revokeObjectURL(before); }
+      showAge();
+    }), (error) => put("screen-note", "No picture: " + error.message));
+  }
+
+  function showAge() {
+    if (!shot.at) { return; }
+    const seconds = Math.max(0, Math.round((Date.now() - shot.at) / 1000));
+    put("screen-note", "Picture of " + (seconds < 2 ? "now" : seconds + " s ago"));
+  }
+
+  function refreshAll() { refreshBot(); refreshInfo(); refreshScreen(); }
+
+  function start() {
+    $("login").hidden = true;
+    $("app").hidden = false;
+    put("login-error", "");
+    refreshAll();
+    timers = [setInterval(refreshBot, BOT_EVERY), setInterval(refreshScreen, SCREEN_EVERY),
+              setInterval(refreshInfo, INFO_EVERY), setInterval(showAge, 1000)];
+  }
+
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && token) { refreshAll(); } });
+
+  $("login").addEventListener("submit", (event) => {
+    event.preventDefault();
+    token = $("token").value.trim();
+    if (!token) { return; }
+    try { sessionStorage.setItem(KEY, token); } catch (e) { /* kept in memory only */ }
+    start();
+  });
+
+  //  A link with #token=... (a bookmark on the phone) opens the page at once; the token is taken out of the
+  //  address and never goes to the agent in a request line.
+  if (location.hash.indexOf("#token=") === 0) {
+    try { token = decodeURIComponent(location.hash.slice(7)); } catch (e) { token = ""; }
+    history.replaceState(null, "", location.pathname + location.search);
+    try { if (token) { sessionStorage.setItem(KEY, token); } } catch (e) { /* kept in memory only */ }
+  }
+  if (!token) {
+    try { token = sessionStorage.getItem(KEY) || ""; } catch (e) { token = ""; }
+  }
+  if (token) { start(); } else { needToken(""); }
+})();
+</script>
+</body>
+</html>
+"""
+
+
+def _status_page():
+    html = STATUS_HTML.encode("utf-8")
+    hashes = []
+    for tag in ("script", "style"):
+        found = re.search(r"<%s>(.*?)</%s>" % (tag, tag), STATUS_HTML, re.S)
+        digest = hashlib.sha256(found.group(1).encode("utf-8")).digest()
+        hashes.append("'sha256-%s'" % base64.b64encode(digest).decode("ascii"))
+    policy = ("default-src 'none'; script-src %s; style-src %s; img-src blob:; connect-src 'self'; "
+              "base-uri 'none'; form-action 'none'; frame-ancestors 'none'" % tuple(hashes))
+    return html, {"Content-Security-Policy": policy, "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY"}
+
+
+STATUS_PAGE, STATUS_PAGE_HEADERS = _status_page()
+
+
 def make_handler(phone, token, quiet=True):
     class Handler(BaseHTTPRequestHandler):
         server_version = "ClaudeGGAgent/" + VERSION
@@ -761,6 +1080,7 @@ def make_handler(phone, token, quiet=True):
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
             for name, value in (headers or {}).items():
                 self.send_header(name, value)
             self.end_headers()
@@ -829,6 +1149,8 @@ def make_handler(phone, token, quiet=True):
         def _handle(self, method):
             try:
                 path = self.path.split("?", 1)[0]
+                if method == "GET" and path in ("/", "/status"):
+                    return self._send(200, STATUS_PAGE, "text/html; charset=utf-8", STATUS_PAGE_HEADERS)
                 if method == "GET" and path == "/v1/ping":
                     return self._send(200, {"ok": True, "agent": "claudegg-agent", "version": VERSION})
                 if not self._authorized():
