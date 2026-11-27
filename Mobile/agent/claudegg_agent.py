@@ -40,6 +40,8 @@ do is the list of the endpoints below, and the arguments are checked before an `
     GET  /v1/bot/tests                  the parts of the bot that can be run on their own (its chapters.py)
     POST /v1/bot/test {key, options...} stops the bot and runs one part of it, as /v1/bot/start sets it
     POST /v1/bot/test/stop              ends that test
+    GET  /v1/bot/file?name=battle_team.json   one of the files the bot keeps of its battles (battle_team.json,
+                                        battle_seen.json, battle_minigame.json), read only; 404 when it is not there
 
 Only the standard library is used, so it runs on the Pi as it is. Part of Claude GG
 (https://github.com/MajorLOL/ClaudeGG); MIT license like the rest of this folder.
@@ -61,7 +63,9 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
+#  What this agent can do that the first one (0.1.0) could not; Claude GG asks for these before a program of its own plays.
+FEATURES = ("tap_kind", "app", "bot_file")
 DEFAULT_PORT = 8765
 MAX_BODY = 64 * 1024
 MAX_STROKES = 50
@@ -107,6 +111,9 @@ BOT_LOG_LINES = (1, 200, 40)
 BOT_TODAY = re.compile(r"\(today: ([^)]*)\)")
 BOT_TODAY_COUNTERS = ("caught", "fled", "stops", "won", "lost")
 BOT_DAILY_TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+#  The files of the bot that Claude GG may read (/v1/bot/file): the team and what the bot learned in its battles.
+BOT_FILES = ("battle_team.json", "battle_seen.json", "battle_minigame.json")
+BOT_FILE_BYTES = 4 * 1024 * 1024
 
 #  The keys a program may press (Android's key events). Others by their number, 0 to 300.
 KEYS = {
@@ -542,6 +549,21 @@ class Bot:
             return value if isinstance(value, dict) else {}
         except (OSError, ValueError):
             return {}
+
+    def file(self, name):
+        """One of BOT_FILES of the home folder, as bytes; nothing else can be read."""
+        if name not in BOT_FILES:
+            raise AgentError(400, "name is one of " + ", ".join(BOT_FILES))
+        try:
+            with open(self._path(name), "rb") as handle:
+                data = handle.read(BOT_FILE_BYTES + 1)
+        except FileNotFoundError:
+            raise AgentError(404, "the bot has no " + name)
+        except OSError as error:
+            raise AgentError(502, "%s cannot be read: %s" % (name, error))
+        if len(data) > BOT_FILE_BYTES:
+            raise AgentError(413, name + " is too big")
+        return data
 
     def log_lines(self, count):
         try:
@@ -1217,12 +1239,14 @@ def make_handler(phone, token, quiet=True):
                 if method == "GET" and path in ("/", "/status"):
                     return self._send(200, STATUS_PAGE, "text/html; charset=utf-8", STATUS_PAGE_HEADERS)
                 if method == "GET" and path == "/v1/ping":
-                    return self._send(200, {"ok": True, "agent": "claudegg-agent", "version": VERSION})
+                    return self._send(200, {"ok": True, "agent": "claudegg-agent", "version": VERSION,
+                                           "features": list(FEATURES)})
                 if not self._authorized():
                     return self._send(401, {"error": "the token is missing or wrong"})
                 #  No lock: a tap does not wait for a picture that is being taken.
                 if method == "GET" and path == "/v1/info":
-                    return self._send(200, dict(phone.info(), agent="claudegg-agent", version=VERSION))
+                    return self._send(200, dict(phone.info(), agent="claudegg-agent", version=VERSION,
+                                                    features=list(FEATURES)))
                 if method == "GET" and path == "/v1/video":
                     return self._video()
                 if method == "GET" and path == "/v1/screen":
@@ -1247,6 +1271,10 @@ def make_handler(phone, token, quiet=True):
                     if lines < BOT_LOG_LINES[0] or lines > BOT_LOG_LINES[1]:
                         raise AgentError(400, "lines must be from %d to %d" % (BOT_LOG_LINES[0], BOT_LOG_LINES[1]))
                     return self._send(200, phone.bot.state(lines))
+                if method == "GET" and path == "/v1/bot/file":
+                    query = self.path.split("?", 1)[1] if "?" in self.path else ""
+                    values = dict(part.split("=", 1) for part in query.split("&") if "=" in part)
+                    return self._send(200, phone.bot.file(values.get("name", "")), "application/json")
                 if method == "POST" and path == "/v1/bot/start":
                     phone.bot.start(self._body())
                     return self._send(200, {"ok": True})
@@ -1310,6 +1338,7 @@ def main(argv=None):
     parser.add_argument("--bot-python", action="append", default=None, help="the python that runs a test of the bot, one argument at a time (for tests)")
     parser.add_argument("--token-file", default=os.path.expanduser("~/.claudegg-agent/token"))
     parser.add_argument("--print-token", action="store_true", help="print the token and end")
+    parser.add_argument("--version", action="version", version=VERSION, help="print the version of the agent and end")
     parser.add_argument("--verbose", action="store_true", help="log every request")
     args = parser.parse_args(argv)
 
