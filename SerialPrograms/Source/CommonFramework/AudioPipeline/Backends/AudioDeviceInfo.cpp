@@ -187,11 +187,15 @@ AudioDeviceInfo::AudioDeviceInfo(const std::string& device_name){
             return;
         }
     }
+    //  Not connected now. Keep the name, so that the settings still say which
+    //  device was chosen: saving them must not forget it, and the selector can
+    //  say that it is missing. Without a device behind it, it stays false.
     m_body.reset();
+    m_body->device_name = device_name;
 }
 
 AudioDeviceInfo::operator bool() const{
-    return m_body && !m_body->device_name.empty();
+    return m_body && !m_body->device_name.empty() && !m_body->info.isNull();
 }
 std::string AudioDeviceInfo::display_name() const{
     if (!*this){
