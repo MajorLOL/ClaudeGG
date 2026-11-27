@@ -130,6 +130,9 @@ private:
     //  ClaudeGG: which controller the open program has and whether it is
     //  connected, for the header of its page (asked twice a second).
     void update_controllers();
+    //  ClaudeGG: "Running <program> 12:34" in the header and the title of
+    //  the window (so that the taskbar says it too), once a second.
+    void update_busy_text();
     void set_sleep_label(const QString& text);
     void make_assistant(
         std::unique_ptr<ClaudeGG::Assistant::HttpTransport> transport,
@@ -173,6 +176,11 @@ private:
     bool m_panel_transition = false;
     //  A program runs.
     bool m_busy = false;
+    //  ClaudeGG: since when the program runs (milliseconds since the epoch),
+    //  and its name, for the state in the header and the window's title.
+    qint64 m_busy_since = 0;
+    QString m_busy_name;
+    QString m_base_title;
 };
 
 // returns given X value, but bounded by 0 and screen_width
