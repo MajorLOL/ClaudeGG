@@ -222,7 +222,9 @@ public:
         const std::string& what, const std::string& image,
         bool player, int from, int to, uint32_t color, double expected
     )
-        : ImageUnitTest("PokemonFRLG::AutoStoryPaintedBar - " + image + " " + what, {image})
+        : ImageUnitTest(
+            "PokemonFRLG::AutoStoryPaintedBar - " + image + (player ? " player: " : " foe: ") + what, {image}
+        )
         , m_player(player)
         , m_from(from)
         , m_to(to)
