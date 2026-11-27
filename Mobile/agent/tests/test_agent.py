@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 
 import claudegg_agent as agent  # noqa: E402
 
+GAME = "com.nianticlabs.pokemongo"
 FAKE = os.path.join(os.path.dirname(HERE), "fake_adb.py")
 FAKE_VIDEO = os.path.join(os.path.dirname(HERE), "fake_video.py")
 FAKE_SYSTEMCTL = os.path.join(os.path.dirname(HERE), "fake_systemctl.py")
@@ -76,6 +77,7 @@ class Running:
         self.server.shutdown()
         self.server.server_close()
         self.phone.video._idle_now()
+        self.phone._end_launch()
         os.environ.pop("FAKE_ADB_LOG", None)
         os.environ.pop("FAKE_ADB_FAIL", None)
         for name in ("FAKE_VIDEO_LOG", "FAKE_VIDEO_FRAMES", "FAKE_VIDEO_FAIL", "FAKE_VIDEO_DELAY"):
@@ -217,6 +219,69 @@ class AgentTest(unittest.TestCase):
             self.assertEqual(self.json("POST", "/v1/text", {"text": bad})[0], 400, bad)
         self.assertEqual(self.json("POST", "/v1/text", {"text": "x" * 201})[0], 400)
         self.assertEqual(len(self.agent.calls()), 1)
+
+    def wait_for_state(self, running, timeout=10.0):
+        """The state of the start of the game (/v1/app) once it is (not) running."""
+        end = time.time() + timeout
+        while True:
+            status, body = self.json("POST", "/v1/app", {"action": "state", "package": GAME})
+            self.assertEqual(status, 200)
+            if body["running"] == running or time.time() > end:
+                return body
+            time.sleep(0.05)
+
+    def test_the_game_is_closed_and_started(self):
+        self.assertEqual(self.json("POST", "/v1/app", {"action": "stop", "package": GAME})[0], 200)
+        status, body = self.json("POST", "/v1/app", {"action": "start", "package": GAME})
+        self.assertEqual((status, body), (200, {"ok": True}))
+        state = self.wait_for_state(False)
+        self.assertEqual(state, {"ok": True, "running": False, "code": 0, "error": ""})
+        self.assertEqual(self.agent.calls(), ["shell am force-stop " + GAME,
+                                              "shell monkey -p " + GAME + " -c android.intent.category.LAUNCHER 1"])
+        #  (the other store's app, too)
+        self.assertEqual(self.json("POST", "/v1/app", {"action": "stop", "package": GAME + ".ares"})[0], 200)
+        self.assertEqual(self.agent.calls()[-1], "shell am force-stop " + GAME + ".ares")
+
+    def test_a_game_that_does_not_start_says_what_monkey_said(self):
+        os.environ["FAKE_MONKEY_FAIL"] = "** No activities found to run, monkey aborted."
+        self.addCleanup(os.environ.pop, "FAKE_MONKEY_FAIL", None)
+        self.assertEqual(self.json("POST", "/v1/app", {"action": "start", "package": GAME})[0], 200)
+        state = self.wait_for_state(False)
+        self.assertEqual((state["running"], state["code"]), (False, 1))
+        self.assertIn("No activities found", state["error"])
+        #  (asked again: the same)
+        self.assertEqual(self.json("POST", "/v1/app", {"action": "state", "package": GAME})[1]["code"], 1)
+
+    def test_the_start_is_not_waited_for(self):
+        os.environ["FAKE_MONKEY_HANG"] = "30"                  # monkey does not come back while the game starts
+        self.addCleanup(os.environ.pop, "FAKE_MONKEY_HANG", None)
+        began = time.time()
+        self.assertEqual(self.json("POST", "/v1/app", {"action": "start", "package": GAME})[0], 200)
+        self.assertLess(time.time() - began, 5)
+        state = self.json("POST", "/v1/app", {"action": "state", "package": GAME})[1]
+        self.assertEqual((state["running"], state["code"], state["error"]), (True, 0, ""))
+        #  the command is let go of (it is killed; the game itself goes on) and there is nothing to ask about any more
+        self.assertEqual(self.json("POST", "/v1/app", {"action": "end", "package": GAME})[0], 200)
+        self.assertEqual(self.json("POST", "/v1/app", {"action": "state", "package": GAME})[0], 409)
+        self.assertEqual(self.json("POST", "/v1/app", {"action": "end", "package": GAME})[0], 200)
+        #  a new start lets go of the one that still runs
+        self.assertEqual(self.json("POST", "/v1/app", {"action": "start", "package": GAME})[0], 200)
+        self.assertEqual(self.json("POST", "/v1/app", {"action": "start", "package": GAME})[0], 200)
+        self.assertEqual(self.json("POST", "/v1/app", {"action": "end", "package": GAME})[0], 200)
+
+    def test_nothing_was_started(self):
+        self.assertEqual(self.json("POST", "/v1/app", {"action": "state", "package": GAME})[0], 409)
+
+    def test_only_pokemon_go_can_be_closed_and_started(self):
+        for body in ({"action": "stop", "package": "com.android.settings"}, {"action": "stop", "package": "com.nianticlabs.pokemongo; reboot"},
+                     {"action": "stop", "package": "com.nianticlabs.pokemongo$(id)"}, {"action": "stop", "package": "com.nianticlabs.pokemon"},
+                     {"action": "stop", "package": ""}, {"action": "stop", "package": 5}, {"action": "stop"},
+                     {"action": "start", "package": "-p"}, {"action": "start", "package": "x" * 100},
+                     {"action": "reboot", "package": GAME}, {"package": GAME}, {"action": 1, "package": GAME}):
+            self.assertEqual(self.json("POST", "/v1/app", body)[0], 400, body)
+        self.assertEqual(self.agent.calls(), [])
+        self.assertEqual(self.json("POST", "/v1/app", {"action": "stop", "package": GAME}, token="wrong")[0], 401)
+        self.assertEqual(self.json("GET", "/v1/app")[0], 404)
 
     def test_arguments_are_checked(self):
         cases = [

@@ -6,10 +6,13 @@
  */
 
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <QCoreApplication>
 #include <QDate>
+#include <QDateTime>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -40,6 +43,7 @@
 #include "ClaudeGG_PokemonGoModels.h"
 #include "ClaudeGG_PokemonGoNav.h"
 #include "ClaudeGG_PokemonGoPhone.h"
+#include "ClaudeGG_PokemonGoStart.h"
 #include "ClaudeGG_PokemonGoVision.h"
 
 namespace PokemonAutomation{
@@ -485,6 +489,40 @@ bool MobileAgent::wake(QString* error) const{
     return post("/v1/wake", "{}", error);
 }
 
+bool MobileAgent::app(const char* action, const QString& package, Reply& reply, QString* error) const{
+    QJsonObject body;
+    body["action"] = QString::fromLatin1(action);
+    body["package"] = package;
+    return request("POST", "/v1/app", QJsonDocument(body).toJson(QJsonDocument::Compact), reply, error);
+}
+
+bool MobileAgent::app_stop(const QString& package, QString* error) const{
+    Reply reply;
+    return app("stop", package, reply, error);
+}
+
+bool MobileAgent::app_start(const QString& package, QString* error) const{
+    Reply reply;
+    return app("start", package, reply, error);
+}
+
+bool MobileAgent::app_state(const QString& package, MobileLaunch& launch, QString* error) const{
+    Reply reply;
+    if (!app("state", package, reply, error)){
+        return false;
+    }
+    const QJsonObject object = QJsonDocument::fromJson(reply.body).object();
+    launch.running = object.value("running").toBool();
+    launch.code = object.value("code").toInt();
+    launch.error = object.value("error").toString();
+    return true;
+}
+
+bool MobileAgent::app_end(const QString& package, QString* error) const{
+    Reply reply;
+    return app("end", package, reply, error);
+}
+
 bool MobileAgent::bot_state(MobileBotState& state, int lines, QString* error) const{
     Reply reply;
     if (!request("GET", "/v1/bot?lines=" + QString::number(std::max(1, std::min(200, lines))), QByteArray(), reply, error)){
@@ -770,6 +808,18 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         }
         check(differ == 0, flow.isEmpty() ? QString("the walk around a fight is walked as gamebot.py walks it") : flow.last());
     }
+    //  Starting the game and the battles of a run, ported to C++ (issue #30): the two kinds of green button, the notices of the start,
+    //  restart_game() and auto_battle(), played on the stories of the Python code.
+    {
+        QStringList start;
+        const int differ = PokemonGo::Start::run_start_checks(agent_folder + "/../tests/fixtures/start_golden.json.qz", start);
+        for (const QString& line : start){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, start.isEmpty() ? QString("the start of the game and the battles of a run are done as gamebot.py does them") : start.last());
+    }
     //  The text reader, ported to C++ (issue #30): the table that Tesseract writes made into lines of words with their places, as
     //  gamebot.ocr_lines() makes them (354 tables, 36 of them read from frames of real fights), and - where the tesseract program is
     //  found - a picture with words drawn on it read with it.
@@ -844,6 +894,7 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
     QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
     environment.insert("FAKE_ADB_LOG", adb_log);
     environment.insert("FAKE_ADB_FAIL_FILE", off_file);
+    environment.insert("FAKE_MONKEY_FILE", scratch.path() + "/monkey");
     environment.insert("FAKE_SYSTEMCTL_STATE", scratch.path() + "/service-state");
     environment.insert("FAKE_SYSTEMCTL_LOG", scratch.path() + "/service-calls");
     agent.setProcessEnvironment(environment);
@@ -1048,6 +1099,162 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             tapper->close();
             const QStringList got = read_lines(adb_log).mid(start.size());
             check(got == QStringList{"shell input swipe 24 48 24 48 120"}, "and the touches go by it from then on");
+        }
+        //  The walk around a fight and the start of the game (Flow::Host and Start::Host) against the same agent: the real screen is 48 x 96
+        //  now, a press of the walk is a press of 120 ms, a swipe is one swipe, BACK is the key, and the game is closed and started by
+        //  /v1/app.
+        {
+            const QString game = "com.nianticlabs.pokemongo";
+            const QString monkey_file = scratch.path() + "/monkey";
+            const QStringList start = read_lines(adb_log);
+            host.tap(884, 1104);
+            host.swipe(884, 1500, 884, 700, 300);
+            host.back();
+            const QStringList got = read_lines(adb_log).mid(start.size());
+            check(got == QStringList{"shell input swipe 24 48 24 48 120", "shell input swipe 24 65 24 30 300", "shell input keyevent 4"},
+                  "a tap, a swipe and BACK of the walk reach the phone (" + got.join(" | ") + ")");
+            const double wall = host.wall();
+            check(std::abs(wall - (double)QDateTime::currentSecsSinceEpoch()) < 5.0, "the clock of the walk is the clock of the day");
+            check(std::abs(host.monotonic() - now_seconds()) < 1.0, "and the other clock is the steady one");
+
+            //  A phone that is off: BACK that does not arrive is an error (adb raises in gamebot.py), a press is told in the log.
+            {
+                QFile off(off_file);
+                check(off.open(QIODevice::WriteOnly), "the phone is switched off");
+                off.close();
+                std::string what;
+                try{
+                    host.back();
+                }catch (const std::exception& e){
+                    what = e.what();
+                }
+                check(what.find("BACK did not reach the phone") != std::string::npos && what.find("device offline") != std::string::npos,
+                      "BACK that does not reach the phone throws (" + QString::fromStdString(what) + ")");
+                std::string closing;
+                try{
+                    host.stop_game();
+                }catch (const std::exception& e){
+                    closing = e.what();
+                }
+                check(closing.find("closing the game failed") != std::string::npos && closing.find("device offline") != std::string::npos,
+                      "closing the game when the phone is off throws (" + QString::fromStdString(closing) + ")");
+                host.start_game();
+                PokemonGo::Start::Launch failed = host.start_state();
+                for (int i = 0; failed.running && i < 200; i++){
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                    failed = host.start_state();
+                }
+                check(!failed.running && failed.code != 0 && failed.error.contains("device offline"), "a start that does not get to the phone is a start that failed");
+                host.start_end();
+                QFile::remove(off_file);
+            }
+
+            //  Closing and starting the game.
+            const QStringList closing_start = read_lines(adb_log);
+            host.stop_game();
+            host.start_game();
+            PokemonGo::Start::Launch launch = host.start_state();
+            for (int i = 0; launch.running && i < 200; i++){
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                launch = host.start_state();
+            }
+            host.start_end();
+            const QStringList closed = read_lines(adb_log).mid(closing_start.size());
+            check(closed == QStringList{"shell am force-stop " + game, "shell monkey -p " + game + " -c android.intent.category.LAUNCHER 1"},
+                  "the game is closed and started with the commands of the bot (" + closed.join(" | ") + ")");
+            check(!launch.running && launch.code == 0 && launch.error.isEmpty(), "and the start ends well");
+
+            //  A start that fails says what monkey said; one that does not come back is let go of.
+            {
+                QFile out(monkey_file);
+                check(out.open(QIODevice::WriteOnly | QIODevice::Truncate), "the fake monkey is told to fail");
+                out.write("fail:** No activities found to run, monkey aborted.");
+            }
+            host.start_game();
+            PokemonGo::Start::Launch failed = host.start_state();
+            for (int i = 0; failed.running && i < 200; i++){
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                failed = host.start_state();
+            }
+            check(!failed.running && failed.code == 1 && failed.error.contains("No activities found"), "a start that fails says what monkey said (" + failed.error + ")");
+            {
+                QFile out(monkey_file);
+                check(out.open(QIODevice::WriteOnly | QIODevice::Truncate), "the fake monkey is told to hang");
+                out.write("hang:30");
+            }
+            const double began = now_seconds();
+            host.start_game();
+            check(now_seconds() - began < 5.0, "the start of the game is not waited for");
+            const PokemonGo::Start::Launch running = host.start_state();
+            check(running.running && running.code == 0 && running.error.isEmpty(), "a start that does not come back is still running");
+            host.start_end();
+            MobileLaunch gone;
+            error.clear();
+            check(!phone.app_state(game, gone, &error) && error.contains("was not started"), "and is let go of (" + error + ")");
+            QFile::remove(monkey_file);
+
+            //  What the agent refuses.
+            const QStringList count = read_lines(adb_log);
+            error.clear();
+            check(!phone.app_stop("com.android.settings", &error) && !error.isEmpty(), "an app that is not Pokémon GO is not closed (" + error + ")");
+            error.clear();
+            check(!phone.app_start("com.nianticlabs.pokemongo; reboot", &error) && !error.isEmpty(), "a package that could be a command is refused (" + error + ")");
+            check(read_lines(adb_log).size() == count.size(), "none of them reached the phone");
+
+            //  The day on which the battles were done is kept in the folder of the bot (battle_done.json of gamebot.py).
+            check(!host.battles_done_today(), "the battles are not done before the Battle screen says so");
+            host.mark_battles_done();
+            check(host.battles_done_today(), "the day on which the Battle screen showed a grey BATTLE button is written down");
+            QFile done(options.folder + "/battle_done.json");
+            check(done.open(QIODevice::ReadOnly), "in battle_done.json");
+            const QJsonObject done_object = QJsonDocument::fromJson(done.readAll()).object();
+            check(done_object.size() == 1 && done_object.value("day").toString() == PokemonGo::Phone::today_text()
+                  && QDate::fromString(done_object.value("day").toString(), "yyyy-MM-dd").isValid(), "as the day, like \"2026-11-22\"");
+            done.close();
+            {
+                QFile out(options.folder + "/battle_done.json");
+                check(out.open(QIODevice::WriteOnly | QIODevice::Truncate), "the file of another day can be written");
+                out.write("{\"day\": \"2001-01-01\"}");
+            }
+            check(!host.battles_done_today(), "a day that is gone is not today");
+            {
+                QFile out(options.folder + "/battle_done.json");
+                check(out.open(QIODevice::WriteOnly | QIODevice::Truncate), "the file can be written");
+                out.write("{not json");
+            }
+            check(!host.battles_done_today(), "a file that is no file is nothing done");
+            QFile::remove(options.folder + "/battle_done.json");
+
+            //  What only the program knows.
+            check(host.day_count("won").isEmpty() && host.team_names().isEmpty() && !host.no_more(), "without a program nothing is known of the day, the team or the time");
+            host.beat();
+            int beats = 0;
+            PokemonGo::Phone::Hooks hooks;
+            hooks.day_count = [](const QString& key){ return "(today: 3 " + key + ")"; };
+            hooks.team_names = []{ return QStringList{"Medicham", "Azumarill"}; };
+            hooks.no_more = []{ return true; };
+            hooks.beat = [&]{ beats++; };
+            host.set_hooks(hooks);
+            check(host.day_count("lost") == "(today: 3 lost)" && host.team_names() == QStringList{"Medicham", "Azumarill"} && host.no_more(),
+                  "the program tells the count of the day, the team and the time");
+            host.beat();
+            check(beats == 1, "and is told that the bot is alive");
+
+            //  The screen classifier: without models every screen is unknown; with them it says one of the nine.
+            std::pair<QString, double> guess = host.screen_class(cv::Mat(2208, 1768, CV_8UC3, cv::Scalar(10, 20, 30)));
+            check(guess.first == "onbekend" && guess.second == 0.0, "without models the screen is unknown");
+            {
+                std::lock_guard<std::mutex> lock(told_lock);
+                check(!told.isEmpty() && told.last().contains("the screen classifier cannot be used here"), "and that is told once");
+            }
+            const QString models_folder = qEnvironmentVariable("CLAUDEGG_MODELS");
+            if (!models_folder.isEmpty()){
+                Options with_models = options;
+                with_models.models = models_folder;
+                AgentHost classified("127.0.0.1", port, token, with_models, nullptr);
+                guess = classified.screen_class(cv::Mat(2208, 1768, CV_8UC3, cv::Scalar(10, 20, 30)));
+                check(guess.first != "onbekend" && guess.second > 0.0 && guess.second <= 1.0, "with the models the screen classifier says which screen it is (" + guess.first + ")");
+            }
         }
         {
             PokemonGo::Loop::Stream* stream = host.stream();

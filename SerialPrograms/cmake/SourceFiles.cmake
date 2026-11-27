@@ -1535,6 +1535,9 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_PokemonGoModels.h
     Source/ClaudeGG/ClaudeGG_PokemonGoPhone.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoPhone.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoStart.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoStart.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoStartCheck.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoText.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoText.h
     Source/ClaudeGG/ClaudeGG_PokemonGoVision.cpp

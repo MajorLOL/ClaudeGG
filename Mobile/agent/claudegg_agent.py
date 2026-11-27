@@ -25,6 +25,10 @@ do is the list of the endpoints below, and the arguments are checked before an `
     POST /v1/key     {key: "BACK"}      or {keycode: 4}
     POST /v1/text    {text: "..."}      letters, digits and . , _ @ : / + - and spaces
     POST /v1/wake                       wakes the screen
+    POST /v1/app     {action, package}  the Pokemon GO app (a package like com.nianticlabs.pokemongo): "stop" closes it,
+                                        "start" starts it without waiting for the game to be up (monkey can take half a
+                                        minute), "state" says how that start is going ({running, code, error}), "end" lets
+                                        go of the start command that still runs
     GET  /v1/bot?lines=40               the Pokemon GO bot (gamebot.py, installed in the home folder as the service
                                         spin-stop): installed, running, its options, the end of its log, the
                                         counters of today, the GO Battle League matches of today, and the
@@ -89,6 +93,10 @@ BOT_SWITCHES_OFF = ("curveball", "buddy", "fast_catch", "battle", "teams_weekly"
 BOT_BATTLE_APP = re.compile(r"^(|com\.nianticlabs\.pokemongo[A-Za-z0-9._]{0,60})$")
 BOT_BATTLE_LEAGUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 '\-]{0,39}$")
 BOT_BATTLE_COUNT = (1, 50)
+#  The apps that /v1/app may close and start: the Pokemon GO of the Play Store and the other stores.
+APP_PACKAGE = re.compile(r"^com\.nianticlabs\.pokemongo[A-Za-z0-9._]{0,60}$")
+APP_ACTIONS = ("stop", "start", "state", "end")
+APP_ERROR_BYTES = 2000      #  how much of what the start command wrote as an error is told
 BOT_CHAPTER_KEY = re.compile(r"^[a-z][a-z_]{0,29}$")
 BOT_TEST_STOP_WAIT = 20          #  seconds the service has to stop before a test begins
 BOT_BATTLE_DONE = re.compile(r"battle: battle \d+ done: (win|loss)( \(given up\))?")
@@ -356,6 +364,8 @@ class Phone:
         self.display = display
         self.video = video if video is not None else VideoPipeline(adb, display)
         self.bot = bot if bot is not None else Bot()
+        self._launch = None             #  the command that starts the game (it runs while the game starts)
+        self._launch_lock = threading.Lock()
 
     @staticmethod
     def _int(value, name, low=0, high=MAX_COORDINATE):
@@ -451,6 +461,50 @@ class Phone:
 
     def wake(self):
         self.adb.run("shell", "input", "keyevent", KEYS["WAKEUP"])
+
+    def app(self, body):
+        """Close or start the Pokemon GO app; what it says goes in the answer."""
+        action = body.get("action")
+        package = body.get("package")
+        if action not in APP_ACTIONS:
+            raise AgentError(400, "action is " + ", ".join('"%s"' % a for a in APP_ACTIONS))
+        if not isinstance(package, str) or not APP_PACKAGE.match(package):
+            raise AgentError(400, "package is the name of a Pokemon GO app (com.nianticlabs.pokemongo...)")
+        with self._launch_lock:
+            if action == "stop":
+                self.adb.run("shell", "am", "force-stop", package)
+                return {}
+            if action == "start":
+                self._end_launch()
+                #  `monkey` does not come back while the game is starting (it waits for the app): the caller looks
+                #  at the screen meanwhile and asks how it went with "state".
+                line = self.adb.line("shell", "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1")
+                try:
+                    self._launch = subprocess.Popen(line, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                except FileNotFoundError:
+                    raise AgentError(502, "adb is not installed here (sudo apt install adb)")
+                return {}
+            if action == "state":
+                if self._launch is None:
+                    raise AgentError(409, "the game was not started")
+                code = self._launch.poll()
+                if code is None:
+                    return {"running": True, "code": 0, "error": ""}
+                error = self._launch.stderr.read(APP_ERROR_BYTES).decode(errors="ignore") if self._launch.stderr else ""
+                return {"running": False, "code": code, "error": error}
+            self._end_launch()
+            return {}
+
+    def _end_launch(self):
+        """Let go of the start command that still runs (the game itself goes on)."""
+        launch, self._launch = self._launch, None
+        if launch is None:
+            return
+        if launch.poll() is None:
+            launch.kill()
+        launch.wait()
+        if launch.stderr:
+            launch.stderr.close()
 
 
 class Bot:
@@ -1181,6 +1235,8 @@ def make_handler(phone, token, quiet=True):
                 if method == "POST" and path in actions:
                     actions[path](self._body())
                     return self._send(200, {"ok": True})
+                if method == "POST" and path == "/v1/app":
+                    return self._send(200, dict(phone.app(self._body()), ok=True))
                 if method == "GET" and path == "/v1/bot":
                     query = self.path.split("?", 1)[1] if "?" in self.path else ""
                     values = dict(part.split("=", 1) for part in query.split("&") if "=" in part)

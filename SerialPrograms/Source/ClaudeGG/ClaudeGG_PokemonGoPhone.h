@@ -13,6 +13,11 @@
  *  - the screenshot (/v1/screen) is brought to the canvas of the bot (1768 x 2208) as spin_stop._normalize does;
  *  - the touches (the canvas is brought to the real screen as spin_stop.to_real does) are the calls of the agent: a
  *    press, a plain tap and finger down / finger up;
+ *  - for the walk around a fight (ClaudeGG_PokemonGoFlow) and the start of the game (ClaudeGG_PokemonGoStart) it also
+ *    gives the clock of the day, BACK, the screen classifier (the ONNX models of ClaudeGG_PokemonGoModels, when they are
+ *    there; else every screen is "onbekend" as in gamebot.py), closing and starting the app (/v1/app of the agent) and the
+ *    day on which the battles were done (battle_done.json of gamebot.py); what only the program knows (the count of
+ *    the day, the team, the time of the run) is given through Hooks;
  *  - what was seen of the foes and what the little games learned is kept in battle_seen.json and battle_minigame.json
  *    in the folder of the bot, in the format of gamebot.py (the files can be copied from the Pi).
  *
@@ -28,11 +33,15 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <utility>
 #include <opencv2/core.hpp>
 #include <QString>
 #include <QStringList>
 #include "ClaudeGG_Mobile.h"
 #include "ClaudeGG_PokemonGoLoop.h"
+#include "ClaudeGG_PokemonGoModels.h"
+#include "ClaudeGG_PokemonGoStart.h"
 #include "ClaudeGG_PokemonGoText.h"
 
 namespace PokemonAutomation{
@@ -57,6 +66,16 @@ struct Options{
     QString league;                     //  the league of the battles (the names of the screens it shows)
     QString folder;                     //  where it keeps what it learns, and the pictures it saves
     QString tesseract;                  //  the tesseract program; empty: it is looked for
+    QString package = "com.nianticlabs.pokemongo";   //  the Pokémon GO app that is closed and started
+    QString models;                     //  the folder of the ONNX models of the screen classifier (CLAUDEGG_MODELS); empty: none
+};
+
+//  What only the program that runs the bot knows.  Every one may be empty.
+struct Hooks{
+    std::function<QString(const QString&)> day_count;   //  the count of the day after a fight ("(today: 3 won)"), key "won" or "lost"
+    std::function<QStringList()> team_names;            //  the names of the Pokémon of the team
+    std::function<bool()> no_more;                      //  the time of the run is up: no new battle
+    std::function<void()> beat;                         //  the bot is alive: called every now and then
 };
 
 //  Seconds on the clock of the loop (the time pictures are stamped with).
@@ -112,8 +131,8 @@ private:
 };
 
 
-//  The Host of the loop for a phone on a Raspberry Pi.
-class AgentHost : public Host{
+//  The Host of the loop, the walk and the start of the game for a phone on a Raspberry Pi.
+class AgentHost : public Start::Host{
 public:
     //  `log`: the lines of the log (from any thread); `stop`: true ends the fight (asked often).
     AgentHost(const QString& address, int port, const QString& token, const Options& options,
@@ -139,6 +158,30 @@ public:
     void save_minigames(const std::map<QString, Minigame::Learned>& learned) override;
     void save_picture(const QString& name, const cv::Mat& img) override;
     bool stop() override;
+    void beat() override;
+
+    //  The walk (Flow::Host).  The touches are those of the loop; a BACK that does not reach the phone throws, as `adb` of gamebot.py does.
+    double wall() override;
+    void tap(int x, int y) override;
+    void swipe(int x1, int y1, int x2, int y2, int ms) override;
+    void back() override;
+    std::pair<QString, double> screen_class(const cv::Mat& img) override;
+    void restart_game() override;
+    void mark_battles_done() override;
+    QString day_count(const QString& key) override;
+    QStringList team_names() override;
+    bool no_more() override;
+
+    //  Closing and starting the game (Start::Host): /v1/app of the agent.
+    void stop_game() override;
+    void start_game() override;
+    Start::Launch start_state() override;
+    void start_end() override;
+
+    //  What the program knows (see Hooks); set it before the bot runs.
+    void set_hooks(const Hooks& hooks){ m_hooks = hooks; }
+    //  Did the Battle screen show a grey BATTLE button today (battle_done.json of the folder of the bot)?
+    bool battles_done_today() const;
 
     //  The size of the real screen the agent told (0: not known).
     int screen_width() const{ return m_width; }
@@ -158,6 +201,11 @@ private:
     std::atomic<bool> m_aim;
     std::atomic<int> m_width{0};
     std::atomic<int> m_height{0};
+    Hooks m_hooks;
+    std::optional<Start::Launch> m_launch_failed;   //  the start of the game that did not even reach the agent
+    std::mutex m_models_lock;
+    std::unique_ptr<Models::Models> m_models;
+    bool m_models_failed = false;
 };
 
 
@@ -174,6 +222,9 @@ cv::Mat mat_of(const QImage& picture);
 //  INTER_LINEAR (spin_stop._normalize).
 cv::Mat canvas_of(const cv::Mat& screen);
 
+
+//  The day of battle_done.json of gamebot.py: "YYYY-MM-DD" of the local time.
+QString today_text();
 
 //  The check of the files and of the pictures (what does not need a phone): the files of what is seen and learned are
 //  read back as they were written and are the files of gamebot.py; the pictures and the touches are as they are asked.

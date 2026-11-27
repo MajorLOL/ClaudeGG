@@ -43,6 +43,23 @@ def main(argv):
         except FileNotFoundError:
             sys.stderr.write("error: no ffmpeg to make a picture with\n")
             return 1
+    elif args[:2] == ["shell", "monkey"]:
+        #  The command that starts the game: it does not come back while the game starts (FAKE_MONKEY_HANG), or it fails.
+        #  (a test that has to change it while the agent runs puts it in a file: "fail:<what it says>" or "hang:<seconds>")
+        monkey = os.environ.get("FAKE_MONKEY_FILE")
+        if monkey and os.path.exists(monkey):
+            with open(monkey, encoding="utf-8") as handle:
+                mode, _, value = handle.read().strip().partition(":")
+            if mode == "hang":
+                os.environ["FAKE_MONKEY_HANG"] = value
+            elif mode == "fail":
+                os.environ["FAKE_MONKEY_FAIL"] = value
+        if os.environ.get("FAKE_MONKEY_HANG"):
+            import time
+            time.sleep(float(os.environ["FAKE_MONKEY_HANG"]))
+        if os.environ.get("FAKE_MONKEY_FAIL"):
+            sys.stderr.write(os.environ["FAKE_MONKEY_FAIL"] + "\n")
+            return 1
     elif args[:2] == ["shell", "wm"]:
         sys.stdout.write("Physical size: 1080x2340\nOverride size: 1000x2200\n")
     elif args[:3] == ["shell", "getprop", "ro.product.model"]:

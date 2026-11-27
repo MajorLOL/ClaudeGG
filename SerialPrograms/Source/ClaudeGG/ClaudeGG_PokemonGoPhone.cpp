@@ -12,6 +12,7 @@
 #include <thread>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
+#include <QDate>
 #include <QDir>
 #include <QFile>
 #include <QImage>
@@ -468,6 +469,139 @@ void AgentHost::save_picture(const QString& name, const cv::Mat& img){
 
 bool AgentHost::stop(){
     return m_stop && m_stop();
+}
+
+void AgentHost::beat(){
+    if (m_hooks.beat){
+        m_hooks.beat();
+    }
+}
+
+
+//  ---- the walk and the start of the game
+
+double AgentHost::wall(){
+    return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+void AgentHost::tap(int x, int y){
+    m_fingers->tap(x, y, 120);
+}
+
+void AgentHost::swipe(int x1, int y1, int x2, int y2, int ms){
+    m_fingers->swipes({Stroke{x1, y1, x2, y2, ms}});
+}
+
+void AgentHost::back(){
+    QString error;
+    if (!m_agent.key("BACK", &error)){
+        throw std::runtime_error("BACK did not reach the phone: " + error.toStdString());
+    }
+}
+
+std::pair<QString, double> AgentHost::screen_class(const cv::Mat& img){
+    std::lock_guard<std::mutex> lock(m_models_lock);
+    if (!m_models && !m_models_failed){
+        try{
+            if (m_options.models.isEmpty()){
+                throw std::runtime_error("there is no folder of models");
+            }
+            m_models = std::make_unique<Models::Models>(m_options.models);
+        }catch (const std::exception& e){
+            m_models_failed = true;
+            log(QString("the screen classifier cannot be used here (%1)").arg(QString::fromUtf8(e.what())));
+        }
+    }
+    if (!m_models){
+        return {QString("onbekend"), 0.0};
+    }
+    try{
+        const Models::ScreenGuess guess = m_models->screen(img);
+        return {QString::fromStdString(guess.name), guess.score};
+    }catch (const std::exception& e){
+        m_models_failed = true;
+        m_models.reset();
+        log(QString("the screen classifier cannot be used here (%1)").arg(QString::fromUtf8(e.what())));
+        return {QString("onbekend"), 0.0};
+    }
+}
+
+void AgentHost::restart_game(){
+    Start::restart_game(*this);
+}
+
+QString today_text(){
+    return QDate::currentDate().toString("yyyy-MM-dd");
+}
+
+void AgentHost::mark_battles_done(){
+    QJsonObject object;
+    object["day"] = today_text();
+    if (!write_object(m_options.folder + "/battle_done.json", object)){
+        log("battle: could not write down that the battles of today are done");
+    }
+}
+
+bool AgentHost::battles_done_today() const{
+    bool ok = false;
+    const QJsonObject object = read_object(m_options.folder + "/battle_done.json", ok);
+    return ok && object.value("day").toString() == today_text();
+}
+
+QString AgentHost::day_count(const QString& key){
+    return m_hooks.day_count ? m_hooks.day_count(key) : QString();
+}
+
+QStringList AgentHost::team_names(){
+    return m_hooks.team_names ? m_hooks.team_names() : QStringList();
+}
+
+bool AgentHost::no_more(){
+    return m_hooks.no_more && m_hooks.no_more();
+}
+
+void AgentHost::stop_game(){
+    QString error;
+    if (!m_agent.app_stop(m_options.package, &error)){
+        throw std::runtime_error("closing the game failed: " + error.toStdString());
+    }
+}
+
+void AgentHost::start_game(){
+    m_launch_failed.reset();
+    QString error;
+    if (!m_agent.app_start(m_options.package, &error)){
+        Start::Launch failed;
+        failed.running = false;
+        failed.code = 1;
+        failed.error = error;
+        m_launch_failed = failed;
+    }
+}
+
+Start::Launch AgentHost::start_state(){
+    if (m_launch_failed.has_value()){
+        return *m_launch_failed;
+    }
+    MobileLaunch state;
+    QString error;
+    Start::Launch launch;
+    if (!m_agent.app_state(m_options.package, state, &error)){
+        launch.running = false;
+        launch.code = 1;
+        launch.error = error;
+        return launch;
+    }
+    launch.running = state.running;
+    launch.code = state.code;
+    launch.error = state.error;
+    return launch;
+}
+
+void AgentHost::start_end(){
+    if (!m_launch_failed.has_value()){
+        m_agent.app_end(m_options.package);
+    }
 }
 
 

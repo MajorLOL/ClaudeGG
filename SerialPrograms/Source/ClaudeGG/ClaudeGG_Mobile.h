@@ -44,6 +44,13 @@ struct MobileInfo{
     int height = 0;
 };
 
+//  How the start of the Pokémon GO app is going (the command that starts it does not come back while the game starts).
+struct MobileLaunch{
+    bool running = true;        //  the command has not ended
+    int code = 0;               //  its return code when it has
+    QString error;              //  what it wrote as an error
+};
+
 //  One swipe: from (x1, y1) to (x2, y2) in "ms" milliseconds.
 struct MobileStroke{
     int x1 = 0;
@@ -122,6 +129,13 @@ public:
     bool text(const QString& typed, QString* error = nullptr) const;
     bool wake(QString* error = nullptr) const;
 
+    //  A Pokémon GO app ("package", for instance com.nianticlabs.pokemongo; /v1/app): close it, start it (the call does not wait for the
+    //  game to be up), ask how that start is going, and let go of the start command that still runs.
+    bool app_stop(const QString& package, QString* error = nullptr) const;
+    bool app_start(const QString& package, QString* error = nullptr) const;
+    bool app_state(const QString& package, MobileLaunch& launch, QString* error = nullptr) const;
+    bool app_end(const QString& package, QString* error = nullptr) const;
+
     //  The Pokémon GO bot on the Pi. "lines": how much of the end of its log.
     bool bot_state(MobileBotState& state, int lines = 40, QString* error = nullptr) const;
     //  Sets what is asked in the bot's control file and starts it (afresh when it runs).
@@ -138,6 +152,7 @@ private:
         int status = 0;
         QByteArray body;
     };
+    bool app(const char* action, const QString& package, Reply& reply, QString* error) const;
     bool request(const char* method, const QString& path, const QByteArray& body, Reply& reply, QString* error) const;
     bool post(const QString& path, const QByteArray& body, QString* error) const;
 
