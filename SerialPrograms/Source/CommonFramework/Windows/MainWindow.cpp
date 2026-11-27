@@ -8,6 +8,7 @@
 #include <utility>
 //#include <QStatusBar>
 #include <QApplication>
+#include <QDateTime>
 #include <QTextDocumentFragment>
 #include <QTimer>
 #include <QDialog>
@@ -114,6 +115,7 @@ MainWindow::MainWindow(QWidget* parent, bool app_test)
 #else
     setWindowTitle(QString::fromStdString(title));
 #endif
+    m_base_title = windowTitle();
 
     //  The list of programs stays, out of sight: it makes the programs and
     //  loads their panels, as it always did. (The screens show them.)
@@ -634,15 +636,36 @@ void MainWindow::load_panel(
 }
 void MainWindow::on_busy(){
     m_busy = true;
-    std::string text = "Running";
-    if (m_current_panel != nullptr){
-        text += " " + m_current_panel->descriptor().display_name();
-    }
-    m_app->set_state(true, QString::fromStdString(text));
+    m_busy_since = QDateTime::currentMSecsSinceEpoch();
+    m_busy_name = m_current_panel != nullptr
+        ? QString::fromStdString(m_current_panel->descriptor().display_name())
+        : QString();
+    update_busy_text();
 }
 void MainWindow::on_idle(){
     m_busy = false;
-    m_app->set_state(false, "Ready");
+    //  (Empty: the header says "Ready" in the language in use.)
+    m_app->set_state(false, QString());
+    setWindowTitle(m_base_title);
+}
+void MainWindow::update_busy_text(){
+    if (!m_busy || m_app == nullptr){
+        return;
+    }
+    const qint64 seconds = std::max<qint64>(0, (QDateTime::currentMSecsSinceEpoch() - m_busy_since) / 1000);
+    const qint64 hours = seconds / 3600;
+    const qint64 minutes = seconds / 60 % 60;
+    QString time = QString("%1:%2").arg(minutes, hours > 0 ? 2 : 1, 10, QChar('0')).arg(seconds % 60, 2, 10, QChar('0'));
+    if (hours > 0){
+        time = QString::number(hours) + ":" + time;
+    }
+    QString text = ClaudeGG::tr_ui("Running");
+    if (!m_busy_name.isEmpty()){
+        text += " " + m_busy_name;
+    }
+    text += "  " + time;
+    m_app->set_state(true, text);
+    setWindowTitle(text + " - " + m_base_title);
 }
 
 
@@ -921,6 +944,7 @@ void MainWindow::make_app_view(bool test){
     controllers->setInterval(500);
     connect(controllers, &QTimer::timeout, this, [this]{
         update_controllers();
+        update_busy_text();
     });
     controllers->start();
     //  As it was left the last time.
