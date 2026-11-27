@@ -7,7 +7,11 @@ name: Mobile Python tests
 # *_golden.json.qz) is what the Python code says now. About four minutes.
 #
 # The versions are pinned, so that a new release of a library cannot turn this
-# red or green by itself.
+# red or green by itself. Python 3.12 on purpose, not the newest on the runner:
+# with Python 3.14.4 and NumPy 2.2.6 an expression like `np.abs(a - b)` in a
+# function changes `a` (NumPy takes a name that Python 3.14 does not count as
+# held for a temporary and works in place on it), which made 17 of these tests
+# fail on the runner and nowhere else. The Raspberry Pi runs 3.11 to 3.13.
 
 on:
   push:
@@ -34,42 +38,12 @@ jobs:
 
       - name: Install what the tests need
         run: |
-          python3 --version
-          python3 -m venv "$RUNNER_TEMP/venv"
+          python3.12 --version
+          python3.12 -m venv "$RUNNER_TEMP/venv"
           "$RUNNER_TEMP/venv/bin/pip" install --quiet numpy==2.2.6 opencv-python-headless==4.12.0.88 ai-edge-litert==2.4.1
           "$RUNNER_TEMP/venv/bin/python" -c "import cv2, numpy; print('OpenCV', cv2.__version__, 'NumPy', numpy.__version__)"
-
-      - name: What this machine does with the comparison of two pictures
-        working-directory: Mobile
-        run: |
-          "$RUNNER_TEMP/venv/bin/python" - <<'PY'
-          import inspect, sys
-          sys.path.insert(0, "tests")
-          sys.path.insert(0, ".")
-          import numpy as np, cv2
-          import spin_stop as S
-          from test_spin_stop import scene
-          src = inspect.getsource(S.compare_shots)
-          print(src[src.index("out = {"):])
-          png = scene()
-          raw, png2 = png.copy(), png.copy()
-          SHOT_STILL = S.SHOT_STILL
-          out = {"same": None, "diff": 0.0, "still": 0.0, "moved": 0.0, "xf": None, "note": ""}
-          small = lambda im: cv2.resize(im, (221, 276), interpolation=cv2.INTER_AREA).astype(np.int16)
-          a, b, r = small(png), small(png2), small(raw)
-          print("1 a-b largest", int(np.abs(a - b).max()))
-          still = np.abs(a - b).max(axis=2) <= SHOT_STILL
-          print("2 still", float(still.mean()))
-          out["still"], out["moved"] = float(still.mean()), float(np.abs(a - b).mean())
-          print("3 still, moved", out["still"], out["moved"])
-          diff = float(np.abs(a - r)[still].mean())
-          print("4 diff", diff)
-          print("5 branch", S.SHOT_SAME < diff <= 14, "same ->", diff <= S.SHOT_SAME)
-          res = S.compare_shots(png, raw, png2)
-          print("6 compare_shots", res)
-          PY
 
       - name: Run the tests
         working-directory: Mobile
         run: |
-          "$RUNNER_TEMP/venv/bin/python" -m unittest tests.test_spin_stop.CompareShots
+          "$RUNNER_TEMP/venv/bin/python" -m unittest discover -s tests
