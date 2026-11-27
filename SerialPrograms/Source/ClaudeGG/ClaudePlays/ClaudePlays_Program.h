@@ -25,6 +25,7 @@
 #include "Common/Cpp/Options/SimpleIntegerOption.h"
 #include "Common/Cpp/Options/StaticTextOption.h"
 #include "Common/Cpp/Options/TextEditOption.h"
+#include "CommonTools/Options/LanguageOCROption.h"
 #include "CommonFramework/Notifications/EventNotificationsTable.h"
 #include "CommonFramework/Panels/PanelList.h"
 #include "NintendoSwitch/NintendoSwitch_SingleSwitchProgram.h"
@@ -84,6 +85,9 @@ private:
     EnumDropdownOption<GameId> GAME;
     TextEditOption GOAL;
     TextEditOption ABOUT;
+    //  The language of the text that read_text reads (OCR), and that Claude is
+    //  told the screen is in.
+    OCR::LanguageOCROption TEXT_LANGUAGE;
     EnumDropdownOption<Model> MODEL;
     SimpleIntegerOption<uint32_t> MAX_ACTIONS;
     FloatingPointOption MAX_COST;

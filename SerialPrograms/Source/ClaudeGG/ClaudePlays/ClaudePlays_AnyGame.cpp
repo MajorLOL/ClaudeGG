@@ -831,6 +831,13 @@ std::string any_game_instructions(
     if (!trimmed(facts.user_notes).empty()){
         text += "- From the user, about the game: " + trimmed(facts.user_notes) + "\n";
     }
+    if (!trimmed(facts.text_language).empty()){
+        text +=
+            "- The text on the screen is in " + trimmed(facts.text_language) + ", and read_text reads it as " +
+            trimmed(facts.text_language) + ". Its reading is less sure than yours: a picture of the text is "
+            "better when it matters (a name, a number, a choice with a price), and when what it read makes "
+            "no sense, look.\n";
+    }
     text +=
         "- The buttons the game shows on its screen are the ones to go by. On a Switch, A is usually yes "
         "and B usually no or back.\n"

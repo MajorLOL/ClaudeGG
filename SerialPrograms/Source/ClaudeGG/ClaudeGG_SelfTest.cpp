@@ -1155,6 +1155,17 @@ int check_assistant(const QString& out, Logger& logger){
                 wrong++;
                 logger.log("Assistant test: failed: what Claude gets for " + profile.identifier, COLOR_RED);
             }
+            //  A game whose text is not English: Claude is told (and only then).
+            ClaudePlays::GameFacts japanese = facts;
+            japanese.text_language = "Japanese";
+            const std::string japanese_instructions =
+                ClaudePlays::any_game_instructions(layout, options, japanese, profile.save_routine);
+            if (instructions.find("The text on the screen is in") != std::string::npos ||
+                japanese_instructions.find("The text on the screen is in Japanese, and read_text reads it as Japanese") == std::string::npos
+            ){
+                wrong++;
+                logger.log("Assistant test: failed: the language of the text told to Claude for " + profile.identifier, COLOR_RED);
+            }
         }
     }
     //  The games that have nothing but Claude Plays: their list is its name,

@@ -117,6 +117,10 @@ struct GameFacts{
     std::string notes;
     //  From the user, about the game or this session.
     std::string user_notes;
+    //  The language of the text on the screen when it is not English ("Japanese"):
+    //  Claude is told, and the program reads text in it (PlayConsole::read_text()).
+    //  Empty: English.
+    std::string text_language;
 };
 
 struct AnyGameOptions{

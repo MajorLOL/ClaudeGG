@@ -169,19 +169,20 @@ DpadPosition dpad_of(bool up, bool down, bool left, bool right){
     return DPAD_NONE;
 }
 
-std::string read_picture(const ImageViewRGB32& picture){
+std::string read_picture(const ImageViewRGB32& picture, Language language){
     //  Every line of text in the picture, from the top.
-    return OCR::ocr_read(Language::English, picture, OCR::PageSegMode::AUTO);
+    return OCR::ocr_read(language, picture, OCR::PageSegMode::AUTO);
 }
 
 
 //  The console with a Pro Controller.
 class ProConsole : public PlayConsole{
 public:
-    ProConsole(SingleSwitchProgramEnvironment& env, ProControllerContext& context, GameId game)
+    ProConsole(SingleSwitchProgramEnvironment& env, ProControllerContext& context, GameId game, Language language)
         : m_env(env)
         , m_context(context)
         , m_game(game)
+        , m_language(language)
     {}
 
     virtual const PadLayout& layout() const override{
@@ -234,7 +235,7 @@ public:
         return true;
     }
     virtual std::string read_text(const ImageViewRGB32& picture) override{
-        return read_picture(picture);
+        return read_picture(picture, m_language);
     }
 
     virtual bool can_save() const override{
@@ -296,15 +297,17 @@ private:
     SingleSwitchProgramEnvironment& m_env;
     ProControllerContext& m_context;
     const GameId m_game;
+    const Language m_language;
 };
 
 
 //  The console with a single right Joy-Con. A direction is its stick.
 class JoyconConsole : public PlayConsole{
 public:
-    JoyconConsole(SingleSwitchProgramEnvironment& env, JoyconContext& context)
+    JoyconConsole(SingleSwitchProgramEnvironment& env, JoyconContext& context, Language language)
         : m_env(env)
         , m_context(context)
+        , m_language(language)
     {}
 
     virtual const PadLayout& layout() const override{
@@ -340,12 +343,13 @@ public:
         return true;
     }
     virtual std::string read_text(const ImageViewRGB32& picture) override{
-        return read_picture(picture);
+        return read_picture(picture, m_language);
     }
 
 private:
     SingleSwitchProgramEnvironment& m_env;
     JoyconContext& m_context;
+    const Language m_language;
 };
 
 
@@ -417,7 +421,7 @@ std::string setup_text(const GameProfile& profile){
             ? std::string("a game on the screen that is played with a Pro Controller")
             : std::string("the game on the screen, with the controller its other programs use") +
               (profile.pad == PadKind::RIGHT_JOYCON ? " (a right Joy-Con)" : "")) +
-        ". Text is read as English.";
+        ". Text is read in the language set under \"Language of the text\" (English unless you change it).";
 }
 
 //  The choices of the option "Game" of Other Games: nothing in particular, and
@@ -467,6 +471,17 @@ GameProgram::GameProgram(GameId game)
         LockMode::LOCK_WHILE_RUNNING,
         "",
         "For example: The player is in the first town, right after the tutorial."
+    )
+    , TEXT_LANGUAGE(
+        "<b>Language of the text:</b><br>The language of the text in the game. The program reads text from "
+        "the screen (the tool \"read_text\") in this language, and Claude is told which it is. Claude reads "
+        "the pictures it asks for in any language.",
+        LanguageSet{
+            Language::English, Language::Japanese, Language::Spanish, Language::French, Language::German,
+            Language::Italian, Language::Korean, Language::ChineseSimplified, Language::ChineseTraditional,
+        },
+        LockMode::LOCK_WHILE_RUNNING,
+        true
     )
     , MODEL(
         "<b>Model:</b><br>The smallest model is the fastest and by far the cheapest, and enough for simple "
@@ -537,6 +552,7 @@ GameProgram::GameProgram(GameId game)
     }
     PA_ADD_OPTION(GOAL);
     PA_ADD_OPTION(ABOUT);
+    PA_ADD_OPTION(TEXT_LANGUAGE);
     PA_ADD_OPTION(MODEL);
     PA_ADD_OPTION(MAX_ACTIONS);
     PA_ADD_OPTION(MAX_COST);
@@ -591,6 +607,10 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
     facts.name = profile.name;
     facts.notes = profile.notes;
     facts.user_notes = trimmed(ABOUT);
+    const Language text_language = TEXT_LANGUAGE;
+    if (text_language != Language::English){
+        facts.text_language = language_data(text_language).name;
+    }
 
     Limits limits;
     limits.max_actions = (uint64_t)(uint32_t)MAX_ACTIONS;
@@ -624,14 +644,14 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
         if (!context->is_ready()){
             throw UserSetupError(context->logger(), "Controller is not ready.");
         }
-        JoyconConsole console(env, context);
+        JoyconConsole console(env, context, text_language);
         session(console, context);
     }else{
         ProControllerContext context(scope, env.console.controller<ProController>());
         if (!context->is_ready()){
             throw UserSetupError(context->logger(), "Controller is not ready.");
         }
-        ProConsole console(env, context, selected);
+        ProConsole console(env, context, selected, text_language);
         session(console, context);
     }
 }
