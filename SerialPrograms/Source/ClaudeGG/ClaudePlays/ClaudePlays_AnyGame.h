@@ -100,6 +100,14 @@ public:
     //  The text in a picture as the program reads it, its lines from top to
     //  bottom.
     virtual std::string read_text(const ImageViewRGB32& picture) = 0;
+    //  What the game's own picture readers recognize in a picture, as the end
+    //  of "The program sees ...": "the main menu". Empty: nothing, or the
+    //  game has no readers. They are a hint beside the picture: they say only
+    //  what they know, and can be wrong.
+    virtual std::string sees(const ImageViewRGB32& picture){
+        (void)picture;
+        return std::string();
+    }
 
     //  The game's other programs have a routine that saves the game.
     virtual bool can_save() const{ return false; }
@@ -136,6 +144,9 @@ struct AnyGameOptions{
     //  program's MCP server), not the program's own conversation: it has the
     //  goal from the user already, and nobody starts its conversation over.
     bool external = false;
+    //  The console's readers say what they recognize on the screen
+    //  (PlayConsole::sees()): Claude is told how much that is worth.
+    bool readers = false;
 };
 
 //  The tools and the instructions for a controller and these options.

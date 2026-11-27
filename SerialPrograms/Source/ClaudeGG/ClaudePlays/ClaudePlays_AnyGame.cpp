@@ -852,6 +852,12 @@ std::string any_game_instructions(
         "- You act only through the tools. Each result ends with \"Screen:\": how much of the picture "
         "changed through the action and whether it still moves. That costs almost nothing, and tells "
         "whether a press did anything.\n"
+        + std::string(options.readers
+            ? "- For this game the program's own picture readers may add \"The program sees: ...\" after "
+              "that: a dialog box or a menu they recognize. It is a hint beside the picture, not the "
+              "picture: a result without it does not say that nothing of the kind is on the screen, and a "
+              "reader can be wrong.\n"
+            : "") +
         "- To see what is where, ask for a picture: look, or \"look\" with a tool. To read a dialog, a menu "
         "or a number, read_text (or \"read\" with a tool) costs a fraction of a picture and reads small "
         "print better. A part of the screen (\"bottom\", \"top-left\") comes at twice the detail. The "
@@ -981,8 +987,10 @@ PlayResult AnyGame::run(const PlayCall& call){
     m_console.wait(MOTION_WINDOW);
     ScreenThumb later;
     std::string words;
+    std::string seen;
     const bool video = m_console.screen([&](const ImageViewRGB32& frame){
         later = screen_thumb(frame);
+        seen = m_console.sees(frame);
         if (look_area != nullptr){
             result.image = area_picture(frame, *look_area, m_options);
         }
@@ -993,6 +1001,9 @@ PlayResult AnyGame::run(const PlayCall& call){
     result.text += (result.text.empty() ? "" : " ") + screen_line(before, after, later, outcome.acted);
     if (!video){
         return result;
+    }
+    if (!seen.empty()){
+        result.text += " The program sees: " + seen + ".";
     }
     if (look_area != nullptr){
         result.text += result.image.empty()

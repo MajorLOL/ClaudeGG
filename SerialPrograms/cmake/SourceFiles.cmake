@@ -1495,6 +1495,10 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Games.h
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Program.cpp
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Program.h
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_Sees.cpp
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_Sees.h
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_Sees_Tests.cpp
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_Sees_Tests.h
     Source/ClaudeGG/ClaudeGG_About.cpp
     Source/ClaudeGG/ClaudeGG_About.h
     Source/ClaudeGG/ClaudeGG_Home.cpp

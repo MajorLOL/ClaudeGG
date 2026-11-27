@@ -106,6 +106,7 @@
 #include "ClaudePlays/ClaudePlays_Games.h"
 #include "Common/Cpp/Concurrency/PeriodicRunner.h"
 #include "ClaudePlays/ClaudePlays_Program.h"
+#include "ClaudePlays/ClaudePlays_Sees.h"
 #include "ClaudeGG_About.h"
 #include "ClaudeGG_Home.h"
 #include "ClaudeGG_Instances.h"
@@ -740,6 +741,9 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                 int presses = 0;
                 size_t read_width = 0;
                 size_t read_height = 0;
+                //  What the game's readers say they see: empty, as in a game
+                //  without readers.
+                std::string seen;
                 virtual const ClaudePlays::PadLayout& layout() const override{
                     return ClaudePlays::pro_controller_layout();
                 }
@@ -772,6 +776,9 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     read_width = picture.width();
                     read_height = picture.height();
                     return "Start Game\n";
+                }
+                virtual std::string sees(const ImageViewRGB32&) override{
+                    return seen;
                 }
             };
             struct TestHost : public ClaudePlays::Host{
@@ -856,6 +863,49 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                 }
                 for (const std::string& line : console.did){
                     logger.log("Assistant test:   an input: " + line, COLOR_RED);
+                }
+            }
+
+            //  The readers of a game (ClaudePlays/ClaudePlays_Sees.h): what
+            //  they recognize ends the result, after the Screen line and
+            //  before the notes of a picture; with no reader, or nothing
+            //  recognized, the result is as it was.
+            {
+                MadeUpConsole reading;
+                ClaudePlays::GameFacts facts;
+                facts.name = "a game made up for the test";
+                ClaudePlays::AnyGame game(reading, facts, ClaudePlays::AnyGameOptions());
+                Assistant::PlayCall look;
+                look.name = "look";
+                look.input = "{}";
+                const std::string without = game.run(look).text;
+                reading.seen = "the main menu";
+                const std::string with_one = game.run(look).text;
+                reading.seen = "a white dialog box and a blue message box";
+                const std::string with_two = game.run(look).text;
+                Assistant::PlayCall press;
+                press.name = "press";
+                press.input = "{\"buttons\": [\"A\"]}";
+                const std::string pressed = game.run(press).text;
+                const bool readers_work =
+                    without == "Screen: still now. [A picture of the screen.]" &&
+                    with_one == "Screen: still now. The program sees: the main menu. [A picture of the screen.]" &&
+                    with_two ==
+                        "Screen: still now. The program sees: a white dialog box and a blue message box. "
+                        "[A picture of the screen.]" &&
+                    pressed.rfind("Pressed A. Screen: 22% of the picture differs from before the action; still now. "
+                        "The program sees: a white dialog box and a blue message box.", 0) == 0;
+                if (readers_work){
+                    logger.log(
+                        "Assistant test: what the readers of a game recognize ends the result (and only then).",
+                        COLOR_BLUE
+                    );
+                }else{
+                    failed++;
+                    logger.log("Assistant test: failed: the readers of a game in a result", COLOR_RED);
+                    for (const std::string& line : {without, with_one, with_two, pressed}){
+                        logger.log("Assistant test:   a result: " + line, COLOR_RED);
+                    }
                 }
             }
 
@@ -1404,6 +1454,20 @@ int check_assistant(const QString& out, Logger& logger){
             ){
                 wrong++;
                 logger.log("Assistant test: failed: what Claude Code is told in Claude Plays for " + profile.identifier, COLOR_RED);
+            }
+            //  A game with readers: Claude is told what "The program sees" is
+            //  worth (and only then).
+            ClaudePlays::AnyGameOptions reader_options = options;
+            reader_options.readers = true;
+            const std::string reader_instructions =
+                ClaudePlays::any_game_instructions(layout, reader_options, facts, profile.save_routine);
+            if (instructions.find("\"The program sees: ...\"") != std::string::npos ||
+                reader_instructions.find("\"The program sees: ...\"") == std::string::npos ||
+                reader_instructions.find("a reader can be wrong") == std::string::npos ||
+                ClaudePlays::game_has_readers(profile.id) != (profile.id == ClaudePlays::GameId::LEGENDS_ZA)
+            ){
+                wrong++;
+                logger.log("Assistant test: failed: what Claude is told of the readers in Claude Plays for " + profile.identifier, COLOR_RED);
             }
             //  A game whose text is not English: Claude is told (and only then).
             ClaudePlays::GameFacts japanese = facts;

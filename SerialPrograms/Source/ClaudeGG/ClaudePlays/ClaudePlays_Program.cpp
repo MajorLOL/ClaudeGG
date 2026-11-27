@@ -34,6 +34,7 @@
 #include "ClaudePlays_External.h"
 #include "ClaudePlays_GameCard.h"
 #include "ClaudePlays_Program.h"
+#include "ClaudePlays_Sees.h"
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -238,6 +239,9 @@ public:
     }
     virtual std::string read_text(const ImageViewRGB32& picture) override{
         return read_picture(picture, m_language);
+    }
+    virtual std::string sees(const ImageViewRGB32& picture) override{
+        return game_sees(m_game, picture);
     }
 
     virtual bool can_save() const override{
@@ -616,6 +620,7 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
     options.allow_save = ALLOW_SAVE;
     options.allow_home = ALLOW_HOME;
     options.external = external;
+    options.readers = profile.pad == PadKind::PRO_CONTROLLER && game_has_readers(selected);
 
     GameFacts facts;
     facts.name = profile.name;

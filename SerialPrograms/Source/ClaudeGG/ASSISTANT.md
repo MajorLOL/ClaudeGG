@@ -78,6 +78,8 @@ Every result ends with what the program sees by itself: how much of the picture 
 
 In **FireRed and LeafGreen** the tools are those of the AutoStory instead, and every result says what its detectors find on the screen: a text box and its text, a YES/NO question, a battle, the start menu.
 
+In **Pokémon Legends: Z-A** the program's own detectors for the screen also have a say: when they recognize the main menu, the white dialog box at the bottom, the transparent dialog box of a battle or the blue message box (an item received, or a notice), the result says so after the Screen line: "Screen: still now. The program sees: the main menu." Claude is told what that is worth. It is a hint beside the picture, not instead of it: a result without it does not say that nothing of the kind is on the screen, and a detector can be wrong. The other games are not covered yet: their detectors have too few stored pictures for anyone to know how far they can be trusted (see ROADMAP.md).
+
 | Tool | What the program does |
 |---|---|
 | `look` | Sends a picture of the game. |
@@ -157,7 +159,8 @@ Set a spending limit in Anthropic's console as well: that one holds whatever thi
 - checks the picture the chat gets when it looks at the game (the parts of the screen by name, the right part of a frame of four colours in each, the size, JPEG), and asks the tool `look_at_game` with the real hook of the window: it gives a picture or says why there is none, and refuses a part that does not exist;
 - plays three turns from a thread of its own, as Claude Plays does (a look with its picture, a press, the end);
 - plays a whole session of the Claude Plays of every list on a console that is made up for the test (a look as a JPEG, presses with the text read after them, a stick held, a note, done), and checks what the program says about the screen after each action;
-- checks that every tool of Claude Plays has a schema the API takes: those of FireRed and LeafGreen, and those of every other list with its controller, with and without saving and HOME, and what Claude Code is told in each;
+- checks that every tool of Claude Plays has a schema the API takes: those of FireRed and LeafGreen, and those of every other list with its controller, with and without saving and HOME, and what Claude Code is told in each (and what it is told of the readers, in the games that have them);
+- checks that what the detectors of a game recognize ends the result, and only then;
 - checks the server that Claude Code plays through: the protocol (the handshake, the tools, a call with a picture, errors, batches, a call that takes time), the HTTP side (what is read from a socket, and what is refused: another host, a web page's origin, a missing or wrong token, another path or method), and the token and the file that tells how to connect; and plays a session of the game of the test through a real socket of this computer, with a client that is made up (the refusals first, then the handshake, a look as a JPEG, a press, a hold, done, and the port closed afterwards).
 
 It uses no key and sends nothing. The pictures `night-fire-claude-*.png` of a release show the panel and the pages of Claude Plays (of FireRed and LeafGreen, and of Other Games) as that build draws them.
