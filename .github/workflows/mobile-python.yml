@@ -1,0 +1,45 @@
+name: Mobile Python tests
+
+# The tests of the Python code in Mobile/ (the Pokemon GO bot and the files of
+# answers that the C++ ports are held to). The Windows build runs only the
+# tests of the agent; these are the other ones: the bot's readers, engine,
+# fight loop and the checks that a file of answers (Mobile/tests/fixtures/
+# *_golden.json.qz) is what the Python code says now. About four minutes.
+#
+# The versions are pinned, so that a new release of a library cannot turn this
+# red or green by itself.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Mobile/**'
+      - '.github/workflows/mobile-python.yml'
+  pull_request:
+    paths:
+      - 'Mobile/**'
+      - '.github/workflows/mobile-python.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - name: Install what the tests need
+        run: |
+          python3 --version
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet numpy==2.2.6 opencv-python-headless==4.12.0.88 ai-edge-litert==2.4.1
+          "$RUNNER_TEMP/venv/bin/python" -c "import cv2, numpy; print('OpenCV', cv2.__version__, 'NumPy', numpy.__version__)"
+
+      - name: Run the tests
+        working-directory: Mobile
+        run: |
+          "$RUNNER_TEMP/venv/bin/python" -m unittest discover -s tests
