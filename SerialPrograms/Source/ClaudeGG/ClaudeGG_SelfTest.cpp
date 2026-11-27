@@ -64,6 +64,8 @@
 #include "Common/Cpp/Options/GroupOption.h"
 #include "Common/Qt/Options/ConfigWidget.h"
 #include "CommonFramework/AudioPipeline/AudioOption.h"
+#include "CommonFramework/AudioPipeline/Sources/AudioSource_Device.h"
+#include "CommonFramework/Options/DeviceDropdownAliases.h"
 #include "CommonFramework/GlobalAutoPaths.h"
 #include "CommonFramework/Globals.h"
 #include "CommonFramework/GlobalSettingsPanel.h"
@@ -1320,6 +1322,75 @@ int check_older_audio_settings(Logger& logger){
     logger.log(
         "Settings test: " + std::to_string(std::size(CASES) - failed) + " of " + std::to_string(std::size(CASES)) +
         " settings came up with the audio input they name.",
+        failed == 0 ? COLOR_BLUE : COLOR_RED
+    );
+    return failed;
+}
+
+
+
+//  An audio input or output that was saved but is not connected (an unplugged
+//  capture card) is not forgotten: saving the settings again keeps its name,
+//  it does not count as a device, and the dropdown says it is not connected.
+//  The names below are on no build machine.
+int check_missing_audio_devices(Logger& logger){
+    const std::string INPUT = "ClaudeGG test: an audio input that is not connected";
+    const std::string OUTPUT = "ClaudeGG test: an audio output that is not connected";
+    int failed = 0;
+    auto check = [&](bool ok, const char* what){
+        if (!ok){
+            failed++;
+            logger.log(std::string("Missing device test: failed: ") + what + ".", COLOR_RED);
+        }
+    };
+
+    JsonObject json;
+    json["InputSourceType"] = "InputSource_Device";
+    json["InputSource_Device"] = INPUT;
+    json["OutputDevice"] = OUTPUT;
+    AudioOption option;
+    option.load_json(JsonValue(std::move(json)));
+
+    check(option.input_source()->type == AudioSourceType::Device, "the input stays a device");
+    const AudioDeviceInfo& input = static_cast<const AudioSourceDescriptor_Device&>(*option.input_source()).device_info();
+    check(!input, "an input that is not there is not a device");
+    check(input.device_name() == INPUT, "the input keeps its name");
+    check(input.display_name().empty(), "an input that is not there has no display name");
+    check(!option.output_device(), "an output that is not there is not a device");
+    check(option.output_device().device_name() == OUTPUT, "the output keeps its name");
+
+    //  Saved and loaded again: the same names.
+    const JsonValue saved = option.to_json();
+    const JsonObject* obj = saved.to_object();
+    check(obj != nullptr, "the settings are an object");
+    if (obj != nullptr){
+        const std::string* in = obj->get_string("InputSource_Device");
+        const std::string* out = obj->get_string("OutputDevice");
+        check(in != nullptr && *in == INPUT, "saving keeps the input");
+        check(out != nullptr && *out == OUTPUT, "saving keeps the output");
+    }
+    AudioOption again;
+    again.load_json(saved);
+    check(
+        static_cast<const AudioSourceDescriptor_Device&>(*again.input_source()).device_info().device_name() == INPUT &&
+        again.output_device().device_name() == OUTPUT,
+        "the saved settings load with the same devices"
+    );
+
+    //  A device that is there is still one.
+    for (const AudioDeviceInfo& info : AudioDeviceInfo::all_input_devices()){
+        check((bool)info && AudioDeviceInfo(info.device_name()), "a connected input is a device");
+    }
+    check(AudioDeviceInfo() == AudioDeviceInfo() && !AudioDeviceInfo(), "no device is no device");
+
+    //  What the dropdowns say.
+    const std::string label = missing_device_label(DeviceAliasType::AUDIO, INPUT);
+    check(label.find(" (not connected)") != std::string::npos, "the dropdown says \"not connected\"");
+
+    logger.log(
+        failed == 0
+            ? std::string("Missing device test: a saved audio input and output that are not connected are kept and shown as not connected.")
+            : "Missing device test: " + std::to_string(failed) + " checks failed.",
         failed == 0 ? COLOR_BLUE : COLOR_RED
     );
     return failed;
@@ -6849,6 +6920,7 @@ int run_ui_screenshots(QApplication& application, MainWindow& window, const std:
         failed += check_text_colors(logger);
         failed += check_settings_file(window, logger);
         failed += check_older_audio_settings(logger);
+        failed += check_missing_audio_devices(logger);
         failed += check_assistant(out, logger);
         failed += check_name_mark(logger);
         failed += check_updates(logger);

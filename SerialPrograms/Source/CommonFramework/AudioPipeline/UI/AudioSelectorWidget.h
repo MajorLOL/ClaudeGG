@@ -62,6 +62,10 @@ private:
     bool m_record_is_on = false;
 
     std::vector<std::shared_ptr<AudioSourceDescriptor>> m_input_sources;
+    //  The saved input or output device is not connected: it is shown as one
+    //  more entry at the end of its dropdown, and picking that entry keeps it.
+    bool m_missing_input_shown = false;
+    bool m_missing_output_shown = false;
     std::vector<AudioInputChoice> m_input_choices;
 
     std::vector<AudioDeviceInfo> m_output_audios;

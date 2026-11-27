@@ -10,6 +10,7 @@
 #include <QPushButton>
 #include "Common/Qt/NoWheelComboBox.h"
 #include "CommonFramework/GlobalSettingsPanel.h"
+#include "CommonFramework/Options/DeviceDropdownAliases.h"
 #include "CommonFramework/VideoPipeline/VideoPipelineOptions.h"
 #include "CommonFramework/Panels/ConsoleSettingsStretch.h"
 #include "CommonFramework/VideoPipeline/Backends/CameraImplementations.h"
@@ -76,6 +77,9 @@ VideoSourceSelectorWidget::VideoSourceSelectorWidget(Logger& logger, VideoSessio
             if (0 <= index && index < (int)m_sources.size()){
                 m_sources[index]->run_post_select();
                 m_session.set_source(m_sources[index]);
+            }else if (m_missing_shown && index == (int)m_sources.size()){
+                //  The saved camera, still not connected: keep it.
+                return;
             }else{
                 m_session.set_source(std::make_unique<VideoSourceDescriptor_Null>());
             }
@@ -129,6 +133,7 @@ VideoSourceSelectorWidget::VideoSourceSelectorWidget(Logger& logger, VideoSessio
 void VideoSourceSelectorWidget::update_source_list(){
     m_sources_box->clear();
     m_sources.clear();
+    m_missing_shown = false;
 
     std::shared_ptr<const VideoSourceDescriptor> current_descriptor = m_session.descriptor();
 
@@ -152,6 +157,24 @@ void VideoSourceSelectorWidget::update_source_list(){
         if (*current_descriptor == descriptor){
             index = c;
         }
+    }
+    if (index < 0 && current_descriptor && current_descriptor->type == VideoSourceType::Camera){
+        //  A camera that was chosen and saved, but is not connected now (an
+        //  unplugged capture card). Say so in the dropdown instead of showing
+        //  another entry as if it were the one in use.
+        const JsonValue json = current_descriptor->to_json();
+        const std::string* id = json.to_string();
+        const std::string label = missing_device_label(DeviceAliasType::VIDEO, id != nullptr ? *id : std::string());
+        m_sources_box->addItem(QString::fromStdString(label));
+        index = m_sources_box->count() - 1;
+        m_sources_box->setItemData(
+            index,
+            "This capture card was chosen before but is not connected now. "
+            "Plug it in and press \"Reset Video\", or pick another input.",
+            Qt::ToolTipRole
+        );
+        m_missing_shown = true;
+        m_logger.log("The saved video input is not connected: " + label, COLOR_RED);
     }
     if (index >= 0){
         m_sources_box->setCurrentIndex((int)index);

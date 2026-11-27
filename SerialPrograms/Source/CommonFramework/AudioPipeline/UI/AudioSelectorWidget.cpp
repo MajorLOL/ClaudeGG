@@ -11,6 +11,7 @@
 #include <QFileDialog>
 #include "Common/Qt/NoWheelComboBox.h"
 #include "CommonFramework/GlobalSettingsPanel.h"
+#include "CommonFramework/Options/DeviceDropdownAliases.h"
 #include "CommonFramework/Panels/ConsoleSettingsStretch.h"
 #include "CommonFramework/AudioPipeline/AudioSession.h"
 #include "CommonFramework/AudioPipeline/AudioPipelineOptions.h"
@@ -117,6 +118,9 @@ AudioSelectorWidget::AudioSelectorWidget(QWidget& parent, AudioSession& session)
             if (0 <= index && index < (int)m_input_sources.size()){
                 m_input_sources[index]->run_post_select();
                 m_session.set_audio_input(m_input_sources[index]);
+            }else if (m_missing_input_shown && index == (int)m_input_sources.size()){
+                //  The saved device, still not connected: keep it.
+                return;
             }else{
                 m_session.set_audio_input(std::make_unique<AudioSourceDescriptor_Null>());
             }
@@ -134,6 +138,10 @@ AudioSelectorWidget::AudioSelectorWidget(QWidget& parent, AudioSession& session)
     connect(
         m_audio_output_box, static_cast<void(QComboBox::*)(int)>(&QComboBox::activated),
         this, [this](int index){
+            if (m_missing_output_shown && index == (int)m_output_audios.size() + 1){
+                //  The saved device, still not connected: keep it.
+                return;
+            }
             if (index <= 0 || index >= (int)m_output_audios.size() + 1){
                 m_session.clear_audio_output();
             }else{
@@ -204,6 +212,7 @@ void AudioSelectorWidget::build_output_list(const AudioDeviceInfo& device){
     m_output_audios = AudioDeviceInfo::all_output_devices();
     m_audio_output_box->clear();
     m_audio_output_box->addItem("(none)");
+    m_missing_output_shown = false;
     size_t index = 0;
     for (size_t c = 0; c < m_output_audios.size(); c++){
         const AudioDeviceInfo& audio = m_output_audios[c];
@@ -211,6 +220,20 @@ void AudioSelectorWidget::build_output_list(const AudioDeviceInfo& device){
         if (device == audio){
             index = c + 1;
         }
+    }
+    if (index == 0 && !device.device_name().empty()){
+        //  A saved output that is not connected now.
+        const std::string label = missing_device_label(DeviceAliasType::AUDIO, device.device_name());
+        m_audio_output_box->addItem(QString::fromStdString(label));
+        index = (size_t)m_audio_output_box->count() - 1;
+        m_audio_output_box->setItemData(
+            (int)index,
+            "This audio output was chosen before but is not connected now. "
+            "Plug it in and press \"Reset Audio\", or pick another output.",
+            Qt::ToolTipRole
+        );
+        m_missing_output_shown = true;
+        m_session.logger().log("The saved audio output is not connected: " + label, COLOR_RED);
     }
     m_audio_output_box->setCurrentIndex((int)index);
 }
@@ -264,6 +287,7 @@ void AudioSelectorWidget::refresh_input_device(const std::shared_ptr<const Audio
 
     m_input_sources = std::move(sources);
     m_audio_input_box->clear();
+    m_missing_input_shown = false;
 
     int index = -1;
     for (int c = 0; c < (int)m_input_sources.size(); c++){
@@ -272,6 +296,24 @@ void AudioSelectorWidget::refresh_input_device(const std::shared_ptr<const Audio
         if (*current_descriptor == descriptor){
             index = c;
         }
+    }
+    if (index < 0 && current_descriptor && current_descriptor->type == AudioSourceType::Device){
+        //  A device that was chosen and saved, but is not connected now (an
+        //  unplugged capture card). Say so instead of showing another entry
+        //  as if it were the one in use.
+        const JsonValue json = current_descriptor->to_json();
+        const std::string* id = json.to_string();
+        const std::string label = missing_device_label(DeviceAliasType::AUDIO, id != nullptr ? *id : std::string());
+        m_audio_input_box->addItem(QString::fromStdString(label));
+        index = m_audio_input_box->count() - 1;
+        m_audio_input_box->setItemData(
+            index,
+            "This audio input was chosen before but is not connected now. "
+            "Plug it in and press \"Reset Audio\", or pick another input.",
+            Qt::ToolTipRole
+        );
+        m_missing_input_shown = true;
+        m_session.logger().log("The saved audio input is not connected: " + label, COLOR_RED);
     }
     if (index >= 0){
         m_audio_input_box->setCurrentIndex((int)index);
