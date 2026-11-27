@@ -108,6 +108,7 @@ constexpr double DH = 1080.0;
 
 const QColor ORANGE(217, 119, 87);          //  the color of the Joy-Cons
 const QColor YELLOW(255, 224, 102);         //  the chat bubble
+const QColor GREEN(120, 200, 130);          //  a controller that is connected
 const QColor PANEL(20, 20, 22);
 const QColor LIST_PANEL(12, 12, 13);
 
@@ -700,6 +701,16 @@ public:
         m_app_keep_on = on;
         update();
     }
+    virtual void set_controllers(const std::vector<AppController>& controllers) override{
+        if (controllers == m_app_controllers){
+            return;
+        }
+        m_app_controllers = controllers;
+        update();
+    }
+    const std::vector<AppController>& app_controllers() const{
+        return m_app_controllers;
+    }
     virtual void set_claude(QWidget* panel) override;
     virtual void show_claude(bool show) override;
     virtual bool claude_shown() const override{
@@ -1127,6 +1138,7 @@ private:
     QString m_app_state;
     QString m_app_sleep;
     bool m_app_keep_on = false;
+    std::vector<AppController> m_app_controllers;
     QPointer<QWidget> m_claude;
     bool m_claude_shown = false;
     QString m_resume_game;
@@ -1144,6 +1156,7 @@ enum class ChipKind{
     RING,
     DIM,
     YELLOW_FILL,
+    GREEN_RING,
 };
 
 //  A chip with its right end at x; returns its width.
@@ -1177,6 +1190,10 @@ double draw_chip(
     case ChipKind::YELLOW_FILL:
         panel(painter, rect, height / 2, with_alpha(YELLOW, alpha));
         text_color = Qt::black;
+        break;
+    case ChipKind::GREEN_RING:
+        panel(painter, rect, height / 2, QColor(), with_alpha(GREEN, 0.9 * alpha), 1.6);
+        text_color = GREEN;
         break;
     }
     draw_text_cy(painter, text, rect.center().x(), rect.center().y() + 1, font, with_alpha(text_color, alpha), Qt::AlignHCenter);
@@ -7844,6 +7861,14 @@ public:
             const QString text = canvas.app_state_text().isEmpty() ? (busy ? T("Running") : T("Ready")) : canvas.app_state_text();
             const double w = draw_chip(painter, text, right, cy + 22, busy ? ChipKind::ORANGE_FILL : ChipKind::RING, a_head);
             m_title_room = right - w - 24 - x;
+            //  Left of it: whether the program's controller is connected.
+            const std::vector<AppController>& controllers = canvas.app_controllers();
+            if (!controllers.empty()){
+                ChipKind kind = ChipKind::DIM;
+                const QString summary = controller_summary(controllers, kind);
+                const double cw = draw_chip(painter, summary, right - w - 12, cy + 22, kind, a_head);
+                m_title_room -= cw + 12;
+            }
         }
         const QFont title_font = serif_font(46);
         draw_text_cy(painter, QFontMetricsF(title_font).elidedText(m_title, Qt::ElideRight, std::max(200.0, m_title_room)),
@@ -7855,10 +7880,102 @@ public:
 
         //  The footer: what the computer does about sleep, and its switch.
         const double fy = 1050;
-        draw_text_cy(painter, canvas.app_sleep_text(), 70, fy, ui_font(22, 500), white(0.5 * a_body));
+        const QFont footer_font = ui_font(22, 500);
+        draw_text_cy(painter, canvas.app_sleep_text(), 70, fy, footer_font, white(0.5 * a_body));
         const QString toggle = canvas.app_keep_on() ? T("Let the screen sleep") : T("Keep the screen on");
         const double toggle_w = button_width(toggle, ButtonKind::LINK);
         draw_button(canvas, painter, "host-sleep", toggle, right - toggle_w, fy - 22, ButtonKind::LINK, std::min(1.0, a_body * 1.35));
+        //  Between them: which controller each console has, and its state.
+        paint_controllers(canvas, painter, 70 + text_width(footer_font, canvas.app_sleep_text()) + 48,
+            right - toggle_w - 32, fy, footer_font, a_body);
+    }
+
+    //  The words of the chip in the header, and its color.
+    static QString controller_summary(const std::vector<AppController>& controllers, ChipKind& kind){
+        size_t ready = 0;
+        size_t chosen = 0;
+        for (const AppController& controller : controllers){
+            ready += controller.status == AppController::Status::READY ? 1 : 0;
+            chosen += controller.status != AppController::Status::NONE ? 1 : 0;
+        }
+        if (chosen == 0){
+            kind = ChipKind::DIM;
+            return T("No controller");
+        }
+        if (controllers.size() == 1){
+            switch (controllers[0].status){
+            case AppController::Status::READY:
+                kind = ChipKind::GREEN_RING;
+                return T("Controller connected");
+            case AppController::Status::FAILED:
+                kind = ChipKind::ORANGE_RING;
+                return T("Controller not connected");
+            default:
+                kind = ChipKind::ORANGE_RING;
+                return T("Connecting the controller");
+            }
+        }
+        kind = ready == controllers.size() ? ChipKind::GREEN_RING : ChipKind::ORANGE_RING;
+        return T("%1 of %2 controllers connected").arg((qulonglong)ready).arg((qulonglong)controllers.size());
+    }
+    static QString controller_state(AppController::Status status){
+        switch (status){
+        case AppController::Status::READY:
+            return T("connected");
+        case AppController::Status::CONNECTING:
+            return T("connecting");
+        case AppController::Status::FAILED:
+            return T("not connected");
+        default:
+            return T("none chosen");
+        }
+    }
+    static QColor controller_color(AppController::Status status, double alpha){
+        switch (status){
+        case AppController::Status::READY:
+            return with_alpha(GREEN, alpha);
+        case AppController::Status::NONE:
+            return white(0.3 * alpha);
+        default:
+            return with_alpha(ORANGE, alpha);
+        }
+    }
+    //  "Controller: COM3 (NS1: Wired Pro Controller) - connected", a dot of
+    //  its color before each; with more consoles their numbers.
+    static void paint_controllers(
+        Canvas& canvas, QPainter& painter, double x, double end, double cy, const QFont& font, double alpha
+    ){
+        const std::vector<AppController>& controllers = canvas.app_controllers();
+        if (controllers.empty() || end - x < 120){
+            return;
+        }
+        bool several = false;
+        for (const AppController& controller : controllers){
+            several |= controller.console != controllers[0].console;
+        }
+        for (size_t c = 0; c < controllers.size(); c++){
+            const AppController& controller = controllers[c];
+            QString text = several ? T("Console %1:").arg(controller.console) + " " : T("Controller:") + " ";
+            text += controller.device.isEmpty() ? T("none chosen") : controller.device;
+            if (!controller.type.isEmpty()){
+                text += " (" + controller.type + ")";
+            }
+            if (!controller.device.isEmpty()){
+                text += " - " + controller_state(controller.status);
+            }
+            const double room = end - x - 18;
+            if (room < 60){
+                return;
+            }
+            painter.save();
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(controller_color(controller.status, alpha));
+            painter.drawEllipse(QPointF(x + 6, cy + 1), 6, 6);
+            painter.restore();
+            const QString shown = QFontMetricsF(font).elidedText(text, Qt::ElideRight, room);
+            draw_text_cy(painter, shown, x + 18, cy, font, white(0.6 * alpha));
+            x += 18 + text_width(font, shown) + 36;
+        }
     }
 
     virtual void activate(Canvas& canvas, const QString& id) override{
@@ -12361,6 +12478,35 @@ int run_setup_test(QApplication& application, const QString& folder){
         checker.check(window_screen.app_keep_on() && record.keep_on == 1 && record.keep_off == 1, "the switch can be shown as it was kept, without the action");
         window_screen.click("host-sleep");
         checker.check(record.keep_off == 2 && !window_screen.app_keep_on(), "and it lets the screen sleep from there");
+
+        //  The controller of the program: a chip in the header, the details in
+        //  the footer.
+        {
+            window_screen.wait(0.3);
+            const QImage without = window_screen.picture();
+            AppController pico;
+            pico.device = "COM3";
+            pico.interface_name = "Serial: PABotBase2";
+            pico.type = "NS1: Wired Pro Controller";
+            pico.status = AppController::Status::READY;
+            window_screen.set_controllers({pico});
+            window_screen.wait(0.3);
+            checker.check(window_screen.app_controllers().size() == 1 && window_screen.app_controllers()[0] == pico,
+                "the page knows the program's controller");
+            checker.check(window_screen.picture() != without, "and shows it");
+            save(window_screen, folder, "setup-63b-window-controller");
+            AppController second = pico;
+            second.console = 2;
+            second.device = "COM4";
+            second.status = AppController::Status::FAILED;
+            pico.console = 1;
+            window_screen.set_controllers({pico, second});
+            window_screen.wait(0.3);
+            save(window_screen, folder, "setup-63c-window-controllers");
+            window_screen.set_controllers({});
+            window_screen.wait(0.3);
+            checker.check(window_screen.app_controllers().empty(), "a program without a controller shows none");
+        }
 
         //  A program that runs: the state, and no way back.
         window_screen.set_state(true, "Running Push Joy Sticks");

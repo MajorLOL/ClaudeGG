@@ -8,6 +8,7 @@
 #define PokemonAutomation_PanelSession_H
 
 #include <stddef.h>
+#include <vector>
 #include "Common/Cpp/UiWrapper.h"
 #include "PanelDescriptor.h"
 
@@ -18,6 +19,7 @@ namespace PokemonAutomation{
 class JsonValue;
 class ConfigOption;
 class VideoFeed;
+class ControllerSession;
 
 // Class to represent one instance of a pokemon automation program.
 // Since programs are listed in the program panels, so this class is called PanelSession.
@@ -50,6 +52,16 @@ public:
     //  panel, for the chat, which can be asked to look at the game. Null: the
     //  panel has no console, or not that many (or none is started).
     virtual VideoFeed* console_video(size_t index){ (void)index; return nullptr; }
+
+    //  ClaudeGG: the controllers of the panel's consoles, with the number of
+    //  the console each belongs to (1 is the first), for the header of the main
+    //  window, which shows which controller is open and whether it is
+    //  connected. Empty: the panel has no console.
+    struct ConsoleController{
+        size_t console;
+        ControllerSession* session;
+    };
+    virtual std::vector<ConsoleController> console_controllers(){ return {}; }
 
 
 protected:

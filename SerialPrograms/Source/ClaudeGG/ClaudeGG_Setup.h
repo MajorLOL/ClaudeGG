@@ -276,6 +276,36 @@ struct SetupResult{
 };
 
 
+//  A controller of the program that is open, for the header of its page: which
+//  one it is and whether it is connected (see AppView::set_controllers()).
+struct AppController{
+    enum class Status{
+        NONE,           //  no controller is chosen in the program
+        CONNECTING,     //  chosen, not ready yet
+        READY,          //  connected: the program can press buttons
+        FAILED,         //  it could not connect
+    };
+    //  The console it belongs to: 1 is the first (programs with one console
+    //  only have 1).
+    int console = 1;
+    //  The device, as the program's own list names it ("COM3", a name that
+    //  was given to it, or the address of sys-botbase). Empty: none.
+    QString device;
+    //  How it is connected ("Serial: PABotBase2", "TCP: sys-botbase").
+    QString interface_name;
+    //  What it pretends to be ("NS1: Wired Pro Controller"). Empty: not known yet.
+    QString type;
+    Status status = Status::NONE;
+
+    bool operator==(const AppController& x) const{
+        return console == x.console && device == x.device && interface_name == x.interface_name
+            && type == x.type && status == x.status;
+    }
+    bool operator!=(const AppController& x) const{
+        return !(*this == x);
+    }
+};
+
 //  What the main window does for the screens when they are its own screen.
 //  Every action may be empty: the button is drawn, and does nothing.
 struct AppActions{
@@ -342,6 +372,11 @@ public:
     //  The switch "Keep the screen on" is shown as set (or not), without the
     //  action: for the state that was kept from the last time.
     virtual void set_keep_on(bool on) = 0;
+    //  The controllers of the program that is open, as they are now: a chip in
+    //  the header says whether they are connected, the footer says which they
+    //  are. Empty: the program has none (the page of the games, the settings,
+    //  a program of the phone), and nothing is shown.
+    virtual void set_controllers(const std::vector<AppController>& controllers) = 0;
 
     //  Claude's panel, over the right of the screen when it is shown. The
     //  panel stays the window's.

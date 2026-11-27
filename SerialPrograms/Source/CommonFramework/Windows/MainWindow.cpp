@@ -8,6 +8,7 @@
 #include <utility>
 //#include <QStatusBar>
 #include <QApplication>
+#include <QTimer>
 #include <QDialog>
 #include <QVBoxLayout>
 #include "Common/Cpp/ScopeExit.h"
@@ -20,6 +21,8 @@
 #include "Common/Cpp/CpuId/CpuId.h"
 #include "Common/Cpp/ColoredText.h"
 #include "Common/Qt/UiStateQtWidget.h"
+#include "Controllers/ControllerSession.h"
+#include "Controllers/ControllerTypeStrings.h"
 #include "PanelLists.h"
 #include "CommonFramework/Globals.h"
 #include "CommonFramework/GlobalAutoPaths.h"
@@ -611,6 +614,7 @@ void MainWindow::load_panel(
         }
         m_app->host(m_current_panel_widget, game, game_name, title);
         update_resume();
+        update_controllers();
         return;
     }catch (Exception& e){
         e.log(global_logger_tagged());
@@ -752,6 +756,57 @@ void MainWindow::update_resume(){
     m_program_list->persistent_panel(game, program);
     m_app->set_resume(QString::fromStdString(game), QString::fromStdString(program));
 }
+void MainWindow::update_controllers(){
+    if (m_app == nullptr){
+        return;
+    }
+    std::vector<ClaudeGG::AppController> list;
+    if (m_current_panel != nullptr){
+        for (const PanelSession::ConsoleController& entry : m_current_panel->console_controllers()){
+            if (entry.session == nullptr){
+                continue;
+            }
+            const ControllerSession& session = *entry.session;
+            ClaudeGG::AppController controller;
+            controller.console = (int)entry.console;
+            const std::shared_ptr<ControllerDescriptor> descriptor = session.descriptor();
+            if (descriptor != nullptr){
+                const std::string name = descriptor->display_name();
+                if (!name.empty() && name != "(none)"){
+                    controller.device = QString::fromStdString(name);
+                }
+                try{
+                    controller.interface_name = QString::fromStdString(
+                        CONTROLLER_INTERFACE_STRINGS.get_string(descriptor->interface_type)
+                    );
+                }catch (...){}
+            }
+            const ControllerType type = session.controller_type();
+            if (type != ControllerType::None){
+                try{
+                    controller.type = QString::fromStdString(CONTROLLER_TYPE_STRINGS.get_string(type));
+                }catch (...){}
+            }
+            if (controller.device.isEmpty()){
+                controller.status = ClaudeGG::AppController::Status::NONE;
+            }else{
+                switch (session.connection_status()){
+                case ControllerConnection::Status::READY:
+                    controller.status = ClaudeGG::AppController::Status::READY;
+                    break;
+                case ControllerConnection::Status::FAILED_TO_CONNECT:
+                    controller.status = ClaudeGG::AppController::Status::FAILED;
+                    break;
+                default:
+                    controller.status = ClaudeGG::AppController::Status::CONNECTING;
+                    break;
+                }
+            }
+            list.push_back(std::move(controller));
+        }
+    }
+    m_app->set_controllers(list);
+}
 void MainWindow::set_sleep_label(const QString& text){
     if (m_app != nullptr){
         m_app->set_sleep_text(text);
@@ -829,6 +884,15 @@ void MainWindow::make_app_view(bool test){
     layout->setSpacing(0);
     layout->addWidget(m_app->widget());
     update_resume();
+    //  Which controller the open program has, in the header of its page. (The
+    //  test has no event loop: there the timer never fires.)
+    update_controllers();
+    QTimer* controllers = new QTimer(this);
+    controllers->setInterval(500);
+    connect(controllers, &QTimer::timeout, this, [this]{
+        update_controllers();
+    });
+    controllers->start();
     //  As it was left the last time.
     if (!test && GlobalSettings::instance().KEEP_SCREEN_ON){
         m_sleep_scope.reset(new SleepSuppressScope(SleepSuppress::SCREEN_ON));
