@@ -168,7 +168,7 @@ class AgentTest(unittest.TestCase):
             status, body = self.json("GET", path)
             self.assertEqual(status, 200)
             self.assertEqual(body["version"], agent.VERSION)
-            for feature in ("tap_kind", "app", "bot_file", "touch", "app_list"):
+            for feature in ("tap_kind", "app", "bot_file", "touch", "app_list", "heat"):
                 self.assertIn(feature, body["features"], "Claude GG asks for %s before it plays itself" % feature)
 
     def test_the_token_is_needed(self):
@@ -315,6 +315,48 @@ class AgentTest(unittest.TestCase):
         status, body = self.json("POST", "/v1/app", {"action": "list"})
         self.assertEqual(status, 502)
         self.assertIn("device offline", body["error"])
+
+    def heat_file(self, text):
+        path = os.path.join(self.agent.folder.name, "temp")
+        if text is not None:
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(text)
+        self.agent.phone.heat_file = path
+
+    def test_the_temperatures_are_those_of_the_battery_and_of_the_processor(self):
+        self.heat_file("54321\n")
+        status, body = self.json("GET", "/v1/heat")
+        self.assertEqual((status, body), (200, {"ok": True, "phone": 31.2, "pi": 54.321}))
+        self.assertEqual(self.agent.calls(), ["shell dumpsys battery"])
+
+    def test_the_temperatures_need_the_token(self):
+        self.assertEqual(self.json("GET", "/v1/heat", token=None)[0], 401)
+        self.assertEqual(self.json("GET", "/v1/heat", token="wrong")[0], 401)
+        self.assertEqual(self.agent.calls(), [])
+
+    def test_the_temperatures_of_other_answers(self):
+        for answer, expected in (("  temperature: 430", 43.0), ("temperature: -25", -2.5), ("  temperature:0", 0.0),
+                                 ("  voltage: 4000|  temperature: 395|  technology: Li-ion", 39.5),
+                                 ("  Temperature: 300", None), ("  temperature: warm", None), ("  mytemperature: 300", None),
+                                 ("Error: no battery service", None), ("none", None)):
+            os.environ["FAKE_BATTERY"] = answer
+            self.addCleanup(os.environ.pop, "FAKE_BATTERY", None)
+            self.heat_file("1000")
+            self.assertEqual(self.json("GET", "/v1/heat")[1], {"ok": True, "phone": expected, "pi": 1.0}, answer)
+
+    def test_the_temperature_of_the_processor_in_other_cases(self):
+        for text, expected in (("0", 0.0), ("  72000  \n", 72.0), ("-5000", -5.0), ("1500", 1.5), ("warm", None), ("", None), ("72.5", None)):
+            self.heat_file(text)
+            self.assertEqual(self.json("GET", "/v1/heat")[1]["pi"], expected, repr(text))
+        self.heat_file(None)                            #  (a file that is not there: another machine than a Pi)
+        self.agent.phone.heat_file = os.path.join(self.agent.folder.name, "no-such-file")
+        self.assertEqual(self.json("GET", "/v1/heat")[1], {"ok": True, "phone": 31.2, "pi": None})
+
+    def test_the_temperatures_say_nothing_of_a_phone_that_does_not_answer(self):
+        self.heat_file("50000")
+        os.environ["FAKE_ADB_FAIL"] = "1"
+        self.addCleanup(os.environ.pop, "FAKE_ADB_FAIL", None)
+        self.assertEqual(self.json("GET", "/v1/heat"), (200, {"ok": True, "phone": None, "pi": 50.0}))
 
     def test_nothing_was_started(self):
         self.assertEqual(self.json("POST", "/v1/app", {"action": "state", "package": GAME})[0], 409)

@@ -362,6 +362,7 @@ AgentHost::AgentHost(const QString& address, int port, const QString& token, con
     if (m_agent.info(info, &error)){
         m_width = info.width;
         m_height = info.height;
+        m_reads_heat = info.features.contains("heat");
     }else{
         this->log("battle: the phone did not say how big its screen is (" + error + "): the touches are made as if it were the canvas");
     }

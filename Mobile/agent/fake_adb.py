@@ -102,6 +102,10 @@ def main(argv):
         lines = os.environ.get("FAKE_PACKAGES", "package:com.nianticlabs.pokemongo.ares|package:com.example.pokemongo.fan|package:com.nianticlabs.pokemongo")
         #  ("none": no answer at all; an empty variable cannot be given on Windows, where setting one to "" removes it.)
         sys.stdout.write("" if lines == "none" else "\n".join(lines.split("|")) + "\n")
+    elif args[:3] == ["shell", "dumpsys", "battery"]:
+        #  What `dumpsys battery` says (FAKE_BATTERY: the lines of the answer, "|" for a new line, "none" for no answer; a battery of 31.2 degrees when it is not set).
+        lines = os.environ.get("FAKE_BATTERY", "Current Battery Service state:|  AC powered: false|  USB powered: true|  level: 80|  temperature: 312|  technology: Li-ion")
+        sys.stdout.write("" if lines == "none" else "\n".join(lines.split("|")) + "\n")
     elif args[:2] == ["shell", "wm"]:
         sys.stdout.write("Physical size: 1080x2340\nOverride size: 1000x2200\n")
     elif args[:3] == ["shell", "getprop", "ro.product.model"]:

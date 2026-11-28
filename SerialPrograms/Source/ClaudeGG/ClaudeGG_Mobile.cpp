@@ -572,6 +572,21 @@ bool MobileAgent::app_list(QStringList& packages, QString* error) const{
     return true;
 }
 
+bool MobileAgent::heat(std::optional<double>& phone, std::optional<double>& pi, QString* error) const{
+    Reply reply;
+    if (!request("GET", "/v1/heat", QByteArray(), reply, error)){
+        return false;
+    }
+    const QJsonObject object = QJsonDocument::fromJson(reply.body).object();
+    const auto number = [&](const char* key) -> std::optional<double>{
+        const QJsonValue value = object.value(QLatin1String(key));
+        return value.isDouble() ? std::optional<double>(value.toDouble()) : std::nullopt;
+    };
+    phone = number("phone");
+    pi = number("pi");
+    return true;
+}
+
 bool MobileAgent::bot_state(MobileBotState& state, int lines, QString* error) const{
     Reply reply;
     if (!request("GET", "/v1/bot?lines=" + QString::number(std::max(1, std::min(200, lines))), QByteArray(), reply, error)){
@@ -1179,8 +1194,9 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         check(info.model == "FakePhone" && info.android == "14", "its model and Android (" + info.model + ", " + info.android + ")");
         check(info.width == 1000 && info.height == 2200, "its size is the size that was set (" + QString::number(info.width) + "x" + QString::number(info.height) + ")");
         check(
-            info.features.contains("tap_kind") && info.features.contains("app") && info.features.contains("bot_file") && info.features.contains("app_list"),
-            "the agent (" + info.version + ") can do what GO Battle League and the daily run need when Claude GG plays: " + info.features.join(", ")
+            info.features.contains("tap_kind") && info.features.contains("app") && info.features.contains("bot_file") && info.features.contains("app_list")
+                && info.features.contains("heat"),
+            "the agent (" + info.version + ") can do what GO Battle League, the daily run and the pause for the heat need when Claude GG plays: " + info.features.join(", ")
         );
     }
     //  The files of the bot's battles (the team), read only.
@@ -1445,6 +1461,17 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
                 check(read_lines(adb_log).last() == "shell pm list packages pokemongo", "from `pm list packages`");
             }
 
+            //  The temperatures: the battery of the phone (31.2 degrees in the fake one), and the Pi's processor when this machine has one.
+            {
+                std::optional<double> battery;
+                std::optional<double> processor;
+                error.clear();
+                check(phone.heat(battery, processor, &error), "the temperatures are asked for: " + error);
+                check(battery.has_value() && std::abs(*battery - 31.2) < 1e-9, "the battery of the phone is 31.2 degrees (" + QString::number(battery.value_or(-99)) + ")");
+                check(!processor.has_value() || (*processor > -100 && *processor < 200), "the processor is nothing or a temperature (" + QString::number(processor.value_or(-99)) + ")");
+                check(read_lines(adb_log).last() == "shell dumpsys battery", "from `dumpsys battery`");
+            }
+
             //  What the agent refuses.
             const QStringList count = read_lines(adb_log);
             error.clear();
@@ -1506,9 +1533,19 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
                                                {"heat_pause", true}, {"fast_look", true}, {"gifts_open", true}, {"daily_cycle", true}, {"teams_weekly", true}};
                 PokemonGo::Bot::PhoneBot bot(host, asked, {{"throw_target", "great"}, {"berries", "razz, nanab"}});
                 check(bot.wanted("spin") && bot.setting("fast_look", false) && !bot.wanted("catch") && bot.setting("rocket_fight", false)
-                      && bot.setting("quests", false) && bot.setting("bag_clean", false) && !bot.setting("heat_pause", true) && bot.wanted("gifts_open")
+                      && bot.setting("quests", false) && bot.setting("bag_clean", false) && bot.setting("heat_pause", false) && bot.wanted("gifts_open")
                       && bot.wanted("daily_cycle") && !bot.wanted("teams_weekly"),
                       "Claude GG plays with what is ported (the gifts, the GO Pass, Team GO Rocket, the clean-up of the bag and the daily run too), the rest is off");
+                {
+                    //  The heat: the pause is played when the agent can tell the temperatures, and not when it cannot.
+                    check(PokemonGo::Bot::playable(asked, true).at("heat_pause") && !PokemonGo::Bot::playable(asked).at("heat_pause")
+                          && !PokemonGo::Bot::playable(asked, false).at("heat_pause"), "the pause for the heat is played only with an agent that tells the temperatures");
+                    check(PokemonGo::Bot::playable(PokemonGo::Bot::Switches{{"heat_pause", false}}, true).at("heat_pause") == false,
+                          "and it stays off when the person switched it off");
+                    check(host.reads_heat(), "the fake agent tells the temperatures");
+                    const std::pair<std::optional<double>, std::optional<double>> heat = bot.read_heat();
+                    check(heat.first.has_value() && std::abs(*heat.first - 31.2) < 1e-9, "the bot reads the battery of the phone (31.2 degrees)");
+                }
                 {
                     //  The daily run: the bot is its host (the file of the run, the apps of the phone, what is chosen for the battles, the time of the day).
                     const QString main_app = "com.nianticlabs.pokemongo";

@@ -210,6 +210,8 @@ public:
     //  a file that cannot be used does).  What Start::auto_battle() is given as its TeamLoader: [&]{ return host.load_team(); }.
     std::vector<Battle::Mon> load_team() const;
 
+    //  Can the agent tell the temperatures (/v1/heat, agent 0.2.4 and later)?
+    bool reads_heat() const{ return m_reads_heat; }
     //  The size of the real screen the agent told (0: not known).
     int screen_width() const{ return m_width; }
     int screen_height() const{ return m_height; }
@@ -228,6 +230,7 @@ private:
     std::atomic<bool> m_aim;
     std::atomic<int> m_width{0};
     std::atomic<int> m_height{0};
+    std::atomic<bool> m_reads_heat{false};
     Hooks m_hooks;
     std::optional<Start::Launch> m_launch_failed;   //  the start of the game that did not even reach the agent
     std::mutex m_models_lock;

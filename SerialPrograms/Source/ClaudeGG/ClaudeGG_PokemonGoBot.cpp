@@ -45,21 +45,23 @@ std::vector<Detection> PhoneDetector::map(const cv::Mat& img, const cv::Rect& bo
 }
 
 
-Switches playable(const Switches& asked){
+Switches playable(const Switches& asked, bool heat){
     Switches out = asked;
     //  Not ported yet: off, so that the steps leave them alone.
     for (const char* key : {"teams_weekly"}){
         out[QString::fromLatin1(key)] = false;
     }
-    //  The pause for the heat needs temperatures that the agent cannot give yet.
-    out["heat_pause"] = false;
+    //  The pause for the heat needs the temperatures, and only an agent of 0.2.4 or later can give them.
+    if (!heat){
+        out["heat_pause"] = false;
+    }
     return out;
 }
 
 
 PhoneBot::PhoneBot(Phone::AgentHost& phone, const Switches& switches, const Texts& texts, const QString& folder)
     : m_phone(phone)
-    , m_switches(playable(switches))
+    , m_switches(playable(switches, phone.reads_heat()))
     , m_texts(texts)
     , m_folder(folder)
     , m_detector(phone)
@@ -556,11 +558,18 @@ void PhoneBot::save_cal(const Throw::Cal& cal){
 }
 
 std::pair<std::optional<double>, std::optional<double>> PhoneBot::read_heat(){
-    if (!m_told_heat){
-        m_told_heat = true;
-        log("the temperatures of the phone and the Pi cannot be read through the agent yet: no pause when it gets hot");
+    //  read_heat() of gamebot.py: (the phone's battery, the Pi's processor), nothing for what cannot be read.
+    std::optional<double> phone;
+    std::optional<double> pi;
+    QString error;
+    if (!m_phone.agent().heat(phone, pi, &error)){
+        if (!m_told_heat){
+            m_told_heat = true;
+            log("the temperatures cannot be read through the agent (" + error + "): no pause for the heat until it can");
+        }
+        return {std::nullopt, std::nullopt};
     }
-    return {std::nullopt, std::nullopt};
+    return {phone, pi};
 }
 
 cv::Mat PhoneBot::quick_screenshot_grab(const std::function<void()>& on_grab){

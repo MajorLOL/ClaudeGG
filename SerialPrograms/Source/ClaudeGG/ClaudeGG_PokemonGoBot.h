@@ -19,7 +19,7 @@
  *    has been closed, the bot stops (gamebot.py waits there until it sees the game running again - `pidof` -, which the agent cannot tell);
  *  - the GO Pass (Quests::claim_quests: the quest button that turns gold, the tab GO PASS, VIEW REWARDS, CLAIM ALL; the memory of the last look is in
  *    the program): the ported code, over the same touches and swipes;
- *  - the temperatures: the agent cannot read them yet, so the pause when it gets hot does not happen;
+ *  - the temperatures: from the agent (0.2.4 and later: /v1/heat); with an older agent the pause when it gets hot does not happen;
  *  - the layout of the screen: taken to be the one of the canvas (the agent brings every screenshot to the canvas);
  *  - the camera that turns while the next picture is looked at: the swipe is made right away and waited for, which is slower but the same
  *    swipe;
@@ -84,8 +84,9 @@ private:
 //  What the bot is asked to do: the switches of the program ("spin", "catch", "fast_look", ...), as they are given to the Python bot.
 using Switches = std::map<QString, bool>;
 
-//  The switches that PhoneBot plays with: those of the program, with what is not ported yet switched off.
-Switches playable(const Switches& asked);
+//  The switches that PhoneBot plays with: those of the program, with what is not ported yet switched off.  `heat`: the agent can tell the
+//  temperatures (0.2.4 and later); the pause for the heat is switched off when it cannot.
+Switches playable(const Switches& asked, bool heat = false);
 
 
 //  What the person chose that is not a switch: "throw_target" (realistic, nice, great, excellent, off), "ball" and "berries" (the order,
