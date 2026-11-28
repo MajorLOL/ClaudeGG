@@ -901,6 +901,16 @@ class ShellSessionTest(unittest.TestCase):
         self.assertEqual(set(self.calls()), {"shell input keyevent 0"})
 
 
+class NoDelayTest(unittest.TestCase):
+    def test_answers_are_not_held_back(self):
+        """TCP_NODELAY on every connection: the last piece of an answer is not held back for an acknowledgement."""
+        running = Running()
+        self.addCleanup(running.close)
+        handler = running.server.RequestHandlerClass
+        self.assertTrue(handler.disable_nagle_algorithm)
+        self.assertEqual(running.ask("GET", "/v1/info")[0], 200)
+
+
 class AgentFailTest(unittest.TestCase):
     def test_a_phone_that_is_off_is_told_as_it_is(self):
         running = Running(fail=True)

@@ -1279,6 +1279,11 @@ def make_handler(phone, token, quiet=True):
     class Handler(BaseHTTPRequestHandler):
         server_version = "ClaudeGGAgent/" + VERSION
         protocol_version = "HTTP/1.0"      #  one answer per connection: the end of the answer is the close
+        #  TCP_NODELAY: an answer is written in pieces (the headers, then the body; a picture of the live stream,
+        #  then the line after it). Without it the system holds back a small last piece until the computer has
+        #  acknowledged the one before, and Windows acknowledges late on purpose (up to 200 ms): every tap and
+        #  every picture could wait that long for its last bytes.
+        disable_nagle_algorithm = True
 
         def log_message(self, fmt, *args):
             if not quiet:
@@ -1345,9 +1350,9 @@ def make_handler(phone, token, quiet=True):
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 while frame is not None:
-                    self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n" % len(frame))
-                    self.wfile.write(frame)
-                    self.wfile.write(b"\r\n")
+                    #  In one piece: the picture arrives whole, at once.
+                    self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n" % len(frame)
+                                     + frame + b"\r\n")
                     self.wfile.flush()
                     if not alive:
                         break
