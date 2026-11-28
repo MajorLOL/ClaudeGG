@@ -10,6 +10,7 @@
 #include "CommonFramework/ProgramSession.h"
 
 
+#include "ResourceDownloadHelpers.h"
 #include "ProgramMissingResourceTracker.h"
 
 using std::cout;
@@ -149,7 +150,7 @@ void ProgramMissingResourceTracker::on_download_finished(bool success, const std
 void ProgramMissingResourceTracker::on_download_failed(const std::string& resource_slug){
     m_failed = true;
     std::cerr << "ProgramMissingResourceTracker::on_download_failed: Error: Download failed for " << resource_slug << ". Check your internet connection and check you have enough disk space." << std::endl;
-    m_session.report_download_error("Error: Download failed for " + resource_slug + ". Check your internet connection and check you have enough disk space.");
+    m_session.report_download_error(resource_download_failed_message(resource_slug, ""));
     fulfill_promise(false);
 }
 void ProgramMissingResourceTracker::on_exception_caught(const std::string& error_msg){

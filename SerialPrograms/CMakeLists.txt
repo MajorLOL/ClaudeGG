@@ -951,6 +951,14 @@ if (WIN32)
 
     # Copy 3rd party DLLs if missing/different
     file(GLOB THIRD_PARTY_DLLS "${REPO_ROOT_DIR}/3rdPartyBinaries/*.dll")
+    # The debug build of OpenCV (127 MB, 31 MB in the zip) is for the Debug
+    # configuration only: a release build does not load it.
+    list(REMOVE_ITEM THIRD_PARTY_DLLS "${OPENCV_DEBUG_DLL}")
+    add_custom_command(
+        TARGET SerialPrograms POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E $<IF:$<CONFIG:Debug>,copy_if_different,true>
+            "${OPENCV_DEBUG_DLL}" "${WIN_DEPLOY_DIR}/opencv_world4120d.dll"
+    )
     if (NOT PA_SDL)
         list(REMOVE_ITEM THIRD_PARTY_DLLS "${REPO_ROOT_DIR}/3rdPartyBinaries/SDL3.dll")
     endif()
