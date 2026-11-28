@@ -21,6 +21,12 @@
  *      Macro, with the names of the Switch).
  *    - Show: the steps of a macro in the log, by the names of the console's
  *      own controller (CROSS on a PlayStation, A on an Xbox).
+ *    - Save the goal: the screen as it is now becomes the macro's goal
+ *      picture (UserSettings/Macros/<name>.png). Playing can then stop as
+ *      soon as the screen looks like it, in the middle of a round too: the
+ *      video is looked at every 50 ms while the steps play, and what is
+ *      still to come is cancelled (the small picture of Claude Plays,
+ *      ClaudePlays_AnyGame.h, screen_thumb()).
  *
  *  For the reaction time: the steps go to the board ahead of time, and the
  *  board holds each for its time itself, so there is no wait for the
@@ -36,6 +42,7 @@
 #define PokemonAutomation_ClaudeGG_Macro_H
 
 #include <chrono>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -71,6 +78,9 @@ std::string macro_path(const std::string& name);
 //  A step of a macro by the names of the pad: "CROSS + UP, 120 ms",
 //  "left stick up-right, 300 ms", "nothing, 50 ms".
 std::string describe_step(ClaudePlays::PadKind pad, const JsonObject& step);
+//  The goal picture of a macro: "<settings>/Macros/<name>.png".
+std::string macro_goal_path(const std::string& name);
+
 //  The time a step is held at a speed in percent (100: as recorded, 200:
 //  twice as fast). At least 1 ms when it was more than 0.
 std::chrono::milliseconds scaled_ms(uint64_t ms, uint32_t speed_percent);
@@ -116,6 +126,11 @@ public:
         PLAY,
         PLAY_LIST,
         SHOW,
+        SAVE_GOAL,
+    };
+    enum class Until{
+        ROUNDS,
+        GOAL,
     };
 
 private:
@@ -125,12 +140,17 @@ private:
     void play(NintendoSwitch::SingleSwitchProgramEnvironment& env, CancellableScope& scope);
     void play_list(NintendoSwitch::SingleSwitchProgramEnvironment& env, CancellableScope& scope);
     void show(NintendoSwitch::SingleSwitchProgramEnvironment& env);
+    void save_goal(NintendoSwitch::SingleSwitchProgramEnvironment& env);
+
+    //  Runs "rounds" rounds of "one_round" with the pause between them, and
+    //  stops early when the goal is seen (UNTIL).
+    void play_rounds(
+        NintendoSwitch::SingleSwitchProgramEnvironment& env, CancellableScope& scope,
+        const std::function<uint64_t(AbstractControllerContext& context)>& one_round
+    );
 
     //  What was recorded, as a macro: the file's contents.
     JsonValue recording_to_json(ControllerClass controller_class);
-
-    //  The pause between two rounds, with nothing held.
-    void pause(NintendoSwitch::SingleSwitchProgramEnvironment& env, CancellableScope& scope);
 
 private:
     const ClaudePlays::GameId m_game;
@@ -144,6 +164,8 @@ private:
     SimpleIntegerOption<uint32_t> LOOPS;
     SimpleIntegerOption<uint32_t> PAUSE_MS;
     SimpleIntegerOption<uint32_t> SPEED;
+    EnumDropdownOption<Until> UNTIL;
+    SimpleIntegerOption<uint32_t> GOAL_DIFFERENCE;
     ControllerCommandTables LIST;
 
     struct Snapshot{
