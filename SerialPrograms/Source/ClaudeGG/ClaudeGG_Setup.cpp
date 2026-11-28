@@ -7784,7 +7784,8 @@ void pad_screen(QPainter& p, const QRectF& frame, const QRectF& picture, const Q
 //  The Switch 2, in the style of the picture of the first Switch (the
 //  program has only that one): a thin frame round a large screen, and the
 //  Joy-Con 2 at the sides, dark gray with the light blue and the light red
-//  on their inner edges, and the C button under HOME.
+//  on their inner edges: capture under the buttons of the left one, HOME
+//  and the C button under the stick of the right one.
 QPixmap switch2_picture(){
     static QPixmap cache;
     if (!cache.isNull()){
@@ -7848,14 +7849,14 @@ QPixmap switch2_picture(){
     pad_pill(p, QRectF(788, 50, 24, 7), dark);
     pad_pill(p, QRectF(796.5, 41.5, 7, 24), dark);
     p.setBrush(QColor(0, 0, 0, 90));
-    p.drawRoundedRect(QRectF(93, 195, 18, 18), 4, 4);
+    p.drawRoundedRect(QRectF(95, 323, 18, 18), 4, 4);
     p.setBrush(dark);
-    p.drawRoundedRect(QRectF(92, 193, 18, 18), 4, 4);
-    pad_button(p, QPointF(798, 204), 10, dark);
+    p.drawRoundedRect(QRectF(94, 321, 18, 18), 4, 4);
+    pad_button(p, QPointF(800, 328), 10, dark);
     p.setBrush(QColor(130, 134, 146));
-    p.drawEllipse(QPointF(798, 204), 3.5, 3.5);
-    pad_button(p, QPointF(798, 232), 8, dark);
-    pad_letter(p, QPointF(798, 232), 8, "C", QColor(150, 154, 166));
+    p.drawEllipse(QPointF(800, 328), 3.5, 3.5);
+    pad_button(p, QPointF(800, 356), 8, dark);
+    pad_letter(p, QPointF(800, 356), 8, "C", QColor(150, 154, 166));
     p.end();
     cache = QPixmap::fromImage(image);
     return cache;
@@ -8413,34 +8414,22 @@ QPixmap wiiu_picture(){
 
 //  The retro consoles (BlueRetro plays the console's own pad): the
 //  Nintendo 64's pad with its three grips at the back and a GameCube pad in
-//  front of it, and the small adapter with its light of Bluetooth blue over
-//  them: the picture of the console "retro".
+//  front of it: the picture of the console "retro".
 QPixmap retro_picture(){
     static QPixmap cache;
     if (!cache.isNull()){
         return cache;
     }
     constexpr int W = 600;
-    constexpr int H = 410;
+    constexpr int H = 300;
     QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
     image.fill(Qt::transparent);
     QPainter p(&image);
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setPen(Qt::NoPen);
 
-    //  The adapter, with the waves of Bluetooth.
-    QPainterPath adapter;
-    adapter.addRoundedRect(QRectF(236, 18, 112, 62), 16, 16);
-    pad_body(p, adapter, QColor(90, 94, 106), QColor(44, 46, 54), QColor(120, 124, 136));
-    pad_button(p, QPointF(292, 49), 12, QColor(52, 130, 230));
-    p.setBrush(Qt::NoBrush);
-    p.setPen(QPen(QColor(120, 200, 255), 7, Qt::SolidLine, Qt::RoundCap));
-    for (int i = 0; i < 2; i++){
-        const double r = 16 + i * 16;
-        p.drawArc(QRectF(362 - r, 49 - r, 2 * r, 2 * r), -40 * 16, 80 * 16);
-        p.drawArc(QRectF(222 - r, 49 - r, 2 * r, 2 * r), 140 * 16, 80 * 16);
-    }
-    p.setPen(Qt::NoPen);
+    //  The two pads, nearer the top: the picture has no room over them.
+    p.translate(0, -112);
 
     //  The Nintendo 64's pad: gray, a curved bar with three grips.
     const QPainterPath n64 = pad_outline(170, QPointF(170, 124), {
@@ -8536,7 +8525,7 @@ QPixmap remote_picture(bool xbox){
         xbox ? QColor(40, 120, 60) : QColor(40, 70, 150), QColor(18, 22, 30), 10);
     //  A play mark on the stream.
     p.setBrush(QColor(255, 255, 255, 150));
-    p.drawPolygon(QPolygonF({QPointF(200, 116), QPointF(200, 184), QPointF(256, 150)}));
+    p.drawPolygon(QPolygonF({QPointF(262, 120), QPointF(262, 188), QPointF(318, 154)}));
 
     //  The pad, in front of the screen at the bottom right.
     const QPixmap pad = xbox ? xbox_series_picture() : dualsense_picture();
@@ -8665,14 +8654,14 @@ QPixmap steam_picture(){
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setPen(Qt::NoPen);
 
-    //  The dock, behind.
+    //  The dock, behind: the Deck stands in it.
     QPainterPath dock;
-    dock.addRoundedRect(QRectF(170, 300, 220, 66), 14, 14);
+    dock.addRoundedRect(QRectF(170, 236, 220, 96), 14, 14);
     pad_body(p, dock, QColor(64, 66, 74), QColor(32, 33, 38), QColor(90, 94, 104));
     p.setBrush(QColor(20, 20, 24));
-    p.drawRoundedRect(QRectF(196, 326, 40, 14), 4, 4);
-    p.drawRoundedRect(QRectF(250, 326, 40, 14), 4, 4);
-    p.drawRoundedRect(QRectF(304, 326, 60, 14), 4, 4);
+    p.drawRoundedRect(QRectF(196, 304, 40, 14), 4, 4);
+    p.drawRoundedRect(QRectF(250, 304, 40, 14), 4, 4);
+    p.drawRoundedRect(QRectF(304, 304, 60, 14), 4, 4);
 
     //  The body: flat on top, the grips lower than the middle.
     const QPainterPath body = pad_outline(280, QPointF(280, 62), {
@@ -8712,6 +8701,12 @@ QPixmap steam_picture(){
     pad_letter(p, QPointF(488, 116), 9, "X", letter);
     pad_stick(p, QPointF(444, 120), 23, well, cap);
     trackpad(QRectF(428, 170, 62, 62));
+    //  View and Menu over the sticks, Steam and the quick menu under the
+    //  trackpads.
+    pad_pill(p, QRectF(124, 82, 16, 8), QColor(70, 72, 82));
+    pad_pill(p, QRectF(420, 82, 16, 8), QColor(70, 72, 82));
+    pad_pill(p, QRectF(84, 244, 24, 12), QColor(70, 72, 82));
+    pad_pill(p, QRectF(452, 244, 24, 12), QColor(70, 72, 82));
     p.end();
     cache = QPixmap::fromImage(image);
     return cache;
