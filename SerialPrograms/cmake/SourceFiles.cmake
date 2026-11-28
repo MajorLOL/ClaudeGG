@@ -1584,6 +1584,10 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_Theme.h
     Source/ClaudeGG/ClaudeGG_Update.cpp
     Source/ClaudeGG/ClaudeGG_Update.h
+    Source/ClaudeGG/ClaudeGG_UpdateDialog.cpp
+    Source/ClaudeGG/ClaudeGG_UpdateDialog.h
+    Source/ClaudeGG/ClaudeGG_Updater.cpp
+    Source/ClaudeGG/ClaudeGG_Updater.h
     Source/Pokemon/Inference/Pokemon_AbilityReader.cpp
     Source/Pokemon/Inference/Pokemon_AbilityReader.h
     Source/Pokemon/Inference/Pokemon_BerryNameReader.cpp

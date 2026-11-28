@@ -3,21 +3,23 @@
  *  Part of ClaudeGG, which is based on Pokemon Automation
  *  (https://github.com/PokemonAutomation/).
  *
- *  "Check for updates" in the About window: is there a build of ClaudeGG
- *  that is newer than the one that runs?
+ *  "Check for updates": is there a build of ClaudeGG that is newer than the
+ *  one that runs, and what is new in it?
  *
- *  -   Only when the button is pressed. The program never asks by itself, so
- *      nothing leaves the computer at the start or in the background.
  *  -   One request to the list of releases of this fork on github.com (no
  *      key, no token, nothing of the user's), answered with the numbers of
  *      the builds. A build is a release named "v<version>", with a
  *      version of four numbers ("v0.1.0.3").
- *  -   The program does not update itself. When there is a newer build the
- *      window shows the page of that release, where the download is, and
- *      the user opens it.
+ *  -   When there is a newer build, the answer also says what is new in it
+ *      (the section "What's new" of each newer release) and the SHA-256 of
+ *      its package. The program can then install it itself
+ *      (ClaudeGG_Updater.h); without a SHA-256 it only shows the page.
+ *  -   At the start the program checks by itself as well, unless that is
+ *      turned off (ClaudeGG_UpdateDialog.h). The request is the same one.
  *
- *  The link that is shown is made here from the number of the build and the
- *  address of this fork; nothing of the answer is used as an address.
+ *  The links and the address of the package are made here from the number of
+ *  the build and the address of this fork; nothing of the answer is used as
+ *  an address.
  *
  */
 
@@ -27,8 +29,11 @@
 #include <functional>
 #include <memory>
 #include <QByteArray>
+#include <QJsonObject>
 #include <QObject>
 #include <QString>
+#include <QStringList>
+#include <vector>
 #include "Assistant/Assistant_Http.h"
 
 namespace PokemonAutomation{
@@ -41,6 +46,7 @@ struct ReleaseLocation{
     QString api_url;        //  The list of releases, for the request.
     QString page_url;       //  The page of the releases, for the user.
     QString tag_page_url;   //  The start of the page of one release: the tag follows.
+    QString download_url;   //  The start of a file of a release: "<tag>/<file>" follows.
     bool valid() const{ return !api_url.isEmpty(); }
 };
 ReleaseLocation release_location(const QString& project_url);
@@ -65,15 +71,44 @@ int build_of_tag(const QString& tag);
 int build_of_this_program(const QString& build);
 
 
+//  The file of a release that is the program (what the workflow publishes).
+extern const char* const PACKAGE_FILE_NAME;     //  "ClaudeGG-Windows.zip"
+
 struct LatestBuild{
     int build = 0;          //  A version_number(); 0: no build is published.
     QString date;           //  "2026-11-25", or empty.
+    //  The SHA-256 of its package, 64 digits in lower case: from GitHub's
+    //  "digest" of the file, or else from the text of the release. Empty: the
+    //  release does not say, and the program does not install it itself.
+    QString package_sha256;
+    qint64 package_size = 0;    //  In bytes; 0: not known.
 };
+
+//  What a release says is new in it.
+struct ReleaseNotes{
+    int build = 0;
+    QString date;
+    QStringList items;      //  Plain text, one line each.
+};
+
+//  The lines of the section "What's new" of the text of a release (a heading
+//  "## What's new", or GitHub's own "## What's Changed"): its points, without
+//  the "by @someone in https://..." that GitHub adds to each. Empty when there
+//  is no such section.
+QStringList whats_new_items(const QString& body);
+
+//  The SHA-256 of the package in one release of the answer: see LatestBuild.
+QString package_sha256_of(const QJsonObject& release);
 
 //  The newest build in the answer of the list of releases. Drafts do not
 //  count; pre-releases do (the builds are published as pre-releases).
 //  False, with a reason, when the answer is not a list of releases.
 bool newest_build(const QByteArray& json, LatestBuild& latest, QString& error);
+
+//  What is new in the builds of the answer after "after" (a version_number();
+//  0: all of them), the newest first, at most MAX_RELEASE_NOTES. Drafts do not
+//  count. Empty when the answer cannot be read.
+std::vector<ReleaseNotes> release_news(const QByteArray& json, int after);
 
 
 enum class UpdateState{
@@ -92,7 +127,22 @@ struct UpdateResult{
     QString error;
     //  The page of the newest build (or of the releases when there is none).
     QString page_url;
+    //  The package of the newest build, made from its number (NEWER_AVAILABLE
+    //  and LOCAL_BUILD only).
+    QString package_url;
+    //  What is new in the builds after this one, the newest first (at most
+    //  MAX_RELEASE_NOTES of them).
+    std::vector<ReleaseNotes> news;
 };
+constexpr size_t MAX_RELEASE_NOTES = 10;
+
+//  The program can install the newest build itself: it is newer, its
+//  SHA-256 is known, and this is Windows (the only package there is).
+bool can_install(const UpdateResult& result);
+
+//  "What's new" of a result as HTML (the texts escaped): a heading and the
+//  points of each build. "Nothing is said about it" when there are none.
+QString news_html(const UpdateResult& result);
 
 //  What a window says about a result, as an HTML paragraph: the link is made
 //  with "link_color".
