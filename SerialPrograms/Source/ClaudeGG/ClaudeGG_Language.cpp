@@ -59,6 +59,7 @@
 #include "CommonFramework/PersistentSettings.h"
 #include "ClaudeGG_Instances.h"
 #include "CommonFramework/Logging/Logger.h"
+#include "ClaudeGG_ConsoleGuide.h"
 #include "ClaudeGG_Language.h"
 #include "ClaudeGG_Mobile.h"
 #include "ClaudeGG_Setup.h"
@@ -112,7 +113,8 @@ UiLanguage language_of(const QString& code){
 
 //  The console of the setup, as the codes of its screen ("switch", "switch2",
 //  "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote",
-//  "iphone", "psclassic", "wiiu"; empty: none chosen).
+//  "iphone", "psclassic", "wiiu", "psdirect", "xboxdirect", "steam", "vita", "3ds"; empty: none
+//  chosen).
 QString console_code_of(SetupConsole console){
     switch (console){
     case SetupConsole::SWITCH:   return "switch";
@@ -127,6 +129,11 @@ QString console_code_of(SetupConsole console){
     case SetupConsole::IPHONE:   return "iphone";
     case SetupConsole::PS_CLASSIC:   return "psclassic";
     case SetupConsole::WIIU:         return "wiiu";
+    case SetupConsole::PS_DIRECT:    return "psdirect";
+    case SetupConsole::XBOX_DIRECT:  return "xboxdirect";
+    case SetupConsole::STEAM:        return "steam";
+    case SetupConsole::VITA:         return "vita";
+    case SetupConsole::N3DS:         return "3ds";
     case SetupConsole::NONE:     break;
     }
     return QString();
@@ -144,6 +151,11 @@ SetupConsole console_of(const QString& code){
     if (code == "iphone") return SetupConsole::IPHONE;
     if (code == "psclassic") return SetupConsole::PS_CLASSIC;
     if (code == "wiiu") return SetupConsole::WIIU;
+    if (code == "psdirect") return SetupConsole::PS_DIRECT;
+    if (code == "xboxdirect") return SetupConsole::XBOX_DIRECT;
+    if (code == "steam") return SetupConsole::STEAM;
+    if (code == "vita") return SetupConsole::VITA;
+    if (code == "3ds") return SetupConsole::N3DS;
     return SetupConsole::NONE;
 }
 
@@ -911,7 +923,7 @@ std::function<std::unique_ptr<SetupProgramOptions>(QWidget*, int, const QString&
 QString g_chosen_game;
 QString g_chosen_program;
 
-void run_and_keep(bool ask_language, bool ask_board, bool play_intro = false, bool ask_game = false){
+void run_and_keep(bool ask_language, bool ask_board, bool play_intro = false, bool ask_game = false, const QString& console_code = QString()){
     GlobalSettings& settings = GlobalSettings::instance();
 
     SetupRequest request;
@@ -920,6 +932,10 @@ void run_and_keep(bool ask_language, bool ask_board, bool play_intro = false, bo
     //  The console is a screen of the setup: asked where the board is asked.
     request.ask_console = ask_board;
     request.console_code = console_code_of(settings.GAME_CONSOLE.get());
+    //  Opened for one console (the Consoles guide): that one is picked already.
+    if (!console_code.isEmpty()){
+        request.console_code = console_code;
+    }
     fill_mobile(request);
     request.language_code = setting_code();
     request.play_intro = play_intro;
@@ -1010,8 +1026,11 @@ void ask_setup_if_needed(){
     run_and_keep(ask_language, ask_board);
 }
 
-void open_setup(){
-    run_and_keep(true, true);
+QString current_console_code(){
+    return console_code_of(GlobalSettings::instance().GAME_CONSOLE.get());
+}
+void open_setup(const QString& console_code){
+    run_and_keep(true, true, false, false, console_code);
 }
 
 AppView* make_main_view(
@@ -1338,12 +1357,29 @@ int run_language_test(QApplication& application){
             }
             result.check(missing.isEmpty() && extra.isEmpty(), code + ": the texts differ from " + reference_code);
         }
+        //  The guide of the consoles is in every language, whole.
+        {
+            int shown = 0;
+            int absent = 0;
+            for (const QString& text : console_guide_texts()){
+                if (!words.contains(text)){
+                    absent++;
+                    if (shown++ < 8){
+                        result.check(false, code + ": the guide of the consoles: missing \"" + text.left(70) + "\"");
+                    }
+                }
+            }
+            result.check(absent == 0, code + ": " + QString::number(absent) + " texts of the guide of the consoles missing");
+        }
         global_logger_command_line().log(
             "Language test: " + code.toStdString() + ": " + std::to_string(words.size()) + " texts.",
             COLOR_BLUE
         );
         all.insert(code, words);
     }
+
+    //  The pages of the guide of the consoles.
+    result.check(console_guide_self_test() == 0, "the guide of the consoles");
 
     //  The filter, on windows.
     for (auto iter = all.begin(); iter != all.end(); ++iter){

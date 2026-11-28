@@ -28,6 +28,7 @@
 #include "CommonTools/Options/LanguageOCROption.h"
 #include "CommonFramework/Notifications/EventNotificationsTable.h"
 #include "CommonFramework/Panels/PanelList.h"
+#include "NintendoSwitch/Controllers/NintendoSwitch_ControllerButtons.h"
 #include "NintendoSwitch/NintendoSwitch_SingleSwitchProgram.h"
 #include "ClaudePlays_Engine.h"
 #include "ClaudePlays_External.h"
@@ -37,6 +38,11 @@ namespace PokemonAutomation{
 namespace ClaudeGG{
 namespace ClaudePlays{
 
+
+//  The Switch button that a button of the pad of a game is played with, by
+//  the names of that pad ("CROSS" on a PlayStation 3 is B). False: the pad
+//  has no button by that name (and the iPhone's keyboard has none at all).
+bool button_of_pad(PadKind pad, const std::string& name, NintendoSwitch::Button& button);
 
 //  The program "Claude Plays" for the list of a game.
 std::unique_ptr<PanelDescriptor> make_claude_plays(GameId game);
@@ -84,6 +90,9 @@ private:
     //  Only shown in Other Games: which of the games that have no list of
     //  their own it is (see has_only_claude_plays()).
     EnumDropdownOption<GameId> GAME;
+    //  Only shown in the list of a console that has well-known games
+    //  (ClaudePlays_KnownGames.h): which of them it is, if one. 0: another.
+    IntegerEnumDropdownOption KNOWN_GAME;
     //  Who plays: the program asks Claude, or Claude Code does.
     WhoPlays WHO;
     TextEditOption GOAL;
@@ -98,6 +107,11 @@ private:
     BooleanCheckBoxOption ALLOW_SAVE;
     BooleanCheckBoxOption ALLOW_HOME;
     BooleanCheckBoxOption OVERLAY_NOTES;
+    //  The timing of the console (ClaudePlays_Consoles.h), measured first or
+    //  set by hand (ClaudePlays_Calibrate.h).
+    BooleanCheckBoxOption MEASURE_TIMING;
+    SimpleIntegerOption<uint32_t> PRESS_MS;
+    SimpleIntegerOption<uint32_t> VIDEO_DELAY_MS;
 
     EventNotificationsOption NOTIFICATIONS;
 };

@@ -9,6 +9,8 @@
 //#include <QStatusBar>
 #include <QApplication>
 #include <QDateTime>
+#include <QFile>
+#include <QFileInfo>
 #include <QTextDocumentFragment>
 #include <QTimer>
 #include <QDialog>
@@ -42,6 +44,7 @@
 #include "CommonFramework/VideoPipeline/VideoFeed.h"
 #include "CommonFramework/Windows/DpiScaler.h"
 #include "ClaudeGG/ClaudeGG_About.h"
+#include "ClaudeGG/ClaudeGG_ConsoleGuide.h"
 #include "ClaudeGG/ClaudeGG_Embed.h"
 #include "ClaudeGG/ClaudeGG_Home.h"
 #include "ClaudeGG/ClaudeGG_Instances.h"
@@ -49,6 +52,7 @@
 #include "ClaudeGG/ClaudeGG_Logo.h"
 #include "ClaudeGG/ClaudeGG_Panel.h"
 #include "ClaudeGG/ClaudeGG_Setup.h"
+#include "ClaudeGG/ClaudeGG_UpdateDialog.h"
 #include "ClaudeGG/Assistant/Assistant_Http.h"
 #include "ClaudeGG/Assistant/Assistant_Panel.h"
 #include "ClaudeGG/Assistant/Assistant_Play.h"
@@ -173,6 +177,12 @@ MainWindow::MainWindow(QWidget* parent, bool app_test)
         ClaudeGG::set_game_opener([this](const QString& game, const QString& program){
             open_game(game, program);
         });
+    }
+    //  Whether a newer build is out (and how the last update went), a while
+    //  after the window is up: not in the tests, not in a window of the host.
+    if (!app_test && !ClaudeGG::is_embedded()){
+        const ClaudeGG::AboutInfo info = about_info();
+        ClaudeGG::start_update_check_at_start(this, info.project_url, info.build);
     }
     //  "Open Output Window at startup": the log, in its panel, once the window is up.
     if (GlobalSettings::instance().LOG_WINDOW_STARTUP && !app_test){
@@ -463,6 +473,24 @@ void MainWindow::show_window_panel(WindowPanel panel){
         options.wide = true;
         m_panel->show_panel(ClaudeGG::tr_ui("Buttons"), m_button_diagram.get(), options);
         break;
+    case WindowPanel::CONSOLES:{
+        //  Made anew each time, on the page of the console in use; the panel
+        //  deletes it when it is put away.
+        const QString console = ClaudeGG::current_console_code();
+        options.wide = true;
+        options.own = true;
+        //  "Show the tour" puts the panel away first: the tour is on the screen under it.
+        QWidget* guide = ClaudeGG::make_console_guide(m_panel, console, &ClaudeGG::open_setup, [this]{
+            QTimer::singleShot(0, this, [this]{
+                show_window_panel(WindowPanel::NONE);
+                if (m_app != nullptr){
+                    m_app->show_tour();
+                }
+            });
+        });
+        m_panel->show_panel(ClaudeGG::tr_ui("Consoles"), guide, options);
+        break;
+    }
     case WindowPanel::ABOUT:{
         //  The window of "About" as a widget of the panel; its connection for the check
         //  for updates lives as long as it does.
@@ -916,6 +944,24 @@ void MainWindow::make_app_view(bool test){
     actions.buttons = [this]{
         show_window_panel(WindowPanel::BUTTONS);
     };
+    actions.consoles = [this]{
+        show_window_panel(WindowPanel::CONSOLES);
+    };
+    //  The tour of the screen, once: a file in the settings folder says it was seen.
+    {
+        const QString seen = QString::fromStdString(SETTINGS_PATH()) + "tour-seen.txt";
+        //  Not in a run of the tests, nor in an installation inside the main window.
+        actions.tour = !test && !ClaudeGG::is_test_run() && !ClaudeGG::is_embedded() && !QFileInfo::exists(seen);
+        actions.tour_done = [seen, test]{
+            if (test){
+                return;
+            }
+            QFile file(seen);
+            if (file.open(QIODevice::WriteOnly)){
+                file.write("The tour of the screen was shown. Delete this file to see it at the next start.\n");
+            }
+        };
+    }
     actions.claude = [this](bool show){
         show_assistant(show);
     };

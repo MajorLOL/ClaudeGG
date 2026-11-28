@@ -69,12 +69,17 @@ enum class SetupConsole{
     PS3,        //  PlayStation 3, through a wired board that it sees as a USB gamepad.
     XBOX,       //  The original Xbox, through that board and a Pico with OGX-Mini.
     RETRO,      //  PlayStation, PlayStation 2, GameCube, Nintendo 64, Dreamcast: a wireless board and BlueRetro.
-    XBOX360,    //  An Xbox 360 with UsbdSecPatch: the wired board and a Pico with OGX-Mini (XInput).
+    XBOX360,    //  An Xbox 360: the wired board and a Pico with OGX-Mini-2026 (XInput, with the console's check).
     PS_REMOTE,  //  PlayStation 4 and 5 through Remote Play on the computer (chiaki-ng).
     XBOX_REMOTE,//  Xbox One and Series through Remote Play on the computer (xbox.com/remoteplay).
     IPHONE,     //  An iPhone, with the wired board as a keyboard (Full Keyboard Access).
     PS_CLASSIC, //  The PlayStation Classic: the wired board and a Pico with OGX-Mini (its PS Classic mode).
     WIIU,       //  Nintendo Wii U: a Raspberry Pi that the Wii U takes as its GamePad (WiiU/vanilla-bridge).
+    PS_DIRECT,  //  PlayStation 4 and 5, straight: the wired board and a bought Brook Wingman XE.
+    XBOX_DIRECT,//  Xbox One and Series, straight: the wired board and a bought Brook Wingman XB 3.
+    STEAM,      //  A Steam Deck or a PC with Steam: the wired board as its USB gamepad.
+    VITA,       //  A PlayStation Vita with vita-agent-bridge, over the network (no board).
+    N3DS,       //  A Nintendo 3DS with Luma3DS and NTR-HR, over the network (no board).
 };
 
 
@@ -122,6 +127,12 @@ public:
     //  The Raspberry Pi that is the GamePad of a Wii U (the console "wiiu"):
     //  where its bridge is (see ClaudeGG/ClaudeGG_WiiU.h).
     StringOption WIIU_HOST;
+    //  A PlayStation Vita with vita-agent-bridge (the console "vita"): its
+    //  address. Its token is in a file of its own (see ClaudeGG/ClaudeGG_Vita.h).
+    StringOption VITA_HOST;
+    //  A Nintendo 3DS with Luma3DS (InputRedirection) and NTR-HR (the console
+    //  "3ds"): its address (see ClaudeGG/ClaudeGG_3DS.h).
+    StringOption N3DS_HOST;
     ButtonOption OPEN_SETUP_BUTTON;
     BooleanCheckBoxOption ASK_LANGUAGE;
     BooleanCheckBoxOption ASK_SETUP;

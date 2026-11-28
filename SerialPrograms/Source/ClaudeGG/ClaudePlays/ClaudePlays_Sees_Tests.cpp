@@ -18,6 +18,7 @@
  *
  */
 
+#include <cctype>
 #include <string>
 #include <vector>
 #include "Common/Cpp/CancellableScope.h"
@@ -25,7 +26,9 @@
 #include "CommonFramework/ImageTypes/ImageRGB32.h"
 #include "Tests/ImageUnitTest.h"
 #include "ClaudePlays_AnyGame.h"
+#include "ClaudePlays_Calibrate.h"
 #include "ClaudePlays_Consoles.h"
+#include "ClaudePlays_KnownGames.h"
 #include "ClaudePlays_Sees.h"
 #include "ClaudePlays_Sees_Tests.h"
 
@@ -128,11 +131,47 @@ public:
 class Test_ConsoleDifferences : public UnitTest{
 public:
     Test_ConsoleDifferences()
-        : UnitTest("ClaudePlays::Consoles - timing, picture box and yes or no per console")
+        : UnitTest("ClaudePlays::Consoles - timing, its measuring, picture box and yes or no per console")
     {}
     virtual UnitTestResult run(Logger&, CancellableScope&) const override{
         std::string failures;
         console_traits_tests(failures);
+        calibration_tests(failures);
+        known_games_tests(failures);
+        //  The buttons a known game's notes name (the words in capitals)
+        //  are those of its list's pad.
+        for (GameId list : all_games()){
+            const PadLayout& layout = pad_layout(game_profile(list).pad);
+            for (const KnownGame* game : known_games(list)){
+                for (const std::string* text : {&game->notes, &game->yes_no}){
+                    size_t at = 0;
+                    while (at < text->size()){
+                        //  To the start of the next word; one that does not start
+                        //  with a capital ("3D") is skipped whole.
+                        while (at < text->size() && !std::isalnum((unsigned char)(*text)[at])){
+                            at++;
+                        }
+                        if (at < text->size() && !((*text)[at] >= 'A' && (*text)[at] <= 'Z')){
+                            while (at < text->size() && std::isalnum((unsigned char)(*text)[at])){
+                                at++;
+                            }
+                            continue;
+                        }
+                        size_t end = at;
+                        bool capitals = true;
+                        while (end < text->size() && (std::isalnum((unsigned char)(*text)[end]) || (*text)[end] == '_')){
+                            capitals = capitals && !((*text)[end] >= 'a' && (*text)[end] <= 'z');
+                            end++;
+                        }
+                        const std::string word = text->substr(at, end - at);
+                        if (capitals && !word.empty() && !layout.has_button(word)){
+                            failures += "The notes of " + game->slug + " name " + word + ", not a button of the pad. ";
+                        }
+                        at = end;
+                    }
+                }
+            }
+        }
         if (!failures.empty()){
             failures += ". ";
         }

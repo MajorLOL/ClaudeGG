@@ -27,6 +27,7 @@
 #include "Pokemon/Pokemon_Strings.h"
 #include "ClaudeGG_Mobile.h"
 #include "ClaudeGG_PokemonGo.h"
+#include "ClaudeGG_PokemonGoBot.h"
 #include "ClaudeGG_PokemonGoFlow.h"
 #include "ClaudeGG_PokemonGoPhone.h"
 #include "ClaudeGG_PokemonGoText.h"
@@ -60,9 +61,28 @@ struct Preset{
     bool rocket;
     bool quests;
     Kind kind;
+    bool choose = false;    //  Auto play: what it does (spin, catch, gifts, Rocket, GO Pass) is chosen with the options
 };
 
+//  Can Claude GG play this preset itself (the parts of gamebot.py that are ported to C++)?  Spinning PokéStops, catching Pokémon, the gifts,
+//  the GO Pass rewards and the clean-up of a full bag; not Team GO Rocket and the daily run yet (Auto play, where they are chosen, says so).
+bool claude_can_play(const Preset& preset){
+    return preset.kind == Kind::SERVICE && (preset.spin || preset.catching || preset.gifts || preset.choose)
+        && !preset.daily && !preset.rocket;
+}
+
 const Preset PRESETS[] = {
+    {
+        "ClaudeGG:PokemonGO:AutoPlay", "Auto play",
+        "Plays Pokémon GO on its own with the Pokémon GO bot on the Raspberry Pi of the phone, the way you choose "
+        "below: spin PokéStops, catch Pokémon, open and send gifts, battle Team GO Rocket and claim the GO Pass "
+        "rewards, each on or off, with all the options of the catch, the bag and the look. It is the normal play "
+        "of the bot's own web interface. Pokémon GO must be on the map. Claude GG starts the bot, shows what it "
+        "writes and stops it when this program is stopped. Under Who plays Claude GG can play itself instead "
+        "(experimental): spin, catch and gifts, with the clean-up of a full bag; Team GO Rocket and the GO Pass "
+        "are only played by the bot on the Pi.",
+        true, true, true, false, false, false, Kind::SERVICE, true,
+    },
     {
         "ClaudeGG:PokemonGO:Spin", "Spin PokéStops",
         "Spins the PokéStops that the trainer stands at and walks to the next ones, with the Pokémon GO bot on the "
@@ -87,7 +107,7 @@ const Preset PRESETS[] = {
     {
         "ClaudeGG:PokemonGO:Gifts", "Gifts",
         "Opens the gifts that friends sent and sends gifts to friends, with the Pokémon GO bot on the Raspberry Pi "
-        "of the phone.",
+        "of the phone, or (under Who plays, experimental) with Claude GG itself.",
         false, false, true, false, false, false, Kind::SERVICE,
     },
     {
@@ -107,7 +127,8 @@ const Preset PRESETS[] = {
     {
         "ClaudeGG:PokemonGO:Quests", "Claim GO Pass rewards",
         "Spins PokéStops, catches Pokémon, and claims the GO Pass rewards whenever the quest button on the map "
-        "turns gold (a Pokémon as a reward is caught). Experimental: not tried on a phone with Claude GG yet.",
+        "turns gold (a Pokémon as a reward is caught), with the Pokémon GO bot on the Raspberry Pi of the phone, or "
+        "(under Who plays, experimental) with Claude GG itself. Experimental: not tried on a phone with Claude GG yet.",
         true, true, false, false, false, true, Kind::SERVICE,
     },
     {
@@ -319,7 +340,7 @@ public:
                 {Player::PI_BOT,    "pi",       "The Python bot on the Raspberry Pi"},
             },
             LockMode::LOCK_WHILE_RUNNING,
-            Player::CLAUDE_GG
+            preset.kind == Kind::BATTLES ? Player::CLAUDE_GG : Player::PI_BOT      //  (spinning with Claude GG is new: the bot of the Pi stays the default)
         )
         , BATTLE_GIVE_UP("Give up a battle that is lost (when the last Pokémon cannot win any more)", LockMode::LOCK_WHILE_RUNNING, true)
         , THROW_TARGET(
@@ -338,6 +359,10 @@ public:
         , CURVEBALL("Always throw a curveball", LockMode::LOCK_WHILE_RUNNING, false)
         , FAST_CATCH("Fast catch: after a clear hit press Back to skip the catch animation", LockMode::LOCK_WHILE_RUNNING, false)
         , BUDDY("My buddy walks along on the map", LockMode::LOCK_WHILE_RUNNING, false)
+        , SPIN_ON("Spin PokéStops", LockMode::LOCK_WHILE_RUNNING, true)
+        , CATCH_ON("Catch wild Pokémon", LockMode::LOCK_WHILE_RUNNING, true)
+        , ROCKET_ON("Team GO Rocket at a PokéStop: battle it with the recommended party (the Shadow Pokémon is caught afterwards)", LockMode::LOCK_WHILE_RUNNING, false)
+        , QUESTS_ON("GO Pass: claim the rewards when the quest button on the map turns gold", LockMode::LOCK_WHILE_RUNNING, false)
         , SPIN_ONLY_WHEN_FULL("Spin PokéStops when the Pokémon storage is full (catching pauses until there is room)", LockMode::LOCK_WHILE_RUNNING, false)
         , GIFTS_OPEN("Open gifts from friends", LockMode::LOCK_WHILE_RUNNING, true)
         , GIFTS_SEND("Send gifts to friends", LockMode::LOCK_WHILE_RUNNING, true)
@@ -357,6 +382,17 @@ public:
         PA_ADD_OPTION(SETUP_TEXT);
         switch (preset.kind){
         case Kind::SERVICE:
+            if (claude_can_play(preset)){
+                PA_ADD_OPTION(PLAYER);
+            }
+            if (preset.choose){
+                PA_ADD_OPTION(SPIN_ON);
+                PA_ADD_OPTION(CATCH_ON);
+            }
+            if (preset.choose || preset.daily){
+                PA_ADD_OPTION(ROCKET_ON);
+                PA_ADD_OPTION(QUESTS_ON);
+            }
             if (preset.catching){
                 PA_ADD_OPTION(THROW_TARGET);
                 PA_ADD_OPTION(CURVEBALL);
@@ -416,6 +452,15 @@ public:
     }
 
     virtual std::string check_validity() const override{
+        if (m_preset.choose && !SPIN_ON && !CATCH_ON && !GIFTS_OPEN && !GIFTS_SEND && !ROCKET_ON && !QUESTS_ON){
+            return "Choose at least one thing to do: spin, catch, gifts, Team GO Rocket or the GO Pass.";
+        }
+        if (claude_can_play(m_preset) && PLAYER == Player::CLAUDE_GG && m_preset.choose && ROCKET_ON){
+            return "Claude GG does not battle Team GO Rocket yet: switch it off, or choose the Python bot on the Raspberry Pi under Who plays.";
+        }
+        if (m_preset.gifts && !m_preset.daily && !GIFTS_OPEN && !GIFTS_SEND){
+            return "Choose to open gifts, to send gifts, or both.";
+        }
         if (m_preset.daily && !time_pattern().match(QString::fromStdString(std::string(DAILY_TIME)).trimmed()).hasMatch()){
             return "The daily start must be a time as HH:MM, like 08:00.";
         }
@@ -437,18 +482,21 @@ public:
             start.options.emplace_back(QString::fromLatin1(key), on);
         };
         switch (m_preset.kind){
-        case Kind::SERVICE:
-            add("spin", m_preset.spin);
-            add("catch", m_preset.catching);
+        case Kind::SERVICE:{
+            const bool spin = m_preset.choose ? (bool)SPIN_ON : m_preset.spin;
+            const bool catching = m_preset.choose ? (bool)CATCH_ON : m_preset.catching;
+            const bool chosen = m_preset.choose || m_preset.daily;
+            add("spin", spin);
+            add("catch", catching);
             add("gifts_open", m_preset.gifts && (m_preset.daily || (bool)GIFTS_OPEN));
             add("gifts_send", m_preset.gifts && (m_preset.daily || (bool)GIFTS_SEND));
             add("daily_cycle", m_preset.daily);
-            add("rocket_fight", m_preset.rocket);
-            add("quests", m_preset.quests);
-            add("curveball", m_preset.catching && (bool)CURVEBALL);
-            add("fast_catch", m_preset.catching && (bool)FAST_CATCH);
-            add("buddy", m_preset.catching && (bool)BUDDY);
-            add("spin_only_when_full", m_preset.catching && m_preset.spin && (bool)SPIN_ONLY_WHEN_FULL);
+            add("rocket_fight", m_preset.rocket || (chosen && (bool)ROCKET_ON));
+            add("quests", m_preset.quests || (chosen && (bool)QUESTS_ON));
+            add("curveball", catching && (bool)CURVEBALL);
+            add("fast_catch", catching && (bool)FAST_CATCH);
+            add("buddy", catching && (bool)BUDDY);
+            add("spin_only_when_full", catching && spin && (bool)SPIN_ONLY_WHEN_FULL);
             add("close_when_full", (bool)CLOSE_WHEN_FULL);
             add("bag_clean", (bool)BAG_CLEAN);
             add("heat_pause", (bool)HEAT_PAUSE);
@@ -457,7 +505,7 @@ public:
             add("battle", m_preset.daily && (bool)BATTLE_DAILY);
             add("battle_give_up", !m_preset.daily || (bool)BATTLE_GIVE_UP);
             add("teams_weekly", m_preset.daily && (bool)TEAMS_WEEKLY);
-            if (m_preset.catching){
+            if (catching){
                 start.throw_target = QString::fromLatin1(throw_slug(THROW_TARGET.get()));
             }
             if (m_preset.daily){
@@ -466,6 +514,7 @@ public:
                 start.daily_now = (bool)DAILY_NOW;
             }
             break;
+        }
         case Kind::BATTLES:
             add("battle", true);
             add("battle_give_up", (bool)BATTLE_GIVE_UP);
@@ -514,6 +563,10 @@ public:
         const MobileAgent agent(host, port, mobile_token());
         if (m_preset.kind == Kind::BATTLES && PLAYER == Player::CLAUDE_GG){
             run_battles(env, scope, host, port);
+            return;
+        }
+        if (claude_can_play(m_preset) && PLAYER == Player::CLAUDE_GG){
+            run_play(env, scope, host, port);
             return;
         }
         //  Stopping a test waits for the game to be back on the map: that takes longer than a tap.
@@ -690,10 +743,9 @@ private:
         }
     }
 
-    //  GO Battle League, played by Claude GG itself (Flow::battle_run of ClaudeGG_PokemonGoFlow, the C++ port of
-    //  gamebot.battle_run): the agent on the Pi gives the picture and the taps, nothing more.
-    void run_battles(ProgramEnvironment& env, CancellableScope& scope, const QString& address, int port){
-        const QString token = mobile_token();
+    //  What Claude GG needs to play itself: an agent that is new enough, a phone that answers, Tesseract on this computer, and the Python bot
+    //  not playing at the same time.  Returns the tesseract program.
+    QString prepare_phone(ProgramEnvironment& env, const QString& address, int port, const QString& token, bool battles, bool catching = false){
         const MobileAgent agent(address, port, token);
         const MobileAgent patient(address, port, token, 60000);
         const std::string where = address.toStdString() + ":" + std::to_string(port);
@@ -714,6 +766,13 @@ private:
                 );
             }
         }
+        if (catching && !info.features.contains("touch")){
+            throw UserSetupError(
+                env.logger(),
+                "The agent on the Raspberry Pi is too old (" + info.version.toStdString() + ") for Claude GG to throw a ball (0.2.2 and later): on the "
+                "Pi, in the folder of the clone, run  git pull  and then  bash Mobile/agent/install-agent.sh. Or choose the Python bot on the Pi under Who plays."
+            );
+        }
         if (info.width <= 0 || info.height <= 0){
             throw UserSetupError(env.logger(), "The phone on the Raspberry Pi does not answer (is it on, unlocked, and does adb devices show it?).");
         }
@@ -727,8 +786,11 @@ private:
         if (tesseract.isEmpty()){
             throw UserSetupError(
                 env.logger(),
-                "Tesseract is not installed on this computer: Claude GG reads the screens of the battles with it. Install it "
-                "(on Windows the installer of UB Mannheim, into C:\\Program Files\\Tesseract-OCR) and start the program again."
+                std::string(battles
+                    ? "Tesseract is not installed on this computer: Claude GG reads the screens of the battles with it. Install it "
+                      "(on Windows the installer of UB Mannheim, into C:\\Program Files\\Tesseract-OCR) and start the program again."
+                    : "Tesseract is not installed on this computer: Claude GG reads the text on the screens of the game with it. Install it "
+                      "(on Windows the installer of UB Mannheim, into C:\\Program Files\\Tesseract-OCR) and start the program again.")
             );
         }
         env.log("The text reader: " + tesseract.toStdString());
@@ -747,6 +809,103 @@ private:
                 }
             }
         }
+
+        return tesseract;
+    }
+
+    //  The options of the phone for Claude GG: the folder of the bot and the models in it.
+    PokemonGo::Phone::Options phone_options(const QString& tesseract, const QString& folder){
+        PokemonGo::Phone::Options options;
+        options.video = (bool)LIVE_LOOK;
+        options.give_up = (bool)BATTLE_GIVE_UP;
+        options.league = league();
+        options.folder = folder;
+        options.tesseract = tesseract;
+        if (!app().isEmpty()){
+            options.package = app();
+        }
+        options.models = qEnvironmentVariable("CLAUDEGG_MODELS");
+        if (options.models.isEmpty() && QDir(folder + "/models").exists()){
+            options.models = folder + "/models";
+        }
+        return options;
+    }
+
+    //  Spin PokéStops, catch Pokémon and do the gifts with Claude GG itself (the steps of gamebot.py ported to C++, over the agent).  Experimental.
+    void run_play(ProgramEnvironment& env, CancellableScope& scope, const QString& address, int port){
+        const QString token = mobile_token();
+        const MobileBotStart start = settings();
+        bool catching = false;
+        for (const std::pair<QString, bool>& option : start.options){
+            catching = catching || (option.first == "catch" && option.second);
+        }
+        const QString tesseract = prepare_phone(env, address, port, token, false, catching);
+        const QString folder = QString::fromStdString(USER_FILE_PATH()) + "PokemonGo";
+        QDir().mkpath(folder);
+        const PokemonGo::Phone::Options options = phone_options(tesseract, folder);
+        if (options.models.isEmpty()){
+            throw UserSetupError(
+                env.logger(),
+                "Claude GG needs the models of the bot to see the map and the PokéStops (" + folder.toStdString() + "/models, the ONNX "
+                "files that Mobile/tools/convert_models_to_onnx.py makes). Put them there, or choose the Python bot on the Pi under Who plays."
+            );
+        }
+        PokemonGo::Phone::AgentHost phone(
+            address, port, token, options,
+            [&](const QString& line){ env.log(line.toStdString()); },
+            [&]{ return scope.cancelled(); }
+        );
+        if (!phone.has_models()){
+            throw UserSetupError(env.logger(), "The models of " + options.models.toStdString() + " cannot be used: see the log above.");
+        }
+        PokemonGo::Bot::Switches switches;
+        for (const std::pair<QString, bool>& option : start.options){
+            switches[option.first] = option.second;
+        }
+        PokemonGo::Bot::Texts texts;
+        if (!start.throw_target.isEmpty()){
+            texts["throw_target"] = start.throw_target;
+        }
+        PokemonGo::Bot::PhoneBot bot(phone, switches, texts, folder);
+        std::string does;
+        const auto add_part = [&](const char* part){
+            does += (does.empty() ? "" : ", ") + std::string(part);
+        };
+        if (switches["spin"]){
+            add_part("spins the PokéStops");
+        }
+        if (switches["catch"]){
+            add_part("catches the Pokémon");
+        }
+        if (switches["gifts_open"]){
+            add_part("opens the gifts");
+        }
+        if (switches["gifts_send"]){
+            add_part("sends gifts");
+        }
+        if (switches["quests"]){
+            add_part("claims the GO Pass rewards");
+        }
+        if (switches["bag_clean"]){
+            add_part("cleans a full bag");
+        }
+        env.log("Claude GG itself " + does + " (experimental; Team GO Rocket and the daily run are not in Claude GG yet).");
+        try{
+            PokemonGo::Bot::run(bot);
+        }catch (const PokemonGo::Flow::Interrupted&){
+            env.log("Stopped " + bot.counts().toStdString() + ".");
+            scope.throw_if_cancelled();
+            throw;
+        }
+    }
+
+    //  GO Battle League, played by Claude GG itself (Flow::battle_run of ClaudeGG_PokemonGoFlow, the C++ port of
+    //  gamebot.battle_run): the agent on the Pi gives the picture and the taps, nothing more.
+    void run_battles(ProgramEnvironment& env, CancellableScope& scope, const QString& address, int port){
+        const QString token = mobile_token();
+        const MobileAgent agent(address, port, token);
+        QString error;
+        const QString tesseract = prepare_phone(env, address, port, token, true);
 
         //  The folder of what the battles learn, and the team: taken from the bot on the Pi when it has them.
         const QString folder = QString::fromStdString(USER_FILE_PATH()) + "PokemonGo";
@@ -777,19 +936,7 @@ private:
             }
         }
 
-        PokemonGo::Phone::Options options;
-        options.video = (bool)LIVE_LOOK;
-        options.give_up = (bool)BATTLE_GIVE_UP;
-        options.league = league();
-        options.folder = folder;
-        options.tesseract = tesseract;
-        if (!app().isEmpty()){
-            options.package = app();
-        }
-        options.models = qEnvironmentVariable("CLAUDEGG_MODELS");
-        if (options.models.isEmpty() && QDir(folder + "/models").exists()){
-            options.models = folder + "/models";
-        }
+        const PokemonGo::Phone::Options options = phone_options(tesseract, folder);
         if (options.models.isEmpty()){
             env.log("No models of the screen classifier (" + folder.toStdString() + "/models): a Pokémon to catch as a reward is not recognised.", COLOR_ORANGE);
         }
@@ -859,6 +1006,10 @@ private:
     BooleanCheckBoxOption CURVEBALL;
     BooleanCheckBoxOption FAST_CATCH;
     BooleanCheckBoxOption BUDDY;
+    BooleanCheckBoxOption SPIN_ON;
+    BooleanCheckBoxOption CATCH_ON;
+    BooleanCheckBoxOption ROCKET_ON;
+    BooleanCheckBoxOption QUESTS_ON;
     BooleanCheckBoxOption SPIN_ONLY_WHEN_FULL;
     BooleanCheckBoxOption GIFTS_OPEN;
     BooleanCheckBoxOption GIFTS_SEND;

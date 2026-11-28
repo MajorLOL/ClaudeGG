@@ -78,6 +78,7 @@ public:
         ABOUT,
         OUTPUT,
         BUTTONS,
+        CONSOLES,   //  the guide of the consoles
     };
     void show_window_panel(WindowPanel panel);
     WindowPanel window_panel() const{ return m_window_panel; }

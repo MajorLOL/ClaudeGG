@@ -146,7 +146,13 @@ size_t count_programs_for_setup();
 size_t count_options_for_setup();
 
 //  The same, whatever the settings say: "Open the setup" in the settings.
-void open_setup();
+//  With a console code (the Consoles guide), the setup has that console
+//  picked already.
+void open_setup(const QString& console_code = QString());
+
+//  The console of the settings, as the codes of the setup ("switch", "ps3",
+//  ...; empty: none chosen yet).
+QString current_console_code();
 
 //  The screens of the setup as the main window's own screen (see AppView):
 //  the games and the programs given, the output log, the options of the

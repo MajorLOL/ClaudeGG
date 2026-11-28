@@ -6,6 +6,7 @@
  */
 
 #include "Common/Compiler.h"
+#include <QCheckBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
@@ -18,6 +19,7 @@
 #include "ClaudeGG_Logo.h"
 #include "ClaudeGG_Theme.h"
 #include "ClaudeGG_Update.h"
+#include "ClaudeGG_UpdateDialog.h"
 #include "ClaudeGG_About.h"
 
 namespace PokemonAutomation{
@@ -142,30 +144,55 @@ std::unique_ptr<QDialog> make_about(QWidget* parent, const AboutInfo& info, Assi
         ).arg(info.name, QString::fromLatin1(qVersion()))
     ));
 
-    //  The check for updates: only when the button is pressed.
+    //  The check for updates: when the button is pressed (and at the start,
+    //  ClaudeGG_UpdateDialog.h).
     if (transport != nullptr){
         layout->addWidget(paragraph(dialog,
             tr_ui(
-                "<b>Updates.</b> Nothing is checked by itself. The button asks github.com for the list "
-                "of the builds of this fork, and that is all it sends. The program does not update "
-                "itself: a newer build is downloaded from its page."
+                "<b>Updates.</b> The button, and the program at its start unless you turn that off, "
+                "ask github.com for the list of the builds of this fork, and that is all they send. "
+                "A newer build can be installed from here: its download is checked against the "
+                "SHA-256 its release lists, and your settings stay."
             )
         ));
+        QCheckBox* at_start = new QCheckBox(tr_ui("Check for updates when Claude GG starts"), &dialog);
+        at_start->setObjectName("ppAboutUpdateAtStart");
+        at_start->setChecked(update_check_at_start());
+        QObject::connect(at_start, &QCheckBox::toggled, [](bool on){
+            set_update_check_at_start(on);
+        });
+        layout->addWidget(at_start);
         QHBoxLayout* update_row = new QHBoxLayout();
         update_row->setSpacing(12);
         layout->addLayout(update_row);
+        QVBoxLayout* update_buttons = new QVBoxLayout();
+        update_buttons->setSpacing(8);
+        update_row->addLayout(update_buttons);
         QPushButton* check_button = new QPushButton(tr_ui("Check for updates"), &dialog);
         check_button->setObjectName("ppAboutUpdateButton");
-        update_row->addWidget(check_button, 0, Qt::AlignTop);
+        update_buttons->addWidget(check_button, 0, Qt::AlignTop);
+        QPushButton* install_button = new QPushButton(tr_ui("Install..."), &dialog);
+        install_button->setObjectName("ppAboutInstallButton");
+        install_button->hide();
+        update_buttons->addWidget(install_button, 0, Qt::AlignTop);
+        update_buttons->addStretch(1);
         QLabel* update_result = paragraph(dialog, QString());
         update_result->setObjectName("ppAboutUpdateResult");
         update_row->addWidget(update_result, 1);
+        //  The last answer, for the window of the update.
+        std::shared_ptr<UpdateResult> last = std::make_shared<UpdateResult>();
+        QObject::connect(install_button, &QPushButton::clicked, &dialog, [&dialog, last]{
+            //  Over the main window, not the panel that About is in.
+            QWidget* main_window = dialog.window()->parentWidget() != nullptr ? dialog.window()->parentWidget()->window() : nullptr;
+            show_update_dialog(main_window, *last, false);
+        });
 
         //  The check goes with the button: it stops when the window is closed.
         std::shared_ptr<UpdateCheck> check = std::make_shared<UpdateCheck>(*transport, info.project_url, info.build);
         const QString color = link_color.name();
         QPointer<QPushButton> button_pointer(check_button);
         QPointer<QLabel> result_pointer(update_result);
+        QPointer<QPushButton> install_pointer(install_button);
         QDialog* dialog_pointer = &dialog;
         QVBoxLayout* layout_pointer = layout;
         QObject::connect(check_button, &QPushButton::clicked, check_button, [=]{
@@ -174,9 +201,12 @@ std::unique_ptr<QDialog> make_about(QWidget* parent, const AboutInfo& info, Assi
             }
             button_pointer->setEnabled(false);
             result_pointer->setText(tr_ui("Checking..."));
+            install_pointer->hide();
             check->start([=](const UpdateResult& result){
                 button_pointer->setEnabled(true);
                 result_pointer->setText(update_text(result, color));
+                *last = result;
+                install_pointer->setVisible(result.state == UpdateState::NEWER_AVAILABLE);
                 //  The window grows with the text, and does not shrink.
                 layout_pointer->activate();
                 const int needed = layout_pointer->totalHeightForWidth(dialog_pointer->width());

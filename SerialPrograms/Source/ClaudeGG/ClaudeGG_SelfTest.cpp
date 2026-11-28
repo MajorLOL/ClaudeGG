@@ -35,6 +35,9 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMouseEvent>
+#include <QProgressBar>
+#include <QRadioButton>
+#include <QCryptographicHash>
 #include <QPainter>
 #include <QPixmap>
 #include <QPushButton>
@@ -118,9 +121,14 @@
 #include "ClaudeGG_ShinyClip.h"
 #include "ClaudeGG_Theme.h"
 #include "ClaudeGG_WiiU.h"
+#include "ClaudeGG_Vita.h"
+#include "ClaudeGG_3DS.h"
 #include "ClaudeGG_Setup.h"
 #include "ClaudeGG_SelfTest.h"
 #include "ClaudeGG_Update.h"
+#include "ClaudeGG_UpdateDialog.h"
+#include "ClaudeGG_Updater.h"
+#include "miniz-3.1.1/miniz.h"
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -222,7 +230,7 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
         //  A few small pictures, for the log of the build (see the workflow).
         const QString base = QString::fromLatin1(name);
         if (base == "night-fire-about-update" || base == "night-fire-output-log" || base == "night-fire-settings-search" ||
-            base == "night-fire-panel-about" || base == "night-fire-panel-output"
+            base == "night-fire-panel-about" || base == "night-fire-panel-output" || base == "night-fire-panel-consoles"
         ){
             picture.scaledToWidth(960, Qt::SmoothTransformation).save(out + "/preview-" + base + ".jpg", "JPG", 72);
         }
@@ -330,10 +338,12 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
             bool ps3_ok = false;
             bool xbox_ok = false;
             bool wiiu_ok = false;
+            bool vita_ok = false;
+            bool n3ds_ok = false;
             int retro_ok = 0;
             bool retro_wrong = false;
             bool switch_ok = true;
-            const char* const OTHERS[] = {"mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu"};
+            const char* const OTHERS[] = {"mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu", "psdirect", "xboxdirect", "steam", "vita", "3ds"};
             //  The lists of the Xbox 360, Remote Play, the iPhone and the PlayStation Classic, and their consoles.
             const std::map<QString, const char*> LATER{
                 {"Xbox 360 games", "xbox360"},
@@ -341,6 +351,9 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                 {"Xbox One and Series games", "xboxremote"},
                 {"iPhone apps", "iphone"},
                 {"PlayStation Classic games", "psclassic"},
+                {"PS4 and PS5 games, direct", "psdirect"},
+                {"Xbox One and Series games, direct", "xboxdirect"},
+                {"Steam Deck and PC games", "steam"},
             };
             int later_ok = 0;
             const QStringList RETRO_LISTS{
@@ -352,6 +365,8 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                 const bool xbox = listed_game.name == "Original Xbox games";
                 const bool retro = RETRO_LISTS.contains(listed_game.name);
                 const bool wiiu = listed_game.name == WiiU::WIIU_LIST_NAME;
+                const bool vita = listed_game.name == Vita::VITA_LIST_NAME;
+                const bool n3ds = listed_game.name == ThreeDS::LIST_NAME;
                 const auto only = [&](const char* console){
                     bool fine = game_is_for_console(listed_game, console) &&
                         !game_is_for_console(listed_game, "switch") && !game_is_for_console(listed_game, "switch2");
@@ -363,21 +378,25 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     return fine;
                 };
                 if (go){
-                    go_ok = listed_game.programs == 10 && only("mobile");
+                    go_ok = listed_game.programs == 11 && only("mobile");     //  (the eleven of ClaudeGG_PokemonGo.cpp)
                 }else if (ps3){
-                    ps3_ok = listed_game.programs == 1 && only("ps3");
+                    ps3_ok = listed_game.programs == 2 && only("ps3");
                 }else if (xbox){
-                    xbox_ok = listed_game.programs == 1 && only("xbox");
+                    xbox_ok = listed_game.programs == 2 && only("xbox");
                 }else if (wiiu){
                     wiiu_ok = listed_game.programs == (int)WiiU::wiiu_program_count() && only("wiiu");
+                }else if (vita){
+                    vita_ok = listed_game.programs == (int)Vita::vita_program_count() && only("vita");
+                }else if (n3ds){
+                    n3ds_ok = listed_game.programs == (int)ThreeDS::program_count() && only("3ds");
                 }else if (LATER.count(listed_game.name) != 0){
-                    if (listed_game.programs == 1 && only(LATER.at(listed_game.name))){
+                    if (listed_game.programs == 2 && only(LATER.at(listed_game.name))){
                         later_ok++;
                     }else{
                         retro_wrong = true;
                     }
                 }else if (retro){
-                    if (listed_game.programs == 1 && only("retro")){
+                    if (listed_game.programs == 2 && only("retro")){
                         retro_ok++;
                     }else{
                         retro_wrong = true;
@@ -392,7 +411,7 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     switch_ok = switch_ok && fine;
                 }
             }
-            if (!go_ok || !ps3_ok || !xbox_ok || !wiiu_ok || retro_ok != 5 || later_ok != (int)LATER.size() || retro_wrong || !switch_ok){
+            if (!go_ok || !ps3_ok || !xbox_ok || !wiiu_ok || !vita_ok || !n3ds_ok || retro_ok != 5 || later_ok != (int)LATER.size() || retro_wrong || !switch_ok){
                 failed++;
                 logger.log("UI test: the games are not divided over the consoles (Pokemon GO for the phone, Claude Plays of the PlayStation 3, the original Xbox, the five retro consoles, the Xbox 360, Remote Play, the iPhone, the PlayStation Classic and the Wii U for them, the rest for the Switch)", COLOR_RED);
             }
@@ -414,6 +433,104 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
             if (!fine){
                 failed++;
                 logger.log("UI test: the Wii U's symbols or touches are not read as they should be", COLOR_RED);
+            }
+        }
+        //  The PlayStation Vita: the bits of its buttons, its sticks, the token
+        //  as typed, a touch on Claude's picture, and a picture of "shot" (the
+        //  game's plane with the shell's over it).
+        {
+            int tx = -1;
+            int ty = -1;
+            Vita::touch_point(479, 271, 480, 272, tx, ty);
+            auto plane = [](QByteArray& data, uint32_t w, uint32_t h, const std::vector<unsigned char>& rgba){
+                const uint32_t fields[] = {w, h, w * 4, 0, (uint32_t)rgba.size()};
+                data += "VSHT";
+                for (uint32_t field : fields){
+                    for (int b = 0; b < 4; b++){
+                        data += (char)((field >> (8 * b)) & 0xff);
+                    }
+                }
+                data += QByteArray(reinterpret_cast<const char*>(rgba.data()), (qsizetype)rgba.size());
+            };
+            QByteArray shot;
+            plane(shot, 2, 1, {10, 20, 30, 255, 40, 50, 60, 255});
+            plane(shot, 2, 1, {0, 0, 0, 0, 200, 100, 0, 255});
+            const QImage picture = Vita::picture_of_shot(shot);
+            QByteArray no_shell;
+            plane(no_shell, 2, 1, {10, 20, 30, 255, 40, 50, 60, 255});
+            plane(no_shell, 0, 0, {});
+            const QImage alone = Vita::picture_of_shot(no_shell);
+            const std::string token(64, 'a');
+            const bool fine =
+                Vita::button_bit("CROSS") == 0x4000 && Vita::button_bit("CIRCLE") == 0x2000 &&
+                Vita::button_bit("L") == 0x400 && Vita::button_bit("HOME") == 0x10000 && Vita::button_bit("ZL") == 0 &&
+                Vita::stick_value(0, false) == 128 && Vita::stick_value(1, false) == 255 && Vita::stick_value(-1, false) == 0 &&
+                Vita::stick_value(1, true) == 0 && Vita::stick_value(-1, true) == 255 &&
+                Vita::token_of(" " + token + "\n") == token && Vita::token_of(token.substr(1)).empty() &&
+                Vita::token_of(std::string(63, 'a') + "g").empty() &&
+                tx == 959 && ty == 543 &&
+                picture.width() == 2 && picture.height() == 1 &&
+                picture.pixel(0, 0) == qRgb(10, 20, 30) && picture.pixel(1, 0) == qRgb(200, 100, 0) &&
+                alone.width() == 2 && alone.pixel(1, 0) == qRgb(40, 50, 60) &&
+                Vita::picture_of_shot(QByteArray("ERR busy")).isNull();
+            if (!fine){
+                failed++;
+                logger.log("UI test: the Vita's buttons, sticks, token, touches or pictures are not read as they should be", COLOR_RED);
+            }
+        }
+        //  The Nintendo 3DS: the 20 bytes of InputRedirection, the command
+        //  that starts NTR's stream, the pieces of a picture put together,
+        //  and a touch on the picture of both screens.
+        {
+            auto u32 = [](const QByteArray& data, int at){
+                uint32_t v = 0;
+                for (int b = 3; b >= 0; b--){
+                    v = (v << 8) | (uint8_t)data[at + b];
+                }
+                return v;
+            };
+            const QByteArray none = ThreeDS::input_packet(ThreeDS::PadState());
+            ThreeDS::PadState pressed;
+            pressed.buttons = {"A", "DOWN", "ZR", "HOME"};
+            pressed.touch_x = 320;
+            pressed.touch_y = 0;
+            pressed.circle_x = 1;
+            const QByteArray held = ThreeDS::input_packet(pressed);
+            const QByteArray start = ThreeDS::ntr_start_packet(true, 5, 75, 105);
+            ThreeDS::FrameAssembler assembler;
+            const unsigned char first_bytes[] = {7, 0x01, 2, 0, 0xff, 0xd8, 1};
+            const char* first = reinterpret_cast<const char*>(first_bytes);
+            const unsigned char last_bytes[] = {7, 0x11, 2, 1, 2, 0xff, 0xd9};
+            const char* last = reinterpret_cast<const char*>(last_bytes);
+            const char wrong[] = {8, 0x10, 2, 3, 0};
+            bool top = false;
+            QByteArray jpeg;
+            const bool not_yet = !assembler.add(first, sizeof(first_bytes), top, jpeg);
+            const bool whole = assembler.add(last, sizeof(last_bytes), top, jpeg);
+            const bool missing = !assembler.add(wrong, sizeof(wrong), top, jpeg);
+            int tx = -1;
+            int ty = -1;
+            const bool on_bottom = ThreeDS::touch_point(200, 360, 400, 480, tx, ty);
+            int ux = -1;
+            int uy = -1;
+            const bool on_top = ThreeDS::touch_point(200, 100, 400, 480, ux, uy);
+            const QImage both = ThreeDS::both_screens(QImage(), QImage());
+            const QImage side(240, 400, QImage::Format_RGB32);
+            const bool fine =
+                none.size() == 20 && u32(none, 0) == 0xfff && u32(none, 4) == 0x02000000 && u32(none, 8) == 0x007ff7ff &&
+                u32(none, 12) == 0x80800081 && u32(none, 16) == 0 &&
+                u32(held, 0) == (0xfffu & ~0x1u & ~0x80u) && u32(held, 4) == ((1u << 24) | 0xfffu) &&
+                (u32(held, 8) & 0xfff) == 0xdd0 && (u32(held, 8) >> 12) == 0x800 &&
+                ((u32(held, 12) >> 8) & 0xff) == 0x2 && u32(held, 16) == 1 &&
+                start.size() == 84 && u32(start, 0) == 0x12345678 && u32(start, 12) == 901 &&
+                u32(start, 16) == 0x105 && u32(start, 20) == 75 && u32(start, 24) == (210u << 16) &&
+                not_yet && whole && top && jpeg == QByteArray("\xff\xd8\x01\x02\xff\xd9", 6) && missing &&
+                on_bottom && tx == 160 && ty == 120 && !on_top &&
+                both.width() == 400 && both.height() == 480 &&
+                ThreeDS::upright(side).width() == 400 && ThreeDS::upright(side).height() == 240;
+            if (!fine){
+                failed++;
+                logger.log("UI test: the 3DS's input, its stream or its touches are not made as they should be", COLOR_RED);
             }
         }
         if (!window.open_game(QString::fromStdString(GAME))){
@@ -924,6 +1041,38 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     "Text in its bottom part, as the program reads it:\nStart Game" &&
                 console.read_width == 1280 && console.read_height == 360 &&
                 results[2].rfind("Held left stick up + B for 400 ms. Screen: 22% of the picture differs", 0) == 0;
+            //  The reaction time: every turn of Claude and every action is
+            //  timed, in the log of each action and in the summary.
+            bool timed_lines = !host.lines.empty();
+            size_t timed_actions = 0;
+            for (const std::string& line : host.lines){
+                if (line.rfind("Claude Plays:   ", 0) == 0){
+                    timed_actions++;
+                    timed_lines = timed_lines && line.find(" (Claude ") != std::string::npos &&
+                        line.find(" s, the console ") != std::string::npos;
+                }
+            }
+            const bool timed =
+                ending.timing.turns == 5 && ending.timing.actions == 3 && timed_lines && timed_actions == 3 &&
+                ending.summary.find("Reaction time: Claude ") != std::string::npos &&
+                ClaudePlays::seconds_line(1.96) == "2.0 s";
+            ClaudePlays::Timing made_up;
+            made_up.thought(1.0);
+            made_up.thought(3.0);
+            made_up.acted(0.5);
+            const bool timing_reads =
+                ClaudePlays::timing_line(made_up, "Claude") ==
+                    "Reaction time: Claude 2.0 s a turn (slowest 3.0 s), the console 0.5 s an action." &&
+                ClaudePlays::timing_line(ClaudePlays::Timing(), "Claude").empty();
+            if (!timed || !timing_reads){
+                failed++;
+                logger.log(
+                    "Assistant test: the reaction time of a session is not told as it should be: " +
+                    std::to_string(ending.timing.turns) + " turns, " + std::to_string(ending.timing.actions) +
+                    " actions timed; " + ending.summary + " | " + ClaudePlays::timing_line(made_up, "Claude"),
+                    COLOR_RED
+                );
+            }
             if (played_well){
                 logger.log(
                     "Assistant test: Claude played a session of any game on a made-up console (a look as a "
@@ -1185,6 +1334,12 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     gate_ending.reached && gate_ending.actions == 3 && gate_host.actions == 3 &&
                     gate_ending.summary.rfind("Claude says the goal is reached. Played through the server.", 0) == 0,
                     "the session ended as Claude Code said: " + gate_ending.summary
+                );
+                gate(
+                    gate_ending.timing.actions == 3 && gate_ending.timing.turns == 3 &&
+                    gate_ending.summary.find("Reaction time: Claude Code ") != std::string::npos,
+                    "Claude Code's turns and the console's actions are timed (" + std::to_string(gate_ending.timing.turns) +
+                    " turns, " + std::to_string(gate_ending.timing.actions) + " actions)"
                 );
                 bool connected_log = false;
                 for (const std::string& line : gate_host.lines){
@@ -1630,7 +1785,7 @@ int check_assistant(const QString& out, Logger& logger){
         }
     }
     //  The games that have nothing but Claude Plays: their list is its name,
-    //  a card and that one program.
+    //  a card, that program and Macro (ClaudeGG_Macro.h).
     int list_cases = 0;
     for (ClaudePlays::GameId id : ClaudePlays::all_games()){
         if (!ClaudePlays::has_only_claude_plays(id)){
@@ -1642,10 +1797,10 @@ int check_assistant(const QString& out, Logger& logger){
         const ImageViewRGB32& card = list.icon();
         const std::vector<PanelListDescriptor::ProgramSummary> programs = list.program_summaries();
         if (list.name() != profile.title || !card || card.width() != 256 || card.height() != 128 ||
-            programs.size() != 1 || programs[0].name != "Claude Plays"
+            programs.size() != 2 || programs[0].name != "Claude Plays" || programs[1].name != "Macro"
         ){
             wrong++;
-            logger.log("Assistant test: failed: the list of " + profile.title + " (a card and Claude Plays)", COLOR_RED);
+            logger.log("Assistant test: failed: the list of " + profile.title + " (a card, Claude Plays and Macro)", COLOR_RED);
         }
     }
     logger.log(
@@ -1806,6 +1961,7 @@ int check_window_panels(MainWindow& window, Logger& logger, const std::function<
     const Case CASES[] = {
         {MainWindow::WindowPanel::OUTPUT,   "Output",   "night-fire-panel-output"},
         {MainWindow::WindowPanel::BUTTONS,  "Buttons",  "night-fire-panel-buttons"},
+        {MainWindow::WindowPanel::CONSOLES, "Consoles", "night-fire-panel-consoles"},
         {MainWindow::WindowPanel::ABOUT,    "About",    "night-fire-panel-about"},
     };
     for (const Case& one : CASES){
@@ -2759,6 +2915,9 @@ int check_updates(Logger& logger){
                 "the answer is in the window, with the link"
             );
             check(label->openExternalLinks(), "the link opens in the browser");
+            QPushButton* install = about->findChild<QPushButton*>("ppAboutInstallButton");
+            check(install != nullptr && !install->isHidden(), "a newer build: the button to install it");
+            check(about->findChild<QCheckBox*>("ppAboutUpdateAtStart") != nullptr, "the choice to check at the start");
 
             //  A window closed while the check runs.
             transport.silent = true;
@@ -2772,6 +2931,308 @@ int check_updates(Logger& logger){
 
     logger.log(
         "Update test: " + std::to_string(checks - wrong) + " of " + std::to_string(checks) + " checks passed.",
+        wrong == 0 ? COLOR_BLUE : COLOR_RED
+    );
+    return wrong;
+}
+
+
+namespace{
+
+QByteArray make_test_zip(const std::vector<std::pair<QString, QByteArray>>& files){
+    mz_zip_archive zip;
+    memset(&zip, 0, sizeof(zip));
+    if (!mz_zip_writer_init_heap(&zip, 0, 0)){
+        return QByteArray();
+    }
+    for (const auto& file : files){
+        mz_zip_writer_add_mem(
+            &zip, file.first.toUtf8().constData(), file.second.constData(), (size_t)file.second.size(), (mz_uint)MZ_DEFAULT_LEVEL
+        );
+    }
+    void* buffer = nullptr;
+    size_t size = 0;
+    QByteArray bytes;
+    if (mz_zip_writer_finalize_heap_archive(&zip, &buffer, &size)){
+        bytes = QByteArray(static_cast<const char*>(buffer), (qsizetype)size);
+        mz_free(buffer);
+    }
+    mz_zip_writer_end(&zip);
+    return bytes;
+}
+
+bool write_test_file(const QString& path, const QByteArray& bytes){
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QFile file(path);
+    return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+}
+
+QByteArray read_test_file(const QString& path){
+    QFile file(path);
+    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray("<missing>");
+}
+
+}
+
+//  Installing an update (ClaudeGG_Updater.h, ClaudeGG_UpdateDialog.h): what
+//  a release says is new and its SHA-256, unpacking, putting the files over a
+//  copy while the user's stay (and everything put back when one cannot be
+//  written), a copy next to this one, the download with its check, and the
+//  window. All in a folder of its own, without the network. (The step of the
+//  new build itself, --apply-update, is the workflow's "Update test".)
+int check_updater(const QString& out, Logger& logger){
+    int checks = 0;
+    int wrong = 0;
+    auto check = [&](bool ok, const char* what){
+        checks++;
+        if (!ok){
+            wrong++;
+            logger.log(std::string("Updater test: FAILED: ") + what, COLOR_RED);
+        }
+    };
+
+    //  What is new, and the SHA-256.
+    check(
+        whats_new_items(
+            "intro\n## What's new\n* Faster throws by @MajorLOL in https://github.com/x/y/pull/5\n"
+            "- **Bold** `code`\n\n## Other\n* not this\n"
+        ) == QStringList({"Faster throws", "Bold code"}),
+        "the points of \"What's new\", without GitHub's \"by ... in ...\""
+    );
+    check(whats_new_items("## What’s Changed\r\n* A\r\n").size() == 1, "GitHub's own heading, with a curly quote");
+    check(whats_new_items("* a point without a heading").isEmpty(), "no section, no points");
+
+    const QString A64(64, 'a');
+    const QString B64(64, 'b');
+    const QByteArray releases =
+        "[{\"tag_name\":\"v0.2.0.12\",\"draft\":false,\"published_at\":\"2026-11-28T01:00:00Z\","
+        "\"body\":\"## What's new\\n* Updates from the program\\n\","
+        "\"assets\":[{\"name\":\"ClaudeGG-Windows.zip\",\"size\":1234,\"digest\":\"sha256:" + A64.toUpper().toLatin1() + "\","
+        "\"browser_download_url\":\"https://evil.example/x.zip\"}]},"
+        "{\"tag_name\":\"v0.2.0.11\",\"draft\":false,\"published_at\":\"2026-11-27T01:00:00Z\","
+        "\"body\":\"SHA-256 of ClaudeGG-Windows.zip: " + B64.toLatin1() + "\"},"
+        "{\"tag_name\":\"v0.2.0.10\",\"draft\":false,\"body\":\"## What's new\\n* old\"},"
+        "{\"tag_name\":\"v0.2.0.13\",\"draft\":true}]";
+    const ReleaseLocation location = release_location(PROJECT_URL);
+    Assistant::HttpResponse answer = releases_answer(200, releases);
+    UpdateResult result = update_result(answer, location, version_number("0.2.0.10"));
+    check(result.state == UpdateState::NEWER_AVAILABLE && result.latest.package_sha256 == A64, "the SHA-256 from GitHub's digest, in lower case");
+    check(result.latest.package_size == 1234, "the size of the package");
+    check(
+        result.package_url == "https://github.com/MajorLOL/ClaudeGG/releases/download/v0.2.0.12/ClaudeGG-Windows.zip",
+        "the package's address is made from the number, not taken from the answer"
+    );
+    check(
+        result.news.size() == 2 && result.news[0].build == version_number("0.2.0.12") &&
+        result.news[0].items == QStringList({"Updates from the program"}) && result.news[1].items.isEmpty(),
+        "what is new in each newer build, the newest first, no draft"
+    );
+    check(news_html(result).contains("Updates from the program") && !news_html(result).contains("<script"), "\"What's new\" as text");
+    {
+        const QJsonArray list = QJsonDocument::fromJson(releases).array();
+        check(package_sha256_of(list[1].toObject()) == B64, "the SHA-256 from the text of the release");
+        check(package_sha256_of(list[2].toObject()).isEmpty(), "a release without a SHA-256");
+    }
+#ifdef _WIN32
+    check(can_install(result), "a newer build with a SHA-256 can be installed");
+#endif
+    check(!can_install(update_result(answer, location, version_number("0.2.0.12"))), "nothing to install when it is up to date");
+
+    //  What is the user's.
+    check(
+        keep_users_file("UserSettings/PA-Stats.txt") && keep_users_file("ClaudeGG-Settings.json") &&
+        keep_users_file("installations/2/status.json") && keep_users_file("Languages/custom.json") &&
+        keep_users_file("ClaudeGG.log"),
+        "the settings, the installations, the languages and the logs are the user's"
+    );
+    check(
+        !keep_users_file("ClaudeGG.exe") && !keep_users_file("Resources/ResourceDownloadList.json") &&
+        !keep_users_file("version.txt") && !keep_users_file("platforms/qwindows.dll"),
+        "the program's files are not"
+    );
+
+    QTemporaryDir temporary;
+    check(temporary.isValid(), "a folder for the test");
+    const QString T = temporary.path() + "/";
+
+    //  Unpacking.
+    QString error;
+    const QByteArray zip = make_test_zip({
+        {"ClaudeGG/ClaudeGG.exe", "NEW"}, {"ClaudeGG/Qt6Core.dll", "new core"},
+        {"ClaudeGG/UserSettings/PA-Stats.txt", ""}, {"ClaudeGG/Resources/a.json", "new resource"},
+    });
+    check(write_test_file(T + "new.zip", zip), "the zip of the test");
+    check(unpack_zip(T + "new.zip", T + "unpacked", error), "a package is unpacked");
+    check(package_root(T + "unpacked") == T + "unpacked/ClaudeGG/", "the folder with the program in it");
+    write_test_file(T + "bad.zip", make_test_zip({{"../evil.txt", "x"}}));
+    check(!unpack_zip(T + "bad.zip", T + "bad", error) && !QFile::exists(T + "evil.txt"), "a name that leaves the folder is refused");
+    write_test_file(T + "junk.zip", "not a zip");
+    check(!unpack_zip(T + "junk.zip", T + "junk", error) && !error.isEmpty(), "what is not a zip");
+
+    //  Over an older copy.
+    const QString old = T + "old/";
+    write_test_file(old + "ClaudeGG.exe", "OLD");
+    write_test_file(old + "Qt6Core.dll", "old core");
+    write_test_file(old + "UserSettings/PA-Stats.txt", "my stats");
+    write_test_file(old + "Resources/a.json", "old resource");
+    write_test_file(old + "only-in-the-old.txt", "stays");
+    CopyReport report;
+    check(copy_package(T + "unpacked/ClaudeGG/", old, T + "backup/", report), "the update is put in place");
+    check(
+        read_test_file(old + "ClaudeGG.exe") == "NEW" && read_test_file(old + "Resources/a.json") == "new resource",
+        "the program's files are new"
+    );
+    check(read_test_file(old + "UserSettings/PA-Stats.txt") == "my stats", "the user's file stays");
+    check(read_test_file(old + "only-in-the-old.txt") == "stays", "nothing is deleted");
+    check(read_test_file(T + "backup/ClaudeGG.exe") == "OLD", "the old program is in the backup");
+    check(report.replaced == 3 && report.added == 0 && report.kept == 1, "what the report counts");
+
+    //  A file that cannot be written: everything goes back.
+    const QString blocked = T + "blocked/";
+    write_test_file(blocked + "ClaudeGG.exe", "OLD");
+    write_test_file(blocked + "Qt6Core.dll", "old core");
+    QDir().mkpath(blocked + "Resources/a.json");
+    check(!copy_package(T + "unpacked/ClaudeGG/", blocked, T + "backup2/", report) && !report.error.isEmpty(), "an update that cannot be written fails");
+    check(
+        read_test_file(blocked + "ClaudeGG.exe") == "OLD" && read_test_file(blocked + "Qt6Core.dll") == "old core" &&
+        !QFile::exists(blocked + "UserSettings/PA-Stats.txt"),
+        "and everything is as it was"
+    );
+
+    //  Next to this copy.
+    const QString beside = side_by_side_folder(old, version_number("0.2.0.12"));
+    check(beside == T + "Claude GG 0.2.0.12/", "the folder next to this one");
+    write_test_file(T + "data/UserSettings/ClaudeGG-Settings.json", "{\"x\":1}");
+    check(install_side_by_side(T + "unpacked/ClaudeGG/", beside, T + "data/", error), "installed next to this copy");
+    check(
+        read_test_file(beside + "ClaudeGG.exe") == "NEW" && read_test_file(beside + "UserSettings/ClaudeGG-Settings.json") == "{\"x\":1}",
+        "with the program and a copy of the settings"
+    );
+    check(side_by_side_folder(old, version_number("0.2.0.12")) == T + "Claude GG 0.2.0.12 (2)/", "a taken name gets a number");
+
+    //  What the step of the new build leaves for the next start.
+    {
+        bool ok = false;
+        QString build;
+        QString message;
+        check(write_update_outcome(T + "data/", false, "0.2.0.12", "why"), "the note is written");
+        check(take_update_outcome(T + "data/", ok, build, message) && !ok && build == "0.2.0.12" && message == "why", "the note is read");
+        check(!take_update_outcome(T + "data/", ok, build, message), "and only once");
+        QDir().mkpath(T + "data/Updates/0.2.0.12/package");
+        clean_old_updates(T + "data/");
+        check(!QFileInfo::exists(T + "data/Updates/0.2.0.12"), "what an update left is cleaned up");
+    }
+
+    //  The download.
+    const QByteArray package = make_test_zip({{"ClaudeGG/ClaudeGG.exe", "NEWER"}});
+    const QString package_sha = QString::fromLatin1(QCryptographicHash::hash(package, QCryptographicHash::Sha256).toHex());
+    {
+        ScriptedTransport transport;
+        transport.answer = releases_answer(200, package);
+        UpdateDownload download(transport);
+        bool called = false;
+        bool ok = false;
+        QString root;
+        std::vector<UpdateDownload::Stage> stages;
+        download.start(
+            "https://github.com/MajorLOL/ClaudeGG/releases/download/v1/ClaudeGG-Windows.zip", package_sha, package.size(), T + "download/",
+            [&](UpdateDownload::Stage stage, qint64, qint64){ stages.push_back(stage); },
+            [&](bool fine, const QString&, const QString& folder){ called = true; ok = fine; root = folder; }
+        );
+        check(!called && transport.requests.size() == 1, "the download asks once, and answers later");
+        for (int c = 0; c < 100 && !called; c++){
+            let_run(20);
+        }
+        check(called && ok && read_test_file(root + "ClaudeGG.exe") == "NEWER", "downloaded, checked and unpacked");
+        check(!QFile::exists(T + "download/ClaudeGG-Windows.zip"), "the zip is deleted once it is unpacked");
+        check(
+            std::find(stages.begin(), stages.end(), UpdateDownload::Stage::CHECKING) != stages.end() &&
+            std::find(stages.begin(), stages.end(), UpdateDownload::Stage::UNPACKING) != stages.end(),
+            "the progress names the check and the unpacking"
+        );
+        if (!transport.requests.empty()){
+            bool secret = false;
+            for (const Assistant::HttpHeader& header : transport.requests[0].headers){
+                const QByteArray name = header.name.toLower();
+                secret = secret || name == "authorization" || name == "cookie";
+            }
+            check(!secret && transport.requests[0].method == "GET", "a plain GET, without a key or a cookie");
+        }
+    }
+    {
+        ScriptedTransport transport;
+        transport.answer = releases_answer(200, package);
+        UpdateDownload download(transport);
+        bool called = false;
+        bool ok = true;
+        download.start("https://example.com/x.zip", QString(64, '0'), 0, T + "download2/", nullptr,
+            [&](bool fine, const QString&, const QString&){ called = true; ok = fine; }
+        );
+        for (int c = 0; c < 100 && !called; c++){
+            let_run(20);
+        }
+        check(called && !ok, "a package with another SHA-256 is refused");
+        check(QDir(T + "download2/").entryList(QDir::Files).isEmpty() && !QFileInfo::exists(T + "download2/package"), "and nothing of it stays");
+    }
+    {
+        ScriptedTransport transport;
+        transport.answer = releases_answer(200, package);
+        UpdateDownload download(transport);
+        bool called = false;
+        bool ok = true;
+        download.start("https://example.com/x.zip", QString(), 0, T + "download3/", nullptr,
+            [&](bool fine, const QString&, const QString&){ called = true; ok = fine; }
+        );
+        let_run(50);
+        check(called && !ok && transport.requests.empty(), "without a SHA-256 nothing is downloaded");
+    }
+
+    //  The window: shown, and an update downloaded in it (a dry run).
+    {
+        ScriptedTransport transport;
+        transport.answer = releases_answer(200, package);
+        UpdateResult offer = result;
+        offer.latest.package_sha256 = package_sha;
+        offer.latest.package_size = package.size();
+        UpdateTarget target;
+        target.program = T + "w/program/";
+        target.data = T + "w/data/";
+        target.dry_run = true;
+        std::unique_ptr<QDialog> window = make_update_dialog(nullptr, offer, target, &transport, true);
+        window->setAttribute(Qt::WA_DontShowOnScreen, true);
+        window->resize(680, 640);
+        window->show();
+        let_run(300);
+        QLabel* news = window->findChild<QLabel*>("ppUpdateNews");
+        QPushButton* install = window->findChild<QPushButton*>("ppUpdateInstall");
+        QRadioButton* replace = window->findChild<QRadioButton*>("ppUpdateReplace");
+        QRadioButton* next_to = window->findChild<QRadioButton*>("ppUpdateBeside");
+        check(news != nullptr && news->text().contains("Updates from the program"), "the window says what is new");
+        check(window->findChild<QPushButton*>("ppUpdateSkip") != nullptr, "at the start it offers to skip the build");
+        check(window->findChild<QCheckBox*>("ppUpdateAtStart") != nullptr, "and the choice to check at the start");
+        check(replace != nullptr && replace->isChecked() && next_to != nullptr, "updating this copy is the default");
+        window->grab().save(out + "/updater-window.png");
+#ifdef _WIN32
+        check(install != nullptr && install->isEnabled(), "the button installs");
+        if (install != nullptr && next_to != nullptr){
+            next_to->setChecked(true);
+            install->click();
+            QPushButton* start_new = window->findChild<QPushButton*>("ppUpdateStartNew");
+            for (int c = 0; c < 150 && start_new != nullptr && start_new->isHidden(); c++){
+                let_run(20);
+            }
+            check(start_new != nullptr && !start_new->isHidden(), "installed next to this copy from the window");
+            check(read_test_file(T + "w/Claude GG 0.2.0.12/ClaudeGG.exe") == "NEWER", "the new build is in its folder");
+            window->grab().save(out + "/updater-window-installed.png");
+        }
+#else
+        check(install != nullptr && !install->isEnabled(), "only Windows installs itself");
+#endif
+        window->close();
+    }
+
+    logger.log(
+        "Updater test: " + std::to_string(checks - wrong) + " of " + std::to_string(checks) + " checks passed.",
         wrong == 0 ? COLOR_BLUE : COLOR_RED
     );
     return wrong;
@@ -7000,6 +7461,7 @@ int run_ui_screenshots(QApplication& application, MainWindow& window, const std:
         failed += check_assistant(out, logger);
         failed += check_name_mark(logger);
         failed += check_updates(logger);
+        failed += check_updater(out, logger);
         failed += check_story_times(logger);
         failed += check_shiny_clip(logger);
         failed += check_history_frames(logger);

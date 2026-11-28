@@ -32,6 +32,7 @@
 #include "CommonFramework/Logging/Logger.h"
 #include "CommonFramework/GlobalAutoPaths.h"
 #include "Assistant/Assistant_Settings.h"
+#include "ClaudeGG_Language.h"
 #include "ClaudeGG_Mobile.h"
 #include "ClaudeGG_PokemonGo.h"
 #include "ClaudeGG_PokemonGoBattle.h"
@@ -46,7 +47,13 @@
 #include "ClaudeGG_PokemonGoMap.h"
 #include "ClaudeGG_PokemonGoStart.h"
 #include "ClaudeGG_PokemonGoThrow.h"
+#include "ClaudeGG_PokemonGoBot.h"
 #include "ClaudeGG_PokemonGoCatch.h"
+#include "ClaudeGG_PokemonGoStep.h"
+#include "ClaudeGG_PokemonGoBag.h"
+#include "ClaudeGG_PokemonGoGifts.h"
+#include "ClaudeGG_PokemonGoQuests.h"
+#include "ClaudeGG_PokemonGoRocket.h"
 #include "ClaudeGG_PokemonGoThrowPlay.h"
 #include "ClaudeGG_PokemonGoVision.h"
 
@@ -282,37 +289,38 @@ bool set_mobile_token(const QString& token, QString& error){
 
 bool check_mobile(const QString& host, int port, const QString& token, QString& message){
     if (host.trimmed().isEmpty()){
-        message = "Type the address of the Raspberry Pi first.";
+        message = tr_ui("Type the address of the Raspberry Pi first.");
         return false;
     }
     if (port < 1 || port > 65535){
-        message = "The port is a number from 1 to 65535.";
+        message = tr_ui("The port is a number from 1 to 65535.");
         return false;
     }
     //  Short: the page of the setup waits for this.
     const MobileAgent agent(host.trimmed(), port, token.trimmed(), 4000);
     QString error;
     if (!agent.ping(&error)){
-        message = "No answer: " + error + ".";
+        message = tr_ui("No answer: %1.").arg(error);
         return false;
     }
     if (token.trimmed().isEmpty()){
-        message = "The agent is there. Type its token (the installer printed it) to go on.";
+        message = tr_ui("The agent is there. Type its token (the installer printed it) to go on.");
         return false;
     }
     MobileInfo info;
     if (!agent.info(info, &error)){
-        message = "The agent is there, but " + error + ".";
+        message = tr_ui("The agent is there, but %1.").arg(error);
         return false;
     }
-    QString phone = info.model.isEmpty() ? QString("a phone") : info.model;
+    QString phone = info.model.isEmpty() ? tr_ui("a phone") : info.model;
     if (!info.android.isEmpty()){
         phone += ", Android " + info.android;
     }
     if (info.width > 0 && info.height > 0){
         phone += QString(", %1 x %2").arg(info.width).arg(info.height);
     }
-    message = "Connected to " + phone + ".";
+    message = tr_ui("Connected to %1.").arg(phone);
+
     return true;
 }
 
@@ -496,6 +504,21 @@ bool MobileAgent::text(const QString& typed, QString* error) const{
 
 bool MobileAgent::wake(QString* error) const{
     return post("/v1/wake", "{}", error);
+}
+
+bool MobileAgent::touch(const std::vector<MobileTouch>& events, QString& out, QString* error) const{
+    QJsonArray list;
+    for (const MobileTouch& event : events){
+        list.append(QJsonArray{event.action, event.x, event.y});
+    }
+    QJsonObject body;
+    body["events"] = list;
+    Reply reply;
+    if (!request("POST", "/v1/touch", QJsonDocument(body).toJson(QJsonDocument::Compact), reply, error)){
+        return false;
+    }
+    out = QJsonDocument::fromJson(reply.body).object().value("out").toString();
+    return true;
 }
 
 bool MobileAgent::app(const char* action, const QString& package, Reply& reply, QString* error) const{
@@ -901,6 +924,75 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         }
         check(differ == 0, catch_report.isEmpty() ? QString("the catch screen is handled as gamebot.py handles it") : catch_report.last());
     }
+    //  One step of the bot, ported to C++ (issue #31): step() of gamebot.py - which screen is it and what is done with it (the heat, the shape
+    //  of the screen, the phone that is awake, the screenshot that was handed on, away from the map or stuck: start the game again, a tap
+    //  on a Pokemon that did nothing, Team GO Rocket, the first looks at the map, and the map, the stop, the catch screen, an egg, the
+    //  summary, a news card, a group question, the safety notice, a full storage, the passenger pop-up and the result screen), held to what
+    //  the Python code did on the little stories of tests/fixtures/step_golden.json.qz.
+    {
+        QStringList step_report;
+        const int differ = PokemonGo::Step::run_step_checks(agent_folder + "/../tests/fixtures/step_golden.json.qz", step_report);
+        for (const QString& line : step_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, step_report.isEmpty() ? QString("a step of the bot is made as gamebot.py makes it") : step_report.last());
+    }
+    //  The item bag, ported to C++ (issue #31): what the bag keeps of each item, the rows of a page of the bag, the question 'Discard <item>?'
+    //  that is read and set to the number wanted, the way to the bag and back to the map, the clean-up of a full bag, the red FULL marks of the
+    //  main menu and closing the game when the storage and the bag are both full, held to what the Python code did on the little stories of
+    //  tests/fixtures/bag_golden.json.qz.
+    {
+        QStringList bag_report;
+        const int differ = PokemonGo::Bag::run_bag_checks(agent_folder + "/../tests/fixtures/bag_golden.json.qz", bag_report);
+        for (const QString& line : bag_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, bag_report.isEmpty() ? QString("the item bag is handled as gamebot.py handles it") : bag_report.last());
+    }
+    //  The gifts of the friends, ported to C++ (issue #31): the rows of the friend list with the pink bow of a gift that waits and the grey arrow
+    //  of one that is on its way, the readers of the gift screens, the memory of the day, a visit to one friend (open the gift, scroll the profile
+    //  to SEND GIFT, choose a gift, SEND) and the whole round, held to what the Python code did on the little stories of
+    //  tests/fixtures/gifts_golden.json.qz.
+    {
+        QStringList gifts_report;
+        const int differ = PokemonGo::Gifts::run_gifts_checks(agent_folder + "/../tests/fixtures/gifts_golden.json.qz", gifts_report);
+        for (const QString& line : gifts_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, gifts_report.isEmpty() ? QString("the gifts are handled as gamebot.py handles them") : gifts_report.last());
+    }
+    //  The quests of the GO Pass, ported to C++ (issue #31): the check whether the quest button on the map is gold, whether it is time to look at it,
+    //  and the visit (the tab GO PASS, its pages, VIEW REWARDS, CLAIM ALL, a Pokémon that comes as a reward, the X that closes it), held to what the
+    //  Python code did on the little stories of tests/fixtures/quests_golden.json.qz.
+    {
+        QStringList quests_report;
+        const int differ = PokemonGo::Quests::run_quests_checks(agent_folder + "/../tests/fixtures/quests_golden.json.qz", quests_report);
+        for (const QString& line : quests_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, quests_report.isEmpty() ? QString("the quests are handled as gamebot.py handles them") : quests_report.last());
+    }
+    //  Team GO Rocket at a stop, ported to C++ (issue #31): the way from the first speech bubble to the map or the Shadow Pokémon (BATTLE, the radar
+    //  question, the party and its empty slots, the list of Pokémon, the summary), held to what the Python code did on the little stories of
+    //  tests/fixtures/rocket_golden.json.qz.  (The fight itself is a seam in these stories.)
+    {
+        QStringList rocket_report;
+        const int differ = PokemonGo::Rocket::run_rocket_checks(agent_folder + "/../tests/fixtures/rocket_golden.json.qz", rocket_report);
+        for (const QString& line : rocket_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, rocket_report.isEmpty() ? QString("the way through Team GO Rocket is walked as gamebot.py walks it") : rocket_report.last());
+    }
     //  The text reader, ported to C++ (issue #30): the table that Tesseract writes made into lines of words with their places, as
     //  gamebot.ocr_lines() makes them (354 tables, 36 of them read from frames of real fights), and - where the tesseract program is
     //  found - a picture with words drawn on it read with it.
@@ -1084,6 +1176,12 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
     check(phone.key("BACK", &error), "a key: " + error);
     check(phone.text("a b", &error), "a text: " + error);
     check(phone.wake(&error), "waking: " + error);
+    {
+        QString out;
+        check(phone.touch({{"DOWN", 1, 2}, {"MOVE", 3, 4}, {"UP", 5, 6}}, out, &error), "touch events (agent 0.2.2): " + error);
+        QString refused;
+        check(!phone.touch({{"PRESS", 1, 2}}, out, &refused) && !refused.isEmpty(), "a touch event that does not exist is refused (" + refused + ")");
+    }
     const QStringList pressed = read_lines(adb_log).mid(before.size());
     const QStringList wanted{
         "shell input swipe 300 400 300 400 120",
@@ -1093,6 +1191,7 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         "shell input keyevent 4",
         "shell input text a%sb",
         "shell input keyevent 224",
+        "shell { input motionevent DOWN 1 2; input motionevent MOVE 3 4; input motionevent UP 5 6; } 2>&1",
     };
     check(pressed == wanted, "the phone was asked just that (" + QString::number(pressed.size()) + " commands)");
     if (pressed != wanted){
@@ -1348,6 +1447,125 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
                 std::lock_guard<std::mutex> lock(told_lock);
                 check(!told.isEmpty() && told.last().contains("the screen classifier cannot be used here"), "and that is told once");
             }
+            //  Claude GG spins itself (ClaudeGG_PokemonGoBot): what is not ported yet is switched off, and a catch screen is left with the
+            //  run-away button.
+            {
+                PokemonGo::Bot::Switches asked{{"spin", true}, {"catch", false}, {"rocket_fight", true}, {"quests", true}, {"bag_clean", true},
+                                               {"heat_pause", true}, {"fast_look", true}, {"gifts_open", true}, {"daily_cycle", true}};
+                PokemonGo::Bot::PhoneBot bot(host, asked, {{"throw_target", "great"}, {"berries", "razz, nanab"}});
+                check(bot.wanted("spin") && bot.setting("fast_look", false) && !bot.wanted("catch") && !bot.setting("rocket_fight", true)
+                      && bot.setting("quests", false) && bot.setting("bag_clean", false) && !bot.setting("heat_pause", true) && bot.wanted("gifts_open")
+                      && !bot.wanted("daily_cycle"),
+                      "Claude GG plays with what is ported (the gifts, the GO Pass and the clean-up of the bag too), the rest is off");
+                {
+                    //  The quest button is gold: it is time to look (nothing was looked at yet), and when the person switched the quests off it is not.
+                    cv::Mat gold(2208, 1768, CV_8UC3, cv::Scalar(255, 255, 255));
+                    gold(cv::Rect(1624, 1824, 93, 93)).setTo(cv::Scalar(47, 137, 220));         //  (hue 16, saturation 201, value 220)
+                    const cv::Mat white(2208, 1768, CV_8UC3, cv::Scalar(255, 255, 255));
+                    check(bot.quests_due(gold) && !bot.quests_due(white), "the quests are due when the quest button is gold");
+                    PokemonGo::Bot::PhoneBot without(host, PokemonGo::Bot::Switches{{"quests", false}}, {});
+                    check(!without.quests_due(gold), "and not when the person switched them off");
+                }
+                check(!bot.map_state().catching && bot.map_state().spin && !host.has_models(), "it does not catch when that is off, and there are no models here");
+                check(bot.setting_text("throw_target", "realistic") == "great" && bot.setting_text("fast_look", "") == "True"
+                      && bot.berry_order() == QStringList{"razz", "nanab"} && bot.ball() == "poke", "the throw, the berries and the ball are as chosen");
+                const PokemonGo::Loop::Point real = bot.to_real(884, 1104);
+                //  (The screen is the size of the last screenshot of the made-up phone, which need not be 1000 x 2200 any more.)
+                const int real_w = host.screen_width();
+                const int real_h = host.screen_height();
+                check(real_w > 0 && real_h > 0 && real.x == (int)std::nearbyint(884.0 * real_w / PokemonGo::Loop::REF_W)
+                      && real.y == (int)std::nearbyint(1104.0 * real_h / PokemonGo::Loop::REF_H),
+                      "the throw is sent on the real screen (" + QString::number(real_w) + " x " + QString::number(real_h) + ": "
+                      + QString::number(real.x) + ", " + QString::number(real.y) + ")");
+                {
+                    //  The commands of the throw reach the phone as touch events and swipes (and nothing else is sent).
+                    const QStringList throw_start = read_lines(adb_log);
+                    const int hold = bot.adb_start({"adb", "shell", "{ input motionevent DOWN 500 1900; input motionevent MOVE 520 1880; } 2>&1"}, true);
+                    bot.adb_communicate(hold);
+                    bot.adb({"shell", "input", "motionevent", "UP", "520", "1880"});
+                    const int aim = bot.adb_start({"adb", "shell", "input", "swipe", "500", "1900", "500", "1900", "1300"}, false);
+                    bot.adb_wait(aim);
+                    bool refused = false;
+                    try{
+                        bot.adb({"shell", "reboot"});
+                    }catch (const std::runtime_error&){
+                        refused = true;
+                    }
+                    const QStringList throw_got = read_lines(adb_log).mid(throw_start.size());
+                    const QStringList throw_want{
+                        "shell { input motionevent DOWN 500 1900; input motionevent MOVE 520 1880; } 2>&1",
+                        "shell { input motionevent UP 520 1880; } 2>&1",
+                        "shell input swipe 500 1900 500 1900 1300",
+                    };
+                    check(throw_got == throw_want && refused, "the commands of the throw reach the phone through the agent, any other is refused ("
+                          + QString::number(throw_got.size()) + " commands)");
+                    if (throw_got != throw_want){
+                        for (const QString& line : throw_got){
+                            report << "         it was asked: " + line;
+                        }
+                    }
+                }
+                {
+                    //  The shell lines of the bag reach the phone as the agent does them: the game is closed (/v1/app) and a key is a key
+                    //  (/v1/key); `pidof` cannot be answered, so the bot stops; anything else is refused.
+                    const QStringList bag_start = read_lines(adb_log);
+                    bot.shell({"shell", "am", "force-stop", host.package()});
+                    bot.shell({"shell", "input", "keyevent", "KEYCODE_APP_SWITCH"});
+                    bot.shell({"adb", "shell", "input", "keyevent", "KEYCODE_HOME"});
+                    bool other_app = false;
+                    bool other_line = false;
+                    bool stopped = false;
+                    try{
+                        bot.shell({"shell", "am", "force-stop", "com.android.settings"});
+                    }catch (const std::runtime_error&){
+                        other_app = true;
+                    }
+                    try{
+                        bot.shell({"shell", "reboot"});
+                    }catch (const std::runtime_error&){
+                        other_line = true;
+                    }
+                    try{
+                        bot.shell({"shell", "pidof", host.package()});
+                    }catch (const PokemonGo::Flow::Interrupted&){
+                        stopped = true;
+                    }
+                    const QStringList bag_got = read_lines(adb_log).mid(bag_start.size());
+                    const QStringList bag_want{"shell am force-stop " + host.package(), "shell input keyevent 187", "shell input keyevent 3"};
+                    check(bag_got == bag_want && other_app && other_line && stopped,
+                          "the shell lines of the bag reach the phone through the agent, pidof stops the bot, any other is refused ("
+                          + QString::number(bag_got.size()) + " commands)");
+                    //  A touch that lasts and several swipes in one command (the gifts and the bag).
+                    const QStringList touch_start = read_lines(adb_log);
+                    bot.tap_press(100, 200, 200);
+                    bot.swipes({PokemonGo::Loop::Stroke{1, 2, 3, 4, 100}, PokemonGo::Loop::Stroke{5, 6, 7, 8, 70}});
+                    const QStringList touch_got = read_lines(adb_log).mid(touch_start.size());
+                    check(touch_got.size() == 2 && touch_got[0].startsWith("shell input swipe ") && touch_got[0].endsWith(" 200")
+                          && touch_got[1].count("input swipe") == 2, "a press that lasts is one touch and swipes go in one command");
+                    //  What the person chose to keep, the day, and the memory of the gifts (a file in the folder of the bot, in the program without one).
+                    check(bot.bag_keep_saved().isNull() && bot.today() == PokemonGo::Phone::today_text(), "nothing is chosen to keep unless the person chose, and the day is the day");
+                    PokemonGo::Bot::PhoneBot chosen(host, asked, {{"bag_keep", "{\"Potion\": 5}"}});
+                    PokemonGo::Bot::PhoneBot garbled(host, asked, {{"bag_keep", "[1, 2"}});
+                    check(chosen.bag_keep_saved().isObject() && chosen.bag_keep_saved().toObject().value("Potion").toInt() == 5 && garbled.bag_keep_saved().isNull(),
+                          "what the person chose to keep is a JSON object, anything else is nothing chosen");
+                    check(!bot.gift_state_read("gifts_state.json").has_value(), "there is no memory of the gifts before one is written");
+                    bot.gift_state_write("gifts_state.json", "{\"day\": \"2026-11-22\"}");
+                    const std::optional<QByteArray> again = bot.gift_state_read("gifts_state.json");
+                    check(again.has_value() && *again == QByteArray("{\"day\": \"2026-11-22\"}") && !QFile::exists(options.folder + "/gifts_state.json"),
+                          "without a folder the memory of the gifts is kept by the program");
+                    PokemonGo::Bot::PhoneBot kept(host, asked, {}, options.folder);
+                    check(!kept.gift_state_read("gifts_state.json").has_value(), "a folder has its own memory");
+                    kept.gift_state_write("gifts_state.json", "{\"day\": \"2026-11-23\"}");
+                    const std::optional<QByteArray> in_folder = kept.gift_state_read("gifts_state.json");
+                    check(in_folder.has_value() && *in_folder == QByteArray("{\"day\": \"2026-11-23\"}") && QFile::exists(options.folder + "/gifts_state.json"),
+                          "and the memory of the gifts is a file there");
+                    QFile::remove(options.folder + "/gifts_state.json");
+                }
+                const qsizetype before_run = read_lines(adb_log).size();
+                const double wait = bot.do_encounter(cv::Mat(2208, 1768, CV_8UC3, cv::Scalar(10, 20, 30)));
+                check(wait == 3 && read_lines(adb_log).size() == before_run + 1, "a catch screen is left with one tap (run away)");
+                check(bot.count("stops") == "(this run: 1 stops, 0 caught, 0 fled)", "the stops of the run are counted");
+            }
             const QString models_folder = qEnvironmentVariable("CLAUDEGG_MODELS");
             if (!models_folder.isEmpty()){
                 Options with_models = options;
@@ -1487,7 +1705,7 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
     //  The programs of the game "Pokémon GO": presets of that bot. What each asks for must be
     //  what the agent knows (it refuses a switch that it does not know), and be what it is called.
     {
-        check(PokemonGo::pokemon_go_program_count() == 10, "the game has its ten programs");
+        check(PokemonGo::pokemon_go_program_count() == 11, "the game has its eleven programs");
         auto asks = [&](const std::string& program, const std::string& key){
             for (const std::pair<std::string, bool>& option : PokemonGo::pokemon_go_switches(program)){
                 if (option.first == key){
@@ -1504,6 +1722,10 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         const std::string battles = "GO Battle League";
         const std::string teams = "Your Pok\xc3\xa9mon and teams";
         const std::string part = "One part of the bot";
+        const std::string autoplay = "Auto play";
+        check(asks(autoplay, "spin") && asks(autoplay, "catch") && asks(autoplay, "gifts_open") && asks(autoplay, "gifts_send")
+              && !asks(autoplay, "daily_cycle") && !asks(autoplay, "rocket_fight") && !asks(autoplay, "quests") && !asks(autoplay, "battle"),
+              "Auto play spins, catches and does the gifts until more is chosen");
         check(asks(spin, "spin") && !asks(spin, "catch") && !asks(spin, "daily_cycle") && !asks(spin, "rocket_fight"), "Spin PokeStops only spins");
         check(!asks(catching, "spin") && asks(catching, "catch") && !asks(catching, "gifts_open"), "Catch Pokemon only catches");
         check(asks(daily, "daily_cycle") && asks(daily, "spin") && asks(daily, "catch") && asks(daily, "gifts_open") && asks(daily, "gifts_send"), "the daily run is the whole day");
@@ -1515,7 +1737,7 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         check(!asks(teams, "spin") && !asks(teams, "battle") && PokemonGo::pokemon_go_switches(teams).size() == 2, "Your Pokemon and teams changes next to nothing of the bot");
         check(!asks(part, "spin") && !asks(part, "daily_cycle"), "One part of the bot leaves what it does to the part");
         check(PokemonGo::pokemon_go_switches("Not a program").empty(), "a program that is not there asks nothing");
-        for (const std::string& program : {spin, catching, std::string("Spin Pok\xc3\xa9Stops and catch Pok\xc3\xa9mon"), std::string("Gifts"), daily, rocket, quests, battles, teams, part}){
+        for (const std::string& program : {autoplay, spin, catching, std::string("Spin Pok\xc3\xa9Stops and catch Pok\xc3\xa9mon"), std::string("Gifts"), daily, rocket, quests, battles, teams, part}){
             MobileBotStart ask;
             const std::vector<std::pair<std::string, bool>> switches = PokemonGo::pokemon_go_switches(program);
             const bool service = program != battles && program != teams && program != part;

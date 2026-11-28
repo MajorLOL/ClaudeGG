@@ -11,7 +11,7 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 | `IconResource` | 3 | 6 | 0 |
 | `SerialPrograms (build files)` | 0 | 1 | 0 |
 | `SerialPrograms/Scripts` | 76 | 0 | 0 |
-| `SerialPrograms/Source/CommonFramework` | 2 | 39 | 0 |
+| `SerialPrograms/Source/CommonFramework` | 2 | 40 | 0 |
 | `SerialPrograms/Source/CommonTools` | 0 | 3 | 0 |
 | `SerialPrograms/Source/ComputerPrograms` | 0 | 1 | 0 |
 | `SerialPrograms/Source/Controllers` | 0 | 2 | 0 |
@@ -204,6 +204,7 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 - M `SerialPrograms/Source/CommonFramework/Recording/StreamHistoryTracker_SaveFrames.cpp`
 - M `SerialPrograms/Source/CommonFramework/Recording/StreamHistoryTracker_SaveFrames.h`
 - M `SerialPrograms/Source/CommonFramework/StaticGlobals.cpp`
+- M `SerialPrograms/Source/CommonFramework/VideoPipeline/Backends/QFormatAggregator.cpp`
 - M `SerialPrograms/Source/CommonFramework/VideoPipeline/Backends/SnapshotManager.cpp`
 - M `SerialPrograms/Source/CommonFramework/VideoPipeline/Backends/SnapshotManager.h`
 - A `SerialPrograms/Source/CommonFramework/VideoPipeline/Backends/VideoFrameConversion.cpp`
@@ -228,6 +229,7 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 
 - M `SerialPrograms/Source/Controllers/ControllerSession.cpp`
 - M `SerialPrograms/Source/Controllers/ControllerStateTable.cpp`
+- M `SerialPrograms/Source/Controllers/StandardHid/StandardHid_Keyboard.cpp`
 
 ## `SerialPrograms/Source/GameConsole`
 
@@ -286,6 +288,8 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 - A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Workspace.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_AnyGame.cpp`
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_AnyGame.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Calibrate.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Calibrate.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Consoles.cpp`
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Consoles.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Engine.cpp`
@@ -294,6 +298,8 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_GameCard.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Games.cpp`
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Games.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_KnownGames.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_KnownGames.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Program.cpp`
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Program.h`
 - A `SerialPrograms/Source/ClaudeGG/FIXES.md`
@@ -312,10 +318,14 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Instances.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Intro.cpp`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Intro.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_KeyboardState.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_KeyboardState.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Language.cpp`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Language.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Logo.cpp`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Logo.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Macro.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Macro.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_OldSettings.cpp`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_OldSettings.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_ProgramList.cpp`

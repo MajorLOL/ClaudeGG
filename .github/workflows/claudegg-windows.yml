@@ -806,6 +806,97 @@ jobs:
           }
           Write-Host "The installations test passed."
 
+      #  An update from the program itself (Source/ClaudeGG/ClaudeGG_Updater.h):
+      #  the new build, unpacked as the program unpacks it, puts itself over an
+      #  older copy with --apply-update. The program files are replaced, the
+      #  user's are not; and with a file of the old copy held open, nothing is
+      #  changed at all and the old copy stays whole.
+      - name: Update test
+        id: update_test
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $failed = $false
+          function Fail($why) { Write-Host "::error::Update test: $why"; $script:failed = $true }
+          function New-Copy($name) {
+            $old = Join-Path $env:RUNNER_TEMP $name
+            Remove-Item -Recurse -Force $old -ErrorAction SilentlyContinue
+            Copy-Item -Recurse "package/ClaudeGG" $old
+            "OLD-COPY-MARKER build" | Out-File "$old/version.txt" -Encoding ascii
+            "OLD-COPY-MARKER license" | Out-File "$old/Licenses/PokemonAutomation-MIT-License.txt" -Encoding ascii
+            New-Item -ItemType Directory -Force -Path "$old/UserSettings", "$old/Installations/2" | Out-Null
+            "my stats" | Out-File "$old/UserSettings/PA-Stats.txt" -Encoding ascii
+            "my settings" | Out-File "$old/UserSettings/ClaudeGG-Settings.json" -Encoding ascii
+            "my second installation" | Out-File "$old/Installations/2/installation.json" -Encoding ascii
+            return (Resolve-Path $old).Path
+          }
+          function Apply($old) {
+            #  Where the program puts a download: Updates/<version>/package/ClaudeGG.
+            $new = Join-Path $old "Updates/0.0.0.1/package/ClaudeGG"
+            Remove-Item -Recurse -Force (Join-Path $old "Updates") -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Force -Path (Split-Path $new) | Out-Null
+            Copy-Item -Recurse "package/ClaudeGG" $new
+            $p = Start-Process -FilePath "$new/ClaudeGG.exe" -WorkingDirectory $new -PassThru -ArgumentList @(
+              "--apply-update", "--target", $old, "--data", $old, "--wait-pid", "0", "--build", "0.0.0.1", "--no-restart"
+            )
+            if (-not $p.WaitForExit(180000)) { $p.Kill(); return -1 }
+            Write-Host "---- Updates/update.log ----"
+            #  To the screen, not into what the function returns.
+            Get-Content (Join-Path $old "Updates/update.log") -ErrorAction SilentlyContinue | Out-Host
+            return $p.ExitCode
+          }
+          function Outcome($old) {
+            $file = Join-Path $old "Updates/last-update.json"
+            if (-not (Test-Path $file)) { return $null }
+            return Get-Content $file -Raw | ConvertFrom-Json
+          }
+          $expected = (Get-FileHash "package/ClaudeGG/version.txt").Hash
+
+          #  0. The zip of the release, unpacked by the program as a download is.
+          $unpacked = Join-Path $env:RUNNER_TEMP "update-unpacked"
+          Remove-Item -Recurse -Force $unpacked -ErrorAction SilentlyContinue
+          $p = Start-Process -FilePath "package/ClaudeGG/ClaudeGG.exe" -PassThru -ArgumentList @("--unpack-update", (Resolve-Path "ClaudeGG-Windows.zip").Path, $unpacked)
+          if (-not $p.WaitForExit(300000)) { $p.Kill() }
+          Write-Host "Unpacking the zip: exit code $($p.ExitCode)."
+          $want = (Get-ChildItem "package/ClaudeGG" -Recurse -File | Measure-Object).Count
+          $got = (Get-ChildItem "$unpacked/ClaudeGG" -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count
+          Write-Host "Files in the package: $want; unpacked: $got."
+          if ($p.ExitCode -ne 0 -or $got -ne $want) { Fail "the zip of the release was not unpacked whole." }
+          elseif ((Get-FileHash "$unpacked/ClaudeGG/ClaudeGG.exe").Hash -ne (Get-FileHash "package/ClaudeGG/ClaudeGG.exe").Hash) { Fail "ClaudeGG.exe from the zip is not the one that was packed." }
+
+          #  1. An update that works.
+          $old = New-Copy "update-test-1"
+          $code = Apply $old
+          Write-Host "The update: exit code $code."
+          if ($code -ne 0) { Fail "the update did not finish (exit code $code)." }
+          if ((Get-FileHash "$old/version.txt").Hash -ne $expected) { Fail "version.txt of the program was not replaced." }
+          if ((Get-Content "$old/Licenses/PokemonAutomation-MIT-License.txt" -Raw) -match "OLD-COPY-MARKER") { Fail "a file in a folder of the program was not replaced." }
+          if ((Get-Content "$old/UserSettings/PA-Stats.txt" -Raw).Trim() -ne "my stats") { Fail "the user's stats were overwritten." }
+          if ((Get-Content "$old/UserSettings/ClaudeGG-Settings.json" -Raw).Trim() -ne "my settings") { Fail "the user's settings were touched." }
+          if (-not (Test-Path "$old/Installations/2/installation.json")) { Fail "the other installation is gone." }
+          $outcome = Outcome $old
+          if ($null -eq $outcome -or -not $outcome.ok -or $outcome.build -ne "0.0.0.1") { Fail "the note for the next start does not say that it worked." }
+
+          #  2. A file of the old copy is in use: everything is put back.
+          $old = New-Copy "update-test-2"
+          $before = (Get-FileHash "$old/ClaudeGG.exe").Hash
+          $held = [System.IO.File]::Open("$old/version.txt", "Open", "Read", "None")
+          try {
+            $code = Apply $old
+          } finally {
+            $held.Close()
+          }
+          Write-Host "The update with a file in use: exit code $code."
+          if ($code -ne 1) { Fail "an update with a file in use did not fail as it should (exit code $code)." }
+          if ((Get-Content "$old/version.txt" -Raw) -notmatch "OLD-COPY-MARKER") { Fail "the file in use was changed." }
+          if ((Get-Content "$old/Licenses/PokemonAutomation-MIT-License.txt" -Raw) -notmatch "OLD-COPY-MARKER") { Fail "what was replaced before the file in use was not put back." }
+          if ((Get-FileHash "$old/ClaudeGG.exe").Hash -ne $before) { Fail "the program of the old copy was changed." }
+          $outcome = Outcome $old
+          if ($null -eq $outcome -or $outcome.ok) { Fail "the note for the next start does not say that it failed." } else { Write-Host "What the program will say: $($outcome.message)" }
+
+          if ($failed) { exit 1 }
+          Write-Host "Update test: passed."
+
       #  One main window, the installations in it (see Source/ClaudeGG/ClaudeGG_Embed.h):
       #  the proof that a window of another process can be made a child of a
       #  window of this one, here with a window that is only a colour. It may
@@ -1039,16 +1130,17 @@ jobs:
           EMBEDDING: ${{ steps.embedding_test.outcome }}
           HOST: ${{ steps.host_test.outcome }}
           MOBILE: ${{ steps.mobile_test.outcome }}
+          UPDATE: ${{ steps.update_test.outcome }}
           MODELS: ${{ steps.models.outcome }}
           POKEMON: ${{ steps.pokemon_tests.outcome }}
         run: |
-          for pair in "Intro test=$INTRO" "Tutorial film test=$TUTORIAL" "Language test=$LANGUAGE" "Setup test=$SETUP" "Installations test=$INSTALLATIONS" "Embedding test=$EMBEDDING" "Host test=$HOST" "Mobile test=$MOBILE" "Models of the Pokemon GO bot=$MODELS" "Pokemon Automation's tests=$POKEMON"; do
+          for pair in "Intro test=$INTRO" "Tutorial film test=$TUTORIAL" "Language test=$LANGUAGE" "Setup test=$SETUP" "Installations test=$INSTALLATIONS" "Update test=$UPDATE" "Embedding test=$EMBEDDING" "Host test=$HOST" "Mobile test=$MOBILE" "Models of the Pokemon GO bot=$MODELS" "Pokemon Automation's tests=$POKEMON"; do
             if [ "${pair#*=}" = "failure" ]; then
               echo "::warning::${pair%%=*} failed: see its step."
             fi
           done
-          if [ "$SETUP" = "failure" ] || [ "$INSTALLATIONS" = "failure" ] || [ "$HOST" = "failure" ] || [ "$MOBILE" = "failure" ] || [ "$POKEMON" = "failure" ]; then
-            echo "::error::The test of the setup, of the installations, of the main window, of the phone or Pokemon Automation's tests failed: the build is not published."
+          if [ "$SETUP" = "failure" ] || [ "$INSTALLATIONS" = "failure" ] || [ "$UPDATE" = "failure" ] || [ "$HOST" = "failure" ] || [ "$MOBILE" = "failure" ] || [ "$POKEMON" = "failure" ]; then
+            echo "::error::The test of the setup, of the installations, of the update, of the main window, of the phone or Pokemon Automation's tests failed: the build is not published."
             exit 1
           fi
 
@@ -1128,11 +1220,39 @@ jobs:
           SHA256: ${{ needs.build.outputs.sha256 }}
         run: |
           TAG="v$BUILD_NUMBER"
+          REPO="${{ github.repository }}"
+          #  "What's new": the pull requests since the last published build,
+          #  as GitHub lists them. The program shows this section before it
+          #  installs a build (Source/ClaudeGG/ClaudeGG_Update.h), so it comes
+          #  first; without pull requests, the title of the commit.
+          PREV=$(gh api "repos/$REPO/releases?per_page=100" --jq '[.[] | select(.draft | not) | .tag_name | select(test("^v[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+$"))] | first // empty' || true)
+          ARGS=(-f "tag_name=$TAG" -f "target_commitish=${{ github.sha }}")
+          if [ -n "$PREV" ]; then
+            ARGS+=(-f "previous_tag_name=$PREV")
+          fi
+          NEWS=$(gh api -X POST "repos/$REPO/releases/generate-notes" "${ARGS[@]}" --jq .body 2>/dev/null | grep -E '^[*-] ' | grep -v 'made their first contribution' || true)
+          if [ -z "$NEWS" ]; then
+            NEWS="* $(gh api "repos/$REPO/commits/${{ github.sha }}" --jq '.commit.message' | head -n 1)"
+          fi
+          {
+            echo "## What's new"
+            echo
+            echo "$NEWS"
+            echo
+            if [ -n "$PREV" ]; then
+              echo "Since $PREV: https://github.com/$REPO/compare/$PREV...$TAG"
+              echo
+            fi
+            echo "## About this build"
+            echo
+            echo "Claude GG, a personal fork of Pokemon Automation's SerialPrograms. Unzip, then run ClaudeGG.exe; a later build can be installed from the program itself (About, or the question at its start). The two OCR models (PaddleOCRDetection.zip, PaddleOCRChineseJapanese.zip) are downloaded by the program itself the first time a program needs them; download them by hand only if that fails (it says where to unpack them). This build passed its interface test: it started on the build machine, without settings, and took pictures of its own interface. For non-commercial use. Built from ${{ github.sha }}. The program is not signed with a certificate, so Windows may warn when you start it: compare the SHA-256 of the zip you downloaded with this one before you do. SHA-256 of ClaudeGG-Windows.zip: $SHA256"
+          } > release-notes.md
+          cat release-notes.md
           # Only the program itself goes on the release. The pictures of the
           # interface test stay in the workflow artifact, to look at there.
           gh release create "$TAG" ClaudeGG-Windows.zip resources/*.zip \
-            --repo "${{ github.repository }}" \
+            --repo "$REPO" \
             --target "${{ github.sha }}" \
             --prerelease \
             --title "Claude GG - V $BUILD_NUMBER" \
-            --notes "Claude GG, a personal fork of Pokemon Automation's SerialPrograms. Unzip, then run ClaudeGG.exe. The two OCR models (PaddleOCRDetection.zip, PaddleOCRChineseJapanese.zip) are downloaded by the program itself the first time a program needs them; download them by hand only if that fails (it says where to unpack them). This build passed its interface test: it started on the build machine, without settings, and took pictures of its own interface. For non-commercial use. Built from ${{ github.sha }}. The program is not signed with a certificate, so Windows may warn when you start it: compare the SHA-256 of the zip you downloaded with this one before you do. SHA-256 of ClaudeGG-Windows.zip: $SHA256"
+            --notes-file release-notes.md

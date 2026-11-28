@@ -169,6 +169,11 @@ cv::Mat make_scene(const QJsonArray& ops){
                     }
                 }
             }
+        }else if (kind == "size"){
+            //  the last op: a phone with another screen than the canvas (the nearest pixel, as cv2.resize with INTER_NEAREST)
+            cv::Mat resized;
+            cv::resize(img, resized, cv::Size(op.at(1).toInt(), op.at(2).toInt()), 0, 0, cv::INTER_NEAREST);
+            img = resized;
         }
     }
     return img;

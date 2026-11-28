@@ -59,8 +59,8 @@ enum class GameId{
     GAMECUBE,
     NINTENDO_64,
     DREAMCAST,
-    //  An Xbox 360 (with UsbdSecPatch): the wired board through a Pico with
-    //  OGX-Mini in its XInput mode.
+    //  An Xbox 360: the wired board through a Pico with OGX-Mini-2026 (or,
+    //  on a console with UsbdSecPatch, OGX-Mini) in its XInput mode.
     XBOX_360,
     //  A PlayStation 4 or 5, and an Xbox One or Series, through Remote Play
     //  on the computer: the wired board is a USB gamepad of the computer,
@@ -73,6 +73,14 @@ enum class GameId{
     //  A PlayStation Classic: the wired board through a Pico with OGX-Mini
     //  in its PlayStation Classic mode.
     PS_CLASSIC,
+    //  A PlayStation 4 or 5, and an Xbox One or Series, straight from the
+    //  wired board through a bought licensed adapter (a Brook Wingman XE or
+    //  XB 3), which takes a Switch pad and answers the console's check.
+    PS_DIRECT,
+    XBOX_DIRECT,
+    //  A Steam Deck or a PC with Steam: the wired board as a plain USB
+    //  gamepad, which Steam takes by the places of its buttons.
+    STEAM,
 };
 
 //  The controller the game's programs use.
@@ -146,7 +154,8 @@ bool is_other_games_choice(GameId id);
 
 //  The consoles of a list of games by its name, when the list is one of a
 //  game here that is not played on the Switch: {"ps3"}, {"xbox"}, {"retro"},
-//  {"xbox360"}, {"psremote"}, {"xboxremote"}, {"iphone"} or {"psclassic"}. Empty:
+//  {"xbox360"}, {"psremote"}, {"xboxremote"}, {"iphone"}, {"psclassic"},
+//  {"psdirect"}, {"xboxdirect"} or {"steam"}. Empty:
 //  not one of them.
 std::vector<std::string> consoles_of_list(const std::string& list_name);
 

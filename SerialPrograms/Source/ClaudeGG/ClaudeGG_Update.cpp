@@ -6,6 +6,7 @@
  */
 
 #include "Common/Compiler.h"
+#include <algorithm>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -20,6 +21,8 @@ namespace PokemonAutomation{
 namespace ClaudeGG{
 
 using namespace Assistant;
+
+const char* const PACKAGE_FILE_NAME = "ClaudeGG-Windows.zip";
 
 namespace{
 
@@ -51,6 +54,7 @@ ReleaseLocation release_location(const QString& project_url){
     location.api_url = "https://api.github.com/repos/" + owner + "/" + name + "/releases?per_page=30";
     location.page_url = "https://github.com/" + owner + "/" + name + "/releases";
     location.tag_page_url = location.page_url + "/tag/";
+    location.download_url = location.page_url + "/download/";
     return location;
 }
 
@@ -117,8 +121,103 @@ bool newest_build(const QByteArray& json, LatestBuild& latest, QString& error){
         if (date.hasMatch()){
             latest.date = date.captured(0);
         }
+        latest.package_sha256 = package_sha256_of(release);
+        latest.package_size = 0;
+        for (const QJsonValue& asset : release.value("assets").toArray()){
+            if (asset.toObject().value("name").toString() == PACKAGE_FILE_NAME){
+                latest.package_size = (qint64)asset.toObject().value("size").toDouble();
+            }
+        }
     }
     return true;
+}
+
+
+QStringList whats_new_items(const QString& body){
+    static const QRegularExpression heading("^#{1,6}\\s*(.*?)\\s*$");
+    static const QRegularExpression point("^\\s*[-*+]\\s+(.*\\S)\\s*$");
+    //  What GitHub's own notes add after the title of a pull request.
+    static const QRegularExpression by(" by @[A-Za-z0-9_.\\[\\]-]+ in https?://\\S+$");
+    static const QRegularExpression markup("\\*\\*|__|`");
+    QStringList items;
+    bool inside = false;
+    for (const QString& raw : body.split('\n')){
+        const QString line = QString(raw).remove('\r');
+        const QRegularExpressionMatch title = heading.match(line);
+        if (title.hasMatch()){
+            const QString name = title.captured(1).toLower().remove('\'').remove(QChar(0x2019));
+            inside = name == "whats new" || name == "whats changed";
+            continue;
+        }
+        if (!inside){
+            continue;
+        }
+        const QRegularExpressionMatch item = point.match(line);
+        if (!item.hasMatch()){
+            continue;
+        }
+        QString text = item.captured(1);
+        text.remove(by);
+        text.remove(markup);
+        text = text.trimmed();
+        if (!text.isEmpty() && items.size() < 40){
+            items.push_back(text.left(300));
+        }
+    }
+    return items;
+}
+
+QString package_sha256_of(const QJsonObject& release){
+    static const QRegularExpression digest("^sha256:([0-9a-fA-F]{64})$");
+    for (const QJsonValue& value : release.value("assets").toArray()){
+        const QJsonObject asset = value.toObject();
+        if (asset.value("name").toString() != PACKAGE_FILE_NAME){
+            continue;
+        }
+        const QRegularExpressionMatch match = digest.match(asset.value("digest").toString());
+        if (match.hasMatch()){
+            return match.captured(1).toLower();
+        }
+    }
+    //  The workflow writes it in the text of each release as well.
+    static const QRegularExpression in_text(
+        "SHA-256 of " + QRegularExpression::escape(PACKAGE_FILE_NAME) + ":\\s*([0-9a-fA-F]{64})(?![0-9a-fA-F])"
+    );
+    const QRegularExpressionMatch match = in_text.match(release.value("body").toString());
+    return match.hasMatch() ? match.captured(1).toLower() : QString();
+}
+
+std::vector<ReleaseNotes> release_news(const QByteArray& json, int after){
+    std::vector<ReleaseNotes> news;
+    const QJsonDocument document = QJsonDocument::fromJson(json);
+    if (!document.isArray()){
+        return news;
+    }
+    static const QRegularExpression date_pattern("^[0-9]{4}-[0-9]{2}-[0-9]{2}");
+    for (const QJsonValue& value : document.array()){
+        const QJsonObject release = value.toObject();
+        if (release.value("draft").toBool()){
+            continue;
+        }
+        ReleaseNotes notes;
+        notes.build = build_of_tag(release.value("tag_name").toString());
+        if (notes.build <= after){
+            continue;
+        }
+        const QRegularExpressionMatch date = date_pattern.match(release.value("published_at").toString());
+        if (date.hasMatch()){
+            notes.date = date.captured(0);
+        }
+        notes.items = whats_new_items(release.value("body").toString());
+        news.push_back(std::move(notes));
+    }
+    std::sort(news.begin(), news.end(), [](const ReleaseNotes& a, const ReleaseNotes& b){
+        return a.build > b.build;
+    });
+    if (news.size() > MAX_RELEASE_NOTES){
+        news.resize(MAX_RELEASE_NOTES);
+    }
+    return news;
 }
 
 
@@ -150,16 +249,54 @@ UpdateResult update_result(const HttpResponse& response, const ReleaseLocation& 
         return result;
     }
     result.page_url = location.tag_page_url + "v" + version_text(result.latest.build);
+    result.news = release_news(response.body, current_build);
     if (current_build == 0){
         result.state = UpdateState::LOCAL_BUILD;
+        //  A local build has no number to compare: only what is new in the newest.
+        if (result.news.size() > 1){
+            result.news.resize(1);
+        }
     }else if (current_build < result.latest.build){
         result.state = UpdateState::NEWER_AVAILABLE;
+        result.package_url = location.download_url + "v" + version_text(result.latest.build) + "/" + PACKAGE_FILE_NAME;
     }else if (current_build == result.latest.build){
         result.state = UpdateState::UP_TO_DATE;
     }else{
         result.state = UpdateState::NEWER_THAN_PUBLISHED;
     }
     return result;
+}
+
+
+bool can_install(const UpdateResult& result){
+#ifdef _WIN32
+    return result.state == UpdateState::NEWER_AVAILABLE &&
+        result.latest.package_sha256.size() == 64 &&
+        !result.package_url.isEmpty();
+#else
+    (void)result;
+    return false;
+#endif
+}
+
+QString news_html(const UpdateResult& result){
+    QString html;
+    for (const ReleaseNotes& notes : result.news){
+        html += "<p style=\"margin: 8px 0 2px 0\"><b>" + (notes.date.isEmpty()
+            ? tr_ui("Build %1").arg(version_text(notes.build))
+            : tr_ui("Build %1, of %2").arg(version_text(notes.build), notes.date)
+        ).toHtmlEscaped() + "</b></p>";
+        if (notes.items.isEmpty()){
+            html += "<p style=\"margin: 0\">" + tr_ui("Its release says nothing about what changed.").toHtmlEscaped() + "</p>";
+            continue;
+        }
+        html += "<ul style=\"margin: 0\">";
+        for (const QString& item : notes.items){
+            html += "<li>" + item.toHtmlEscaped() + "</li>";
+        }
+        html += "</ul>";
+    }
+    return html;
 }
 
 

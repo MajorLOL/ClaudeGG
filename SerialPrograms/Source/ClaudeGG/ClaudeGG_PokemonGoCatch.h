@@ -117,7 +117,7 @@ double do_encounter(Host& host, State& state, const cv::Mat& img);
 //  back on the map (or a question over the map was answered), nothing when the normal way of waiting for the result has to carry on.
 std::optional<double> fast_catch_leave(Host& host, State& state, double t_throw);
 //  What the screen is when the words are read (gamebot._screen_kind()): "map", "exit" ('Do you want to exit?'), "discard", "bag", "menu" or "other".
-QString screen_kind(Host& host, const cv::Mat& img, const Nav::Lines& lines);
+QString screen_kind(Loop::Host& host, const cv::Mat& img, const Nav::Lines& lines);
 //  The time is up: a catch that is going on is finished first (at most FINISH_MAX_S).  `with_beat`: the host is told of every step (host.beat()).
 void finish_catch(Host& host, bool with_beat);
 

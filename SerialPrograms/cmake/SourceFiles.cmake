@@ -363,6 +363,8 @@ file(GLOB CORE_LIBRARY_SOURCES
     Source/NintendoSwitch/Programs/FastCodeEntry/NintendoSwitch_KeyboardEntryMappings.h
     Source/ClaudeGG/ClaudeGG_InstancePaths.cpp
     Source/ClaudeGG/ClaudeGG_InstancePaths.h
+    Source/ClaudeGG/ClaudeGG_KeyboardState.cpp
+    Source/ClaudeGG/ClaudeGG_KeyboardState.h
 )
 
 file(GLOB LIBRARY_SOURCES
@@ -1488,6 +1490,8 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/Assistant/Assistant_Workspace.h
     Source/ClaudeGG/ClaudePlays/ClaudePlays_AnyGame.cpp
     Source/ClaudeGG/ClaudePlays/ClaudePlays_AnyGame.h
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_Calibrate.cpp
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_Calibrate.h
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Consoles.cpp
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Consoles.h
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Engine.cpp
@@ -1498,6 +1502,10 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudePlays/ClaudePlays_GameCard.h
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Games.cpp
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Games.h
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_KnownGames.cpp
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_KnownGames.h
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_Measure.cpp
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_Measure.h
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Program.cpp
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Program.h
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Sees.cpp
@@ -1506,10 +1514,14 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Sees_Tests.h
     Source/ClaudeGG/ClaudeGG_About.cpp
     Source/ClaudeGG/ClaudeGG_About.h
+    Source/ClaudeGG/ClaudeGG_ConsoleGuide.cpp
+    Source/ClaudeGG/ClaudeGG_ConsoleGuide.h
     Source/ClaudeGG/ClaudeGG_Home.cpp
     Source/ClaudeGG/ClaudeGG_Home.h
     Source/ClaudeGG/ClaudeGG_Intro.cpp
     Source/ClaudeGG/ClaudeGG_Intro.h
+    Source/ClaudeGG/ClaudeGG_Macro.cpp
+    Source/ClaudeGG/ClaudeGG_Macro.h
     Source/ClaudeGG/ClaudeGG_Firmware.cpp
     Source/ClaudeGG/ClaudeGG_Firmware.h
     Source/ClaudeGG/ClaudeGG_Embed.cpp
@@ -1522,8 +1534,13 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_Panel.h
     Source/ClaudeGG/ClaudeGG_PokemonGo.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGo.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoBag.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoBag.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoBagCheck.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoBattle.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoBattle.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoBot.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoBot.h
     Source/ClaudeGG/ClaudeGG_PokemonGoBrain.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoBrain.h
     Source/ClaudeGG/ClaudeGG_PokemonGoCatch.cpp
@@ -1534,6 +1551,15 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_PokemonGoFlow.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoFlow.h
     Source/ClaudeGG/ClaudeGG_PokemonGoFlowCheck.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoGifts.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoGifts.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoGiftsCheck.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoQuests.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoQuests.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoQuestsCheck.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoRocket.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoRocket.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoRocketCheck.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoNav.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoNav.h
     Source/ClaudeGG/ClaudeGG_PokemonGoLoop.cpp
@@ -1548,9 +1574,13 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_PokemonGoModels.h
     Source/ClaudeGG/ClaudeGG_PokemonGoPhone.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoPhone.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoPy.h
     Source/ClaudeGG/ClaudeGG_PokemonGoStart.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoStart.h
     Source/ClaudeGG/ClaudeGG_PokemonGoStartCheck.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoStep.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoStep.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoStepCheck.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoStory.h
     Source/ClaudeGG/ClaudeGG_PokemonGoText.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoText.h
@@ -1586,6 +1616,14 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_Theme.h
     Source/ClaudeGG/ClaudeGG_Update.cpp
     Source/ClaudeGG/ClaudeGG_Update.h
+    Source/ClaudeGG/ClaudeGG_UpdateDialog.cpp
+    Source/ClaudeGG/ClaudeGG_UpdateDialog.h
+    Source/ClaudeGG/ClaudeGG_Updater.cpp
+    Source/ClaudeGG/ClaudeGG_Updater.h
+    Source/ClaudeGG/ClaudeGG_Vita.cpp
+    Source/ClaudeGG/ClaudeGG_Vita.h
+    Source/ClaudeGG/ClaudeGG_3DS.cpp
+    Source/ClaudeGG/ClaudeGG_3DS.h
     Source/ClaudeGG/ClaudeGG_WiiU.cpp
     Source/ClaudeGG/ClaudeGG_WiiU.h
     Source/Pokemon/Inference/Pokemon_AbilityReader.cpp

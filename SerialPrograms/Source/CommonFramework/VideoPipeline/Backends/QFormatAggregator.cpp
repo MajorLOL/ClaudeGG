@@ -74,6 +74,30 @@ struct FormatAggregator{
 };
 
 
+//  The default among the formats of one resolution: the one with the most
+//  frames a second, and of those the first (the ones that need no decoding
+//  come first). A card on USB 2 often gives 1080p uncompressed at 5 or 10
+//  frames a second and as MJPEG at 60: a frame every 100 to 200 ms is much
+//  later than the decoding of one.
+const QCameraFormat* fastest_format(
+    const std::map<VideoFormat, std::map<size_t, QCameraFormat, std::greater<size_t>>>& formats
+){
+    const QCameraFormat* best = nullptr;
+    size_t best_fps = 0;
+    for (const auto& format : formats){
+        if (format.second.empty()){
+            continue;
+        }
+        const size_t fps = format.second.begin()->first;
+        if (best == nullptr || fps > best_fps){
+            best = &format.second.begin()->second;
+            best_fps = fps;
+        }
+    }
+    return best;
+}
+
+
 
 QCameraFormat build_format_set(
     Logger& logger,
@@ -111,19 +135,19 @@ QCameraFormat build_format_set(
     for (const Resolution& res : RESOLUTION_PRIORITIES){
         auto iter = aggregator.m_formats.find(res);
         if (iter != aggregator.m_formats.end()){
-            current_qformat = &iter->second.begin()->second.begin()->second;
+            current_qformat = fastest_format(iter->second);
             break;
         }
     }
     if (current_qformat == nullptr){
-        current_qformat = &aggregator.m_formats.rbegin()->second.begin()->second.begin()->second;
+        current_qformat = fastest_format(aggregator.m_formats.rbegin()->second);
     }
 
     format_set.clear();
     for (const auto& res : aggregator.m_formats){
-        //  Resolution matches. Pick the first one as the default.
+        //  Resolution matches. Pick the fastest one as the default.
         if (res.first == desired_resolution){
-            current_qformat = &res.second.begin()->second.begin()->second;
+            current_qformat = fastest_format(res.second);
         }
 
         for (const auto& format : res.second){

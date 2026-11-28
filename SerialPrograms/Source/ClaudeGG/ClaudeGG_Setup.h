@@ -343,6 +343,7 @@ struct AppActions{
     std::function<void()> about;
     std::function<void()> output;       //  the output log
     std::function<void()> buttons;      //  the diagram of the buttons
+    std::function<void()> consoles;     //  the guide of the consoles (ClaudeGG_ConsoleGuide.h)
     //  Claude's panel: shown or hidden (the window calls AppView::show_claude()).
     std::function<void(bool show)> claude;
 
@@ -359,6 +360,11 @@ struct AppActions{
     //  "Installations": shows the overview of the installations (the window is
     //  put away by the screen). Empty: the button is not drawn.
     std::function<void()> installations;
+
+    //  The tour of the screen at the start (the first time). It is called
+    //  "tour_done" when it ends, by its last step or by Skip.
+    bool tour = false;
+    std::function<void()> tour_done;
 };
 
 //  The screens as the main window's own screen: a child of "parent", it stays
@@ -410,6 +416,13 @@ public:
     virtual void set_claude(QWidget* panel) = 0;
     virtual void show_claude(bool show) = 0;
     virtual bool claude_shown() const = 0;
+
+    //  The tour of the screen: a few steps that point at the games, the search
+    //  and the buttons along the top, each with a sentence. It is shown on the
+    //  games (from a program, it waits until the games are back).
+    virtual void show_tour() = 0;
+    //  The tour is on the screen, and its step ("2/7"; empty: no tour).
+    virtual QString tour_state() const = 0;
 
     //  ---- for the test, which has no event loop of its own: time passes (with
     //  the pictures drawn), a press on a button by its name, what page it is.
