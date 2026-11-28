@@ -7,9 +7,10 @@ only what it is asked: a picture of the screen, a tap, a swipe, a key. It is the
 phone, the way a Pico is that of a Nintendo Switch.
 
 It speaks HTTP with JSON, on the local network, and wants a token (made the first time it starts, kept
-in ~/.claudegg-agent/token) in the header "Authorization: Bearer <token>". It opens no shell: what it can
-do is the list of the endpoints below, and the arguments are checked before an `adb` command is made
-(a list of arguments, never a line for a shell).
+in ~/.claudegg-agent/token) in the header "Authorization: Bearer <token>". What it can do is the list of
+the endpoints below, and the arguments are checked before an `adb` command is made (on the Pi a list of
+arguments, never a line for a shell; on the phone only checked numbers, key names and plain text). The
+taps, swipes and keys go through one `adb shell` that stays open (ShellSession): faster than a new one each.
 
     GET  /  or  /status                 a page for a browser on the network: what runs, the screen, today's
                                         counters (no token for the page itself; it asks for the token and
@@ -54,6 +55,7 @@ import hmac
 import importlib.util
 import json
 import os
+import queue
 import re
 import secrets
 import struct
@@ -63,7 +65,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 #  What this agent can do that the first one (0.1.0) could not; Claude GG asks for these before a program of its own plays.
 FEATURES = ("tap_kind", "app", "bot_file")
 DEFAULT_PORT = 8765
@@ -162,6 +164,128 @@ class Adb:
             why = done.stderr.decode(errors="ignore").strip() or done.stdout.decode(errors="ignore").strip()
             raise AgentError(502, "adb: " + (why or "failed"))
         return done.stdout if binary else done.stdout.decode(errors="ignore")
+
+    def quick(self, *args):
+        """A short `adb shell` command (a tap, a swipe, a key): through the shell that stays open
+        (ShellSession) when there is one, else as `run("shell", ...)`. The same command either way."""
+        session = self.session
+        if session is not None:
+            done = session.run(" ".join(str(a) for a in args))
+            if done is not None:
+                return done
+        return self.run("shell", *args)
+
+    session = None
+
+
+class ShellSession:
+    """One `adb shell` that stays open for the short commands (taps, swipes, keys).
+
+    Why: every `adb shell ...` starts the adb program on the Pi, connects to the adb server and has
+    the phone start a shell: about 50 to 200 ms (more on an older Pi) before the tap itself begins.
+    Through one shell that stays open, a command is a line written to it, and the answer the line
+    after it. The command is the same as `adb shell <command>` would run.
+
+    A command that cannot go through it (the shell is busy with another one, or could not be
+    started) goes the old way: `run()` gives None for that. A shell that broke off while a command
+    was in it is an error of that command, never a second try: a tap must not be done twice."""
+
+    MARK = "__claudegg_done__"
+    RETRY_SECONDS = 2.0        #  after the shell could not be started, the old way for this long
+
+    def __init__(self, adb, timeout=ADB_TIMEOUT):
+        self.adb = adb
+        self.timeout = timeout
+        self.lock = threading.Lock()
+        self.process = None
+        self.lines = None              #  what the shell writes, line by line (from a thread of its own)
+        self.count = 0
+        self.failed_at = None
+
+    def _start(self):
+        if self.failed_at is not None and time.monotonic() - self.failed_at < self.RETRY_SECONDS:
+            return False
+        try:
+            process = subprocess.Popen(self.adb.line("shell"), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT, bufsize=0)
+        except OSError:
+            self.failed_at = time.monotonic()
+            return False
+        lines = queue.Queue()
+
+        def read():
+            for line in iter(process.stdout.readline, b""):
+                lines.put(line.decode(errors="ignore"))
+            lines.put(None)
+        threading.Thread(target=read, daemon=True).start()
+        self.process, self.lines, self.failed_at = process, lines, None
+        return True
+
+    def _stop(self):
+        process, self.process, self.lines = self.process, None, None
+        if process is None:
+            return
+        try:
+            process.kill()
+        except OSError:
+            pass
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            pass
+        for pipe in (process.stdin, process.stdout):
+            try:
+                pipe.close()
+            except OSError:
+                pass
+
+    def close(self):
+        with self.lock:
+            self._stop()
+
+    def run(self, command):
+        """What the command wrote, or None when it has to go the old way."""
+        if not self.lock.acquire(blocking=False):
+            return None
+        try:
+            if self.process is not None and self.process.poll() is not None:
+                self._stop()
+            if self.process is None and not self._start():
+                return None
+            self.count += 1
+            mark = "%s%d" % (self.MARK, self.count)
+            #  { ...; }: the whole command, also one of several parts, with nothing to read and its errors with
+            #  what it writes; then the line that says it is done, with how it ended.
+            line = "{ %s ; } </dev/null 2>&1; echo %s $?\n" % (command, mark)
+            try:
+                self.process.stdin.write(line.encode())
+                self.process.stdin.flush()
+            except OSError:
+                #  Nothing reached the phone: the old way is safe.
+                self._stop()
+                self.failed_at = time.monotonic()
+                return None
+            out = []
+            until = time.monotonic() + self.timeout
+            while True:
+                try:
+                    got = self.lines.get(timeout=max(0.01, until - time.monotonic()))
+                except queue.Empty:
+                    self._stop()
+                    raise AgentError(504, "adb did not answer in time")
+                if got is None:
+                    self._stop()
+                    why = "".join(out).strip()
+                    raise AgentError(502, "adb: " + (why or "the connection to the phone broke off"))
+                if got.startswith(mark + " ") or got.rstrip("\r\n") == mark:
+                    code = got[len(mark):].strip()
+                    text = "".join(out)
+                    if code not in ("", "0"):
+                        raise AgentError(502, "adb: " + (text.strip() or "failed"))
+                    return text
+                out.append(got)
+        finally:
+            self.lock.release()
 
 
 def png_size(data):
@@ -415,13 +539,13 @@ class Phone:
         kind = body.get("kind", "press")
         if kind == "tap":
             #  Some screens of a game take this and not a press.
-            self.adb.run("shell", "input", "tap", x, y)
+            self.adb.quick("input", "tap", x, y)
         elif kind == "motion":
             #  Finger down, a moment, finger up: separate touch events.
-            self.adb.run("shell", "input motionevent DOWN %d %d; sleep %.2f; input motionevent UP %d %d" % (x, y, ms / 1000.0, x, y))
+            self.adb.quick("input motionevent DOWN %d %d; sleep %.2f; input motionevent UP %d %d" % (x, y, ms / 1000.0, x, y))
         elif kind == "press":
             #  A press of a moment: Pokemon GO (Unity) misses a very short tap.
-            self.adb.run("shell", "input", "swipe", x, y, x, y, ms)
+            self.adb.quick("input", "swipe", x, y, x, y, ms)
         else:
             raise AgentError(400, 'kind is "press", "tap" or "motion"')
 
@@ -431,7 +555,7 @@ class Phone:
         x2 = self._int(body.get("x2"), "x2")
         y2 = self._int(body.get("y2"), "y2")
         ms = self._int(body.get("ms", 300), "ms", 1, MAX_MS)
-        self.adb.run("shell", "input", "swipe", x1, y1, x2, y2, ms)
+        self.adb.quick("input", "swipe", x1, y1, x2, y2, ms)
 
     def swipes(self, body):
         strokes = body.get("strokes")
@@ -446,7 +570,7 @@ class Phone:
             parts.append("input swipe %d %d %d %d %d" % (x1, y1, x2, y2, ms))
         #  One command for all of them: the phone starts the next swipe the moment one is
         #  done, with no trip to the computer in between. Only numbers are in the line.
-        self.adb.run("shell", "; ".join(parts))
+        self.adb.quick("; ".join(parts))
 
     def key(self, body):
         if "keycode" in body:
@@ -456,7 +580,7 @@ class Phone:
             if not isinstance(name, str) or name.upper() not in KEYS:
                 raise AgentError(400, "key must be one of " + ", ".join(sorted(KEYS)))
             code = KEYS[name.upper()]
-        self.adb.run("shell", "input", "keyevent", code)
+        self.adb.quick("input", "keyevent", code)
 
     def text(self, body):
         text = body.get("text")
@@ -464,10 +588,10 @@ class Phone:
             raise AgentError(400, "text: up to %d letters, digits, spaces and . , _ @ : / + -" % MAX_TEXT)
         if text:
             #  `input text` takes %s for a space.
-            self.adb.run("shell", "input", "text", text.replace(" ", "%s"))
+            self.adb.quick("input", "text", text.replace(" ", "%s"))
 
     def wake(self):
-        self.adb.run("shell", "input", "keyevent", KEYS["WAKEUP"])
+        self.adb.quick("input", "keyevent", KEYS["WAKEUP"])
 
     def app(self, body):
         """Close or start the Pokemon GO app; what it says goes in the answer."""
@@ -1322,6 +1446,39 @@ def make_server(phone, token, host, port, quiet=True):
     return server
 
 
+def measure(adb, count=20, out=None):
+    """How long a command that does nothing (`input keyevent 0`, a key with no meaning) takes, the old way
+    (a new `adb shell` each time) and through the shell that stays open. Prints the middle and slowest
+    time of each, in milliseconds; gives them as a dict too."""
+    out = out or sys.stdout
+
+    def times(do):
+        taken = []
+        for _ in range(count):
+            start = time.perf_counter()
+            do()
+            taken.append((time.perf_counter() - start) * 1000.0)
+        taken.sort()
+        return {"middle": taken[len(taken) // 2], "slowest": taken[-1]}
+
+    session = ShellSession(adb)
+    kept = Adb(adb.command, adb.serial, adb.timeout)
+    kept.session = session
+    try:
+        kept.quick("input", "keyevent", 0)            # the shell is started before the clock runs
+        result = {"new_shell": times(lambda: adb.run("shell", "input", "keyevent", 0)),
+                  "kept_shell": times(lambda: kept.quick("input", "keyevent", 0))}
+    except AgentError as error:
+        print("The phone did not answer: %s" % error.message, file=out)
+        return 1
+    finally:
+        session.close()
+    for name, label in (("new_shell", "a new adb shell each time"), ("kept_shell", "the shell that stays open")):
+        print("%-28s middle %6.1f ms, slowest %6.1f ms" % (label + ":", result[name]["middle"], result[name]["slowest"]), file=out)
+    print("A tap waits %.0f ms less before it starts." % (result["new_shell"]["middle"] - result["kept_shell"]["middle"]), file=out)
+    return result
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Claude GG agent: the hands and eyes of an Android phone.")
     parser.add_argument("--host", default="0.0.0.0", help="the address to listen on (0.0.0.0: the whole network)")
@@ -1340,6 +1497,10 @@ def main(argv=None):
     parser.add_argument("--print-token", action="store_true", help="print the token and end")
     parser.add_argument("--version", action="version", version=VERSION, help="print the version of the agent and end")
     parser.add_argument("--verbose", action="store_true", help="log every request")
+    parser.add_argument("--no-shell-session", action="store_true",
+                        help="start a new `adb shell` for every tap (slower; the way of agent 0.2.0)")
+    parser.add_argument("--measure", action="store_true",
+                        help="measure how long a command takes on the phone, with and without the shell that stays open, and end")
     args = parser.parse_args(argv)
 
     token = read_or_make_token(args.token_file)
@@ -1347,6 +1508,10 @@ def main(argv=None):
         print(token)
         return 0
     adb = Adb([args.adb] + args.adb_arg, args.serial)
+    if args.measure:
+        return 0 if isinstance(measure(adb), dict) else 1
+    if not args.no_shell_session:
+        adb.session = ShellSession(adb)
     video = VideoPipeline(adb, args.display, [args.video_cmd] + args.video_arg if args.video_cmd else None, args.ffmpeg)
     python = tuple(args.bot_python) if args.bot_python else None
     bot = Bot(args.bot_home, tuple(args.systemctl), tuple(args.systemctl), python) if args.systemctl else Bot(args.bot_home, python=python)
