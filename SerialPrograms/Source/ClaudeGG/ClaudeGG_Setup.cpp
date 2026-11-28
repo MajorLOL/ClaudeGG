@@ -1987,6 +1987,49 @@ bool console_is_other(const QString& console){
 }
 QString console_display_name(const QString& code);
 
+//  What a console that is not a Switch needs, besides the computer: shown on
+//  the page of the board, so the shopping comes before the steps. Empty for
+//  the Switches and the phone (they have pages of their own).
+const std::vector<const char*>& console_needs(const QString& console){
+    static const char* const ESP32S3 = "An ESP32-S3 with two USB ports (COM and USB): the wired board";
+    static const char* const PICO = "A Raspberry Pi Pico for OGX-Mini, with a USB port for a controller wired to it";
+    static const char* const CAPTURE = "A capture card (HDMI) for the picture";
+    static const std::vector<const char*> NONE;
+    static const std::vector<const char*> PS3{"A PlayStation 3", ESP32S3, CAPTURE};
+    static const std::vector<const char*> XBOX{
+        "An original Xbox, and an Xbox-to-USB adapter cable", ESP32S3, PICO,
+        "A capture card, and a converter to HDMI (the Xbox has no HDMI)",
+    };
+    static const std::vector<const char*> RETRO{
+        "The console, and a BlueRetro adapter for its controller port (or an ESP32 to flash BlueRetro onto)",
+        "A wireless board: a Pico W, a Pico 2 W or an ESP32",
+        "A capture card, and a converter to HDMI for a console without HDMI",
+    };
+    static const std::vector<const char*> XBOX360{"An Xbox 360", ESP32S3, "A Raspberry Pi Pico for OGX-Mini-2026, with a USB port for a controller wired to it", CAPTURE};
+    static const std::vector<const char*> PS_REMOTE{
+        "A PlayStation 4 or 5 with Remote Play turned on", ESP32S3,
+        "chiaki-ng and OBS Studio on the computer: no capture card",
+    };
+    static const std::vector<const char*> XBOX_REMOTE{
+        "An Xbox One or Series with remote features turned on", ESP32S3, PICO,
+        "Edge or Chrome and OBS Studio on the computer: no capture card",
+    };
+    static const std::vector<const char*> IPHONE{
+        "An iPhone", ESP32S3,
+        "A USB-C hub with HDMI, or for Lightning a camera adapter and an HDMI adapter", CAPTURE,
+    };
+    static const std::vector<const char*> PS_CLASSIC{"A PlayStation Classic", ESP32S3, PICO, CAPTURE};
+    return console == "ps3" ? PS3
+        : console == "xbox" ? XBOX
+        : console == "retro" ? RETRO
+        : console == "xbox360" ? XBOX360
+        : console == "psremote" ? PS_REMOTE
+        : console == "xboxremote" ? XBOX_REMOTE
+        : console == "iphone" ? IPHONE
+        : console == "psclassic" ? PS_CLASSIC
+        : NONE;
+}
+
 //  ---------------------------------------------------------------------
 //  Page 2: which microcontroller
 //  ---------------------------------------------------------------------
@@ -1997,12 +2040,16 @@ public:
         : m_menu("Select your board", make_sections(
             console_wired_only(canvas.console_code()), console_wireless_only(canvas.console_code())
         ))
+        , m_needs(console_needs(canvas.console_code()))
     {
         canvas.set_focus_id("bar");
     }
 
     virtual const char* name() const override{
         return "board";
+    }
+    virtual QString state() const override{
+        return "needs=" + QString::number(m_needs.size());
     }
     virtual void step(double dt) override{
         m_menu.step(dt);
@@ -2014,8 +2061,30 @@ public:
         draw_stepper(painter, states, prog(t, in.head - 0.05, in.head + 0.7));
         const QString heading = T("Which microcontroller do you use?");
         draw_heading(painter, heading, 140, 250, 80, prog(t, in.head, in.head + 0.9), 1.0);
-        draw_sub(painter, T("Pick your board. The steps follow it."), 140,
-            250 + heading_height(heading, 80) + 26, prog(t, in.sub, in.sub + 0.8), 1.0);
+        const QString sub = T("Pick your board. The steps follow it.");
+        const double sub_y = 250 + heading_height(heading, 80) + 26;
+        draw_sub(painter, sub, 140, sub_y, prog(t, in.sub, in.sub + 0.8), 1.0);
+        if (!m_needs.empty()){
+            //  What the console needs: under the question, left of the list
+            //  (which opens over it at the right).
+            const double a = eo(prog(t, in.bar, in.bar + 0.6));
+            const double need_top = sub_y + sub_height(sub) + 34;
+            draw_text(painter, T("What you need"), 144, need_top, ui_font(28, 600), white(0.9 * a));
+            const QFont font = ui_font(24, 500);
+            double y = need_top + 50;
+            for (const char* need : m_needs){
+                const QRectF dot(144, y + 3, 24, 24);
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(with_alpha(ORANGE, a));
+                painter.drawEllipse(dot);
+                draw_check(painter, dot.adjusted(5, 5, -5, -5), with_alpha(Qt::black, a), 2.6);
+                const QStringList lines = wrap_text(font, T(need), 760);
+                for (int c = 0; c < lines.size(); c++){
+                    draw_text(painter, lines[c], 186, y + c * 31, font, white(0.74 * a));
+                }
+                y += (double)lines.size() * 31 + 12;
+            }
+        }
         m_menu.paint(canvas, painter, prog(t, in.bar, in.bar + 0.6), 1.0);
 
         const double b = eo(prog(t, in.buttons, in.buttons + 0.5));
@@ -2191,6 +2260,8 @@ private:
 
 private:
     Menu m_menu;
+    //  What the console needs (console_needs()); empty for the Switches.
+    const std::vector<const char*>& m_needs;
 };
 
 
@@ -2478,22 +2549,24 @@ const BoardSpec& spec_for(const QString& board, const QString& console){
         return ESP32S3_PS3_SPEC;
     }
 
-    //  The Xbox 360: as the original Xbox, with OGX-Mini in its XInput mode
-    //  (START and UP held for 3 seconds, kept after that). Only a console
-    //  with UsbdSecPatch takes a pad that is not its own.
+    //  The Xbox 360: as the original Xbox, with OGX-Mini-2026 (a fork of
+    //  OGX-Mini) in its XInput mode (START and UP held for 3 seconds, kept
+    //  after that). Its XInput mode answers the console's check of a pad
+    //  (XSM3, libxsm3), so an unmodified Xbox 360 takes it; the older
+    //  OGX-Mini needs a console with UsbdSecPatch.
     static const StepText ESP32S3_XBOX360[] = {
         {"Connect the ESP32-S3", "Plug the port labeled COM or UART into the computer. The port labeled USB or OTG goes into the Pico, in a later step. They are not interchangeable.", Action::DEVICE},
         {"Flash the firmware", "Pick the port of the ESP32-S3 and the firmware version, then press Flash now.", Action::FIRMWARE},
         {"Restart the board", "Press the EN or RESET button, or unplug both cables and plug them in again.", Action::NONE},
-        {"Prepare the Pico with OGX-Mini", "Copy the Pi Pico file of OGX-Mini onto the Pico, as for the original Xbox. Then put it in its Xbox 360 mode once: plug any USB controller into it and hold START and UP for 3 seconds.", Action::NONE},
-        {"Connect the Pico", "Plug the USB or OTG port of the ESP32-S3 into the Pico's port for a controller, and the Pico into a USB port of the Xbox 360. The Xbox 360 needs UsbdSecPatch: an unmodified one takes only its own controllers.", Action::NONE},
+        {"Prepare the Pico with OGX-Mini", "Copy the Pi Pico file of OGX-Mini-2026 (its Multi file) onto the Pico, wired as for the original Xbox: its Xbox 360 mode answers the check of an unmodified Xbox 360. Then put it in that mode once: plug any USB controller into it and hold START and UP for 3 seconds.", Action::NONE},
+        {"Connect the Pico", "Plug the USB or OTG port of the ESP32-S3 into the Pico's port for a controller, and the Pico into a USB port of the Xbox 360. With the older OGX-Mini, only an Xbox 360 with UsbdSecPatch takes it.", Action::NONE},
         {"Select the controller and the port", "In the program, pick Serial: PABotBase2 in the first dropdown, then your device as the serial port. Click Reset Ctrl if it is not listed.", Action::PORTS},
         {"Connect to the Xbox 360", "Pick NS1: Wired Controller as the type, not the Wired Pro Controller. The Pico sees it as a Switch pad and passes it on to the Xbox 360.", Action::NONE},
         {"Test", "Click the video and press the arrow keys: they should move through the menu of the Xbox 360. This has not been tried on an Xbox 360 yet.", Action::NONE},
     };
     static const BoardSpec ESP32S3_XBOX360_SPEC = {
         ESP32S3_XBOX360, sizeof(ESP32S3_XBOX360) / sizeof(ESP32S3_XBOX360[0]),
-        "Wired, through a Pico with OGX-Mini, on a modified Xbox 360. Experimental. Eight steps.", "NS1: Wired Controller",
+        "Wired, through a Pico with OGX-Mini-2026, on an Xbox 360. Experimental. Eight steps.", "NS1: Wired Controller",
         1, -1, 5, 6, 6, true
     };
     if (console == "xbox360" && board == "esp32s3"){
@@ -2556,7 +2629,7 @@ const BoardSpec& spec_for(const QString& board, const QString& console){
         {"Connect both cables", "Plug the port labeled COM or UART into the computer, and the port labeled USB or OTG into the iPhone (USB-C, or Lightning with a USB camera adapter). They are not interchangeable.", Action::DEVICE},
         {"Flash the firmware", "Pick the port of the ESP32-S3 and the firmware version, then press Flash now.", Action::FIRMWARE},
         {"Restart the board", "Press the EN or RESET button, or unplug both cables and plug them in again.", Action::NONE},
-        {"Turn on Full Keyboard Access", "On the iPhone, open Settings, then Accessibility, then Keyboards, and turn on Full Keyboard Access. Under Commands, set Home to Command-H: its own key, Fn-H, needs an Apple keyboard.", Action::NONE},
+        {"Turn on Full Keyboard Access", "On the iPhone, open Settings, then Accessibility, then Keyboards, and turn on Full Keyboard Access. Under Commands, set Home to Command-H: its own key, Fn-H, needs an Apple keyboard. Leave AssistiveTouch off and plug in no mouse.", Action::NONE},
         {"Connect the screen", "Plug the iPhone into the capture card with an HDMI adapter. With USB-C, a hub with HDMI and a USB port takes the board too.", Action::NONE},
         {"Select the controller and the port", "In the program, pick Serial: PABotBase2 in the first dropdown, then your device as the serial port. Click Reset Ctrl if it is not listed.", Action::PORTS},
         {"Pick the type", "Pick HID: Keyboard as the type. The iPhone sees a keyboard.", Action::NONE},
@@ -7964,8 +8037,9 @@ constexpr ConsoleInfo CONSOLES[] = {
     //  Experimental: not tried with BlueRetro yet.
     {"retro",       "Retro consoles",       "Through BlueRetro: PS1, PS2, GameCube, N64, Dreamcast", true},
     //  The ESP32-S3 through a Pico with OGX-Mini in its XInput mode: only an
-    //  Xbox 360 with UsbdSecPatch takes it. Experimental.
-    {"xbox360",     "Xbox 360",             "Modified, through a Pico with OGX-Mini", true},
+    //  OGX-Mini-2026 answers the check of an unmodified Xbox 360 (the older
+    //  OGX-Mini needs UsbdSecPatch). Experimental.
+    {"xbox360",     "Xbox 360",             "Through a Pico with OGX-Mini-2026", true},
     //  Remote Play: the ESP32-S3 as a USB gamepad of the computer, which the
     //  Remote Play client passes on (the consoles themselves take only pads
     //  that pass their check). Experimental.
@@ -11705,6 +11779,7 @@ int run_setup_test(QApplication& application, const QString& folder){
     canvas.wait(0.6);
     checker.check(canvas.result().console_chosen && canvas.result().console_code == "switch2", "the console is the answer");
     checker.check(canvas.page_name() == "board", "the board question follows the console");
+    checker.check(canvas.page_state() == "needs=0", "a Switch has no list of what it needs on this page");
 
     //  ---- the board
     canvas.wait(2.5);
@@ -12777,6 +12852,7 @@ int run_setup_test(QApplication& application, const QString& folder){
         ps3.wait(2.5);
         checker.check(ps3.result().console_chosen && ps3.result().console_code == code, name + " is the answer");
         checker.check(ps3.page_name() == "board", "the board question follows " + name);
+        checker.check(ps3.page_state() != "needs=0" && ps3.page_state().startsWith("needs="), "with what " + name + " needs");
         ps3.click("bar");
         ps3.wait(0.9);
         save(ps3, folder, "setup-63-board-" + code);
@@ -12816,6 +12892,7 @@ int run_setup_test(QApplication& application, const QString& folder){
         retro.wait(2.5);
         checker.check(retro.result().console_chosen && retro.result().console_code == "retro", "the retro consoles are the answer");
         checker.check(retro.page_name() == "board", "the board question follows the retro consoles");
+        checker.check(retro.page_state() == "needs=3", "with what the retro consoles need");
         retro.click("bar");
         retro.wait(0.9);
         save(retro, folder, "setup-63-board-retro");
