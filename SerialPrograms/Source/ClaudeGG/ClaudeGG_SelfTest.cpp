@@ -222,7 +222,7 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
         //  A few small pictures, for the log of the build (see the workflow).
         const QString base = QString::fromLatin1(name);
         if (base == "night-fire-about-update" || base == "night-fire-output-log" || base == "night-fire-settings-search" ||
-            base == "night-fire-panel-about" || base == "night-fire-panel-output"
+            base == "night-fire-panel-about" || base == "night-fire-panel-output" || base == "night-fire-panel-consoles"
         ){
             picture.scaledToWidth(960, Qt::SmoothTransformation).save(out + "/preview-" + base + ".jpg", "JPG", 72);
         }
@@ -924,6 +924,38 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     "Text in its bottom part, as the program reads it:\nStart Game" &&
                 console.read_width == 1280 && console.read_height == 360 &&
                 results[2].rfind("Held left stick up + B for 400 ms. Screen: 22% of the picture differs", 0) == 0;
+            //  The reaction time: every turn of Claude and every action is
+            //  timed, in the log of each action and in the summary.
+            bool timed_lines = !host.lines.empty();
+            size_t timed_actions = 0;
+            for (const std::string& line : host.lines){
+                if (line.rfind("Claude Plays:   ", 0) == 0){
+                    timed_actions++;
+                    timed_lines = timed_lines && line.find(" (Claude ") != std::string::npos &&
+                        line.find(" s, the console ") != std::string::npos;
+                }
+            }
+            const bool timed =
+                ending.timing.turns == 5 && ending.timing.actions == 3 && timed_lines && timed_actions == 3 &&
+                ending.summary.find("Reaction time: Claude ") != std::string::npos &&
+                ClaudePlays::seconds_line(1.96) == "2.0 s";
+            ClaudePlays::Timing made_up;
+            made_up.thought(1.0);
+            made_up.thought(3.0);
+            made_up.acted(0.5);
+            const bool timing_reads =
+                ClaudePlays::timing_line(made_up, "Claude") ==
+                    "Reaction time: Claude 2.0 s a turn (slowest 3.0 s), the console 0.5 s an action." &&
+                ClaudePlays::timing_line(ClaudePlays::Timing(), "Claude").empty();
+            if (!timed || !timing_reads){
+                failed++;
+                logger.log(
+                    "Assistant test: the reaction time of a session is not told as it should be: " +
+                    std::to_string(ending.timing.turns) + " turns, " + std::to_string(ending.timing.actions) +
+                    " actions timed; " + ending.summary + " | " + ClaudePlays::timing_line(made_up, "Claude"),
+                    COLOR_RED
+                );
+            }
             if (played_well){
                 logger.log(
                     "Assistant test: Claude played a session of any game on a made-up console (a look as a "
@@ -1185,6 +1217,12 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     gate_ending.reached && gate_ending.actions == 3 && gate_host.actions == 3 &&
                     gate_ending.summary.rfind("Claude says the goal is reached. Played through the server.", 0) == 0,
                     "the session ended as Claude Code said: " + gate_ending.summary
+                );
+                gate(
+                    gate_ending.timing.actions == 3 && gate_ending.timing.turns == 3 &&
+                    gate_ending.summary.find("Reaction time: Claude Code ") != std::string::npos,
+                    "Claude Code's turns and the console's actions are timed (" + std::to_string(gate_ending.timing.turns) +
+                    " turns, " + std::to_string(gate_ending.timing.actions) + " actions)"
                 );
                 bool connected_log = false;
                 for (const std::string& line : gate_host.lines){
@@ -1806,6 +1844,7 @@ int check_window_panels(MainWindow& window, Logger& logger, const std::function<
     const Case CASES[] = {
         {MainWindow::WindowPanel::OUTPUT,   "Output",   "night-fire-panel-output"},
         {MainWindow::WindowPanel::BUTTONS,  "Buttons",  "night-fire-panel-buttons"},
+        {MainWindow::WindowPanel::CONSOLES, "Consoles", "night-fire-panel-consoles"},
         {MainWindow::WindowPanel::ABOUT,    "About",    "night-fire-panel-about"},
     };
     for (const Case& one : CASES){
