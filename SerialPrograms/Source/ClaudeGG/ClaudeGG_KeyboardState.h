@@ -10,6 +10,8 @@
  *  passes nothing on to a recording; the keyboard now does
  *  (StandardHid_Keyboard.cpp, run_controller_input()).
  *
+ *  No Qt here: the keyboard is in the GUI-free core (CoreLib), and so is this.
+ *
  *  In a file: {"keys": [4, 40]}, the HID codes of the keys held. Nothing
  *  held: no "keys".
  *
@@ -54,9 +56,6 @@ public:
     std::vector<KeyboardKey> keys;
 };
 
-//  The name of a key: "A", "ENTER", "LEFT_SHIFT". A code without a name:
-//  "0x87".
-std::string keyboard_key_name(KeyboardKey key);
 
 
 }

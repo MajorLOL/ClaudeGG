@@ -6,11 +6,9 @@
  */
 
 #include <algorithm>
-#include <cstdio>
 #include <typeinfo>
 #include "Common/Cpp/Json/JsonArray.h"
 #include "Common/Cpp/Json/JsonObject.h"
-#include "ControllerInput/Keyboard/KeyboardInput_KeyMappings.h"
 #include "Controllers/StandardHid/StandardHid_Keyboard.h"
 #include "ClaudeGG_KeyboardState.h"
 
@@ -71,22 +69,6 @@ void KeyboardMacroState::execute(
     controller.cast_with_exception<StandardHid::Keyboard>().issue_keys(
         scope, duration, duration, Milliseconds(0), keys
     );
-}
-
-
-std::string keyboard_key_name(KeyboardKey key){
-    const std::map<KeyboardKey, std::string>& names = KEYBOARDKEY_TO_STRING();
-    const auto iter = names.find(key);
-    if (iter == names.end()){
-        char text[8];
-        std::snprintf(text, sizeof(text), "0x%02x", (unsigned)key);
-        return text;
-    }
-    std::string name = iter->second;
-    if (name.rfind("KEY_", 0) == 0){
-        name = name.substr(4);
-    }
-    return name;
 }
 
 

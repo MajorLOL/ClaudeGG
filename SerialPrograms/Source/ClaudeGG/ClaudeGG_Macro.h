@@ -54,6 +54,7 @@
 #include "Common/Cpp/Options/StaticTextOption.h"
 #include "Common/Cpp/Options/StringOption.h"
 #include "Common/Cpp/TestRunners/UnitTestDatabase.h"
+#include "ControllerInput/Keyboard/KeyboardHidButtons.h"
 #include "CommonFramework/Panels/PanelTools.h"
 #include "Controllers/ControllerStateTable.h"
 #include "NintendoSwitch/NintendoSwitch_SingleSwitchProgram.h"
@@ -80,6 +81,10 @@ std::string macro_path(const std::string& name);
 std::string describe_step(ClaudePlays::PadKind pad, const JsonObject& step);
 //  The goal picture of a macro: "<settings>/Macros/<name>.png".
 std::string macro_goal_path(const std::string& name);
+
+//  The name of a key of a keyboard: "A", "ENTER", "LEFT_SHIFT". A code
+//  without a name: "0x87".
+std::string keyboard_key_name(KeyboardKey key);
 
 //  The time a step is held at a speed in percent (100: as recorded, 200:
 //  twice as fast). At least 1 ms when it was more than 0.

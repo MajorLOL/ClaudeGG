@@ -6,6 +6,7 @@
  */
 
 #include <cmath>
+#include <cstdio>
 #include <atomic>
 #include "Common/Cpp/Exceptions.h"
 #include "Common/Cpp/Filesystem/Filesystem.h"
@@ -18,6 +19,7 @@
 #include "CommonFramework/VideoPipeline/VideoFeed.h"
 #include "CommonTools/Async/InferenceRoutines.h"
 #include "CommonTools/InferenceCallbacks/VisualInferenceCallback.h"
+#include "ControllerInput/Keyboard/KeyboardInput_KeyMappings.h"
 #include "Controllers/ControllerTypeStrings.h"
 #include "NintendoSwitch/Controllers/NintendoSwitch_ControllerButtons.h"
 #include "NintendoSwitch/Controllers/Procon/NintendoSwitch_ProControllerState.h"
@@ -66,6 +68,22 @@ std::string macro_file_name(const std::string& name){
 }
 std::string macro_path(const std::string& name){
     return SETTINGS_PATH() + "Macros/" + macro_file_name(name) + ".json";
+}
+
+
+std::string keyboard_key_name(KeyboardKey key){
+    const std::map<KeyboardKey, std::string>& names = KEYBOARDKEY_TO_STRING();
+    const auto iter = names.find(key);
+    if (iter == names.end()){
+        char text[8];
+        std::snprintf(text, sizeof(text), "0x%02x", (unsigned)key);
+        return text;
+    }
+    std::string name = iter->second;
+    if (name.rfind("KEY_", 0) == 0){
+        name = name.substr(4);
+    }
+    return name;
 }
 
 

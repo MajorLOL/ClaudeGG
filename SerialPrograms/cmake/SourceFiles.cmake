@@ -363,6 +363,8 @@ file(GLOB CORE_LIBRARY_SOURCES
     Source/NintendoSwitch/Programs/FastCodeEntry/NintendoSwitch_KeyboardEntryMappings.h
     Source/ClaudeGG/ClaudeGG_InstancePaths.cpp
     Source/ClaudeGG/ClaudeGG_InstancePaths.h
+    Source/ClaudeGG/ClaudeGG_KeyboardState.cpp
+    Source/ClaudeGG/ClaudeGG_KeyboardState.h
 )
 
 file(GLOB LIBRARY_SOURCES
@@ -1516,8 +1518,6 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_Home.h
     Source/ClaudeGG/ClaudeGG_Intro.cpp
     Source/ClaudeGG/ClaudeGG_Intro.h
-    Source/ClaudeGG/ClaudeGG_KeyboardState.cpp
-    Source/ClaudeGG/ClaudeGG_KeyboardState.h
     Source/ClaudeGG/ClaudeGG_Macro.cpp
     Source/ClaudeGG/ClaudeGG_Macro.h
     Source/ClaudeGG/ClaudeGG_Firmware.cpp
