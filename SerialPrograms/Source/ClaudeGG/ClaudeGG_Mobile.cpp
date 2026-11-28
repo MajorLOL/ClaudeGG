@@ -1417,7 +1417,13 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
                 check(bot.setting_text("throw_target", "realistic") == "great" && bot.setting_text("fast_look", "") == "True"
                       && bot.berry_order() == QStringList{"razz", "nanab"} && bot.ball() == "poke", "the throw, the berries and the ball are as chosen");
                 const PokemonGo::Loop::Point real = bot.to_real(884, 1104);
-                check(real.x == 500 && real.y == 1100, "the throw is sent on the real screen (1000 x 2200)");
+                //  (The screen is the size of the last screenshot of the made-up phone, which need not be 1000 x 2200 any more.)
+                const int real_w = host.screen_width();
+                const int real_h = host.screen_height();
+                check(real_w > 0 && real_h > 0 && real.x == (int)std::nearbyint(884.0 * real_w / PokemonGo::Loop::REF_W)
+                      && real.y == (int)std::nearbyint(1104.0 * real_h / PokemonGo::Loop::REF_H),
+                      "the throw is sent on the real screen (" + QString::number(real_w) + " x " + QString::number(real_h) + ": "
+                      + QString::number(real.x) + ", " + QString::number(real.y) + ")");
                 {
                     //  The commands of the throw reach the phone as touch events and swipes (and nothing else is sent).
                     const QStringList throw_start = read_lines(adb_log);
