@@ -47,9 +47,14 @@ on:
 permissions:
   contents: read
 
+#  A pull request's build makes way for its newer push. A build of main is
+#  not stopped: it finishes and publishes, and the newest push after it waits
+#  (GitHub keeps one waiting run per group, the newest). With main stopped
+#  at every merge, no release came out while merges came in faster than a
+#  build takes (about 25 minutes).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
