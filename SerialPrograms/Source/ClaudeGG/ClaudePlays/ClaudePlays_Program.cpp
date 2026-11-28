@@ -35,6 +35,7 @@
 #include "VideoGames/PokemonSV/Programs/PokemonSV_SaveGame.h"
 #include "VideoGames/PokemonSwSh/Programs/PokemonSwSh_MenuNavigation.h"
 #include "ClaudePlays_AnyGame.h"
+#include "ClaudePlays_Consoles.h"
 #include "ClaudePlays_External.h"
 #include "ClaudePlays_GameCard.h"
 #include "ClaudePlays_Program.h"
@@ -482,7 +483,8 @@ bool dreamcast_button_of(const std::string& name, Button& button){
 }
 
 //  The Xbox 360: the same board through a Pico with OGX-Mini in its XInput
-//  mode (only a console with UsbdSecPatch takes such a pad). OGX-Mini passes
+//  mode (OGX-Mini-2026 answers the console's check of a pad; the older
+//  OGX-Mini only works on a console with UsbdSecPatch). OGX-Mini passes
 //  the Switch pad on by the places of the buttons, as for the original Xbox,
 //  with L and R to LB and RB and HOME to the Guide button.
 bool xbox360_button_of(const std::string& name, Button& button){
@@ -865,9 +867,9 @@ std::string setup_text(const GameProfile& profile){
                 "tried on an Xbox yet: first check in its menu that the d-pad moves and that A picks")
             : console == "xbox360"
             ? std::string(
-                "an Xbox 360 with UsbdSecPatch (a modified console: an unmodified one takes only its own pads), "
-                "and the wired board (the ESP32-S3) with NS1: Wired Controller as the type, plugged into a "
-                "Raspberry Pi Pico with OGX-Mini in its XInput mode, which is plugged into the Xbox 360. Not "
+                "an Xbox 360, and the wired board (the ESP32-S3) with NS1: Wired Controller as the type, plugged "
+                "into a Raspberry Pi Pico with OGX-Mini-2026 in its XInput mode, which is plugged into the Xbox "
+                "360 (the older OGX-Mini only works on a console with UsbdSecPatch). Not "
                 "tried on an Xbox 360 yet: first check in its menu that the d-pad moves and that A picks")
             : console == "psremote" || console == "xboxremote"
             ? std::string(
@@ -1094,6 +1096,19 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
     options.allow_home = ALLOW_HOME;
     options.external = external;
     options.readers = profile.pad == PadKind::PRO_CONTROLLER && game_has_readers(selected);
+    //  What differs on this console: how presses are played, how late the
+    //  picture comes, and what part of the capture is the game.
+    const ConsoleTraits& traits = console_traits(profile.console);
+    options.timing = traits.timing;
+    options.picture_aspects = traits.picture_aspects;
+    env.log(
+        "Console " + traits.code + ": presses of " + std::to_string(traits.timing.press_ms) + " ms (directions " +
+        std::to_string(traits.timing.direction_ms) + " ms), " + std::to_string(traits.timing.gap_ms) +
+        " ms after each" + (traits.timing.video_delay_ms > 0
+            ? ", the picture looked at " + std::to_string(traits.timing.video_delay_ms) + " ms later"
+            : std::string()) +
+        ". " + traits.why
+    );
 
     GameFacts facts;
     facts.name = profile.name;
@@ -1102,6 +1117,10 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
     const Language text_language = TEXT_LANGUAGE;
     if (text_language != Language::English){
         facts.text_language = language_data(text_language).name;
+    }
+    //  A Japanese PlayStation game: CIRCLE is yes.
+    if (text_language == Language::Japanese){
+        facts.yes_no = japanese_yes_no(profile.pad);
     }
 
     Limits limits;
