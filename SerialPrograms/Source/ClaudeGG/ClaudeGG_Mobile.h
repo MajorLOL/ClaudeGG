@@ -21,6 +21,7 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -43,7 +44,7 @@ struct MobileInfo{
     int width = 0;
     int height = 0;
     QString version;            //  of the agent ("0.1.0" did not say what it can do)
-    QStringList features;       //  what it can do beyond 0.1.0: "tap_kind", "app", "bot_file", "touch", "app_list"
+    QStringList features;       //  what it can do beyond 0.1.0: "tap_kind", "app", "bot_file", "touch", "app_list", "heat"
 };
 
 //  How the start of the Pokémon GO app is going (the command that starts it does not come back while the game starts).
@@ -124,6 +125,9 @@ public:
     bool info(MobileInfo& result, QString* error = nullptr) const;
     //  The screen of the phone.
     bool screen(QImage& picture, QString* error = nullptr) const;
+    //  The temperatures (/v1/heat, the feature "heat" of agent 0.2.4): °C of the phone's battery and of the processor of the Pi; nothing for
+    //  what the agent could not read.  False (and `error`) when the agent could not be asked at all.
+    bool heat(std::optional<double>& phone, std::optional<double>& pi, QString* error = nullptr) const;
 
     //  A press of "ms" milliseconds (a very short tap is missed by games made with Unity).
     bool tap(int x, int y, int ms = 120, QString* error = nullptr) const;

@@ -101,6 +101,10 @@ def main(argv):
         #  The apps that are installed (FAKE_PACKAGES: the lines of the answer, "|" for a new line; a Play Store one and an app of another store when it is not set).
         lines = os.environ.get("FAKE_PACKAGES", "package:com.nianticlabs.pokemongo.ares|package:com.example.pokemongo.fan|package:com.nianticlabs.pokemongo")
         sys.stdout.write("\n".join(lines.split("|")) + "\n")
+    elif args[:3] == ["shell", "dumpsys", "battery"]:
+        #  What `dumpsys battery` says (FAKE_BATTERY: the lines of the answer, "|" for a new line; a battery of 31.2 degrees when it is not set).
+        lines = os.environ.get("FAKE_BATTERY", "Current Battery Service state:|  AC powered: false|  USB powered: true|  level: 80|  temperature: 312|  technology: Li-ion")
+        sys.stdout.write("\n".join(lines.split("|")) + "\n")
     elif args[:2] == ["shell", "wm"]:
         sys.stdout.write("Physical size: 1080x2340\nOverride size: 1000x2200\n")
     elif args[:3] == ["shell", "getprop", "ro.product.model"]:

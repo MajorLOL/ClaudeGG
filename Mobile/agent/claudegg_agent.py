@@ -18,6 +18,8 @@ taps, swipes and keys go through one `adb shell` that stays open (ShellSession):
     GET  /v1/ping                       {"ok": true}                            (no token)
     GET  /v1/info                       the phone: model, android, width, height
     GET  /v1/screen                     the screen as a PNG
+    GET  /v1/heat                       {phone, pi}: the temperature of the phone's battery and of the processor of the
+                                        machine the agent runs on, in degrees Celsius (null for what cannot be read)
     GET  /v1/video?fps=10&width=540     the screen live: JPEG pictures in a multipart/x-mixed-replace stream
     POST /v1/tap     {x, y, ms, kind}   a press of ms milliseconds (120); kind "tap": a plain `input tap` (finger down and
                                         up at once), "motion": finger down, ms, finger up as touch events (Android 11+)
@@ -69,9 +71,9 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.2.3"
+VERSION = "0.2.4"
 #  What this agent can do that the first one (0.1.0) could not; Claude GG asks for these before a program of its own plays.
-FEATURES = ("tap_kind", "app", "bot_file", "touch", "app_list")
+FEATURES = ("tap_kind", "app", "bot_file", "touch", "app_list", "heat")
 DEFAULT_PORT = 8765
 MAX_BODY = 64 * 1024
 MAX_STROKES = 50
@@ -109,6 +111,7 @@ BOT_BATTLE_COUNT = (1, 50)
 APP_PACKAGE = re.compile(r"^com\.nianticlabs\.pokemongo[A-Za-z0-9._]{0,60}$")
 APP_ACTIONS = ("stop", "start", "state", "end", "list")
 APP_MAIN = "com.nianticlabs.pokemongo"      #  the Play Store version: always first in the list
+PI_TEMPERATURE_FILE = "/sys/class/thermal/thermal_zone0/temp"   #  the processor of the Pi, in thousandths of a degree
 APP_ERROR_BYTES = 2000      #  how much of what the start command wrote as an error is told
 BOT_CHAPTER_KEY = re.compile(r"^[a-z][a-z_]{0,29}$")
 BOT_TEST_STOP_WAIT = 20          #  seconds the service has to stop before a test begins
@@ -497,8 +500,9 @@ class VideoPipeline:
 class Phone:
     """What can be done with the phone: the endpoints, with their arguments checked."""
 
-    def __init__(self, adb, display=None, video=None, bot=None):
+    def __init__(self, adb, display=None, video=None, bot=None, heat_file=PI_TEMPERATURE_FILE):
         self.adb = adb
+        self.heat_file = heat_file
         self.display = display
         self.video = video if video is not None else VideoPipeline(adb, display)
         self.bot = bot if bot is not None else Bot()
@@ -527,6 +531,22 @@ class Phone:
                 break
         return {"model": model, "android": android, "width": width, "height": height,
                 "display": self.display}
+
+    def heat(self):
+        """The temperatures that the bot of the Pi watches (read_heat() of gamebot.py): `phone`, the battery of the phone
+        (`dumpsys battery` says it in tenths of a degree), and `pi`, the processor of this machine; null for what cannot be read."""
+        phone = pi = None
+        try:
+            found = re.search(r"^\s*temperature:\s*(-?\d+)", self.adb.run("shell", "dumpsys", "battery"), re.M)
+            phone = int(found.group(1)) / 10.0 if found else None
+        except Exception:  # noqa: BLE001  (a phone that does not answer is no temperature)
+            phone = None
+        try:
+            with open(self.heat_file) as handle:
+                pi = int(handle.read().strip()) / 1000.0
+        except (OSError, ValueError):
+            pi = None
+        return {"phone": phone, "pi": pi}
 
     def screen(self):
         args = ["exec-out", "screencap"]
@@ -1408,6 +1428,8 @@ def make_handler(phone, token, quiet=True):
                 if method == "GET" and path == "/v1/info":
                     return self._send(200, dict(phone.info(), agent="claudegg-agent", version=VERSION,
                                                     features=list(FEATURES)))
+                if method == "GET" and path == "/v1/heat":
+                    return self._send(200, dict(phone.heat(), ok=True))
                 if method == "GET" and path == "/v1/video":
                     return self._video()
                 if method == "GET" and path == "/v1/screen":

@@ -886,6 +886,13 @@ private:
             }
         }
         PokemonGo::Bot::PhoneBot bot(phone, switches, texts, folder);
+        if (switches["heat_pause"] && !phone.reads_heat()){
+            env.log(
+                "The agent on the Raspberry Pi is older than 0.2.4 and cannot tell the temperatures: Claude GG plays without a pause when the phone "
+                "or the Pi gets hot. On the Pi, in the folder of the clone, run  git pull  and then  bash Mobile/agent/install-agent.sh.",
+                COLOR_RED
+            );
+        }
         std::string does;
         const auto add_part = [&](const char* part){
             does += (does.empty() ? "" : ", ") + std::string(part);
