@@ -6,6 +6,7 @@
  */
 
 #include <atomic>
+#include <chrono>
 #include <string>
 #include <QImage>
 #include <QPainter>
@@ -35,6 +36,7 @@
 #include "VideoGames/PokemonSV/Programs/PokemonSV_SaveGame.h"
 #include "VideoGames/PokemonSwSh/Programs/PokemonSwSh_MenuNavigation.h"
 #include "ClaudePlays_AnyGame.h"
+#include "ClaudePlays_Calibrate.h"
 #include "ClaudePlays_Consoles.h"
 #include "ClaudePlays_External.h"
 #include "ClaudePlays_GameCard.h"
@@ -827,6 +829,62 @@ private:
 };
 
 
+//  The measuring of the timing (ClaudePlays_Calibrate.h) on a console of a
+//  session.
+class ConsoleProbe : public CalibrationProbe{
+public:
+    explicit ConsoleProbe(PlayConsole& console)
+        : m_console(console)
+    {}
+    virtual void press(bool down, int ms) override{
+        PadInput input;
+        if (m_console.layout().directions_are_stick){
+            input.stick_y = down ? -1 : 1;
+        }else{
+            input.buttons.push_back(down ? "DOWN" : "UP");
+        }
+        m_console.hold(input, std::chrono::milliseconds(ms));
+        //  Until the press is over (a look waits for everything sent).
+        m_console.screen([](const ImageViewRGB32&){});
+    }
+    virtual void wait(int ms) override{
+        m_console.wait(std::chrono::milliseconds(ms));
+        m_console.screen([](const ImageViewRGB32&){});
+    }
+    virtual bool mark() override{
+        m_marked = ScreenThumb();
+        m_console.screen([&](const ImageViewRGB32& frame){
+            m_marked = screen_thumb(frame);
+        });
+        return m_marked.valid();
+    }
+    virtual double changed() override{
+        ScreenThumb now;
+        m_console.screen([&](const ImageViewRGB32& frame){
+            now = screen_thumb(frame);
+        });
+        if (!now.valid()){
+            return -1;
+        }
+        return thumb_difference(m_marked, now);
+    }
+    virtual double now_ms() override{
+        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    }
+
+private:
+    PlayConsole& m_console;
+    ScreenThumb m_marked;
+};
+
+std::string timing_text(const InputTiming& timing){
+    return "presses of " + std::to_string(timing.press_ms) + " ms (directions " +
+        std::to_string(timing.direction_ms) + " ms), " + std::to_string(timing.gap_ms) + " ms after each" +
+        (timing.video_delay_ms > 0
+            ? ", the picture looked at " + std::to_string(timing.video_delay_ms) + " ms later"
+            : std::string());
+}
+
 std::string setup_text(const GameProfile& profile){
     const bool other = profile.id == GameId::OTHER_GAMES;
     const bool ps3 = profile.pad == PadKind::PS3_CONTROLLER;
@@ -1024,6 +1082,28 @@ GameProgram::GameProgram(GameId game)
         LockMode::LOCK_WHILE_RUNNING,
         true
     )
+    , MEASURE_TIMING(
+        "<b>Measure the timing first:</b><br>With a menu on the screen that DOWN and UP move in. Before "
+        "Claude starts, the program presses DOWN and UP a few times (the cursor ends where it was) and "
+        "measures how late the picture shows a press and how short a press can be. That timing is used for "
+        "this session and is in the log: put it in the two boxes below to keep it.",
+        LockMode::LOCK_WHILE_RUNNING,
+        false
+    )
+    , PRESS_MS(
+        "<b>Press of a direction (ms):</b><br>How long UP, DOWN, LEFT and RIGHT are held; a button is held 30 "
+        "ms longer. 0: the console's own (in the log at the start). Shorter is faster, but a press that is too "
+        "short does not arrive.",
+        LockMode::LOCK_WHILE_RUNNING,
+        0, 0, 500
+    )
+    , VIDEO_DELAY_MS(
+        "<b>Extra wait for the picture (ms):</b><br>How much longer the program waits after an action before "
+        "it looks whether the picture changed: for a picture that comes late (Remote Play, an HDMI adapter). "
+        "0: the console's own.",
+        LockMode::LOCK_WHILE_RUNNING,
+        0, 0, 1000
+    )
     , NOTIFICATIONS({
         &NOTIFICATION_PROGRAM_FINISH,
         &NOTIFICATION_ERROR_FATAL,
@@ -1046,6 +1126,9 @@ GameProgram::GameProgram(GameId game)
     PA_ADD_OPTION(ALLOW_SAVE);
     PA_ADD_OPTION(ALLOW_HOME);
     PA_ADD_OPTION(OVERLAY_NOTES);
+    PA_ADD_OPTION(MEASURE_TIMING);
+    PA_ADD_OPTION(PRESS_MS);
+    PA_ADD_OPTION(VIDEO_DELAY_MS);
     PA_ADD_OPTION(NOTIFICATIONS);
 }
 
@@ -1100,14 +1183,21 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
     const ConsoleTraits& traits = console_traits(profile.console);
     options.timing = traits.timing;
     options.picture_aspects = traits.picture_aspects;
+    //  Set by hand.
+    const uint32_t press_ms = PRESS_MS;
+    const uint32_t video_delay_ms = VIDEO_DELAY_MS;
+    if (press_ms > 0){
+        options.timing.direction_ms = (int)press_ms;
+        options.timing.press_ms = (int)press_ms + 30;
+    }
+    if (video_delay_ms > 0){
+        options.timing.video_delay_ms = (int)video_delay_ms;
+    }
     env.log(
-        "Console " + traits.code + ": presses of " + std::to_string(traits.timing.press_ms) + " ms (directions " +
-        std::to_string(traits.timing.direction_ms) + " ms), " + std::to_string(traits.timing.gap_ms) +
-        " ms after each" + (traits.timing.video_delay_ms > 0
-            ? ", the picture looked at " + std::to_string(traits.timing.video_delay_ms) + " ms later"
-            : std::string()) +
-        ". " + traits.why
+        "Console " + traits.code + ": " + timing_text(options.timing) +
+        (press_ms > 0 || video_delay_ms > 0 ? " (set by hand). " : ". ") + traits.why
     );
+    const bool measure_timing = MEASURE_TIMING;
 
     GameFacts facts;
     facts.name = profile.name;
@@ -1130,7 +1220,25 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
     //  The session, on the game's controller.
     auto session = [&](PlayConsole& console, CancellableScope& controller){
         ProgramHost host(env, controller, stats, OVERLAY_NOTES);
-        AnyGame game(console, facts, options);
+        AnyGameOptions session_options = options;
+        if (measure_timing){
+            host.show("Measuring the timing (DOWN and UP in the menu)...", COLOR_PURPLE);
+            ConsoleProbe probe(console);
+            const Calibration measured = calibrate(probe);
+            env.log("Timing: " + measured.report, measured.measured ? COLOR_BLUE : COLOR_ORANGE);
+            if (measured.measured){
+                session_options.timing = calibrated_timing(options.timing, measured);
+                env.log(
+                    "Timing from the measurement: " + timing_text(session_options.timing) + ". To keep it: "
+                    "press of a direction " + std::to_string(session_options.timing.direction_ms) +
+                    " ms, extra wait for the picture " + std::to_string(session_options.timing.video_delay_ms) +
+                    " ms.",
+                    COLOR_BLUE
+                );
+            }
+            host.show("Timing: " + measured.report, measured.measured ? COLOR_GREEN : COLOR_ORANGE);
+        }
+        AnyGame game(console, facts, session_options);
         if (external){
             const Ending ending = serve_claude_code(env.console, host, game, WHO, limits);
             env.log("Claude Plays: " + ending.summary, ending.reached ? COLOR_BLUE : COLOR_ORANGE);

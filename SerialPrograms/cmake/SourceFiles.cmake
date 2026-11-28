@@ -1488,6 +1488,8 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/Assistant/Assistant_Workspace.h
     Source/ClaudeGG/ClaudePlays/ClaudePlays_AnyGame.cpp
     Source/ClaudeGG/ClaudePlays/ClaudePlays_AnyGame.h
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_Calibrate.cpp
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_Calibrate.h
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Consoles.cpp
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Consoles.h
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Engine.cpp

@@ -98,6 +98,11 @@ private:
     BooleanCheckBoxOption ALLOW_SAVE;
     BooleanCheckBoxOption ALLOW_HOME;
     BooleanCheckBoxOption OVERLAY_NOTES;
+    //  The timing of the console (ClaudePlays_Consoles.h), measured first or
+    //  set by hand (ClaudePlays_Calibrate.h).
+    BooleanCheckBoxOption MEASURE_TIMING;
+    SimpleIntegerOption<uint32_t> PRESS_MS;
+    SimpleIntegerOption<uint32_t> VIDEO_DELAY_MS;
 
     EventNotificationsOption NOTIFICATIONS;
 };
