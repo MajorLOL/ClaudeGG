@@ -13,7 +13,11 @@
 #include "Common/Cpp/Json/JsonObject.h"
 #include "Common/Cpp/TestRunners/UnitTest.h"
 #include "CommonFramework/GlobalAutoPaths.h"
+#include "CommonFramework/ImageTypes/ImageRGB32.h"
 #include "CommonFramework/ProgramStats/StatsTracking.h"
+#include "CommonFramework/VideoPipeline/VideoFeed.h"
+#include "CommonTools/Async/InferenceRoutines.h"
+#include "CommonTools/InferenceCallbacks/VisualInferenceCallback.h"
 #include "Controllers/ControllerTypeStrings.h"
 #include "NintendoSwitch/Controllers/NintendoSwitch_ControllerButtons.h"
 #include "NintendoSwitch/Controllers/Procon/NintendoSwitch_ProControllerState.h"
@@ -227,7 +231,8 @@ Macro_Descriptor::Macro_Descriptor(GameId game)
         description_of(game),
         PanelQualityStanding::EXPERIMENTAL,
         ProgramControllerClass::StandardController_NoRestrictions,
-        FeedbackType::NONE,
+        //  The video only for the goal picture.
+        FeedbackType::OPTIONAL_,
         //  You play while it records.
         AllowCommandsWhenRunning::ENABLE_COMMANDS
     )
@@ -299,7 +304,9 @@ Macro::Macro(GameId game)
         "the program runs: it goes to the console as always. Stop ends the recording. "
         "<b>Play</b> sends it to the console again, as often as you like. "
         "<b>Play the list</b> plays steps you type in below. "
-        "<b>Show</b> writes the steps of a macro to the log.<br><br>"
+        "<b>Show</b> writes the steps of a macro to the log. "
+        "<b>Save the screen as the goal</b> keeps the picture of the console as it is now: playing can then "
+        "stop as soon as the screen looks like it, in the middle of a round too.<br><br>"
         "The steps go to the board ahead of time and the board holds each one for its time itself, so there "
         "is no wait for the computer between two steps. What the keyboard or controller recorded is a few "
         "milliseconds off (about 8 to 15 ms per press): a few long presses repeat better than many short ones."
@@ -312,6 +319,7 @@ Macro::Macro(GameId game)
             {Mode::PLAY,        "play",         "Play"},
             {Mode::PLAY_LIST,   "play-list",    "Play the list"},
             {Mode::SHOW,        "show",         "Show the steps in the log"},
+            {Mode::SAVE_GOAL,   "save-goal",    "Save the screen as the goal"},
         },
         LockMode::LOCK_WHILE_RUNNING,
         Mode::RECORD
@@ -348,6 +356,20 @@ Macro::Macro(GameId game)
         LockMode::LOCK_WHILE_RUNNING,
         100, 10, 1000
     )
+    , UNTIL(
+        "<b>Stop playing:</b>",
+        {
+            {Until::ROUNDS, "rounds",   "After the rounds"},
+            {Until::GOAL,   "goal",     "As soon as the screen looks like the goal picture"},
+        },
+        LockMode::LOCK_WHILE_RUNNING,
+        Until::ROUNDS
+    )
+    , GOAL_DIFFERENCE(
+        "<b>The screen looks like the goal when at most this part of it differs (%):</b>",
+        LockMode::LOCK_WHILE_RUNNING,
+        10, 0, 100
+    )
     , LIST(
         "List of steps:",
         {
@@ -366,6 +388,8 @@ Macro::Macro(GameId game)
     PA_ADD_OPTION(LOOPS);
     PA_ADD_OPTION(PAUSE_MS);
     PA_ADD_OPTION(SPEED);
+    PA_ADD_OPTION(UNTIL);
+    PA_ADD_OPTION(GOAL_DIFFERENCE);
     PA_ADD_OPTION(LIST);
 }
 Macro::~Macro() = default;
@@ -384,6 +408,9 @@ void Macro::program(SingleSwitchProgramEnvironment& env, CancellableScope& scope
         return;
     case Mode::SHOW:
         show(env);
+        return;
+    case Mode::SAVE_GOAL:
+        save_goal(env);
         return;
     }
 }
@@ -520,21 +547,115 @@ uint64_t play_steps(
     return played;
 }
 
+//  Lets go of everything: what is held when a round ends or is cut short.
+void release_all(AbstractControllerContext& context, std::chrono::milliseconds duration){
+    if (context.controller().controller_class() == ControllerClass::NintendoSwitch_ProController){
+        ProControllerState().execute(&context, false, context.controller(), duration);
+    }else{
+        JoyconState().execute(&context, false, context.controller(), duration);
+    }
+}
+
+//  Stops the play when the screen looks like the goal picture.
+class GoalWatcher : public VisualInferenceCallback{
+public:
+    GoalWatcher(const ClaudePlays::ScreenThumb& goal, double most_difference)
+        : VisualInferenceCallback("Macro goal")
+        , m_goal(goal)
+        , m_most_difference(most_difference)
+    {}
+    virtual void make_overlays(VideoOverlaySet&) const override{}
+    virtual bool process_frame(const ImageViewRGB32& frame, WallClock) override{
+        const ClaudePlays::ScreenThumb now = ClaudePlays::screen_thumb(frame);
+        if (!now.valid()){
+            return false;
+        }
+        const double difference = ClaudePlays::thumb_difference(now, m_goal);
+        m_last = difference;
+        return difference <= m_most_difference;
+    }
+    double last() const{ return m_last; }
+
+private:
+    const ClaudePlays::ScreenThumb m_goal;
+    const double m_most_difference;
+    std::atomic<double> m_last{1.0};
+};
+
 }
 
 
-void Macro::pause(SingleSwitchProgramEnvironment& env, CancellableScope& scope){
-    if (PAUSE_MS == 0){
-        return;
+std::string macro_goal_path(const std::string& name){
+    return SETTINGS_PATH() + "Macros/" + macro_file_name(name) + ".png";
+}
+
+
+void Macro::play_rounds(
+    SingleSwitchProgramEnvironment& env, CancellableScope& scope,
+    const std::function<uint64_t(AbstractControllerContext& context)>& one_round
+){
+    Macro_Descriptor::Stats& stats = env.current_stats<Macro_Descriptor::Stats>();
+
+    std::unique_ptr<GoalWatcher> watcher;
+    if ((Until)UNTIL == Until::GOAL){
+        const std::string path = macro_goal_path(NAME);
+        if (!Filesystem::exists(Filesystem::Path(path))){
+            throw UserSetupError(
+                env.logger(),
+                "This macro has no goal picture yet (" + path + "). Pick \"Save the screen as the goal\" "
+                "while the screen shows it."
+            );
+        }
+        const ImageRGB32 goal(path);
+        const ClaudePlays::ScreenThumb thumb = ClaudePlays::screen_thumb(goal);
+        if (!thumb.valid()){
+            throw UserSetupError(env.logger(), "The goal picture could not be read: " + path);
+        }
+        watcher = std::make_unique<GoalWatcher>(thumb, GOAL_DIFFERENCE / 100.0);
     }
-    AbstractControllerContext context(scope, env.console.controller());
-    const ControllerClass type = context.controller().controller_class();
-    if (type == ControllerClass::NintendoSwitch_ProController){
-        ProControllerState().execute(&context, false, context.controller(), std::chrono::milliseconds(PAUSE_MS));
-    }else{
-        JoyconState().execute(&context, false, context.controller(), std::chrono::milliseconds(PAUSE_MS));
+
+    for (uint32_t round = 0; LOOPS == 0 || round < LOOPS; round++){
+        const bool last = LOOPS != 0 && round + 1 >= LOOPS;
+        uint64_t played = 0;
+        auto body = [&](AbstractControllerContext& context){
+            played = one_round(context);
+            //  Let go of everything at the end of the round, then the pause.
+            release_all(context, std::chrono::milliseconds(last || PAUSE_MS == 0 ? 1 : (uint32_t)PAUSE_MS));
+        };
+        AbstractControllerContext context(scope, env.console.controller());
+        if (watcher){
+            const int found = run_until<AbstractControllerContext>(
+                env.console, context, std::move(body), {*watcher}
+            );
+            if (found == 0){
+                //  What was still to come is cancelled: nothing stays held.
+                AbstractControllerContext after(scope, env.console.controller());
+                release_all(after, std::chrono::milliseconds(1));
+                after.wait_for_all_requests();
+                stats.steps += played;
+                stats.loops++;
+                env.update_stats();
+                env.log(
+                    "The screen looks like the goal (" + std::to_string((int)(watcher->last() * 100 + 0.5)) +
+                    "% differs) in round " + std::to_string(round + 1) + ": stopped.",
+                    COLOR_BLUE
+                );
+                return;
+            }
+        }else{
+            body(context);
+            context.wait_for_all_requests();
+        }
+        stats.steps += played;
+        stats.loops++;
+        env.update_stats();
+        if (last){
+            break;
+        }
     }
-    context.wait_for_all_requests();
+    if (watcher){
+        env.log("The rounds are over, and the screen never looked like the goal.", COLOR_ORANGE);
+    }
 }
 
 
@@ -559,51 +680,44 @@ void Macro::play(SingleSwitchProgramEnvironment& env, CancellableScope& scope){
         throw UserSetupError(env.logger(), "This macro has no steps.");
     }
 
-    Macro_Descriptor::Stats& stats = env.current_stats<Macro_Descriptor::Stats>();
     const uint32_t speed = SPEED;
     env.log(
         "Playing \"" + std::string(NAME) + "\": " + std::to_string(steps.size()) + " steps, speed " +
         std::to_string(speed) + "%.",
         COLOR_BLUE
     );
-    for (uint32_t round = 0; LOOPS == 0 || round < LOOPS; round++){
-        {
-            AbstractControllerContext context(scope, env.console.controller());
-            const uint64_t played = type == ControllerClass::NintendoSwitch_ProController
-                ? play_steps<ProControllerState>(context, steps, speed)
-                : play_steps<JoyconState>(context, steps, speed);
-            //  Let go of everything at the end of the round.
-            if (type == ControllerClass::NintendoSwitch_ProController){
-                ProControllerState().execute(&context, false, context.controller(), std::chrono::milliseconds(1));
-            }else{
-                JoyconState().execute(&context, false, context.controller(), std::chrono::milliseconds(1));
-            }
-            context.wait_for_all_requests();
-            stats.steps += played;
-        }
-        stats.loops++;
-        env.update_stats();
-        if (LOOPS != 0 && round + 1 >= LOOPS){
-            break;
-        }
-        pause(env, scope);
-    }
+    play_rounds(env, scope, [&](AbstractControllerContext& context){
+        return type == ControllerClass::NintendoSwitch_ProController
+            ? play_steps<ProControllerState>(context, steps, speed)
+            : play_steps<JoyconState>(context, steps, speed);
+    });
 }
 
 
 void Macro::play_list(SingleSwitchProgramEnvironment& env, CancellableScope& scope){
-    Macro_Descriptor::Stats& stats = env.current_stats<Macro_Descriptor::Stats>();
-    for (uint32_t round = 0; LOOPS == 0 || round < LOOPS; round++){
-        LIST.run(scope, env.console.controller());
-        env.console.controller().wait_for_all(&scope);
-        stats.loops++;
-        env.update_stats();
-        if (LOOPS != 0 && round + 1 >= LOOPS){
-            break;
-        }
-        pause(env, scope);
-    }
+    play_rounds(env, scope, [&](AbstractControllerContext& context){
+        LIST.run(context, context.controller());
+        return (uint64_t)0;
+    });
 }
+
+
+void Macro::save_goal(SingleSwitchProgramEnvironment& env){
+    if (macro_file_name(NAME).empty()){
+        throw UserSetupError(env.logger(), "Give the macro a name first.");
+    }
+    VideoSnapshot snapshot = env.console.video().snapshot();
+    if (!snapshot){
+        throw UserSetupError(env.logger(), "There is no picture of the console: check the capture card.");
+    }
+    Filesystem::create_directories(Filesystem::Path(SETTINGS_PATH() + "Macros/"));
+    const std::string path = macro_goal_path(NAME);
+    if (!snapshot.frame->save(path)){
+        throw UserSetupError(env.logger(), "The goal picture could not be saved: " + path);
+    }
+    env.log("Goal picture saved: " + path + ".", COLOR_BLUE);
+}
+
 
 
 void Macro::show(SingleSwitchProgramEnvironment& env){
