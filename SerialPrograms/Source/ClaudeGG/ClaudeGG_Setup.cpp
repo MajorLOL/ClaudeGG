@@ -8475,7 +8475,7 @@ QPixmap retro_picture(){
     gate(QPointF(326, 262), 32);
     pad_stick(p, QPointF(326, 262), 25, QColor(50, 42, 110), QColor(184, 184, 196));
     pad_cross(p, QPointF(364, 322), 15, 10, QColor(190, 190, 202));
-    pad_button(p, QPointF(430, 270), 8, QColor(190, 190, 202));
+    pad_button(p, QPointF(426, 264), 8, QColor(190, 190, 202));
     //  The big green A, the small red B, X and Y as curved keys round A, and
     //  the yellow C stick.
     p.setBrush(Qt::NoBrush);
@@ -8489,8 +8489,8 @@ QPixmap retro_picture(){
     p.setPen(Qt::NoPen);
     pad_button(p, QPointF(520, 272), 22, QColor(48, 176, 106));
     pad_button(p, QPointF(486, 304), 11, QColor(214, 54, 64));
-    gate(QPointF(452, 326), 21);
-    pad_stick(p, QPointF(452, 326), 16, QColor(50, 42, 110), QColor(236, 196, 52));
+    gate(QPointF(456, 292), 20);
+    pad_stick(p, QPointF(456, 292), 15, QColor(50, 42, 110), QColor(236, 196, 52));
     p.end();
     cache = QPixmap::fromImage(image);
     return cache;
