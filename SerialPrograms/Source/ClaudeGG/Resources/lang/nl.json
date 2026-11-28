@@ -2178,5 +2178,19 @@
  "Reaction time in the log: every action of Claude Plays says how long Claude took and how long the console took, so you see where the time goes.": "Reactietijd in het logboek: elke actie van Claude Plays zegt hoe lang Claude erover deed en hoe lang de console, zodat je ziet waar de tijd heen gaat.",
  "Macro, in the list Other Games: record what you press and play it back.": "Macro, in de lijst Other Games: neem op wat je indrukt en speel het af.",
  "Pokemon GO: Auto play (spinning, catching, gifts, Team GO Rocket and the GO Pass, each one to choose), the Daily run, the GO Battle League and more.": "Pokemon GO: Auto play (draaien, vangen, cadeaus, Team GO Rocket en de GO Pass, elk zelf te kiezen), de Daily run, de GO Battle League en meer.",
- "Macro: record what you press on the keyboard or a controller, and play it back as often and as fast as you want.": "Macro: neem op wat je indrukt op het toetsenbord of een controller, en speel het af zo vaak en zo snel als je wilt."
+ "Macro: record what you press on the keyboard or a controller, and play it back as often and as fast as you want.": "Macro: neem op wat je indrukt op het toetsenbord of een controller, en speel het af zo vaak en zo snel als je wilt.",
+ "Search": "Zoeken",
+ "Another console": "Andere console",
+ "Claude": "Claude",
+ "Step %1 of %2": "Stap %1 van %2",
+ "Done": "Klaar",
+ "Skip the tour": "Rondleiding overslaan",
+ "Show the tour": "Rondleiding tonen",
+ "Each tile is a game of your console. Click one: its programs come next, each with its options and a Start button.": "Elke tegel is een game van je console. Klik erop: daarna komen de programma's, elk met zijn opties en een Start-knop.",
+ "Type a few letters to find a program in every game at once.": "Typ een paar letters om in alle games tegelijk een programma te vinden.",
+ "The games follow the console. Pick another one here; the setup then shows what the new one needs.": "De games horen bij de console. Kies hier een andere; de setup laat dan zien wat die nodig heeft.",
+ "What you need for each console, how it connects, how quick it is and what to do when it does not work.": "Wat je per console nodig hebt, hoe je het aansluit, hoe snel het is en wat je doet als het niet werkt.",
+ "The capture card, the sound, the language, the theme and the console. Ctrl+F searches them.": "De capturekaart, het geluid, de taal, het thema en de console. Ctrl+F zoekt erin.",
+ "Ask Claude about a program or the log, or let Claude Plays play a game. It needs an API key of your own.": "Vraag Claude iets over een programma of het logboek, of laat Claude Plays een game spelen. Daarvoor heb je een eigen API-sleutel nodig.",
+ "What the program does while it runs, and why it stopped when something went wrong.": "Wat het programma doet terwijl het draait, en waarom het stopte als er iets misging."
 }
