@@ -5,7 +5,10 @@
  *
  */
 
+#include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <cstdio>
 #include <deque>
 #include <utility>
 #include <QByteArray>
@@ -73,6 +76,39 @@ std::string usage_line(const PlayUsage& usage){
     }
     return line;
 }
+
+void Timing::thought(double seconds){
+    thinking_seconds += seconds;
+    slowest_thinking = std::max(slowest_thinking, seconds);
+    turns++;
+}
+void Timing::acted(double seconds){
+    acting_seconds += seconds;
+    actions++;
+}
+
+std::string seconds_line(double seconds){
+    char text[32];
+    std::snprintf(text, sizeof(text), "%.1f s", seconds);
+    return text;
+}
+
+std::string timing_line(const Timing& timing, const std::string& who){
+    if (timing.turns == 0 && timing.actions == 0){
+        return "";
+    }
+    std::string line = "Reaction time:";
+    if (timing.turns > 0){
+        line += " " + who + " " + seconds_line(timing.thinking_seconds / (double)timing.turns) + " a turn (slowest " +
+            seconds_line(timing.slowest_thinking) + ")";
+    }
+    if (timing.actions > 0){
+        line += std::string(timing.turns > 0 ? "," : "") + " the console " +
+            seconds_line(timing.acting_seconds / (double)timing.actions) + " an action";
+    }
+    return line + ".";
+}
+
 
 const char* model_id(Model model){
     switch (model){
@@ -214,8 +250,17 @@ Ending play(
     //  Everything Claude did, the notes and the turns without a tool call
     //  included: they cost requests like an action does.
     uint64_t turns = 0;
+    using Clock = std::chrono::steady_clock;
+    const auto since = [](Clock::time_point start){
+        return std::chrono::duration<double>(Clock::now() - start).count();
+    };
+    double thinking = 0;
     while (summary.empty()){
+        //  The request went out just before (start, say or finish).
+        const Clock::time_point asked = Clock::now();
         const PlayEvent event = claude.wait(host.scope());
+        thinking = since(asked);
+        ending.timing.thought(thinking);
         const PlayUsage usage = counted();
         if (!event.said.empty()){
             host.log("Claude: " + one_line(event.said, 600), COLOR_PURPLE);
@@ -286,12 +331,16 @@ Ending play(
 
         host.log("Claude Plays: " + call_words(call));
         host.show(call_words(call), COLOR_CYAN);
+        const Clock::time_point started = Clock::now();
         const PlayResult result = game.run(call);
+        const double acting = since(started);
+        ending.timing.acted(acting);
         kept.actions++;
         counted();
         host.log(
             std::string("Claude Plays:   ") + (result.is_error ? "(not done) " : "") + one_line(result.text, 500) +
-            (result.image.empty() ? "" : " [with a picture]"),
+            (result.image.empty() ? "" : " [with a picture]") +
+            " (Claude " + seconds_line(thinking) + ", the console " + seconds_line(acting) + ")",
             result.is_error ? COLOR_ORANGE : Color()
         );
 
@@ -322,7 +371,8 @@ Ending play(
         }
         if (kept.actions % 10 == 0){
             host.log(
-                "Claude Plays: " + std::to_string(kept.actions) + " actions so far, " + usage_line(usage) + ".",
+                "Claude Plays: " + std::to_string(kept.actions) + " actions so far, " + usage_line(usage) + ". " +
+                timing_line(ending.timing, "Claude"),
                 COLOR_BLUE
             );
         }
@@ -346,6 +396,10 @@ Ending play(
     if (!ending.failed){
         summary += " " + std::to_string(kept.actions) + (kept.actions == 1 ? " action, " : " actions, ") +
             usage_line(ending.usage) + ".";
+        const std::string timed = timing_line(ending.timing, "Claude");
+        if (!timed.empty()){
+            summary += " " + timed;
+        }
     }
     ending.summary = summary;
     return ending;
@@ -362,6 +416,10 @@ Ending serve_external(
     uint64_t clients_seen = 0;
     Clock::time_point last = Clock::now();
     bool called = false;
+    //  When the result of the last call went out: Claude Code's turn is from
+    //  then until the next call.
+    Clock::time_point answered;
+    bool waiting_for_turn = false;
 
     std::string summary;
     while (summary.empty()){
@@ -383,6 +441,11 @@ Ending serve_external(
         }
         last = Clock::now();
         called = true;
+        double thinking = -1;
+        if (waiting_for_turn){
+            thinking = std::chrono::duration<double>(last - answered).count();
+            ending.timing.thought(thinking);
+        }
 
         if (call.name == "done"){
             const QJsonObject input = input_of(call);
@@ -397,16 +460,24 @@ Ending serve_external(
 
         host.log("Claude Plays: " + call_words(call));
         host.show(call_words(call), COLOR_CYAN);
+        const Clock::time_point started = Clock::now();
         PlayResult result = game.run(call);
+        const double acting = std::chrono::duration<double>(Clock::now() - started).count();
+        ending.timing.acted(acting);
         actions++;
         host.count(actions, PlayUsage());
         host.log(
             std::string("Claude Plays:   ") + (result.is_error ? "(not done) " : "") + one_line(result.text, 500) +
-            (result.image.empty() ? "" : " [with a picture]"),
+            (result.image.empty() ? "" : " [with a picture]") +
+            (thinking >= 0 ? " (Claude Code " + seconds_line(thinking) + ", the console " : " (the console ") +
+            seconds_line(acting) + ")",
             result.is_error ? COLOR_ORANGE : Color()
         );
         if (actions % 10 == 0){
-            host.log("Claude Plays: " + std::to_string(actions) + " actions so far.", COLOR_BLUE);
+            host.log(
+                "Claude Plays: " + std::to_string(actions) + " actions so far. " + timing_line(ending.timing, "Claude Code"),
+                COLOR_BLUE
+            );
         }
 
         if (actions >= limits.max_actions){
@@ -416,10 +487,16 @@ Ending serve_external(
                 std::to_string(limits.max_actions) + ") is reached. Nothing more will be done.";
         }
         mcp.finish(call, std::move(result));
+        answered = Clock::now();
+        waiting_for_turn = true;
     }
 
     ending.actions = actions;
     summary += " " + std::to_string(actions) + (actions == 1 ? " action." : " actions.");
+    const std::string timed = timing_line(ending.timing, "Claude Code");
+    if (!timed.empty()){
+        summary += " " + timed;
+    }
     ending.summary = summary;
     return ending;
 }
