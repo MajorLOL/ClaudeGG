@@ -28,6 +28,7 @@
 #include "ClaudeGG_Mobile.h"
 #include "ClaudeGG_PokemonGo.h"
 #include "ClaudeGG_PokemonGoBot.h"
+#include "ClaudeGG_PokemonGoChapter.h"
 #include "ClaudeGG_PokemonGoFlow.h"
 #include "ClaudeGG_PokemonGoPhone.h"
 #include "ClaudeGG_PokemonGoText.h"
@@ -155,7 +156,9 @@ const Preset PRESETS[] = {
         "Runs one part of the Pokémon GO bot on its own, from the screen the game is on: a look at what the bot sees "
         "(no taps), the live video, one GO Battle League battle or the fight that is going on, a Team GO Rocket "
         "battle, one throw, the bag, the GO Pass rewards, the Pokémon storage, gifts. It is what Test in the bot's "
-        "own web interface does; the settings that are not shown here stay as the bot has them.",
+        "own web interface does; the settings that are not shown here stay as the bot has them. Under Who plays, "
+        "Claude GG itself can run some of the parts (experimental): what the bot sees, normal play, catching, one "
+        "throw, a Team GO Rocket battle and its fight, the bag, the GO Pass rewards and gifts.",
         false, false, false, false, false, false, Kind::PART,
     },
 };
@@ -439,6 +442,7 @@ public:
             PA_ADD_OPTION(LIVE_LOOK);
             break;
         case Kind::PART:
+            PA_ADD_OPTION(PLAYER);
             PA_ADD_OPTION(PART_CHOICE);
             PA_ADD_OPTION(BATTLE_LEAGUE);
             PA_ADD_OPTION(BATTLE_COUNT);
@@ -563,6 +567,10 @@ public:
         }
         if (claude_can_play(m_preset) && PLAYER == Player::CLAUDE_GG){
             run_play(env, scope, host, port);
+            return;
+        }
+        if (m_preset.kind == Kind::PART && PLAYER == Player::CLAUDE_GG){
+            run_chapter(env, scope, host, port);
             return;
         }
         //  Stopping a test waits for the game to be back on the map: that takes longer than a tap.
@@ -933,6 +941,53 @@ private:
             scope.throw_if_cancelled();
             throw;
         }
+    }
+
+    //  One part of the bot on its own, run by Claude GG itself (Chapter::run of ClaudeGG_PokemonGoChapter, the C++ port of run_chapter() of gamebot.py).
+    //  Experimental.  The parts that need the live video, the Pokémon of the person or the storage stay with the Python bot on the Pi.
+    void run_chapter(ProgramEnvironment& env, CancellableScope& scope, const QString& address, int port){
+        const QString key = part_key();
+        if (PokemonGo::Chapter::find(key) == nullptr){
+            throw UserSetupError(
+                env.logger(),
+                "Claude GG cannot run the part \"" + key.toStdString() + "\" itself yet (it can run: " + PokemonGo::Chapter::keys().toStdString() +
+                "; the battles are the program GO Battle League). Choose the Python bot on the Raspberry Pi under Who plays."
+            );
+        }
+        const QString token = mobile_token();
+        //  The parts that throw a ball need the touch of the agent (0.2.2).
+        const bool throwing = key == "play" || key == "catch" || key == "throw" || key == "rocket";
+        const QString tesseract = prepare_phone(env, address, port, token, false, throwing, false);
+        const QString folder = QString::fromStdString(USER_FILE_PATH()) + "PokemonGo";
+        QDir().mkpath(folder);
+        const PokemonGo::Phone::Options options = phone_options(tesseract, folder);
+        if (options.models.isEmpty()){
+            throw UserSetupError(
+                env.logger(),
+                "Claude GG needs the models of the bot to see the screens of the game (" + folder.toStdString() + "/models, the ONNX "
+                "files that Mobile/tools/convert_models_to_onnx.py makes). Put them there, or choose the Python bot on the Pi under Who plays."
+            );
+        }
+        PokemonGo::Phone::AgentHost phone(
+            address, port, token, options,
+            [&](const QString& line){ env.log(line.toStdString()); },
+            [&]{ return scope.cancelled(); }
+        );
+        if (!phone.has_models()){
+            throw UserSetupError(env.logger(), "The models of " + options.models.toStdString() + " cannot be used: see the log above.");
+        }
+        PokemonGo::Bot::Switches switches;
+        for (const std::pair<QString, bool>& option : settings().options){
+            switches[option.first] = option.second;
+        }
+        PokemonGo::Bot::PhoneBot bot(phone, switches, PokemonGo::Bot::Texts(), folder);
+        env.log("The part \"" + key.toStdString() + "\" of the Pokémon GO bot, run by Claude GG itself (experimental): " + m_preset.name + ".");
+        const PokemonGo::Chapter::Result result = PokemonGo::Chapter::run(bot, key);
+        scope.throw_if_cancelled();
+        if (!result.ok){
+            throw UserSetupError(env.logger(), "The part of the bot failed: " + result.how.toStdString());
+        }
+        env.log("The part is done: " + result.how.toStdString());
     }
 
     //  GO Battle League, played by Claude GG itself (Flow::battle_run of ClaudeGG_PokemonGoFlow, the C++ port of

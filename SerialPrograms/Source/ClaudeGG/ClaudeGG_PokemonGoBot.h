@@ -255,6 +255,8 @@ public:
     void layout_start();
     //  The end of a run: put the display size back when this bot changed it.
     void layout_end();
+    //  The Pokémon, PokéStops and gyms on a picture of the map (Brain.map_objects).
+    std::vector<Detection> map_objects(const cv::Mat& img){ return m_eyes.map_objects(img); }
     //  Layout::screen_seen() for the size of the last screenshot: called after every screenshot of the bot.
     cv::Mat screenshot() override;
 

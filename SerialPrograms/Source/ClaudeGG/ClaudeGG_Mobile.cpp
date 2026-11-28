@@ -53,6 +53,7 @@
 #include "ClaudeGG_PokemonGoStart.h"
 #include "ClaudeGG_PokemonGoThrow.h"
 #include "ClaudeGG_PokemonGoBot.h"
+#include "ClaudeGG_PokemonGoChapter.h"
 #include "ClaudeGG_PokemonGoCatch.h"
 #include "ClaudeGG_PokemonGoStep.h"
 #include "ClaudeGG_PokemonGoBag.h"
@@ -1997,6 +1998,46 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
                         }
                         check(!touched_the_game, path + "it did not tap or look at the game (" + touched.join(" | ") + ")");
                         QFile::remove(home_folder + "/gamebot_no_display_change");
+                    }
+                    //  The parts of the bot on their own (Chapter::run, run_chapter() of gamebot.py): the list, the words of the log, a part that is
+                    //  stopped, and parts that find the game on another screen than the one they need (no models here: every screen is 'onbekend').
+                    {
+                        check(PokemonGo::Chapter::keys() == "screen, play, rocket, rocket_fight, catch, throw, bag, quests, gifts",
+                              "the parts that Claude GG can run on its own are those of chapters.py that are ported (" + PokemonGo::Chapter::keys() + ")");
+                        check(PokemonGo::Chapter::find("bag") != nullptr && PokemonGo::Chapter::find("video") == nullptr && PokemonGo::Chapter::find("") == nullptr
+                              && PokemonGo::Chapter::find("battle_one") == nullptr, "the live video and the battles are not among them");
+                        std::mutex chapter_lock;
+                        QStringList chapter_told;
+                        std::atomic<bool> chapter_stop{false};
+                        AgentHost chapter_host("127.0.0.1", port, token, options, [&](const QString& line){
+                            std::lock_guard<std::mutex> lock(chapter_lock);
+                            chapter_told << line;
+                        }, [&]{ return chapter_stop.load(); });
+                        PokemonGo::Bot::PhoneBot chapter_bot(chapter_host, PokemonGo::Bot::Switches{}, {});
+                        const auto chapter_said = [&](const QString& part){
+                            std::lock_guard<std::mutex> lock(chapter_lock);
+                            return said(chapter_told, part);
+                        };
+                        const PokemonGo::Chapter::Result missing = PokemonGo::Chapter::run(chapter_bot, "video");
+                        check(!missing.ok && chapter_said("TEST video: no such test - there are: screen, play, rocket,"), "a part that is not there is told, with the parts that are");
+                        const PokemonGo::Chapter::Result seen = PokemonGo::Chapter::run(chapter_bot, "screen");
+                        check(seen.ok && seen.how == "screen onbekend [0.00], 0 things found (g_test.png)"
+                              && chapter_said("TEST screen: started - What the bot sees (start screen: Any screen)") && chapter_said("TEST screen: done - screen onbekend [0.00]"),
+                              "'what the bot sees' says the screen and what it found, and how it started and ended (" + seen.how + ")");
+                        check(QFile::exists(options.folder + "/pictures/g_test.png") && QFile::exists(options.folder + "/pictures/g_test_start.png")
+                              && QFile::exists(options.folder + "/pictures/g_test_end.png"), "and keeps the screen of the start, of the end and the marked one");
+                        const PokemonGo::Chapter::Result caught = PokemonGo::Chapter::run(chapter_bot, "catch");
+                        check(!caught.ok && caught.how == "no encounter on the screen (onbekend)" && chapter_said("TEST catch: failed - no encounter on the screen (onbekend)"),
+                              "catching needs an encounter on the screen (" + caught.how + ")");
+                        const PokemonGo::Chapter::Result thrown = PokemonGo::Chapter::run(chapter_bot, "throw");
+                        check(!thrown.ok && thrown.how == "no ball ready on an encounter screen (onbekend)", "and so does a throw (" + thrown.how + ")");
+                        //  A part that is stopped ends with the stop of the person: nothing is played, and it is told.
+                        chapter_stop = true;
+                        const PokemonGo::Chapter::Result played = PokemonGo::Chapter::run(chapter_bot, "play");
+                        check(played.ok && played.how == "0 steps in 3 minutes" && chapter_said("TEST play: started - Normal play for 3 minutes (start screen: The map)")
+                              && chapter_said("TEST play: done - 0 steps in 3 minutes"), "normal play that is stopped at once has made no step (" + played.how + ")");
+                        check(PokemonGo::Chapter::chapter_steps(chapter_bot, 5.0, false) == 0 && PokemonGo::Chapter::chapter_steps(chapter_bot, 5.0, true) == 0,
+                              "and the steps of a part are not made after the stop");
                     }
                     //  A switch file: the Pi is told not to change the display, and to play on anyway.
                     {
