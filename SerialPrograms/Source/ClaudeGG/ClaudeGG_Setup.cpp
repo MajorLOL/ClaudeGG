@@ -5565,6 +5565,44 @@ PhoneSource phone_source(Canvas& canvas){
     return source;
 }
 
+
+//  The look of the widgets that Qt draws inside a screen (the options of a
+//  program, a program's own page, the settings): dark, in the colors of the
+//  panels around them, whatever the classic theme is.
+QString qt_widgets_style(){
+    return QString(
+        "QScrollArea{background:transparent;border:0;}"
+        "QLabel,QCheckBox,QRadioButton{background:transparent;color:#f2f2f2;}"
+        "QCheckBox,QRadioButton{spacing:8px;}"
+        "QCheckBox::indicator,QRadioButton::indicator{width:18px;height:18px;background:#26262a;"
+        "border:1px solid rgba(255,255,255,140);}"
+        "QCheckBox::indicator{border-radius:5px;}"
+        "QRadioButton::indicator{border-radius:10px;}"
+        "QCheckBox::indicator:hover,QRadioButton::indicator:hover{border-color:%1;}"
+        "QCheckBox::indicator:checked{background:%1;border-color:%1;}"
+        "QRadioButton::indicator:checked{background:qradialgradient(cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,"
+        "stop:0 %1,stop:0.45 %1,stop:0.55 #26262a,stop:1 #26262a);border-color:%1;}"
+        "QCheckBox::indicator:disabled,QRadioButton::indicator:disabled{border-color:rgba(255,255,255,50);}"
+        "QGroupBox{background:transparent;color:#f2f2f2;border:1px solid rgba(255,255,255,70);border-radius:10px;margin-top:16px;padding-top:12px;}"
+        "QGroupBox::title{subcontrol-origin:margin;subcontrol-position:top left;left:12px;padding:0 6px;color:#ffffff;}"
+        "QLineEdit,QPlainTextEdit,QTextEdit,QSpinBox,QDoubleSpinBox,QComboBox{background:#26262a;color:#f2f2f2;"
+        "border:1px solid rgba(255,255,255,90);border-radius:8px;padding:3px 8px;min-height:22px;"
+        "selection-background-color:%1;selection-color:#000000;}"
+        "QComboBox QAbstractItemView{background:#26262a;color:#f2f2f2;selection-background-color:%1;selection-color:#000000;border:1px solid #555555;}"
+        "QPushButton{background:#2f2f34;color:#f2f2f2;border:1px solid rgba(255,255,255,90);border-radius:10px;padding:4px 14px;min-height:22px;}"
+        "QPushButton:hover{border-color:%1;}"
+        "QTableView,QTableWidget{background:#26262a;color:#f2f2f2;gridline-color:#444444;}"
+        "QHeaderView::section{background:#2f2f34;color:#f2f2f2;border:0;padding:4px;}"
+        "QScrollBar:vertical{background:transparent;width:10px;margin:0;}"
+        "QScrollBar::handle:vertical{background:rgba(255,255,255,70);border-radius:5px;min-height:30px;}"
+        "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
+        "QScrollBar:horizontal{background:transparent;height:10px;margin:0;}"
+        "QScrollBar::handle:horizontal{background:rgba(255,255,255,70);border-radius:5px;min-width:30px;}"
+        "QScrollBar::add-line:horizontal,QScrollBar::sub-line:horizontal{width:0;}"
+        "*:disabled{color:#8a8a8a;}"
+    ).arg(ORANGE.name());
+}
+
 class ProgramsPage : public Page{
 public:
     ProgramsPage(Canvas& canvas, int game)
@@ -6292,38 +6330,7 @@ private:
         m_host->viewport()->setAutoFillBackground(false);
         //  The options are drawn by Qt, not by this screen: dark, in the
         //  colors of the panels around them.
-        const QString orange = ORANGE.name();
-        m_host->setStyleSheet(QString(
-            "QScrollArea{background:transparent;border:0;}"
-            "QLabel,QCheckBox,QRadioButton{background:transparent;color:#f2f2f2;}"
-            "QCheckBox,QRadioButton{spacing:8px;}"
-            "QCheckBox::indicator,QRadioButton::indicator{width:18px;height:18px;background:#26262a;"
-            "border:1px solid rgba(255,255,255,140);}"
-            "QCheckBox::indicator{border-radius:5px;}"
-            "QRadioButton::indicator{border-radius:10px;}"
-            "QCheckBox::indicator:hover,QRadioButton::indicator:hover{border-color:%1;}"
-            "QCheckBox::indicator:checked{background:%1;border-color:%1;}"
-            "QRadioButton::indicator:checked{background:qradialgradient(cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.5,"
-            "stop:0 %1,stop:0.45 %1,stop:0.55 #26262a,stop:1 #26262a);border-color:%1;}"
-            "QCheckBox::indicator:disabled,QRadioButton::indicator:disabled{border-color:rgba(255,255,255,50);}"
-            "QGroupBox{background:transparent;color:#f2f2f2;border:1px solid rgba(255,255,255,70);border-radius:10px;margin-top:16px;padding-top:12px;}"
-            "QGroupBox::title{subcontrol-origin:margin;subcontrol-position:top left;left:12px;padding:0 6px;color:#ffffff;}"
-            "QLineEdit,QPlainTextEdit,QTextEdit,QSpinBox,QDoubleSpinBox,QComboBox{background:#26262a;color:#f2f2f2;"
-            "border:1px solid rgba(255,255,255,90);border-radius:8px;padding:3px 8px;min-height:22px;"
-            "selection-background-color:%1;selection-color:#000000;}"
-            "QComboBox QAbstractItemView{background:#26262a;color:#f2f2f2;selection-background-color:%1;selection-color:#000000;border:1px solid #555555;}"
-            "QPushButton{background:#2f2f34;color:#f2f2f2;border:1px solid rgba(255,255,255,90);border-radius:10px;padding:4px 14px;min-height:22px;}"
-            "QPushButton:hover{border-color:%1;}"
-            "QTableView,QTableWidget{background:#26262a;color:#f2f2f2;gridline-color:#444444;}"
-            "QHeaderView::section{background:#2f2f34;color:#f2f2f2;border:0;padding:4px;}"
-            "QScrollBar:vertical{background:transparent;width:10px;margin:0;}"
-            "QScrollBar::handle:vertical{background:rgba(255,255,255,70);border-radius:5px;min-height:30px;}"
-            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
-            "QScrollBar:horizontal{background:transparent;height:10px;margin:0;}"
-            "QScrollBar::handle:horizontal{background:rgba(255,255,255,70);border-radius:5px;min-width:30px;}"
-            "QScrollBar::add-line:horizontal,QScrollBar::sub-line:horizontal{width:0;}"
-            "*:disabled{color:#8a8a8a;}"
-        ).arg(orange));
+        m_host->setStyleSheet(qt_widgets_style());
         m_host->hide();
     }
     //  Makes the options of the program that is picked, once the selection
@@ -11473,6 +11480,20 @@ void Canvas::open_program_page(int game, const QString& program){
 void Canvas::host(QWidget* content, int game, const QString& game_name, const QString& title){
     QWidget* holder = new QWidget(this);
     holder->setAutoFillBackground(true);
+    //  The page in the look of the screens around it: dark, the fields,
+    //  buttons and boxes as in the options of the programs.
+    {
+        QPalette palette = holder->palette();
+        palette.setColor(QPalette::Window, PANEL);
+        palette.setColor(QPalette::WindowText, QColor(242, 242, 242));
+        palette.setColor(QPalette::Base, QColor(38, 38, 42));
+        palette.setColor(QPalette::AlternateBase, QColor(47, 47, 52));
+        palette.setColor(QPalette::Text, QColor(242, 242, 242));
+        palette.setColor(QPalette::Button, QColor(47, 47, 52));
+        palette.setColor(QPalette::ButtonText, QColor(242, 242, 242));
+        holder->setPalette(palette);
+    }
+    holder->setStyleSheet(qt_widgets_style());
     holder->hide();
     QVBoxLayout* layout = new QVBoxLayout(holder);
     layout->setContentsMargins(0, 0, 0, 0);
