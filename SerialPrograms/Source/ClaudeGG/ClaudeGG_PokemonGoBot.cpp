@@ -799,6 +799,15 @@ void run(PhoneBot& bot, const std::function<void()>& beat){
     while (!bot.stop()){
         double wait = 0.0;
         try{
+            if (!bot.screen_ok()){
+                //  A screen shape that the bot cannot play on: do not tap (main() of gamebot.py).  The display is adapted when that is possible, and
+                //  the bot waits for a screen that can be played on (a foldable may be unfolded) when it is not.
+                if (bot.layout_adapt("the screen has another shape than the canvas")){
+                    continue;
+                }
+                bot.wait_unsupported();
+                continue;
+            }
             if (daily){
                 wait = Daily::daily_cycle(bot, bot.daily_state());
             }else{

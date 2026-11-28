@@ -1063,9 +1063,11 @@ jobs:
             throw "The tests of the agent failed: see the lines above."
           }
           $dir = (Resolve-Path "Arduino-Source/SerialPrograms/bin/RelWithDebInfo").Path
+          #  (The test takes several minutes: it replays the Python bot's stories and starts the agent with a fake phone, one process per adb call.
+          #  It writes each check to the report as it goes, so a test that is stopped here still shows where it was.)
           $process = Start-Process -FilePath "$dir/ClaudeGG.exe" -WorkingDirectory $dir -ArgumentList "--mobile-test", "`"$agent`"" -PassThru
           $handle = $process.Handle
-          if ($process.WaitForExit(480000)) {
+          if ($process.WaitForExit(1500000)) {
             $code = $process.ExitCode
           } else {
             $process.Kill()
