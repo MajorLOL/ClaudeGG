@@ -37,6 +37,7 @@
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWheelEvent>
+#include "ClaudeGG/ClaudeGG_Language.h"
 #include "ClaudeGG/ClaudeGG_Theme.h"
 #include "Assistant_Panel.h"
 
@@ -213,14 +214,20 @@ QPushButton* make_button(QWidget* parent, const char* object_name, const QString
     return button;
 }
 
-//  A link under a text, opened in the browser.
+//  A link under a text, opened in the browser. Its text is in the language of
+//  the program (the filter of the language cannot see it inside the link).
 QLabel* make_link(QWidget* parent, const QString& text, const char* url){
     QLabel* label = new QLabel(parent);
     label->setObjectName("ppAssistantLink");
     label->setTextFormat(Qt::RichText);
-    label->setText("<a href=\"" + QString::fromLatin1(url) + "\">" + text.toHtmlEscaped() + "</a>");
+    const QString address = QString::fromLatin1(url);
+    const auto show = [label, text, address]{
+        label->setText("<a href=\"" + address + "\">" + tr_ui(text).toHtmlEscaped() + "</a>");
+    };
+    show();
+    on_language_changed(label, show);
     label->setOpenExternalLinks(true);
-    label->setToolTip(QString::fromLatin1(url));
+    label->setToolTip(address);
     return label;
 }
 
@@ -440,6 +447,12 @@ Panel::Panel(QWidget& parent, Service& service)
     refresh_send_button();
     refresh_empty_state();
     show_start_page();
+
+    //  The texts that are put together here, again in the new language.
+    on_language_changed(this, [this]{
+        refresh_settings_page();
+        refresh_meter();
+    });
 }
 
 Panel::~Panel(){
@@ -798,7 +811,7 @@ QWidget* Panel::make_settings_page(){
                 }
                 if (error.isEmpty()){
                     m_key_result->setText(
-                        "The key works: it can use " + QString::number(m_service.models().size()) + " models."
+                        tr_ui("The key works: it can use %1 models.").arg(QString::number(m_service.models().size()))
                     );
                     refresh_models();
                 }else{
@@ -997,9 +1010,10 @@ void Panel::connect_agent(){
         render_answer();
         m_answer = nullptr;
         m_answer_text.clear();
-        QLabel* line = make_label(m_rows_widget, "ppToolLine", MARK_BUSY + "  " + what);
+        const QString shown = tr_ui(what);
+        QLabel* line = make_label(m_rows_widget, "ppToolLine", MARK_BUSY + "  " + shown);
         m_tool_lines[id] = line;
-        m_tool_texts[id] = what;
+        m_tool_texts[id] = shown;
         add_row(line);
         m_status->setVisible(false);
     };
@@ -1036,7 +1050,7 @@ void Panel::connect_agent(){
         };
         const QString accepted = request.accept_label;
         card->add_button(request.accept_label, true, [decide, accepted]{
-            decide(true, "You chose: " + accepted + ".");
+            decide(true, tr_ui("You chose: %1.").arg(tr_ui(accepted)));
         });
         if (!request.details_label.isEmpty()){
             card->add_button(request.details_label, false, request.show_details);
@@ -1093,10 +1107,10 @@ void Panel::connect_agent(){
 
     m_service.on_commit = [this](const CommitInfo& info){
         Card* card = add_card(
-            "done", "Committed to " + info.branch,
-            first_line(info.message, 120) + "\n" + QString::number(info.files.size()) +
-            (info.files.size() == 1 ? " file. " : " files. ") +
-            "Open the pull request to have it built and to merge it."
+            "done", tr_ui("Committed to %1").arg(info.branch),
+            first_line(info.message, 120) + "\n" +
+            (info.files.size() == 1 ? tr_ui("1 file.") : tr_ui("%1 files.").arg(QString::number(info.files.size()))) + " " +
+            tr_ui("Open the pull request to have it built and to merge it.")
         );
         const QString pull_request = info.pull_request_url;
         const QString commit = info.commit_url;
@@ -1137,13 +1151,13 @@ void Panel::refresh_models(){
     m_model->blockSignals(false);
     const QString hint = model_hint(current);
     m_model->setToolTip(
-        (hint.isEmpty() ? QString("The model that answers.") : hint) +
-        " Another model takes over from the next message on."
+        tr_ui(hint.isEmpty() ? QString("The model that answers.") : hint) + " " +
+        tr_ui("Another model takes over from the next message on.")
     );
     if (m_model_hint != nullptr){
         m_model_hint->setText(
-            "The model is chosen under the box you write in. " +
-            (hint.isEmpty() ? QString() : m_model->currentText() + ": " + hint)
+            tr_ui("The model is chosen under the box you write in.") +
+            (hint.isEmpty() ? QString() : " " + m_model->currentText() + ": " + tr_ui(hint))
         );
     }
 }
@@ -1195,9 +1209,11 @@ void Panel::refresh_settings_page(){
         const QString key = secrets.get(Secret::CLAUDE_API_KEY);
         m_key_state->setText(
             secrets.remembers()
-                ? "A key is saved (it ends in ..." + key.right(4) + "). Enter a new one to replace it."
-                : "A key is in use (it ends in ..." + key.right(4) + "). It is not saved: it is gone when you close "
-                  "the program. Enter a new one to replace it."
+                ? tr_ui("A key is saved (it ends in ...%1). Enter a new one to replace it.").arg(key.right(4))
+                : tr_ui(
+                    "A key is in use (it ends in ...%1). It is not saved: it is gone when you close "
+                    "the program. Enter a new one to replace it."
+                ).arg(key.right(4))
         );
     }else if (secrets.unreadable(Secret::CLAUDE_API_KEY)){
         m_key_state->setText(
@@ -1208,7 +1224,7 @@ void Panel::refresh_settings_page(){
         m_key_state->setText(secrets.remembers() ? "No key is saved." : "No key is in use.");
     }
     if (secrets.has(Secret::GITHUB_TOKEN)){
-        m_token_state->setText("A token is saved (it ends in ..." + secrets.get(Secret::GITHUB_TOKEN).right(4) + ").");
+        m_token_state->setText(tr_ui("A token is saved (it ends in ...%1).").arg(secrets.get(Secret::GITHUB_TOKEN).right(4)));
     }else if (secrets.unreadable(Secret::GITHUB_TOKEN)){
         m_token_state->setText("A token was saved by another Windows account and cannot be read here. Enter it again.");
     }else{
@@ -1237,9 +1253,11 @@ void Panel::refresh_meter(){
     }
     m_meter->setText(usage_text(agent.usage()));
     m_meter->setToolTip(
-        "What this conversation used so far, and what that costs at Anthropic's public prices (an "
-        "estimate: the bill is Anthropic's). Each message sends the conversation along again, now about " +
-        QString::number(agent.conversation_tokens()) + " tokens: a new chat starts small."
+        tr_ui(
+            "What this conversation used so far, and what that costs at Anthropic's public prices (an "
+            "estimate: the bill is Anthropic's). Each message sends the conversation along again, now about "
+            "%1 tokens: a new chat starts small."
+        ).arg(QString::number(agent.conversation_tokens()))
     );
 }
 
@@ -1364,9 +1382,12 @@ void Panel::start_new_chat(){
     const size_t changes = m_service.workspace().changes().size();
     if (changes > 0){
         const QMessageBox::StandardButton choice = QMessageBox::question(
-            window(), "New chat",
-            "This conversation changed " + QString::number(changes) + (changes == 1 ? " file" : " files") +
-            " without committing. A new chat forgets those changes.\n\nStart a new chat?",
+            window(), tr_ui("New chat"),
+            (changes == 1
+                ? tr_ui("This conversation changed 1 file without committing.")
+                : tr_ui("This conversation changed %1 files without committing.").arg(QString::number(changes))
+            ) + " " + tr_ui("A new chat forgets those changes.") + "\n\n" + tr_ui("Start a new chat?"),
+
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No
         );
         if (choice != QMessageBox::Yes){

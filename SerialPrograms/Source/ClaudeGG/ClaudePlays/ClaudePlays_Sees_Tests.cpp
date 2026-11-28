@@ -25,6 +25,7 @@
 #include "CommonFramework/ImageTypes/ImageRGB32.h"
 #include "Tests/ImageUnitTest.h"
 #include "ClaudePlays_AnyGame.h"
+#include "ClaudePlays_Calibrate.h"
 #include "ClaudePlays_Consoles.h"
 #include "ClaudePlays_Sees.h"
 #include "ClaudePlays_Sees_Tests.h"
@@ -128,11 +129,12 @@ public:
 class Test_ConsoleDifferences : public UnitTest{
 public:
     Test_ConsoleDifferences()
-        : UnitTest("ClaudePlays::Consoles - timing, picture box and yes or no per console")
+        : UnitTest("ClaudePlays::Consoles - timing, its measuring, picture box and yes or no per console")
     {}
     virtual UnitTestResult run(Logger&, CancellableScope&) const override{
         std::string failures;
         console_traits_tests(failures);
+        calibration_tests(failures);
         if (!failures.empty()){
             failures += ". ";
         }

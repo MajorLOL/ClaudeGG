@@ -10,6 +10,7 @@
 #include <utility>
 #include <QJsonValue>
 #include <QTimer>
+#include "ClaudeGG/ClaudeGG_Language.h"
 #include "Assistant_Agent.h"
 
 namespace PokemonAutomation{
@@ -178,8 +179,9 @@ void Agent::request(){
     if (limit > 0 && m_usage.cost_known && m_usage.cost_usd >= std::max(m_spend_allowed, limit)){
         end_turn(
             TurnEnd::Kind::SPEND_LIMIT,
-            "This conversation has cost about $" + QString::number(m_usage.cost_usd, 'f', 2) +
-            " so far. You asked to be asked at every $" + QString::number(limit, 'f', 2) + ". Go on?"
+            tr_ui("This conversation has cost about $%1 so far. You asked to be asked at every $%2. Go on?").arg(
+                QString::number(m_usage.cost_usd, 'f', 2), QString::number(limit, 'f', 2)
+            )
         );
         return;
     }
@@ -211,7 +213,7 @@ void Agent::request(){
     events.tool = [this, generation](const QString& name){
         if (generation == m_generation && m_events.status){
             const Tool* tool = m_tools.find(name);
-            m_events.status("Claude is preparing: " + (tool != nullptr ? tool->name : name));
+            m_events.status(tr_ui("Claude is preparing: %1").arg(tool != nullptr ? tool->name : name));
         }
     };
     events.status = [this, generation](const QString& what){
@@ -316,8 +318,8 @@ void Agent::on_reply(const ClaudeReply& reply){
 }
 
 QString Agent::round_limit_text() const{
-    return "Claude has worked " + QString::number(m_rounds) +
-        " steps in a row on this one message. Go on?";
+    return tr_ui("Claude has worked %1 steps in a row on this one message. Go on?").arg(QString::number(m_rounds));
+
 }
 
 void Agent::run_next_tool(){
