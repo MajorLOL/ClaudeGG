@@ -2023,7 +2023,6 @@
  "On the Raspberry Pi, install the agent from the folder Mobile of Claude GG with install-agent.sh.": "Installeer op de Raspberry Pi de agent uit de map Mobile van Claude GG met install-agent.sh.",
  "In the setup, pick Android phone and type the address of the Raspberry Pi and its port (8765).": "Kies in de setup Android-telefoon en typ het adres van de Raspberry Pi en de poort (8765).",
  "Press Test: the screen of the phone should appear.": "Druk op Test: het scherm van de telefoon moet verschijnen.",
- "Pokemon GO: catching, raids and the GO Battle League.": "Pokemon GO: vangen, raids en de GO Battle League.",
  "Not tried with a real phone yet.": "Nog niet met een echte telefoon geprobeerd.",
  "An iPhone does not work this way; it has its own page.": "Een iPhone werkt niet zo; die heeft een eigen pagina.",
  "Test finds nothing: check the address of the Raspberry Pi, that the agent runs (systemctl status) and that a firewall does not block port 8765.": "Test vindt niets: controleer het adres van de Raspberry Pi, of de agent draait (systemctl status) en of een firewall poort 8765 niet blokkeert.",
@@ -2170,5 +2169,14 @@
  "Vanilla is still alpha, so a Wii U update or another adapter can break it.": "Vanilla is nog alpha, dus een Wii U-update of een andere adapter kan het breken.",
  "The Pi does not connect: check that the adapter is on the list of Vanilla, that vanilla-pipe runs on that adapter (often wlan1), and keep the Pi close to the Wii U.": "De Pi maakt geen verbinding: controleer of de adapter op de lijst van Vanilla staat, of vanilla-pipe op die adapter draait (vaak wlan1), en houd de Pi dicht bij de Wii U.",
  "The Wii U refuses the GamePad: start the bridge with the region of the console (EUR, USA or JPN).": "De Wii U weigert de GamePad: start de brug met de regio van de console (EUR, USA of JPN).",
- "No picture: check the address of the Pi and that a firewall does not block ports 51200 to 51202.": "Geen beeld: controleer het adres van de Pi en of een firewall de poorten 51200 tot 51202 niet blokkeert."
+ "No picture: check the address of the Pi and that a firewall does not block ports 51200 to 51202.": "Geen beeld: controleer het adres van de Pi en of een firewall de poorten 51200 tot 51202 niet blokkeert.",
+ "In Claude Plays, turn on Measure the timing first once, with a menu on the screen, and keep the numbers the log gives.": "Zet in Claude Plays één keer Eerst de timing meten aan, met een menu op het scherm, en bewaar de getallen die het logboek geeft.",
+ "On every console": "Op elke console",
+ "Claude Plays: Claude plays any game; it looks at the video and presses the buttons.": "Claude Plays: Claude speelt elke game; het kijkt naar het beeld en drukt op de knoppen.",
+ "Macro: record what you press on the keyboard or a controller and play it back, as often and as fast as you want. In every list without programs of its own (not on the iPhone and the Wii U).": "Macro: neem op wat je indrukt op het toetsenbord of een controller en speel het af, zo vaak en zo snel als je wilt. In elke lijst zonder eigen programma's (niet op de iPhone en de Wii U).",
+ "Measure the timing first, an option of Claude Plays: with a menu on the screen, the program measures how late the picture is and how short a press can be, and plays with that.": "Eerst de timing meten, een optie van Claude Plays: met een menu op het scherm meet het programma hoe laat het beeld is en hoe kort een druk kan zijn, en speelt daarmee.",
+ "Reaction time in the log: every action of Claude Plays says how long Claude took and how long the console took, so you see where the time goes.": "Reactietijd in het logboek: elke actie van Claude Plays zegt hoe lang Claude erover deed en hoe lang de console, zodat je ziet waar de tijd heen gaat.",
+ "Macro, in the list Other Games: record what you press and play it back.": "Macro, in de lijst Other Games: neem op wat je indrukt en speel het af.",
+ "Pokemon GO: Auto play (spinning, catching, gifts, Team GO Rocket and the GO Pass, each one to choose), the Daily run, the GO Battle League and more.": "Pokemon GO: Auto play (draaien, vangen, cadeaus, Team GO Rocket en de GO Pass, elk zelf te kiezen), de Daily run, de GO Battle League en meer.",
+ "Macro: record what you press on the keyboard or a controller, and play it back as often and as fast as you want.": "Macro: neem op wat je indrukt op het toetsenbord of een controller, en speel het af zo vaak en zo snel als je wilt."
 }
