@@ -94,6 +94,8 @@ GlobalSettings::GlobalSettings()
             {SetupConsole::IPHONE,  "iphone",  "iPhone"},
             {SetupConsole::PS_CLASSIC,  "psclassic",  "PlayStation Classic"},
             {SetupConsole::WIIU,        "wiiu",       "Nintendo Wii U (GamePad through a Raspberry Pi)"},
+            {SetupConsole::PS_DIRECT,   "psdirect",   "PS4 and PS5 (direct, through a bought adapter)"},
+            {SetupConsole::XBOX_DIRECT, "xboxdirect", "Xbox One and Series (direct, through a bought adapter)"},
         },
         LockMode::UNLOCK_WHILE_RUNNING,
         SetupConsole::NONE

@@ -100,6 +100,8 @@ std::vector<std::unique_ptr<PanelListDescriptor>> make_all_lists(){
         ClaudeGG::ClaudePlays::GameId::XBOX_REMOTE_PLAY,
         ClaudeGG::ClaudePlays::GameId::IPHONE,
         ClaudeGG::ClaudePlays::GameId::PS_CLASSIC,
+        ClaudeGG::ClaudePlays::GameId::PS_DIRECT,
+        ClaudeGG::ClaudePlays::GameId::XBOX_DIRECT,
     }){
         lists.emplace_back(std::make_unique<ClaudeGG::ClaudePlays::GameOnlyList>(id));
     }

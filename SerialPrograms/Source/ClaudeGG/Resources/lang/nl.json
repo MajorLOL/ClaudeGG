@@ -514,5 +514,20 @@
  "Wired, through a Pico with OGX-Mini, to Remote Play in a browser. Experimental. Nine steps.": "Bedraad, via een Pico met OGX-Mini, naar Remote Play in een browser. Experimenteel. Negen stappen.",
  "On the iPhone, open Settings, then Accessibility, then Keyboards, and turn on Full Keyboard Access. Under Commands, set Home to Command-H: its own key, Fn-H, needs an Apple keyboard. Leave AssistiveTouch off and plug in no mouse.": "Open op de iPhone Instellingen, dan Toegankelijkheid, dan Toetsenborden, en zet Volledige toetsenbordtoegang aan. Stel onder Commando's Beginscherm in op Command-H: de eigen toets, Fn-H, vraagt een toetsenbord van Apple. Laat AssistiveTouch uit en sluit geen muis aan.",
  "Remote Play, through a Pico with OGX-Mini": "Remote Play, via een Pico met OGX-Mini",
- "A Raspberry Pi as its GamePad": "Een Raspberry Pi als GamePad"
+ "A Raspberry Pi as its GamePad": "Een Raspberry Pi als GamePad",
+ "Through a bought Brook Wingman XE": "Via een gekochte Brook Wingman XE",
+ "Through a bought Brook Wingman XB 3": "Via een gekochte Brook Wingman XB 3",
+ "A PlayStation 4 or 5 (a PlayStation 5 takes it in PS4 games only)": "Een PlayStation 4 of 5 (een PlayStation 5 neemt hem alleen in PS4-games aan)",
+ "A Brook Wingman XE (bought, about 40 dollars or euros): it answers the console's check": "Een Brook Wingman XE (gekocht, ongeveer 40 dollar of euro): die beantwoordt de controle van de console",
+ "An Xbox One or Series": "Een Xbox One of Series",
+ "A Brook Wingman XB 3 (bought): it answers the console's check": "Een Brook Wingman XB 3 (gekocht): die beantwoordt de controle van de console",
+ "Plug the port labeled COM or UART into the computer. The port labeled USB or OTG goes into the adapter, in a later step. They are not interchangeable.": "Steek de poort met COM of UART in de computer. De poort met USB of OTG gaat in een latere stap in de adapter. Ze zijn niet uitwisselbaar.",
+ "Pick NS1: Wired Controller as the type: the adapter takes it as a Switch pad. Click the video and press the arrow keys: they should move through the menu of the console. This has not been tried with the adapter yet.": "Kies NS1: Wired Controller als type: de adapter ziet hem als een Switch-pad. Klik op het beeld en druk op de pijltjestoetsen: die horen door het menu van de console te gaan. Dit is nog niet met de adapter geprobeerd.",
+ "Prepare the adapter": "Bereid de adapter voor",
+ "Update the Brook Wingman XE to its latest firmware with Brook's updater. It plays a PlayStation 4 controller: a PlayStation 5 takes it in PS4 games only.": "Zet de nieuwste firmware op de Brook Wingman XE met het updateprogramma van Brook. Hij speelt een PlayStation 4-controller: een PlayStation 5 neemt hem alleen in PS4-games aan.",
+ "Update the Brook Wingman XB 3 to its latest firmware with Brook's updater. It plays an Xbox controller to an Xbox One or Series.": "Zet de nieuwste firmware op de Brook Wingman XB 3 met het updateprogramma van Brook. Hij speelt een Xbox-controller voor een Xbox One of Series.",
+ "Connect the adapter": "Sluit de adapter aan",
+ "Plug the adapter into a USB port of the console, and the USB or OTG port of the ESP32-S3 into the adapter. The console's picture goes into the capture card over HDMI.": "Steek de adapter in een USB-poort van de console, en de USB- of OTG-poort van de ESP32-S3 in de adapter. Het beeld van de console gaat via HDMI naar de capturekaart.",
+ "Wired, through a bought Brook Wingman XE, straight into the console. Experimental. Seven steps.": "Bedraad, via een gekochte Brook Wingman XE, rechtstreeks in de console. Experimenteel. Zeven stappen.",
+ "Wired, through a bought Brook Wingman XB 3, straight into the console. Experimental. Seven steps.": "Bedraad, via een gekochte Brook Wingman XB 3, rechtstreeks in de console. Experimenteel. Zeven stappen."
 }

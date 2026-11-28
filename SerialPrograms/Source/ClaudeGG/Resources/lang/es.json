@@ -514,5 +514,20 @@
  "Wired, through a Pico with OGX-Mini, to Remote Play in a browser. Experimental. Nine steps.": "Con cable, a través de una Pico con OGX-Mini, al juego remoto en un navegador. Experimental. Nueve pasos.",
  "On the iPhone, open Settings, then Accessibility, then Keyboards, and turn on Full Keyboard Access. Under Commands, set Home to Command-H: its own key, Fn-H, needs an Apple keyboard. Leave AssistiveTouch off and plug in no mouse.": "En el iPhone, abre Ajustes, luego Accesibilidad, luego Teclados, y activa el Acceso total con el teclado. En Comandos, asigna Inicio a Comando-H: su propia tecla, Fn-H, necesita un teclado de Apple. Deja AssistiveTouch desactivado y no conectes ningún ratón.",
  "Remote Play, through a Pico with OGX-Mini": "Juego remoto, a través de una Pico con OGX-Mini",
- "A Raspberry Pi as its GamePad": "Una Raspberry Pi como GamePad"
+ "A Raspberry Pi as its GamePad": "Una Raspberry Pi como GamePad",
+ "Through a bought Brook Wingman XE": "A través de un Brook Wingman XE comprado",
+ "Through a bought Brook Wingman XB 3": "A través de un Brook Wingman XB 3 comprado",
+ "A PlayStation 4 or 5 (a PlayStation 5 takes it in PS4 games only)": "Una PlayStation 4 o 5 (una PlayStation 5 solo lo acepta en juegos de PS4)",
+ "A Brook Wingman XE (bought, about 40 dollars or euros): it answers the console's check": "Un Brook Wingman XE (comprado, unos 40 dólares o euros): responde a la comprobación de la consola",
+ "An Xbox One or Series": "Una Xbox One o Series",
+ "A Brook Wingman XB 3 (bought): it answers the console's check": "Un Brook Wingman XB 3 (comprado): responde a la comprobación de la consola",
+ "Plug the port labeled COM or UART into the computer. The port labeled USB or OTG goes into the adapter, in a later step. They are not interchangeable.": "Conecta el puerto marcado COM o UART al ordenador. El puerto marcado USB u OTG va al adaptador, en un paso posterior. No son intercambiables.",
+ "Pick NS1: Wired Controller as the type: the adapter takes it as a Switch pad. Click the video and press the arrow keys: they should move through the menu of the console. This has not been tried with the adapter yet.": "Elige NS1: Wired Controller como tipo: el adaptador lo toma como un mando de Switch. Haz clic en el vídeo y pulsa las flechas: deberían moverse por el menú de la consola. Aún no se ha probado con el adaptador.",
+ "Prepare the adapter": "Prepara el adaptador",
+ "Update the Brook Wingman XE to its latest firmware with Brook's updater. It plays a PlayStation 4 controller: a PlayStation 5 takes it in PS4 games only.": "Actualiza el Brook Wingman XE a su último firmware con el actualizador de Brook. Hace de mando de PlayStation 4: una PlayStation 5 solo lo acepta en juegos de PS4.",
+ "Update the Brook Wingman XB 3 to its latest firmware with Brook's updater. It plays an Xbox controller to an Xbox One or Series.": "Actualiza el Brook Wingman XB 3 a su último firmware con el actualizador de Brook. Hace de mando de Xbox para una Xbox One o Series.",
+ "Connect the adapter": "Conecta el adaptador",
+ "Plug the adapter into a USB port of the console, and the USB or OTG port of the ESP32-S3 into the adapter. The console's picture goes into the capture card over HDMI.": "Conecta el adaptador a un puerto USB de la consola, y el puerto USB u OTG de la ESP32-S3 al adaptador. La imagen de la consola va a la capturadora por HDMI.",
+ "Wired, through a bought Brook Wingman XE, straight into the console. Experimental. Seven steps.": "Con cable, a través de un Brook Wingman XE comprado, directamente a la consola. Experimental. Siete pasos.",
+ "Wired, through a bought Brook Wingman XB 3, straight into the console. Experimental. Seven steps.": "Con cable, a través de un Brook Wingman XB 3 comprado, directamente a la consola. Experimental. Siete pasos."
 }

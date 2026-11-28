@@ -75,6 +75,8 @@ enum class SetupConsole{
     IPHONE,     //  An iPhone, with the wired board as a keyboard (Full Keyboard Access).
     PS_CLASSIC, //  The PlayStation Classic: the wired board and a Pico with OGX-Mini (its PS Classic mode).
     WIIU,       //  Nintendo Wii U: a Raspberry Pi that the Wii U takes as its GamePad (WiiU/vanilla-bridge).
+    PS_DIRECT,  //  PlayStation 4 and 5, straight: the wired board and a bought Brook Wingman XE.
+    XBOX_DIRECT,//  Xbox One and Series, straight: the wired board and a bought Brook Wingman XB 3.
 };
 
 

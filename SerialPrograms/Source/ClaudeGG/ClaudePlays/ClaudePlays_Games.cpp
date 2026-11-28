@@ -343,6 +343,23 @@ std::map<GameId, GameProfile> make_profiles(){
         "that is a Switch pad, passed on as the PlayStation Classic's own): there is no rumble.",
         PadKind::PSCLASSIC_CONTROLLER, "psclassic"
     );
+    other(
+        GameId::PS_DIRECT, "PSDirect:ClaudePlays", "PlayStation 4 and 5", "PS4 and PS5 games, direct",
+        "The console is a PlayStation 4 or 5. CROSS usually confirms and CIRCLE goes back (on a Japanese console "
+        "the other way round). OPTIONS opens a game's menu, the PS button (HOME here) the console's own. The pad "
+        "is played through a bought adapter (a Brook Wingman XE, which takes a Switch pad and plays a "
+        "PlayStation 4 controller): a PlayStation 5 takes it in PS4 games only, there is no touchpad, no motion "
+        "sensing and no rumble, and L2 and R2 are only pressed fully.",
+        PadKind::PS4_CONTROLLER, "psdirect"
+    );
+    other(
+        GameId::XBOX_DIRECT, "XboxDirect:ClaudePlays", "Xbox One and Series", "Xbox One and Series games, direct",
+        "The console is an Xbox One or an Xbox Series X|S. A usually confirms and B goes back. MENU opens a "
+        "game's menu, VIEW its map or a second screen in many games. The pad is played through a bought adapter "
+        "(a Brook Wingman XB 3, which takes a Switch pad and plays an Xbox controller): LT and RT are only "
+        "pressed fully, and there is no rumble.",
+        PadKind::XBOXONE_CONTROLLER, "xboxdirect"
+    );
     return profiles;
 }
 
@@ -374,6 +391,8 @@ bool has_only_claude_plays(GameId id){
     case GameId::XBOX_REMOTE_PLAY:
     case GameId::IPHONE:
     case GameId::PS_CLASSIC:
+    case GameId::PS_DIRECT:
+    case GameId::XBOX_DIRECT:
         return true;
     default:
         return false;
@@ -423,6 +442,8 @@ const std::vector<GameId>& all_games(){
         GameId::XBOX_REMOTE_PLAY,
         GameId::IPHONE,
         GameId::PS_CLASSIC,
+        GameId::PS_DIRECT,
+        GameId::XBOX_DIRECT,
     };
     return games;
 }

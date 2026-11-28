@@ -888,6 +888,15 @@ std::string setup_text(const GameProfile& profile){
                 "on the capture card through an HDMI adapter, and the wired board (the ESP32-S3) with HID: "
                 "Keyboard as the type, plugged into the iPhone. Not tried on an iPhone yet: first check that "
                 "TAB moves the frame and SPACE taps")
+            : console == "psdirect" || console == "xboxdirect"
+            ? std::string(console == "psdirect"
+                ? "a PlayStation 4 or 5 with a game on the screen (on a PlayStation 5 a PS4 game), and the wired board "
+                  "(the ESP32-S3) with NS1: Wired Controller as the type, plugged into a Brook Wingman XE, which is "
+                  "plugged into the console"
+                : "an Xbox One or Series with a game on the screen, and the wired board (the ESP32-S3) with NS1: "
+                  "Wired Controller as the type, plugged into a Brook Wingman XB 3, which is plugged into the console") +
+              ". The adapter is bought: it answers the console's check of a pad, which no open adapter does. Not "
+              "tried yet: first check that the d-pad moves in the console's menu"
             : console == "psclassic"
             ? std::string(
                 "a PlayStation Classic with a game on the screen, and the wired board (the ESP32-S3) with NS1: "
@@ -1168,13 +1177,16 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
         profile.pad == PadKind::XBOX360_CONTROLLER || profile.pad == PadKind::PS4_CONTROLLER ||
         profile.pad == PadKind::XBOXONE_CONTROLLER || profile.pad == PadKind::PSCLASSIC_CONTROLLER
     ){
-        //  The Xbox 360 and the PlayStation Classic (OGX-Mini) and Remote
-        //  Play: the wired controller.
+        //  The Xbox 360 and the PlayStation Classic (OGX-Mini), Remote Play,
+        //  and the direct way through a bought adapter: the wired controller.
         ProController& controller = env.console.controller<ProController>();
         if (dynamic_cast<PABotBase2_WiredController*>(&controller) == nullptr){
             throw UserSetupError(
                 env.console,
-                profile.pad == PadKind::XBOX360_CONTROLLER || profile.pad == PadKind::PSCLASSIC_CONTROLLER
+                profile.console == "psdirect" || profile.console == "xboxdirect"
+                    ? "The adapter (a Brook Wingman) takes a Switch pad: pick NS1: Wired Controller as the type of "
+                      "the controller (on a wired board, the ESP32-S3)."
+                : profile.pad == PadKind::XBOX360_CONTROLLER || profile.pad == PadKind::PSCLASSIC_CONTROLLER
                     ? "The Pico with OGX-Mini takes a Switch pad: pick NS1: Wired Controller as the type of the "
                       "controller (on a wired board, the ESP32-S3)."
                     : "The Remote Play client takes a plain USB gamepad: pick NS1: Wired Controller as the type of "
@@ -1347,6 +1359,10 @@ QRgb card_ground(GameId game){
         return qRgb(0x4a, 0x4a, 0x52);
     case GameId::PS_CLASSIC:
         return qRgb(0x6a, 0x6e, 0x7c);
+    case GameId::PS_DIRECT:
+        return qRgb(0x2b, 0x4c, 0xa8);
+    case GameId::XBOX_DIRECT:
+        return qRgb(0x2a, 0x80, 0x3a);
     default:
         return qRgb(0x44, 0x4a, 0x5c);
     }
