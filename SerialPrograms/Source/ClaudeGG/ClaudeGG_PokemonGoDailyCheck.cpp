@@ -20,6 +20,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QTimeZone>
 #include "ClaudeGG_PokemonGoDaily.h"
 #include "ClaudeGG_PokemonGoStory.h"
 
@@ -218,7 +219,7 @@ public:
         return midnight + hours * 3600.0 + minutes * 60.0;
     }
     QString local_text(double moment) override{
-        return QDateTime::fromSecsSinceEpoch((qint64)std::floor(moment + OFFSET), Qt::UTC).toString("yyyy-MM-dd HH:mm");
+        return QDateTime::fromSecsSinceEpoch((qint64)std::floor(moment + OFFSET), QTimeZone::utc()).toString("yyyy-MM-dd HH:mm");
     }
 
 private:

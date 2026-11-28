@@ -26,6 +26,7 @@
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <QThread>
+#include <QTimeZone>
 #include "Common/Cpp/Color.h"
 #include "Common/Cpp/Logging/AbstractLogger.h"
 #include "Common/Cpp/Logging/GlobalLogger.h"
@@ -1564,10 +1565,10 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
                           && bot.map_state().cooldown.empty() && !bot.daily_state().done, "a new game starts with spinning and catching on and nothing full");
                     bot.map_state().catching = false;                   //  (back to what this bot was asked for, for the checks below)
                     //  The time of the day, in the local time (hours and minutes that are too big or too small go to the next or the last day).
-                    const QDateTime noon(QDate(2026, 11, 22), QTime(12, 0), Qt::LocalTime);
+                    const QDateTime noon(QDate(2026, 11, 22), QTime(12, 0), QTimeZone::systemTimeZone());
                     const double now = (double)noon.toSecsSinceEpoch();
-                    const auto local = [](double moment){ return QDateTime::fromSecsSinceEpoch((qint64)moment, Qt::LocalTime); };
-                    const auto when = [](int day, int hours, int minutes){ return QDateTime(QDate(2026, 11, day), QTime(hours, minutes), Qt::LocalTime); };
+                    const auto local = [](double moment){ return QDateTime::fromSecsSinceEpoch((qint64)moment, QTimeZone::systemTimeZone()); };
+                    const auto when = [](int day, int hours, int minutes){ return QDateTime(QDate(2026, 11, day), QTime(hours, minutes), QTimeZone::systemTimeZone()); };
                     check(local(bot.slot_time(now, 8, 30)) == when(22, 8, 30) && local(bot.slot_time(now, 0, 0)) == when(22, 0, 0)
                           && local(bot.slot_time(now, 23, 59)) == when(22, 23, 59), "the start time is on the day of now");
                     check(local(bot.slot_time(now, 25, 70)) == when(23, 2, 10) && local(bot.slot_time(now, 48, 0)) == when(24, 0, 0)
