@@ -304,7 +304,7 @@ class AgentTest(unittest.TestCase):
                                  ("package:com.nianticlabs.pokemongo.b|package:com.nianticlabs.pokemongo.a|package:com.nianticlabs.pokemongo",
                                   [GAME, GAME + ".a", GAME + ".b"]),
                                  ("package:com.nianticlabs.pokemongo  |junk|package:com.nianticlabs.pokemongo|Error: no", [GAME]),
-                                 ("package:com.example.pokemongo.fan", []), ("", [])):
+                                 ("package:com.example.pokemongo.fan", []), ("none", [])):
             os.environ["FAKE_PACKAGES"] = answer
             self.addCleanup(os.environ.pop, "FAKE_PACKAGES", None)
             self.assertEqual(self.json("POST", "/v1/app", {"action": "list"})[1]["packages"], expected, answer)
