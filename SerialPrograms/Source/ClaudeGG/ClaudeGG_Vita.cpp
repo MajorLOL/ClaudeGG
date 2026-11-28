@@ -42,6 +42,7 @@
 #include "ComputerPrograms/ComputerProgram.h"
 #include "ClaudePlays/ClaudePlays_AnyGame.h"
 #include "ClaudePlays/ClaudePlays_Consoles.h"
+#include "ClaudePlays/ClaudePlays_Measure.h"
 #include "ClaudePlays/ClaudePlays_Engine.h"
 #include "ClaudePlays/ClaudePlays_External.h"
 #include "ClaudePlays/ClaudePlays_GameCard.h"
@@ -790,6 +791,9 @@ public:
             LockMode::LOCK_WHILE_RUNNING,
             false
         )
+        , MEASURE_TIMING(MEASURE_TIMING_LABEL, LockMode::LOCK_WHILE_RUNNING, false)
+        , PRESS_MS(PRESS_MS_LABEL, LockMode::LOCK_WHILE_RUNNING, 0, 0, 500)
+        , VIDEO_DELAY_MS(VIDEO_DELAY_MS_LABEL, LockMode::LOCK_WHILE_RUNNING, 0, 0, 1000)
     {
         PA_ADD_OPTION(SETUP_TEXT);
         add_option(WHO.PLAYER, "PLAYER");
@@ -803,6 +807,9 @@ public:
         PA_ADD_OPTION(MAX_COST);
         PA_ADD_OPTION(PICTURE);
         PA_ADD_OPTION(ALLOW_HOME);
+        PA_ADD_OPTION(MEASURE_TIMING);
+        PA_ADD_OPTION(PRESS_MS);
+        PA_ADD_OPTION(VIDEO_DELAY_MS);
     }
 
     virtual void program(ProgramEnvironment& env, CancellableScope& scope) override{
@@ -830,10 +837,12 @@ public:
         //  (ClaudePlays_Consoles.cpp).
         {
             const ConsoleTraits traits = console_traits("vita");
-            options.timing = traits.timing;
+            const uint32_t press_ms = PRESS_MS;
+            const uint32_t video_delay_ms = VIDEO_DELAY_MS;
+            options.timing = timing_by_hand(traits.timing, press_ms, video_delay_ms);
             env.log(
-                "Timing: presses of " + std::to_string(options.timing.press_ms) + " ms, the picture looked at " +
-                std::to_string(options.timing.video_delay_ms) + " ms later. " + traits.why
+                "Timing: " + timing_text(options.timing) +
+                (press_ms > 0 || video_delay_ms > 0 ? " (set by hand). " : ". ") + traits.why
             );
         }
 
@@ -858,6 +867,16 @@ public:
         env.log("The bridge answers at " + bridge.where() + ": " + status.toStdString(), COLOR_BLUE);
 
         VitaConsole console(scope, bridge, half, text_language);
+        //  Measured on this setup first, when asked (a menu that DOWN and UP
+        //  move in on the screen).
+        if (MEASURE_TIMING){
+            options.timing = measured_timing(
+                console, options.timing,
+                [&](const std::string& text, bool measured){
+                    env.log(text, measured ? COLOR_BLUE : COLOR_ORANGE);
+                }
+            );
+        }
         VitaGame game(console, facts, options);
         VitaHost host(env, scope);
         Ending ending;
@@ -890,6 +909,9 @@ private:
     FloatingPointOption MAX_COST;
     EnumDropdownOption<Picture> PICTURE;
     BooleanCheckBoxOption ALLOW_HOME;
+    BooleanCheckBoxOption MEASURE_TIMING;
+    SimpleIntegerOption<uint32_t> PRESS_MS;
+    SimpleIntegerOption<uint32_t> VIDEO_DELAY_MS;
 };
 
 std::unique_ptr<ComputerProgramInstance> PlayProgram_Descriptor::make_instance() const{
