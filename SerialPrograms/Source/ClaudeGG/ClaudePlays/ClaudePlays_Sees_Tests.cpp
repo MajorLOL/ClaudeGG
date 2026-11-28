@@ -24,6 +24,8 @@
 #include "Common/Cpp/TestRunners/UnitTest.h"
 #include "CommonFramework/ImageTypes/ImageRGB32.h"
 #include "Tests/ImageUnitTest.h"
+#include "ClaudePlays_AnyGame.h"
+#include "ClaudePlays_Consoles.h"
 #include "ClaudePlays_Sees.h"
 #include "ClaudePlays_Sees_Tests.h"
 
@@ -121,6 +123,60 @@ public:
 };
 
 
+//  What differs from console to console (ClaudePlays_Consoles.h): the
+//  table, the box of the game in a capture, and what Claude is told of it.
+class Test_ConsoleDifferences : public UnitTest{
+public:
+    Test_ConsoleDifferences()
+        : UnitTest("ClaudePlays::Consoles - timing, picture box and yes or no per console")
+    {}
+    virtual UnitTestResult run(Logger&, CancellableScope&) const override{
+        std::string failures;
+        console_traits_tests(failures);
+        if (!failures.empty()){
+            failures += ". ";
+        }
+
+        //  The black around a 4:3 game is left out, and Claude is told so,
+        //  only where a console has such games.
+        const char* const BARS = "the black around it is left out";
+        for (GameId id : all_games()){
+            const GameProfile& profile = game_profile(id);
+            const ConsoleTraits& traits = console_traits(profile.console);
+            AnyGameOptions options;
+            options.timing = traits.timing;
+            options.picture_aspects = traits.picture_aspects;
+            GameFacts facts;
+            facts.name = profile.name;
+            facts.notes = profile.notes;
+            const PadLayout& layout = pad_layout(profile.pad);
+            const std::string plain = any_game_instructions(layout, options, facts, profile.save_routine);
+            if ((plain.find(BARS) != std::string::npos) == traits.picture_aspects.empty()){
+                failures += "The black bars told wrong for " + profile.identifier + ". ";
+            }
+            if (plain.find(layout.yes_no) == std::string::npos){
+                failures += "The controller's yes and no missing for " + profile.identifier + ". ";
+            }
+            //  A Japanese PlayStation game: CIRCLE is yes, instead of the
+            //  controller's usual words.
+            facts.yes_no = japanese_yes_no(profile.pad);
+            if (!facts.yes_no.empty()){
+                const std::string japanese = any_game_instructions(layout, options, facts, profile.save_routine);
+                if (japanese.find(facts.yes_no) == std::string::npos ||
+                    japanese.find(layout.yes_no) != std::string::npos
+                ){
+                    failures += "Japanese yes and no not told for " + profile.identifier + ". ";
+                }
+            }
+        }
+        if (failures.empty()){
+            return true;
+        }
+        return failures;
+    }
+};
+
+
 //  A picture of Legends Z-A: does game_sees() have this phrase?
 class Test_Sees : public ImageUnitTest{
 public:
@@ -179,6 +235,7 @@ private:
 
 void add_tests_Sees(UnitTestDatabase& database){
     database.add<Test_LegendsZaWords>();
+    database.add<Test_ConsoleDifferences>();
 
     //  The main menu (PokemonLZA_MainMenuDetector.cpp).
     database.add<Test_Sees>("PokemonLZA/MainMenuDetector/french_main_menu_True.png", MAIN_MENU, true);

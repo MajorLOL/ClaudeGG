@@ -120,6 +120,7 @@
 #include "ClaudeGG_SettingsSearch.h"
 #include "ClaudeGG_ShinyClip.h"
 #include "ClaudeGG_Theme.h"
+#include "ClaudeGG_WiiU.h"
 #include "ClaudeGG_Setup.h"
 #include "ClaudeGG_SelfTest.h"
 #include "ClaudeGG_Update.h"
@@ -334,10 +335,11 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
             bool go_ok = false;
             bool ps3_ok = false;
             bool xbox_ok = false;
+            bool wiiu_ok = false;
             int retro_ok = 0;
             bool retro_wrong = false;
             bool switch_ok = true;
-            const char* const OTHERS[] = {"mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic"};
+            const char* const OTHERS[] = {"mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu"};
             //  The lists of the Xbox 360, Remote Play, the iPhone and the PlayStation Classic, and their consoles.
             const std::map<QString, const char*> LATER{
                 {"Xbox 360 games", "xbox360"},
@@ -355,6 +357,7 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                 const bool ps3 = listed_game.name == "PlayStation 3 games";
                 const bool xbox = listed_game.name == "Original Xbox games";
                 const bool retro = RETRO_LISTS.contains(listed_game.name);
+                const bool wiiu = listed_game.name == WiiU::WIIU_LIST_NAME;
                 const auto only = [&](const char* console){
                     bool fine = game_is_for_console(listed_game, console) &&
                         !game_is_for_console(listed_game, "switch") && !game_is_for_console(listed_game, "switch2");
@@ -371,6 +374,8 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     ps3_ok = listed_game.programs == 1 && only("ps3");
                 }else if (xbox){
                     xbox_ok = listed_game.programs == 1 && only("xbox");
+                }else if (wiiu){
+                    wiiu_ok = listed_game.programs == (int)WiiU::wiiu_program_count() && only("wiiu");
                 }else if (LATER.count(listed_game.name) != 0){
                     if (listed_game.programs == 1 && only(LATER.at(listed_game.name))){
                         later_ok++;
@@ -393,9 +398,28 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     switch_ok = switch_ok && fine;
                 }
             }
-            if (!go_ok || !ps3_ok || !xbox_ok || retro_ok != 5 || later_ok != (int)LATER.size() || retro_wrong || !switch_ok){
+            if (!go_ok || !ps3_ok || !xbox_ok || !wiiu_ok || retro_ok != 5 || later_ok != (int)LATER.size() || retro_wrong || !switch_ok){
                 failed++;
-                logger.log("UI test: the games are not divided over the consoles (Pokemon GO for the phone, Claude Plays of the PlayStation 3, the original Xbox, the five retro consoles, the Xbox 360, Remote Play, the iPhone and the PlayStation Classic for them, the rest for the Switch)", COLOR_RED);
+                logger.log("UI test: the games are not divided over the consoles (Pokemon GO for the phone, Claude Plays of the PlayStation 3, the original Xbox, the five retro consoles, the Xbox 360, Remote Play, the iPhone, the PlayStation Classic and the Wii U for them, the rest for the Switch)", COLOR_RED);
+            }
+        }
+        //  The Wii U: the symbols to pair, as typed, and a touch on Claude's
+        //  picture, on the GamePad's screen.
+        {
+            int gx = -1;
+            int gy = -1;
+            WiiU::touch_point(639, 359, 640, 360, gx, gy);
+            int cx = -1;
+            int cy = -1;
+            WiiU::touch_point(320, 180, 640, 360, cx, cy);
+            const bool fine =
+                WiiU::sync_code_of("SHDC") == "SHDC" && WiiU::sync_code_of("s h d c") == "SHDC" &&
+                WiiU::sync_code_of("0123") == "SHDC" && WiiU::sync_code_of("\xE2\x99\xA0\xE2\x99\xA5\xE2\x99\xA6\xE2\x99\xA3") == "SHDC" &&
+                WiiU::sync_code_of("SHD").empty() && WiiU::sync_code_of("SHDX").empty() && WiiU::sync_code_of("SHDCS").empty() &&
+                gx == 853 && gy == 479 && cx == 427 && cy == 240;
+            if (!fine){
+                failed++;
+                logger.log("UI test: the Wii U's symbols or touches are not read as they should be", COLOR_RED);
             }
         }
         if (!window.open_game(QString::fromStdString(GAME))){

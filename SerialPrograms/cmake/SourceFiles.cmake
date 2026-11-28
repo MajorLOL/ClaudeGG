@@ -1488,6 +1488,8 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/Assistant/Assistant_Workspace.h
     Source/ClaudeGG/ClaudePlays/ClaudePlays_AnyGame.cpp
     Source/ClaudeGG/ClaudePlays/ClaudePlays_AnyGame.h
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_Consoles.cpp
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_Consoles.h
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Engine.cpp
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Engine.h
     Source/ClaudeGG/ClaudePlays/ClaudePlays_External.cpp
@@ -1588,6 +1590,8 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_UpdateDialog.h
     Source/ClaudeGG/ClaudeGG_Updater.cpp
     Source/ClaudeGG/ClaudeGG_Updater.h
+    Source/ClaudeGG/ClaudeGG_WiiU.cpp
+    Source/ClaudeGG/ClaudeGG_WiiU.h
     Source/Pokemon/Inference/Pokemon_AbilityReader.cpp
     Source/Pokemon/Inference/Pokemon_AbilityReader.h
     Source/Pokemon/Inference/Pokemon_BerryNameReader.cpp
