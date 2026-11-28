@@ -28,6 +28,7 @@ To keep the settings of an older build, close it and copy its `UserSettings` fol
 | **Experimental programs** | New programs and options that have not run on a console yet carry the tag "experimental". What each is for and how far it was tested: [ROADMAP.md](ROADMAP.md), sections 6 and 7. |
 | **Search** | The games and the programs of a game have a search field; just start typing. |
 | **Fixes** | Fixes for bugs found in a review of the whole code: [FIXES.md](SerialPrograms/Source/ClaudeGG/FIXES.md). Pokémon Automation's open issues and where this fork stands on each: [ISSUES.md](SerialPrograms/Source/ClaudeGG/ISSUES.md), [OTHERS.md](SerialPrograms/Source/ClaudeGG/OTHERS.md). |
+| **Reaction time** | Where the time goes between a press and the picture of its result, on every route (wired and wireless boards, capture cards, Remote Play, the phone, Claude Plays), what Claude GG does about it and what you can do yourself: [LATENCY.md](SerialPrograms/Source/ClaudeGG/LATENCY.md). |
 | **Video frames** | Pictures of the screen are made without Qt's `QVideoFrame::toImage()`, which on some computers grows the memory by up to 1.6 GB an hour. |
 | **Builds** | Each build starts once on the build machine, as on a computer that never ran it, goes through its pages and saves a picture of each. A build that fails is not published. |
 | **Left out** | The check for a new version (it is for Pokémon Automation's releases), Discord Rich Presence by default, and the Discord bot and Social SDK in the Windows build. |

@@ -63,6 +63,7 @@ class Running:
             os.environ.pop("FAKE_ADB_FAIL", None)
         self.token = agent.read_or_make_token(os.path.join(self.folder.name, "token"))
         adb = agent.Adb([sys.executable, FAKE])
+        adb.session = agent.ShellSession(adb)
         #  The live picture comes from a program that is not a phone either.
         self.video_log = os.path.join(self.folder.name, "video.log")
         os.environ["FAKE_VIDEO_LOG"] = self.video_log
@@ -78,6 +79,7 @@ class Running:
         self.server.server_close()
         self.phone.video._idle_now()
         self.phone._end_launch()
+        self.phone.adb.session.close()
         os.environ.pop("FAKE_ADB_LOG", None)
         os.environ.pop("FAKE_ADB_FAIL", None)
         for name in ("FAKE_VIDEO_LOG", "FAKE_VIDEO_FRAMES", "FAKE_VIDEO_FAIL", "FAKE_VIDEO_DELAY"):
@@ -816,6 +818,97 @@ class BotTest(unittest.TestCase):
         self.assertEqual(self.json("GET", "/v1/bot", token=None)[0], 401)
         self.assertEqual(self.json("POST", "/v1/bot/start", {}, token="wrong")[0], 401)
         self.assertEqual(self.json("POST", "/v1/bot/stop", token=None)[0], 401)
+
+
+class ShellSessionTest(unittest.TestCase):
+    """The taps go through one `adb shell` that stays open: no new adb for every tap."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.log = os.path.join(self.folder.name, "adb.log")
+        self.off = os.path.join(self.folder.name, "off")
+        os.environ["FAKE_ADB_LOG"] = self.log
+        os.environ["FAKE_ADB_FAIL_FILE"] = self.off
+        os.environ.pop("FAKE_ADB_FAIL", None)
+        self.adb = agent.Adb([sys.executable, FAKE])
+        self.adb.session = agent.ShellSession(self.adb, timeout=10)
+
+    def tearDown(self):
+        self.adb.session.close()
+        for name in ("FAKE_ADB_LOG", "FAKE_ADB_FAIL_FILE", "FAKE_SHELL_FAIL"):
+            os.environ.pop(name, None)
+        self.folder.cleanup()
+
+    def calls(self):
+        with open(self.log, encoding="utf-8") as handle:
+            return [line.rstrip("\n") for line in handle]
+
+    def test_one_shell_for_many_commands(self):
+        self.adb.quick("input", "keyevent", 4)
+        first = self.adb.session.process
+        self.adb.quick("input", "swipe", 1, 2, 3, 4, 100)
+        self.adb.quick("input swipe 1 2 3 4 100; input swipe 5 6 7 8 200")
+        self.assertIs(self.adb.session.process, first, "the same shell every time")
+        self.assertEqual(self.calls(), ["shell input keyevent 4", "shell input swipe 1 2 3 4 100",
+                                        "shell input swipe 1 2 3 4 100; input swipe 5 6 7 8 200"])
+
+    def test_a_command_that_fails_is_an_error(self):
+        os.environ["FAKE_SHELL_FAIL"] = "input keyevent 66"
+        with self.assertRaises(agent.AgentError) as caught:
+            self.adb.quick("input", "keyevent", 66)
+        self.assertEqual(caught.exception.status, 502)
+        self.assertIn("the command failed", caught.exception.message)
+        self.adb.quick("input", "keyevent", 4)                     # the shell goes on
+        self.assertEqual(self.calls()[-1], "shell input keyevent 4")
+
+    def test_a_phone_that_goes_off_and_comes_back(self):
+        self.adb.quick("input", "keyevent", 4)
+        open(self.off, "w").close()
+        with self.assertRaises(agent.AgentError) as caught:
+            self.adb.quick("input", "keyevent", 66)
+        self.assertIn("device offline", caught.exception.message)
+        self.assertEqual(self.calls(), ["shell input keyevent 4"], "the tap was not done, and not tried twice")
+        os.remove(self.off)
+        self.adb.quick("input", "keyevent", 66)                    # a new shell
+        self.assertEqual(self.calls(), ["shell input keyevent 4", "shell input keyevent 66"])
+
+    def test_a_busy_shell_lets_a_command_go_the_old_way(self):
+        self.adb.quick("input", "keyevent", 4)
+        with self.adb.session.lock:
+            self.adb.quick("input", "keyevent", 3)
+        self.assertEqual(self.calls(), ["shell input keyevent 4", "shell input keyevent 3"])
+
+    def test_it_is_faster(self):
+        """Not a measure of a real phone: only that the shell that stays open is not slower."""
+        self.adb.quick("input", "keyevent", 0)
+        start = time.monotonic()
+        for _ in range(5):
+            self.adb.quick("input", "keyevent", 0)
+        kept = time.monotonic() - start
+        start = time.monotonic()
+        for _ in range(5):
+            self.adb.run("shell", "input", "keyevent", 0)
+        fresh = time.monotonic() - start
+        self.assertLess(kept, fresh)
+
+
+    def test_measure(self):
+        import io
+        text = io.StringIO()
+        result = agent.measure(self.adb, count=3, out=text)
+        self.assertLess(result["kept_shell"]["middle"], result["new_shell"]["middle"])
+        self.assertIn("A tap waits", text.getvalue())
+        self.assertEqual(set(self.calls()), {"shell input keyevent 0"})
+
+
+class NoDelayTest(unittest.TestCase):
+    def test_answers_are_not_held_back(self):
+        """TCP_NODELAY on every connection: the last piece of an answer is not held back for an acknowledgement."""
+        running = Running()
+        self.addCleanup(running.close)
+        handler = running.server.RequestHandlerClass
+        self.assertTrue(handler.disable_nagle_algorithm)
+        self.assertEqual(running.ask("GET", "/v1/info")[0], 200)
 
 
 class AgentFailTest(unittest.TestCase):

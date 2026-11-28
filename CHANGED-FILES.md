@@ -11,7 +11,7 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 | `IconResource` | 3 | 6 | 0 |
 | `SerialPrograms (build files)` | 0 | 1 | 0 |
 | `SerialPrograms/Scripts` | 76 | 0 | 0 |
-| `SerialPrograms/Source/CommonFramework` | 2 | 39 | 0 |
+| `SerialPrograms/Source/CommonFramework` | 2 | 40 | 0 |
 | `SerialPrograms/Source/CommonTools` | 0 | 3 | 0 |
 | `SerialPrograms/Source/ComputerPrograms` | 0 | 1 | 0 |
 | `SerialPrograms/Source/Controllers` | 0 | 2 | 0 |
@@ -204,6 +204,7 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 - M `SerialPrograms/Source/CommonFramework/Recording/StreamHistoryTracker_SaveFrames.cpp`
 - M `SerialPrograms/Source/CommonFramework/Recording/StreamHistoryTracker_SaveFrames.h`
 - M `SerialPrograms/Source/CommonFramework/StaticGlobals.cpp`
+- M `SerialPrograms/Source/CommonFramework/VideoPipeline/Backends/QFormatAggregator.cpp`
 - M `SerialPrograms/Source/CommonFramework/VideoPipeline/Backends/SnapshotManager.cpp`
 - M `SerialPrograms/Source/CommonFramework/VideoPipeline/Backends/SnapshotManager.h`
 - A `SerialPrograms/Source/CommonFramework/VideoPipeline/Backends/VideoFrameConversion.cpp`

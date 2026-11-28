@@ -3,6 +3,7 @@
 connection to it). Every call is written to the file in FAKE_ADB_LOG, one line each."""
 
 import os
+import re
 import struct
 import sys
 import zlib
@@ -19,15 +20,51 @@ def png(width, height, colour):
             + chunk(b"IEND", b""))
 
 
+SESSION_LINE = re.compile(r"^\{ (.*) ; \} </dev/null 2>&1; echo (\S+) \$\?$")
+
+
+def session(log, off_file):
+    """`adb shell` with no command: a shell that reads its commands, one a line (the agent's
+    ShellSession). Each is written to the log as `adb shell <command>` would be. A phone that goes
+    off ends it, as it ends a real one."""
+    for line in sys.stdin:
+        if off_file and os.path.exists(off_file):
+            sys.stdout.write("error: device offline\n")
+            sys.stdout.flush()
+            return 1
+        found = SESSION_LINE.match(line.rstrip("\r\n"))
+        if not found:
+            sys.stdout.write("sh: not a line of the agent: %s\n" % line.strip())
+            sys.stdout.flush()
+            continue
+        command, mark = found.groups()
+        if log:
+            with open(log, "a", encoding="utf-8") as handle:
+                handle.write("shell " + command + "\n")
+        code = 0
+        if os.environ.get("FAKE_SHELL_FAIL") and command.startswith(os.environ["FAKE_SHELL_FAIL"]):
+            sys.stdout.write("Error: the command failed\n")
+            code = 1
+        sys.stdout.write("%s %d\n" % (mark, code))
+        sys.stdout.flush()
+    return 0
+
+
 def main(argv):
     log = os.environ.get("FAKE_ADB_LOG")
+    rest = argv[2:] if argv[:1] == ["-s"] else argv
+    off_file = os.environ.get("FAKE_ADB_FAIL_FILE")
+    if rest == ["shell"]:
+        if os.environ.get("FAKE_ADB_FAIL") or (off_file and os.path.exists(off_file)):
+            sys.stderr.write("error: device offline\n")
+            return 1
+        return session(log, off_file)
     if log:
         with open(log, "a", encoding="utf-8") as handle:
             handle.write(" ".join(argv) + "\n")
     args = list(argv)
     if args[:2] == ["-s", args[1] if len(args) > 1 else ""]:
         args = args[2:]
-    off_file = os.environ.get("FAKE_ADB_FAIL_FILE")
     if os.environ.get("FAKE_ADB_FAIL") or (off_file and os.path.exists(off_file)):
         sys.stderr.write("error: device offline\n")
         return 1

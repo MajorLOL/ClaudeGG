@@ -36,7 +36,7 @@ made the first time and kept in `~/.claudegg-agent/token`; `claudegg_agent.py --
 
 **Updating** an agent that is installed: in the folder of the clone on the Pi, `git pull`, then `bash Mobile/agent/install-agent.sh`
 again. The token stays the same, and the service is restarted with the new file. `python3 ~/claudegg-agent/claudegg_agent.py --version`
-says which version is installed; Claude GG's own GO Battle League needs 0.2.0 or later and says so when the agent is older.
+says which version is installed; Claude GG's own GO Battle League needs 0.2.0 or later and says so when the agent is older; 0.2.1 taps faster (see *Speed*).
 
 The phone: Settings → About phone → tap *Build number* seven times → Developer options → *USB debugging* on;
 connect it to the Pi and accept the question *Allow USB debugging?* on the phone (*Always allow*). `adb
@@ -78,8 +78,36 @@ The bot is started and stopped with `sudo -n /usr/bin/systemctl`: the user of th
 to `/etc/sudoers.d/claudegg-agent` (the bot's web interface needs the same rule, see the page *Installation* of the wiki);
 without it the answer is a 502 that says so.
 
-What it will not do: open a shell, run a program or write a file on the phone. Every argument is checked and
-`adb` is called with a list of arguments, never a line for a shell.
+What it will not do: run a program of its caller or write a file on the phone. Every argument is checked
+before a command is made: only numbers, the names of keys, and text of letters, digits and `. , _ @ : / + -`
+reach the phone. On the Pi, `adb` is called with a list of arguments, never a line for a shell.
+
+## Speed
+
+Since 0.2.1 the taps, swipes, keys and text go through one `adb shell` that stays open, instead of a new
+`adb shell ...` for every one. A new one starts the adb program on the Pi, connects to the adb server and
+has the phone start a shell before the tap itself begins: tens of milliseconds on a fast computer, often
+100 to 200 on a Raspberry Pi. Through the shell that stays open, a tap is one line written to it.
+
+- A command waits for the one before it to end, as it did before (the answer comes once the swipe is done).
+  When the shell is busy with a long swipe, another command goes the old way at once instead of waiting.
+- When the phone goes away, the command in the shell is an error (502, as before) and is never tried twice;
+  the next one starts a new shell.
+- `--no-shell-session` goes back to a new `adb shell` for every command.
+- `claudegg_agent.py --measure` measures it on your own phone: it sends 20 times a key that does nothing
+  (`input keyevent 0`) each way and prints the middle and slowest time. Leave the bot and Claude GG stopped
+  while it runs.
+
+What else takes time with a phone:
+
+- The command `input` itself. On older Android it starts a small Java program for every tap (about half a
+  second); newer Android has `input` call `cmd input`, which asks the system directly (under 10 ms, by the
+  change "Accelerate input commands execution" in Android itself). An old phone is therefore slower to tap:
+  `--measure` shows it (a middle time of several hundred ms with the shell that stays open).
+- A screenshot (`/v1/screen`, `screencap`) takes one to three seconds while the game runs. The live
+  picture (`/v1/video`) has a new picture about every 100 ms; Claude GG uses that one when it can.
+- Wi-Fi between the computer and the Pi: a cable (or the Pi and the computer on the same 5 GHz network)
+  keeps each request to a few milliseconds.
 
 `claudegg_agent.py --help` lists the options (`--port`, `--serial` for more than one phone, `--display` for a
 foldable's second screen, `--host 127.0.0.1` to listen on the Pi itself only).
