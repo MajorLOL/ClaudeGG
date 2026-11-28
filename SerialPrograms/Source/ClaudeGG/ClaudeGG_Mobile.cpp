@@ -53,6 +53,7 @@
 #include "ClaudeGG_PokemonGoBag.h"
 #include "ClaudeGG_PokemonGoGifts.h"
 #include "ClaudeGG_PokemonGoQuests.h"
+#include "ClaudeGG_PokemonGoRocket.h"
 #include "ClaudeGG_PokemonGoThrowPlay.h"
 #include "ClaudeGG_PokemonGoVision.h"
 
@@ -978,6 +979,19 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             }
         }
         check(differ == 0, quests_report.isEmpty() ? QString("the quests are handled as gamebot.py handles them") : quests_report.last());
+    }
+    //  Team GO Rocket at a stop, ported to C++ (issue #31): the way from the first speech bubble to the map or the Shadow Pokémon (BATTLE, the radar
+    //  question, the party and its empty slots, the list of Pokémon, the summary), held to what the Python code did on the little stories of
+    //  tests/fixtures/rocket_golden.json.qz.  (The fight itself is a seam in these stories.)
+    {
+        QStringList rocket_report;
+        const int differ = PokemonGo::Rocket::run_rocket_checks(agent_folder + "/../tests/fixtures/rocket_golden.json.qz", rocket_report);
+        for (const QString& line : rocket_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, rocket_report.isEmpty() ? QString("the way through Team GO Rocket is walked as gamebot.py walks it") : rocket_report.last());
     }
     //  The text reader, ported to C++ (issue #30): the table that Tesseract writes made into lines of words with their places, as
     //  gamebot.ocr_lines() makes them (354 tables, 36 of them read from frames of real fights), and - where the tesseract program is
