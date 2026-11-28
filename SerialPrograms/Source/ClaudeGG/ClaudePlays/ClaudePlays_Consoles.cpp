@@ -49,6 +49,10 @@ std::vector<ConsoleTraits> make_traits(){
     //  hop of a few milliseconds, well inside a frame.
     add("psdirect", direct, {}, "Through a Brook Wingman adapter, a few milliseconds more: the usual timing.");
     add("xboxdirect", direct, {}, "Through a Brook Wingman adapter, a few milliseconds more: the usual timing.");
+    //  A Steam Deck or a PC: the board is a USB pad of it, and Steam reads
+    //  it at once. (A game on this same computer comes in through OBS, a
+    //  frame or two late; that is small next to Claude's own pace.)
+    add("steam", direct, {}, "A USB pad of the Steam Deck or the PC: the usual timing.");
     {
         //  A Bluetooth link to BlueRetro, and games that read the pad once
         //  a frame at 20 to 30 frames a second: a press a little longer, so

@@ -78,6 +78,9 @@ enum class GameId{
     //  XB 3), which takes a Switch pad and answers the console's check.
     PS_DIRECT,
     XBOX_DIRECT,
+    //  A Steam Deck or a PC with Steam: the wired board as a plain USB
+    //  gamepad, which Steam takes by the places of its buttons.
+    STEAM,
 };
 
 //  The controller the game's programs use.
@@ -152,7 +155,7 @@ bool is_other_games_choice(GameId id);
 //  The consoles of a list of games by its name, when the list is one of a
 //  game here that is not played on the Switch: {"ps3"}, {"xbox"}, {"retro"},
 //  {"xbox360"}, {"psremote"}, {"xboxremote"}, {"iphone"}, {"psclassic"},
-//  {"psdirect"} or {"xboxdirect"}. Empty:
+//  {"psdirect"}, {"xboxdirect"} or {"steam"}. Empty:
 //  not one of them.
 std::vector<std::string> consoles_of_list(const std::string& list_name);
 

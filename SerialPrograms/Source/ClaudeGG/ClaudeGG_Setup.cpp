@@ -1978,7 +1978,7 @@ QString short_board_name(const QString& id){
 bool console_wired_only(const QString& console){
     return console == "ps3" || console == "xbox" || console == "xbox360" ||
         console == "psremote" || console == "xboxremote" || console == "iphone" ||
-        console == "psclassic" || console == "psdirect" || console == "xboxdirect";
+        console == "psclassic" || console == "psdirect" || console == "xboxdirect" || console == "steam";
 }
 //  The consoles that take only a wireless board (a Switch Pro Controller over
 //  Bluetooth): the retro consoles, through a BlueRetro adapter, which takes a
@@ -1996,6 +1996,7 @@ QPixmap xbox360_picture();
 QPixmap remote_picture(bool xbox);
 QPixmap iphone_picture();
 QPixmap psclassic_picture();
+QPixmap steam_picture();
 QPixmap console_picture(const QString& console){
     return console == "xbox" ? xbox_picture()
         : console == "retro" ? retro_picture()
@@ -2005,6 +2006,7 @@ QPixmap console_picture(const QString& console){
         : console == "iphone" ? iphone_picture()
         : console == "psclassic" ? psclassic_picture()
         : console == "xboxdirect" ? xbox360_picture()
+        : console == "steam" ? steam_picture()
         : ps3_picture();
 }
 //  A console that is not a Switch and not the Android phone: its picture is
@@ -2054,6 +2056,10 @@ const std::vector<const char*>& console_needs(const QString& console){
         "An Xbox One or Series", ESP32S3,
         "A Brook Wingman XB 3 (bought): it answers the console's check", CAPTURE,
     };
+    static const std::vector<const char*> STEAM{
+        "A Steam Deck with a USB-C dock that has HDMI, or a PC with Steam", ESP32S3,
+        "A capture card for the Steam Deck; for a game on this same PC, OBS Studio (free) instead",
+    };
     return console == "ps3" ? PS3
         : console == "xbox" ? XBOX
         : console == "retro" ? RETRO
@@ -2064,6 +2070,7 @@ const std::vector<const char*>& console_needs(const QString& console){
         : console == "psclassic" ? PS_CLASSIC
         : console == "psdirect" ? PS_DIRECT
         : console == "xboxdirect" ? XBOX_DIRECT
+        : console == "steam" ? STEAM
         : NONE;
 }
 
@@ -2745,6 +2752,28 @@ const BoardSpec& spec_for(const QString& board, const QString& console){
     }
     if (console == "xboxdirect" && board == "esp32s3"){
         return ESP32S3_XBOX_DIRECT_SPEC;
+    }
+
+    //  A Steam Deck or a PC with Steam: the ESP32-S3 as a plain USB gamepad
+    //  (the HORIPAD of NS1: Wired Controller), which Steam takes and passes
+    //  on by the places of its buttons. The Deck's picture comes from its
+    //  dock over HDMI; a game on this same computer through OBS.
+    static const StepText ESP32S3_STEAM[] = {
+        {"Connect the ESP32-S3", "Plug the port labeled COM or UART into the computer with Claude GG. The port labeled USB or OTG goes into the Steam Deck or the PC of the game, in a later step. They are not interchangeable.", Action::DEVICE},
+        {"Flash the firmware", "Pick the port of the ESP32-S3 and the firmware version, then press Flash now.", Action::FIRMWARE},
+        {"Restart the board", "Press the EN or RESET button, or unplug both cables and plug them in again.", Action::NONE},
+        {"Connect the pad", "Plug the USB or OTG port of the ESP32-S3 into a USB port of the Steam Deck's dock, or of the PC that runs the game (this same computer is fine). In Steam, under Settings and Controller, it shows up as a gamepad.", Action::NONE},
+        {"Bring in the picture", "Steam Deck: from the HDMI of its dock into the capture card. A game on this same computer: in OBS Studio, add a Window Capture of the game, press Start Virtual Camera and pick OBS Virtual Camera as the video.", Action::NONE},
+        {"Select the controller and the port", "In the program, pick Serial: PABotBase2 in the first dropdown, then your device as the serial port. Click Reset Ctrl if it is not listed.", Action::PORTS},
+        {"Pick the type and test", "Pick NS1: Wired Controller as the type. Click the video and press the arrow keys: they should move through the menu of Steam. This has not been tried on a Steam Deck or a PC yet.", Action::NONE},
+    };
+    static const BoardSpec ESP32S3_STEAM_SPEC = {
+        ESP32S3_STEAM, sizeof(ESP32S3_STEAM) / sizeof(ESP32S3_STEAM[0]),
+        "Wired, as a USB gamepad of the Steam Deck or the PC. Experimental. Seven steps.", "NS1: Wired Controller",
+        1, -1, 5, 6, 6, true
+    };
+    if (console == "steam" && board == "esp32s3"){
+        return ESP32S3_STEAM_SPEC;
     }
 
     //  The retro consoles: the wireless board plays a Switch Pro Controller
@@ -8042,6 +8071,70 @@ QPixmap iphone_picture(){
     return cache;
 }
 
+//  A wide handheld with a screen in the middle, two sticks, a d-pad and four
+//  buttons, and a small dock: the picture of the console
+//  "steam". Drawn here, as the picture of the Switch 2 is; it is no picture
+//  of a particular device.
+QPixmap steam_picture(){
+    static QPixmap cache;
+    if (!cache.isNull()){
+        return cache;
+    }
+    constexpr int W = 560;
+    constexpr int H = 400;
+    QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter p(&image);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(Qt::NoPen);
+
+    //  The dock, behind.
+    p.setBrush(QColor(44, 46, 52));
+    p.drawRoundedRect(QRectF(170, 286, 220, 70), 14, 14);
+    p.setBrush(QColor(30, 30, 34));
+    p.drawRoundedRect(QRectF(196, 304, 40, 14), 4, 4);
+    p.drawRoundedRect(QRectF(250, 304, 40, 14), 4, 4);
+    p.drawRoundedRect(QRectF(304, 304, 60, 14), 4, 4);
+
+    //  The body, its screen and its grips.
+    p.setBrush(QColor(36, 38, 44));
+    p.drawRoundedRect(QRectF(10, 60, 540, 220), 90, 90);
+    p.setBrush(QColor(20, 20, 24));
+    p.drawRoundedRect(QRectF(140, 80, 280, 180), 10, 10);
+    QLinearGradient screen(0, 90, 0, 250);
+    screen.setColorAt(0, QColor(40, 90, 160));
+    screen.setColorAt(1, QColor(20, 30, 60));
+    p.setBrush(screen);
+    p.drawRect(QRectF(150, 90, 260, 160));
+    //  A row of game covers on the screen.
+    p.setBrush(QColor(255, 255, 255, 170));
+    for (int i = 0; i < 4; i++){
+        p.drawRoundedRect(QRectF(166 + i * 60, 140, 48, 68), 5, 5);
+    }
+
+    //  The left side: a stick and a d-pad.
+    p.setBrush(QColor(70, 72, 80));
+    p.drawEllipse(QPointF(78, 120), 26, 26);
+    p.setBrush(QColor(54, 56, 62));
+    p.drawEllipse(QPointF(78, 120), 18, 18);
+    p.setBrush(QColor(70, 72, 80));
+    p.drawRect(QRectF(66, 182, 24, 64));
+    p.drawRect(QRectF(46, 202, 64, 24));
+    //  The right side: four buttons and a stick.
+    p.setBrush(QColor(200, 202, 210));
+    p.drawEllipse(QPointF(482, 104), 11, 11);
+    p.drawEllipse(QPointF(458, 128), 11, 11);
+    p.drawEllipse(QPointF(506, 128), 11, 11);
+    p.drawEllipse(QPointF(482, 152), 11, 11);
+    p.setBrush(QColor(70, 72, 80));
+    p.drawEllipse(QPointF(482, 214), 26, 26);
+    p.setBrush(QColor(54, 56, 62));
+    p.drawEllipse(QPointF(482, 214), 18, 18);
+    p.end();
+    cache = QPixmap::fromImage(image);
+    return cache;
+}
+
 //  A small grey console with the round lid of a disc drive, and in front of
 //  it a grey pad of the first PlayStation's kind, without sticks: the picture
 //  of the console "psclassic". Drawn here, as the picture of the Switch 2 is.
@@ -8203,6 +8296,9 @@ constexpr ConsoleInfo CONSOLES[] = {
     //  Play: no network, no stream). Experimental: not tried yet.
     {"psdirect",    "PS4 and PS5, direct",  "Through a bought Brook Wingman XE",    true},
     {"xboxdirect",  "Xbox One and Series, direct", "Through a bought Brook Wingman XB 3", true},
+    //  A Steam Deck or a PC with Steam: the wired board as its USB gamepad.
+    //  Experimental: not tried yet.
+    {"steam",       "Steam Deck and PC",    "The wired board as a gamepad for Steam", true},
 };
 constexpr int CONSOLE_COUNT = (int)(sizeof(CONSOLES) / sizeof(CONSOLES[0]));
 
@@ -11496,6 +11592,7 @@ std::vector<HomeGame> test_games_with_consoles(){
         {"PlayStation Classic games", "psclassic"},
         {"PS4 and PS5 games, direct", "psdirect"},
         {"Xbox One and Series games, direct", "xboxdirect"},
+        {"Steam Deck and PC games", "steam"},
     }){
         HomeGame game;
         game.name = other.first;
@@ -12139,17 +12236,17 @@ int run_setup_test(QApplication& application, const QString& folder){
     checker.check(has_content(canvas.picture()), "the console screen has something on it");
     {
         bool all = true;
-        for (int c = 0; c < 14; c++){
+        for (int c = 0; c < 15; c++){
             const QString tile = "console:" + QString::number(c);
             all = all && canvas.has_hit(tile) && canvas.hit_enabled(tile);
         }
         checker.check(all,
             "the twelve supported consoles (the two Switches, the phone, the PlayStation 3, the original Xbox, the retro "
-            "consoles, the Xbox 360, the two of Remote Play, the iPhone, the PlayStation Classic, the Wii U and the two direct ways "
-            "through an adapter) are tiles that can be picked"
+            "consoles, the Xbox 360, the two of Remote Play, the iPhone, the PlayStation Classic, the Wii U, the two direct ways "
+            "through an adapter and the Steam Deck and PC) are tiles that can be picked"
         );
     }
-    checker.check(!canvas.has_hit("console:14"), "and no console is left that cannot be picked");
+    checker.check(!canvas.has_hit("console:15"), "and no console is left that cannot be picked");
     checker.check(canvas.has_hit("skip") && canvas.has_hit("continue"), "the console screen has Skip setup and Continue");
     checker.check(!canvas.hit_enabled("continue"), "no console, no way on");
     checker.check(canvas.page_state() == "selected=", "nothing is picked at first");
@@ -12169,19 +12266,20 @@ int run_setup_test(QApplication& application, const QString& folder){
     checker.check(canvas.focus_id() == "console:4", "to the original Xbox");
     canvas.press_key(Qt::Key_Right);
     checker.check(canvas.focus_id() == "console:5", "to the retro consoles");
-    for (int c = 6; c < 14; c++){
+    for (int c = 6; c < 15; c++){
         canvas.press_key(Qt::Key_Right);
     }
-    checker.check(canvas.focus_id() == "console:13", "to the Xbox One and Series, direct, over the rows");
+    checker.check(canvas.focus_id() == "console:14", "to the Steam Deck and PC, over the rows");
     canvas.press_key(Qt::Key_Right);
-    checker.check(canvas.focus_id() == "console:13", "and no further than the last");
+    checker.check(canvas.focus_id() == "console:14", "and no further than the last");
     canvas.press_key(Qt::Key_Tab);
     canvas.press_key(Qt::Key_Tab);
     checker.check(!canvas.focus_id().startsWith("console:") || canvas.focus_id() == "console:0" || canvas.focus_id() == "console:1" ||
         canvas.focus_id() == "console:2" || canvas.focus_id() == "console:3" || canvas.focus_id() == "console:4" ||
         canvas.focus_id() == "console:5" || canvas.focus_id() == "console:6" || canvas.focus_id() == "console:7" ||
         canvas.focus_id() == "console:8" || canvas.focus_id() == "console:9" || canvas.focus_id() == "console:10" ||
-        canvas.focus_id() == "console:11" || canvas.focus_id() == "console:12" || canvas.focus_id() == "console:13",
+        canvas.focus_id() == "console:11" || canvas.focus_id() == "console:12" || canvas.focus_id() == "console:13" ||
+        canvas.focus_id() == "console:14",
         "Tab does not stop on them either");
     canvas.set_focus_id("console:1");
     canvas.move_to("console:1");
@@ -13248,6 +13346,7 @@ int run_setup_test(QApplication& application, const QString& folder){
         WiredConsole{"console:10", "psclassic", "the PlayStation Classic", "steps=8"},
         WiredConsole{"console:12", "psdirect", "the PlayStation 4 and 5, direct", "steps=7"},
         WiredConsole{"console:13", "xboxdirect", "the Xbox One and Series, direct", "steps=7"},
+        WiredConsole{"console:14", "steam", "the Steam Deck and PC", "steps=7"},
     }){
         const QString code = QString::fromLatin1(wired.code);
         const QString name = QString::fromLatin1(wired.name);
@@ -13331,8 +13430,8 @@ int run_setup_test(QApplication& application, const QString& folder){
     {
         //  The consoles of the lists before Pokemon GO, in their order in
         //  test_games_with_consoles().
-        const QStringList OTHERS{"ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "psdirect", "xboxdirect"};
-        for (const QString console : {"switch", "switch2", "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "psdirect", "xboxdirect"}){
+        const QStringList OTHERS{"ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "psdirect", "xboxdirect", "steam"};
+        for (const QString console : {"switch", "switch2", "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "psdirect", "xboxdirect", "steam"}){
             SetupRequest request_games;
             request_games.ask_game = true;
             request_games.games = test_games_with_consoles();

@@ -96,6 +96,7 @@ GlobalSettings::GlobalSettings()
             {SetupConsole::WIIU,        "wiiu",       "Nintendo Wii U (GamePad through a Raspberry Pi)"},
             {SetupConsole::PS_DIRECT,   "psdirect",   "PS4 and PS5 (direct, through a bought adapter)"},
             {SetupConsole::XBOX_DIRECT, "xboxdirect", "Xbox One and Series (direct, through a bought adapter)"},
+            {SetupConsole::STEAM,       "steam",      "Steam Deck and PC (the wired board as a gamepad)"},
         },
         LockMode::UNLOCK_WHILE_RUNNING,
         SetupConsole::NONE

@@ -360,6 +360,14 @@ std::map<GameId, GameProfile> make_profiles(){
         "pressed fully, and there is no rumble.",
         PadKind::XBOXONE_CONTROLLER, "xboxdirect"
     );
+    other(
+        GameId::STEAM, "Steam:ClaudePlays", "Steam Deck and PC", "Steam Deck and PC games",
+        "The game runs on a Steam Deck or a PC with Steam. A usually confirms and B goes back. MENU opens a "
+        "game's menu, VIEW its map or a second screen in many games, HOME the Steam menu. The pad is the wired "
+        "board, a plain USB gamepad that Steam passes on by the places of its buttons, as an Xbox pad's: LT and "
+        "RT are only pressed fully, and there is no rumble and no gyro.",
+        PadKind::XBOXONE_CONTROLLER, "steam"
+    );
     return profiles;
 }
 
@@ -393,6 +401,7 @@ bool has_only_claude_plays(GameId id){
     case GameId::PS_CLASSIC:
     case GameId::PS_DIRECT:
     case GameId::XBOX_DIRECT:
+    case GameId::STEAM:
         return true;
     default:
         return false;
@@ -444,6 +453,7 @@ const std::vector<GameId>& all_games(){
         GameId::PS_CLASSIC,
         GameId::PS_DIRECT,
         GameId::XBOX_DIRECT,
+        GameId::STEAM,
     };
     return games;
 }

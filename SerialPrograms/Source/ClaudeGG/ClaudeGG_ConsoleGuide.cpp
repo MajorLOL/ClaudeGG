@@ -628,6 +628,43 @@ const std::vector<Guide>& guides(){
                 TROUBLE_TYPE,
             },
         },
+        {
+            "steam", "Steam Deck and PC", Status::EXPERIMENTAL, Speed::FAST,
+            "ESP32-S3", "Capture card (HDMI from the dock), or OBS Virtual Camera",
+            "The ESP32-S3 is a plain USB gamepad of the Steam Deck or the PC, and Steam takes it like any other pad. The picture of a Steam Deck comes from its dock through a capture card; a game on this same computer comes in through OBS.",
+            {
+                NEED_COMPUTER,
+                NEED_ESP32S3,
+                "A Steam Deck with a USB-C dock that has HDMI, or a PC with Steam",
+                "A capture card for the Steam Deck; for a game on this same PC, OBS Studio (free) instead",
+            },
+            {
+                {"Computer", "USB (COM)", "ESP32-S3", "USB (OTG)", "Steam Deck dock or PC"},
+                {"Steam Deck dock", "HDMI", "Capture card", "USB", "Computer"},
+            },
+            {
+                STEP_FLASH,
+                "Plug the USB or OTG port of the ESP32-S3 into a USB port of the Steam Deck's dock, or of the PC that runs the game (this same computer is fine). In Steam, under Settings and Controller, it shows up as a gamepad.",
+                "Steam Deck: from the HDMI of its dock into the capture card. A game on this same computer: in OBS Studio, add a Window Capture of the game, press Start Virtual Camera and pick OBS Virtual Camera as the video.",
+                STEP_PORTS,
+                STEP_TEST,
+            },
+            "Wired all the way, and Steam reads the pad at once. A game on this same computer comes in through OBS, a frame or two late.",
+            {
+                "The list Steam Deck and PC games of Claude Plays.",
+                GAMES_CLAUDE_PLAYS,
+            },
+            {
+                LIMIT_UNTESTED,
+                "Steam passes the buttons on by their places, as an Xbox pad's. If A and B are swapped, turn off the Nintendo button layout in Steam's controller settings.",
+                "A game outside Steam may not see the pad: add it to Steam as a game that is not from Steam, so that Steam Input passes the pad on.",
+            },
+            {
+                "Steam does not show the pad: try another USB port of the dock, and check that the USB or OTG port of the ESP32-S3 is the one plugged in.",
+                TROUBLE_WRONG_PORT,
+                TROUBLE_TYPE,
+            },
+        },
     };
     return GUIDES;
 }
@@ -1069,7 +1106,7 @@ int console_guide_self_test(){
         }
     };
     //  Every console of the setup has a page.
-    for (const char* code : {"switch", "switch2", "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu", "psdirect", "xboxdirect"}){
+    for (const char* code : {"switch", "switch2", "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu", "psdirect", "xboxdirect", "steam"}){
         const Guide* guide = find_guide(code);
         check(guide != nullptr, QString("no page for ") + code);
         if (guide == nullptr){
