@@ -817,8 +817,8 @@ jobs:
             $old = Join-Path $env:RUNNER_TEMP $name
             Remove-Item -Recurse -Force $old -ErrorAction SilentlyContinue
             Copy-Item -Recurse "package/ClaudeGG" $old
-            "an older build" | Out-File "$old/version.txt" -Encoding ascii
-            "an older library" | Out-File "$old/Licenses/PokemonAutomation-MIT-License.txt" -Encoding ascii
+            "OLD-COPY-MARKER build" | Out-File "$old/version.txt" -Encoding ascii
+            "OLD-COPY-MARKER license" | Out-File "$old/Licenses/PokemonAutomation-MIT-License.txt" -Encoding ascii
             New-Item -ItemType Directory -Force -Path "$old/UserSettings", "$old/Installations/2" | Out-Null
             "my stats" | Out-File "$old/UserSettings/PA-Stats.txt" -Encoding ascii
             "my settings" | Out-File "$old/UserSettings/ClaudeGG-Settings.json" -Encoding ascii
@@ -836,7 +836,8 @@ jobs:
             )
             if (-not $p.WaitForExit(180000)) { $p.Kill(); return -1 }
             Write-Host "---- Updates/update.log ----"
-            Get-Content (Join-Path $old "Updates/update.log") -ErrorAction SilentlyContinue
+            #  To the screen, not into what the function returns.
+            Get-Content (Join-Path $old "Updates/update.log") -ErrorAction SilentlyContinue | Out-Host
             return $p.ExitCode
           }
           function Outcome($old) {
@@ -864,7 +865,7 @@ jobs:
           Write-Host "The update: exit code $code."
           if ($code -ne 0) { Fail "the update did not finish (exit code $code)." }
           if ((Get-FileHash "$old/version.txt").Hash -ne $expected) { Fail "version.txt of the program was not replaced." }
-          if ((Get-Content "$old/Licenses/PokemonAutomation-MIT-License.txt" -Raw) -match "older") { Fail "a file in a folder of the program was not replaced." }
+          if ((Get-Content "$old/Licenses/PokemonAutomation-MIT-License.txt" -Raw) -match "OLD-COPY-MARKER") { Fail "a file in a folder of the program was not replaced." }
           if ((Get-Content "$old/UserSettings/PA-Stats.txt" -Raw).Trim() -ne "my stats") { Fail "the user's stats were overwritten." }
           if ((Get-Content "$old/UserSettings/ClaudeGG-Settings.json" -Raw).Trim() -ne "my settings") { Fail "the user's settings were touched." }
           if (-not (Test-Path "$old/Installations/2/installation.json")) { Fail "the other installation is gone." }
@@ -882,8 +883,8 @@ jobs:
           }
           Write-Host "The update with a file in use: exit code $code."
           if ($code -ne 1) { Fail "an update with a file in use did not fail as it should (exit code $code)." }
-          if ((Get-Content "$old/version.txt" -Raw) -notmatch "older") { Fail "the file in use was changed." }
-          if ((Get-Content "$old/Licenses/PokemonAutomation-MIT-License.txt" -Raw) -notmatch "older") { Fail "what was replaced before the file in use was not put back." }
+          if ((Get-Content "$old/version.txt" -Raw) -notmatch "OLD-COPY-MARKER") { Fail "the file in use was changed." }
+          if ((Get-Content "$old/Licenses/PokemonAutomation-MIT-License.txt" -Raw) -notmatch "OLD-COPY-MARKER") { Fail "what was replaced before the file in use was not put back." }
           if ((Get-FileHash "$old/ClaudeGG.exe").Hash -ne $before) { Fail "the program of the old copy was changed." }
           $outcome = Outcome $old
           if ($null -eq $outcome -or $outcome.ok) { Fail "the note for the next start does not say that it failed." } else { Write-Host "What the program will say: $($outcome.message)" }
