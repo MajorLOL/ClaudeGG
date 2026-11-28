@@ -163,8 +163,93 @@ const PadLayout& dreamcast_controller_layout(){
     };
     return layout;
 }
+const PadLayout& xbox360_controller_layout(){
+    static const PadLayout layout{
+        "an Xbox 360 controller",
+        {
+            "A", "B", "X", "Y", "LB", "RB", "LT", "RT", "START", "BACK", "LSTICK", "RSTICK",
+            "UP", "DOWN", "LEFT", "RIGHT",
+        },
+        {"left_stick", "right_stick"},
+        false,
+        "a real Xbox 360",
+        "On an Xbox, A is usually yes and B usually no or back.",
+    };
+    return layout;
+}
+const PadLayout& ps4_controller_layout(){
+    static const PadLayout layout{
+        "a PlayStation 4 or 5 controller (without its touchpad)",
+        {
+            "CROSS", "CIRCLE", "SQUARE", "TRIANGLE", "L1", "R1", "L2", "R2", "OPTIONS", "SHARE", "L3", "R3",
+            "UP", "DOWN", "LEFT", "RIGHT",
+        },
+        {"left_stick", "right_stick"},
+        false,
+        "a real PlayStation 4 or 5, through Remote Play",
+        "On a PlayStation, CROSS is usually yes and CIRCLE usually no or back.",
+    };
+    return layout;
+}
+const PadLayout& xboxone_controller_layout(){
+    static const PadLayout layout{
+        "an Xbox One or Series controller",
+        {
+            "A", "B", "X", "Y", "LB", "RB", "LT", "RT", "MENU", "VIEW", "LSTICK", "RSTICK",
+            "UP", "DOWN", "LEFT", "RIGHT",
+        },
+        {"left_stick", "right_stick"},
+        false,
+        "a real Xbox One or Series, through Remote Play",
+        "On an Xbox, A is usually yes and B usually no or back.",
+        false,
+    };
+    return layout;
+}
+const PadLayout& iphone_keyboard_layout(){
+    static const PadLayout layout{
+        "a keyboard plugged into an iPhone (Full Keyboard Access)",
+        {
+            "TAB", "SHIFT_TAB", "SPACE", "ENTER", "ESCAPE", "BACKSPACE",
+            "UP", "DOWN", "LEFT", "RIGHT",
+        },
+        {},
+        false,
+        "a real iPhone, worked with a keyboard",
+        "On an iPhone with Full Keyboard Access, SPACE taps the item that has the focus and ESCAPE goes back; "
+        "TAB and the arrow keys move the focus.",
+    };
+    return layout;
+}
+//  The PlayStation Classic's pad: the first PlayStation's, without sticks
+//  (L3 and R3 too) and without a button for the console's menu.
+const PadLayout& psclassic_controller_layout(){
+    static const PadLayout layout{
+        "a PlayStation Classic controller",
+        {
+            "CROSS", "CIRCLE", "SQUARE", "TRIANGLE", "L1", "R1", "L2", "R2", "START", "SELECT",
+            "UP", "DOWN", "LEFT", "RIGHT",
+        },
+        {},
+        false,
+        "a real PlayStation Classic",
+        "On a PlayStation Classic, CROSS is usually yes and CIRCLE usually no or back.",
+        false,
+    };
+    return layout;
+}
 const PadLayout& pad_layout(PadKind pad){
     switch (pad){
+    case PadKind::PSCLASSIC_CONTROLLER:
+        return psclassic_controller_layout();
+    case PadKind::XBOX360_CONTROLLER:
+        return xbox360_controller_layout();
+    case PadKind::PS4_CONTROLLER:
+        return ps4_controller_layout();
+    case PadKind::XBOXONE_CONTROLLER:
+        return xboxone_controller_layout();
+    case PadKind::IPHONE_KEYBOARD:
+        return iphone_keyboard_layout();
     case PadKind::PS1_CONTROLLER:
         return ps1_controller_layout();
     case PadKind::PS2_CONTROLLER:
@@ -319,7 +404,70 @@ std::string button_name(const std::string& given, const PadLayout& layout){
         };
         for (const Alias& alias : ALIASES){
             if (name == alias.given){
-                return alias.button;
+                name = alias.button;
+                break;
+            }
+        }
+        if (layout.has_button("OPTIONS")){
+            //  A PlayStation 4 or 5 controller: OPTIONS and SHARE (CREATE on
+            //  a PlayStation 5) where the older ones have START and SELECT.
+            if (name == "START"){
+                return "OPTIONS";
+            }
+            if (name == "SELECT" || name == "CREATE"){
+                return "SHARE";
+            }
+        }
+        return name;
+    }
+    if (layout.has_button("TAB")){
+        //  A keyboard: the other names of its keys.
+        if (name == "ESC" || name == "BACK"){
+            return "ESCAPE";
+        }
+        if (name == "RETURN"){
+            return "ENTER";
+        }
+        if (name == "SHIFT+TAB" || name == "SHIFT-TAB" || name == "SHIFT TAB" || name == "BACKTAB"){
+            return "SHIFT_TAB";
+        }
+        if (name == " " || name == "SPACEBAR"){
+            return "SPACE";
+        }
+        for (const char* direction : DIRECTIONS){
+            const std::string d = direction;
+            if (name == "ARROW_" + d || name == "ARROW " + d || name == d + "_ARROW"){
+                return d;
+            }
+        }
+        return name;
+    }
+    if (layout.has_button("LB")){
+        //  An Xbox 360, One or Series controller: the other names of its
+        //  buttons. MENU and VIEW are START and BACK on the newer ones.
+        struct Alias{
+            const char* given;
+            const char* button;
+        };
+        static const Alias ALIASES[] = {
+            {"+", "START"}, {"PLUS", "START"}, {"-", "BACK"}, {"MINUS", "BACK"}, {"SELECT", "BACK"},
+            {"LS", "LSTICK"}, {"L3", "LSTICK"}, {"LCLICK", "LSTICK"}, {"RS", "RSTICK"}, {"R3", "RSTICK"}, {"RCLICK", "RSTICK"},
+            {"L", "LB"}, {"R", "RB"}, {"L1", "LB"}, {"R1", "RB"}, {"ZL", "LT"}, {"ZR", "RT"}, {"L2", "LT"}, {"R2", "RT"},
+            {"LEFT_BUMPER", "LB"}, {"RIGHT_BUMPER", "RB"}, {"LEFT_TRIGGER", "LT"}, {"RIGHT_TRIGGER", "RT"},
+            {"GUIDE", "HOME"}, {"XBOX", "HOME"},
+        };
+        for (const Alias& alias : ALIASES){
+            if (name == alias.given){
+                name = alias.button;
+                break;
+            }
+        }
+        if (layout.has_button("MENU")){
+            if (name == "START"){
+                return "MENU";
+            }
+            if (name == "BACK"){
+                return "VIEW";
             }
         }
         return name;
@@ -587,10 +735,33 @@ const double STILL_PICTURE = 0.005;
 const double CHANGED_PICTURE = 0.03;
 
 
-ScreenThumb see(PlayConsole& console){
+//  The game's part of a frame.
+ImageViewRGB32 boxed(const ImageViewRGB32& frame, const PictureBox& box){
+    if (box.whole()){
+        return frame;
+    }
+    const size_t x = (size_t)((double)frame.width() * box.x);
+    const size_t y = (size_t)((double)frame.height() * box.y);
+    const size_t width = std::max<size_t>(1, std::min(frame.width() - x, (size_t)((double)frame.width() * box.width + 0.5)));
+    const size_t height = std::max<size_t>(1, std::min(frame.height() - y, (size_t)((double)frame.height() * box.height + 0.5)));
+    return frame.sub_image(x, y, width, height);
+}
+
+PictureBox find_box(const ImageViewRGB32& frame, const AnyGameOptions& options, const PictureBox& current){
+    if (options.picture_aspects.empty() || !frame){
+        return PictureBox();
+    }
+    return content_box(
+        frame.width(), frame.height(),
+        [&](size_t x, size_t y){ return frame.pixel(x, y); },
+        options.picture_aspects, current
+    );
+}
+
+ScreenThumb see(PlayConsole& console, const PictureBox& box = PictureBox()){
     ScreenThumb thumb;
     console.screen([&](const ImageViewRGB32& frame){
-        thumb = screen_thumb(frame);
+        thumb = screen_thumb(boxed(frame, box));
     });
     return thumb;
 }
@@ -605,6 +776,14 @@ std::string area_picture(const ImageViewRGB32& frame, const Area& area, const An
     //  The whole screen at the size asked for; a part of it at twice the
     //  detail. Never larger than the video itself.
     const bool whole = area.width >= 1.0 && area.height >= 1.0;
+    if (whole){
+        //  As many pixels as a picture of the size asked for (what it costs),
+        //  in the shape of the game's part of the capture.
+        int fit_width = 0;
+        int fit_height = 0;
+        fit_picture((double)width, (double)height, options.picture_width, options.picture_height, fit_width, fit_height);
+        return Assistant::play_picture(part, fit_width, fit_height, 1, Assistant::PlayPictureFormat::JPEG);
+    }
     double out_width = (double)options.picture_width * area.width * (whole ? 1.0 : 2.0);
     out_width = std::min(out_width, (double)width);
     out_width = std::max(out_width, 16.0);
@@ -739,7 +918,8 @@ Outcome press_buttons(PlayConsole& console, const AnyGameOptions& options, const
     }
     const bool hold_given = input.value("hold_ms").isDouble();
     const milliseconds hold_asked(integer_between(input, "hold_ms", 150, 60, 5000));
-    const milliseconds gap(integer_between(input, "gap_ms", 300, 100, 5000));
+    const InputTiming& timing = options.timing;
+    const milliseconds gap(integer_between(input, "gap_ms", timing.gap_ms, 100, 5000));
     for (const std::string& button : buttons){
         PadInput pad;
         if (is_direction(button) && layout.directions_are_stick){
@@ -748,8 +928,10 @@ Outcome press_buttons(PlayConsole& console, const AnyGameOptions& options, const
             pad.buttons.push_back(button);
         }
         //  A direction is pressed shorter than a button: in many games a
-        //  longer press moves the cursor twice.
-        const milliseconds hold = hold_given ? hold_asked : milliseconds(is_direction(button) ? 110 : 150);
+        //  longer press moves the cursor twice. How long each: by the console.
+        const milliseconds hold = hold_given
+            ? hold_asked
+            : milliseconds(is_direction(button) ? timing.direction_ms : timing.press_ms);
         console.hold(pad, hold);
         console.wait(gap);
     }
@@ -841,7 +1023,7 @@ Outcome hold_inputs(PlayConsole& console, const AnyGameOptions& options, const Q
     }
     const milliseconds duration(integer_between(input, "ms", 500, 50, 10000));
     console.hold(pad, duration);
-    console.wait(milliseconds(250));
+    console.wait(milliseconds(options.timing.settle_ms));
     Outcome outcome;
     outcome.text = "Held " + held + " for " + std::to_string(duration.count()) + " ms.";
     return outcome;
@@ -861,7 +1043,7 @@ Outcome mash_button(PlayConsole& console, const AnyGameOptions& options, const Q
     }
     const int64_t seconds = integer_between(input, "seconds", 3, 1, 60);
     console.mash(buttons[0], milliseconds(seconds * 1000));
-    console.wait(milliseconds(300));
+    console.wait(milliseconds(options.timing.settle_ms + 50));
     Outcome outcome;
     outcome.text = "Mashed " + buttons[0] + " for " + std::to_string(seconds) + " s.";
     return outcome;
@@ -1045,7 +1227,8 @@ std::string any_game_instructions(
             "no sense, look.\n";
     }
     text +=
-        "- The buttons the game shows on its screen are the ones to go by. " + layout.yes_no + "\n"
+        "- The buttons the game shows on its screen are the ones to go by. " +
+        (trimmed(facts.yes_no).empty() ? layout.yes_no : trimmed(facts.yes_no)) + "\n"
         "\n"
         "How to play\n"
         "- You act only through the tools. Each result ends with \"Screen:\": how much of the picture "
@@ -1061,6 +1244,11 @@ std::string any_game_instructions(
         "or a number, read_text (or \"read\" with a tool) costs a fraction of a picture and reads small "
         "print better. A part of the screen (\"bottom\", \"top-left\") comes at twice the detail. The "
         "program's reading can be wrong: when it makes no sense, look.\n"
+        + std::string(options.picture_aspects.empty()
+            ? ""
+            : "- Where the game does not fill the capture (a 4:3 game, a phone held upright), the black "
+              "around it is left out: the pictures, the text and the parts of the screen are those of the "
+              "game's own picture.\n") +
         "- Ask for less: several buttons in one press when you are sure of them, mash for a long text, "
         "wait with \"until\" for a loading screen, \"look\" or \"read\" with the action instead of a call "
         "of its own.\n"
@@ -1114,13 +1302,22 @@ std::string AnyGame::instructions() const{
     return any_game_instructions(m_console.layout(), m_options, m_facts, m_console.can_save());
 }
 
+ScreenThumb AnyGame::look_at_screen(){
+    ScreenThumb thumb;
+    m_console.screen([&](const ImageViewRGB32& frame){
+        m_box = find_box(frame, m_options, m_box);
+        thumb = screen_thumb(boxed(frame, m_box));
+    });
+    return thumb;
+}
+
 std::string AnyGame::screen(){
-    const ScreenThumb first = see(m_console);
+    const ScreenThumb first = look_at_screen();
     if (!first.valid()){
         return "no video comes in from the capture card.";
     }
     m_console.wait(MOTION_WINDOW);
-    const ScreenThumb second = see(m_console);
+    const ScreenThumb second = see(m_console, m_box);
     if (thumb_is_black(second)){
         return "black (a fade, or a scene loading).";
     }
@@ -1157,7 +1354,7 @@ PlayResult AnyGame::run(const PlayCall& call){
         return result;
     }
 
-    const ScreenThumb before = see(m_console);
+    const ScreenThumb before = see(m_console, m_box);
 
     Outcome outcome;
     if (looks || reads){
@@ -1182,19 +1379,28 @@ PlayResult AnyGame::run(const PlayCall& call){
 
     //  What the screen shows afterwards: two looks a moment apart, and with
     //  the second one the picture and the text that were asked for.
-    const ScreenThumb after = see(m_console);
+    //  The picture of the console comes a little late on some (a stream):
+    //  what an action did is looked for once it can be there.
+    if (outcome.acted && m_options.timing.video_delay_ms > 0){
+        m_console.wait(milliseconds(m_options.timing.video_delay_ms));
+    }
+    const ScreenThumb after = see(m_console, m_box);
     m_console.wait(MOTION_WINDOW);
     ScreenThumb later;
     std::string words;
     std::string seen;
     const bool video = m_console.screen([&](const ImageViewRGB32& frame){
-        later = screen_thumb(frame);
+        //  The thumb in the box of before (the change is measured in it), the
+        //  picture and the text in the box as it is now.
+        later = screen_thumb(boxed(frame, m_box));
+        m_box = find_box(frame, m_options, m_box);
+        const ImageViewRGB32 game = boxed(frame, m_box);
         seen = m_console.sees(frame);
         if (look_area != nullptr){
-            result.image = area_picture(frame, *look_area, m_options);
+            result.image = area_picture(game, *look_area, m_options);
         }
         if (read_area != nullptr){
-            words = area_text(m_console, frame, *read_area);
+            words = area_text(m_console, game, *read_area);
         }
     });
     result.text += (result.text.empty() ? "" : " ") + screen_line(before, after, later, outcome.acted);

@@ -88,6 +88,12 @@ GlobalSettings::GlobalSettings()
             {SetupConsole::PS3,     "ps3",     "PlayStation 3"},
             {SetupConsole::XBOX,    "xbox",    "Original Xbox"},
             {SetupConsole::RETRO,   "retro",   "Retro consoles (BlueRetro)"},
+            {SetupConsole::XBOX360, "xbox360", "Xbox 360"},
+            {SetupConsole::PS_REMOTE,   "psremote",   "PS4 and PS5 (Remote Play)"},
+            {SetupConsole::XBOX_REMOTE, "xboxremote", "Xbox One and Series (Remote Play)"},
+            {SetupConsole::IPHONE,  "iphone",  "iPhone"},
+            {SetupConsole::PS_CLASSIC,  "psclassic",  "PlayStation Classic"},
+            {SetupConsole::WIIU,        "wiiu",       "Nintendo Wii U (GamePad through a Raspberry Pi)"},
         },
         LockMode::UNLOCK_WHILE_RUNNING,
         SetupConsole::NONE
@@ -104,6 +110,15 @@ GlobalSettings::GlobalSettings()
         "<b>Phone, port of the agent:</b><br>The port that the agent on the Raspberry Pi listens on.",
         LockMode::UNLOCK_WHILE_RUNNING,
         8765, 1, 65535
+    )
+    , WIIU_HOST(
+        false,
+        "<b>Wii U, address of the Raspberry Pi:</b><br>"
+        "The name or the address of the Raspberry Pi that is the Wii U's GamePad (it runs vanilla-pipe and "
+        "claudegg-wiiu-bridge, see WiiU/vanilla-bridge), for example 192.168.1.50. Empty: the address of the "
+        "phone's Raspberry Pi above.",
+        LockMode::UNLOCK_WHILE_RUNNING,
+        "", "192.168.1.50"
     )
     , OPEN_SETUP_BUTTON(
         "<b>Setup:</b><br>"
@@ -290,6 +305,7 @@ GlobalSettings::GlobalSettings()
     PA_ADD_OPTION(GAME_CONSOLE);
     PA_ADD_OPTION(MOBILE_HOST);
     PA_ADD_OPTION(MOBILE_PORT);
+    PA_ADD_OPTION(WIIU_HOST);
     PA_ADD_OPTION(OPEN_SETUP_BUTTON);
     PA_ADD_OPTION(ASK_LANGUAGE);
     PA_ADD_OPTION(ASK_SETUP);

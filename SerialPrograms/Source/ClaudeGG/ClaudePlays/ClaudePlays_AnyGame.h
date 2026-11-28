@@ -38,6 +38,7 @@
 #include <vector>
 #include "ClaudePlays_Engine.h"
 #include "ClaudePlays_Games.h"
+#include "ClaudePlays_Consoles.h"
 
 namespace PokemonAutomation{
 
@@ -88,6 +89,22 @@ const PadLayout& ps2_controller_layout();
 const PadLayout& gamecube_controller_layout();
 const PadLayout& n64_controller_layout();
 const PadLayout& dreamcast_controller_layout();
+//  An Xbox 360 controller: A, B, X, Y, LB, RB, LT, RT, START, BACK, the
+//  sticks and the d-pad; HOME is its Guide button.
+const PadLayout& xbox360_controller_layout();
+//  A PlayStation 4 or 5 controller: as the PlayStation 3's, with OPTIONS and
+//  SHARE for START and SELECT; HOME is the PS button. No touchpad.
+const PadLayout& ps4_controller_layout();
+//  An Xbox One or Series controller: as the Xbox 360's, with MENU and VIEW
+//  for START and BACK. No HOME (Remote Play does not pass it on).
+const PadLayout& xboxone_controller_layout();
+//  A keyboard for an iPhone with Full Keyboard Access: TAB, SHIFT_TAB,
+//  SPACE, ENTER, ESCAPE, BACKSPACE and the arrow keys; no sticks. HOME is
+//  Command-H, which goes to the home screen.
+const PadLayout& iphone_keyboard_layout();
+//  The PlayStation Classic's pad: CROSS, CIRCLE, SQUARE, TRIANGLE, L1, R1,
+//  L2, R2, START, SELECT and the d-pad. No sticks, no HOME.
+const PadLayout& psclassic_controller_layout();
 //  The layout of a kind of pad.
 const PadLayout& pad_layout(PadKind pad);
 
@@ -155,6 +172,10 @@ struct GameFacts{
     //  Claude is told, and the program reads text in it (PlayConsole::read_text()).
     //  Empty: English.
     std::string text_language;
+    //  Which button is yes and which no, when it is not what the controller
+    //  usually has (PadLayout::yes_no): a Japanese PlayStation game
+    //  (japanese_yes_no()). Empty: the controller's.
+    std::string yes_no;
 };
 
 struct AnyGameOptions{
@@ -173,6 +194,13 @@ struct AnyGameOptions{
     //  The console's readers say what they recognize on the screen
     //  (PlayConsole::sees()): Claude is told how much that is worth.
     bool readers = false;
+    //  How presses are played on the console, and how late its picture
+    //  comes (ClaudePlays_Consoles.h).
+    InputTiming timing;
+    //  The shapes the game's picture can have inside the capture besides
+    //  filling it: the black around it is left out of what Claude sees.
+    //  Empty: the whole capture, always.
+    std::vector<double> picture_aspects;
 };
 
 //  The tools and the instructions for a controller and these options.
@@ -188,6 +216,9 @@ std::string any_game_instructions(
 int picture_tokens(int width, int height);
 
 
+//  (Below.)
+struct ScreenThumb;
+
 class AnyGame : public Game{
 public:
     AnyGame(PlayConsole& console, GameFacts facts, AnyGameOptions options);
@@ -201,6 +232,12 @@ private:
     PlayConsole& m_console;
     GameFacts m_facts;
     AnyGameOptions m_options;
+    //  Where the game is in the capture (content_box()).
+    PictureBox m_box;
+
+    //  The small picture of the screen, of the game's part of it; and with
+    //  it the box looked for again.
+    ScreenThumb look_at_screen();
 };
 
 

@@ -39,6 +39,7 @@
 #include "ClaudeGG/ClaudePlays/ClaudePlays_Program.h"
 #include "ClaudeGG/ClaudeGG_PokemonGo.h"
 #include "ClaudeGG/ClaudeGG_ProgramList.h"
+#include "ClaudeGG/ClaudeGG_WiiU.h"
 #include "PanelLists.h"
 
 //#include <iostream>
@@ -91,6 +92,14 @@ std::vector<std::unique_ptr<PanelListDescriptor>> make_all_lists(){
         ClaudeGG::ClaudePlays::GameId::GAMECUBE,
         ClaudeGG::ClaudePlays::GameId::NINTENDO_64,
         ClaudeGG::ClaudePlays::GameId::DREAMCAST,
+        //  ClaudeGG: the Xbox 360 (OGX-Mini), Remote Play of the PlayStation 4
+        //  and 5 and of the Xbox One and Series, and the iPhone (a keyboard):
+        //  a console of the setup each. The PlayStation Classic (OGX-Mini) too.
+        ClaudeGG::ClaudePlays::GameId::XBOX_360,
+        ClaudeGG::ClaudePlays::GameId::PS_REMOTE_PLAY,
+        ClaudeGG::ClaudePlays::GameId::XBOX_REMOTE_PLAY,
+        ClaudeGG::ClaudePlays::GameId::IPHONE,
+        ClaudeGG::ClaudePlays::GameId::PS_CLASSIC,
     }){
         lists.emplace_back(std::make_unique<ClaudeGG::ClaudePlays::GameOnlyList>(id));
     }
@@ -99,6 +108,10 @@ std::vector<std::unique_ptr<PanelListDescriptor>> make_all_lists(){
     //  Raspberry Pi that the phone is plugged into. The page with the games shows
     //  it for that console only (see ClaudeGG_Home.h, consoles_of_game()).
     lists.emplace_back(std::make_unique<ClaudeGG::PokemonGo::PokemonGoList>());
+
+    //  ClaudeGG: the Wii U, whose GamePad is a Raspberry Pi (WiiU/vanilla-bridge):
+    //  pairing and Claude Plays. Shown for that console only (consoles_of_game()).
+    lists.emplace_back(std::make_unique<ClaudeGG::WiiU::WiiUList>());
 
     if (STATIC_GLOBALS.DEVELOPER_MODE){
         lists.emplace_back(std::make_unique<ML::PanelListFactory>());

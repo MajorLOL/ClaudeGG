@@ -34,6 +34,10 @@ It installs `adb`, Python 3 and `ffmpeg` (for the live picture), copies the agen
 and prints the address and the token to enter in Claude GG (under the setup of a Raspberry Pi). The token is
 made the first time and kept in `~/.claudegg-agent/token`; `claudegg_agent.py --print-token` shows it again.
 
+**Updating** an agent that is installed: in the folder of the clone on the Pi, `git pull`, then `bash Mobile/agent/install-agent.sh`
+again. The token stays the same, and the service is restarted with the new file. `python3 ~/claudegg-agent/claudegg_agent.py --version`
+says which version is installed; Claude GG's own GO Battle League needs 0.2.0 or later and says so when the agent is older.
+
 The phone: Settings → About phone → tap *Build number* seven times → Developer options → *USB debugging* on;
 connect it to the Pi and accept the question *Allow USB debugging?* on the phone (*Always allow*). `adb
 devices` on the Pi must show it as `device`. The lock screen must be *swipe* or *none* for a program that
@@ -47,8 +51,8 @@ HTTP with JSON on the local network. Everything but `/v1/ping` and the status pa
 | Request | What it does |
 |---|---|
 | `GET /` or `GET /status` | the status page, for a browser on the network (no token: the page holds nothing secret, it asks for the token and keeps it in the tab until the tab is closed; a bookmark with `#token=...` opens it at once and takes the token out of the address). It shows whether the bot runs, the last screenshot (every ten seconds, not while the tab is hidden), today's counters (caught, fled, stops, won, lost), the GO Battle League matches of today, the switches that are on, and the end of the log. It only looks: it starts and stops nothing. One file with no address of anywhere else in it; the browser is told (`Content-Security-Policy`) to run nothing but that script and to speak to nobody but the agent, and what the agent says is put on the screen as text, never as markup |
-| `GET /v1/ping` | `{"ok": true}`: is it there (no token) |
-| `GET /v1/info` | `{model, android, width, height, display}`: the phone (`Override size` of `wm size` when set) |
+| `GET /v1/ping` | `{"ok": true, version, features}`: is it there (no token) |
+| `GET /v1/info` | `{model, android, width, height, display, version, features}`: the phone (`Override size` of `wm size` when set). `features` is what the agent can do beyond version 0.1.0: `tap_kind` (the `kind` of `/v1/tap`), `app` (`/v1/app`), `bot_file` (`/v1/bot/file`) |
 | `GET /v1/screen` | the screen as a PNG (`X-Screen-Width`, `X-Screen-Height`) |
 | `GET /v1/video?fps=10&width=540` | the screen live, about ten pictures a second (a screenshot takes one to three seconds): JPEG pictures in a `multipart/x-mixed-replace` stream (boundary `frame`, each part with its `Content-Length`). `screenrecord` (H.264) goes through `ffmpeg` on the Pi; one pipeline serves all who look, starts with the first and stops five seconds after the last, and is started again every 170 seconds (`screenrecord` ends after 180) without the viewer noticing. A screen that does not change gives the last picture again once a second. `fps` 1 to 30, `width` 100 to 2000 (a pipeline that is running keeps the values it started with) |
 | `POST /v1/tap` `{x, y, ms, kind}` | a press of `ms` milliseconds (120): a very short tap is missed by Unity games. `kind`: `"press"` (the default), `"tap"` (a plain `input tap`, finger down and up at once: some screens of a game take this and not a press) or `"motion"` (finger down, `ms`, finger up as separate touch events, Android 11 and newer) |
@@ -64,6 +68,7 @@ HTTP with JSON on the local network. Everything but `/v1/ping` and the status pa
 | `GET /v1/bot/tests` | the parts of the bot that run on their own, `{tests: [{key, group, title, start, what}]}`, as the bot's own `chapters.py` in the home folder lists them (empty without it) |
 | `POST /v1/bot/test` `{key, ...}` | runs one part of the bot (`gamebot.py chapter <key>` with the python of `~/gbvenv`: what *Test* in the bot's web interface does): stops the service, sets what is asked (the same fields as `/v1/bot/start`), starts the part. What it says of itself (`TEST <key>: done - ...`) is its result in `test` of `GET /v1/bot`. 400: no such part, 409: not installed, no `chapters.py`, or a test runs already |
 | `POST /v1/bot/test/stop` | ends that test (it says `stopped` and goes back to the map; that can take half a minute) |
+| `GET /v1/bot/file?name=battle_team.json` | one of the files the bot keeps of its battles, as it is: `battle_team.json` (the team that the bot's teams step made), `battle_seen.json`, `battle_minigame.json`. Read only, nothing else of the home folder; 404 when the file is not there. Claude GG takes the team from here when it plays GO Battle League itself |
 
 Errors are `{"error": "..."}` with 400 (an argument is wrong), 401 (the token), 413, 502 (`adb` says no: the phone is
 off, not authorised, or not there) or 504 (`adb` does not answer).
