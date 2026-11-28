@@ -647,8 +647,6 @@
  "Notes": "Notas",
  "Status updates, every 30 minutes": "Actualizaciones de estado, cada 30 minutos",
  "Program finished": "Programa terminado",
- "Claude's panel": "El panel de Claude",
- "The settings": "Los ajustes",
  "Audio Pipeline": "Canal de audio",
  "<b>Audio File Input Volume Scale:</b><br>Multiply audio file playback by this factor. (This is linear scale. So each factor of 10 is 20dB.)": "<b>Escala de volumen del archivo de audio:</b><br>Multiplica la reproducción de archivos de audio por este factor. (Es una escala lineal: cada factor de 10 son 20 dB.)",
  "<b>Audio Device Input Volume Scale:</b><br>Multiply audio device input by this factor. (This is linear scale. So each factor of 10 is 20dB.)": "<b>Escala de volumen del dispositivo de audio:</b><br>Multiplica la entrada del dispositivo de audio por este factor. (Es una escala lineal: cada factor de 10 son 20 dB.)",

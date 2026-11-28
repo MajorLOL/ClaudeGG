@@ -646,8 +646,6 @@
  "Notes": "Notities",
  "Status updates, every 30 minutes": "Statusberichten, elke 30 minuten",
  "Program finished": "Programma klaar",
- "Claude's panel": "Het paneel van Claude",
- "The settings": "De instellingen",
  "Audio Pipeline": "Audiopijplijn",
  "<b>Audio File Input Volume Scale:</b><br>Multiply audio file playback by this factor. (This is linear scale. So each factor of 10 is 20dB.)": "<b>Volumeschaal van audiobestand:</b><br>Vermenigvuldig het afspelen van audiobestanden met deze factor. (Dit is een lineaire schaal. Elke factor 10 is dus 20 dB.)",
  "<b>Audio Device Input Volume Scale:</b><br>Multiply audio device input by this factor. (This is linear scale. So each factor of 10 is 20dB.)": "<b>Volumeschaal van audioapparaat:</b><br>Vermenigvuldig de invoer van het audioapparaat met deze factor. (Dit is een lineaire schaal. Elke factor 10 is dus 20 dB.)",

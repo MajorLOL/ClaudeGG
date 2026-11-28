@@ -647,8 +647,6 @@
  "Notes": "Notizen",
  "Status updates, every 30 minutes": "Statusmeldungen, alle 30 Minuten",
  "Program finished": "Programm beendet",
- "Claude's panel": "Claudes Panel",
- "The settings": "Die Einstellungen",
  "Audio Pipeline": "Audio-Pipeline",
  "<b>Audio File Input Volume Scale:</b><br>Multiply audio file playback by this factor. (This is linear scale. So each factor of 10 is 20dB.)": "<b>Lautstärkefaktor der Audiodatei:</b><br>Multipliziert die Wiedergabe von Audiodateien mit diesem Faktor. (Das ist eine lineare Skala. Jeder Faktor 10 sind also 20 dB.)",
  "<b>Audio Device Input Volume Scale:</b><br>Multiply audio device input by this factor. (This is linear scale. So each factor of 10 is 20dB.)": "<b>Lautstärkefaktor des Audiogeräts:</b><br>Multipliziert die Eingabe des Audiogeräts mit diesem Faktor. (Das ist eine lineare Skala. Jeder Faktor 10 sind also 20 dB.)",
