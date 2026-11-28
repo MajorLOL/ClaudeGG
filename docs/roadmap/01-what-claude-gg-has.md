@@ -1,0 +1,20 @@
+Part of the [Claude GG roadmap](../../ROADMAP.md).
+
+## 1. What Claude GG has
+
+- Its own name (`ClaudeGG.exe`), icon, logo and "About" window, which has a button that looks for a newer build, only when it is pressed. The links to Pokémon Automation's Discord and its check for a new version are gone. What keeps its old name: see "The name" in section 8.
+- A new interface: see [README.md](../../README.md).
+- Several installations side by side, each a process of its own with its own folder, settings, capture card and microcontroller, and an overview with a miniature of each. Each can be given a name of your own and be closed from the overview. On Windows the program is one window: the overview of the installations is the main window, and each installation is a process underneath it whose window opens inside the main window (no window of its own on the taskbar); closing the main window closes them, and `--standalone` starts a program with windows of its own as before. Not yet: this on macOS and Linux (a window of another process can only be a child of a window on Windows), and the keyboard focus of an installation inside the main window is only tried, not proven. See [ClaudeGG_Instances.h](../../SerialPrograms/Source/ClaudeGG/ClaudeGG_Instances.h).
+- A phone as a controller target, first step: the Raspberry Pi bot for Pokémon GO ([pokemon-go-automation](https://github.com/MajorLOL/pokemon-go-automation)) is part of this repository with its history, in [Mobile](../../Mobile). Its [agent](../../Mobile/agent) is a small program for the Pi that gives the picture of the phone and takes taps, swipes and keys (over ADB), and Claude GG has the other end of that connection ([ClaudeGG_Mobile.h](../../SerialPrograms/Source/ClaudeGG/ClaudeGG_Mobile.h)), tested in every build against the agent with a phone that is not there. The setup offers the phone as a console (a third tile) with a page for its Raspberry Pi: address, port, token and a test of the connection. The game "Pokémon GO" has seven programs that start, follow and stop the bot on the Pi (the agent's `/v1/bot`), and each console shows only its own games. Not yet: Claude GG doing the thinking itself in C++ (see "A phone as a console" below).
+- Colored text of the programs (written for a white background) that reads on Night and on Day.
+- A search in the Output window, with a filter for warnings and errors, and in the settings pages (Ctrl+F).
+- Pictures of the screen made without `QVideoFrame::toImage()`, which made the memory grow on some computers: [VideoFrameConversion.h](../../SerialPrograms/Source/CommonFramework/VideoPipeline/Backends/VideoFrameConversion.h). Not measured on a console: whether a long hunt with the stream history on now stays flat.
+- The FRLG hunts for a shiny save a clip of the last seconds when they find one and can send it. Not tried on a console.
+- The AutoStory says at the end of a run where its time went: the segments, the goes that did not come through and the longest chapters.
+- Pokémon Automation's `main` merged in, with gamepad support (`PA_SDL`, on in the builds).
+- 21 bug fixes from a review of the whole code, of Pokémon Automation's open issues and of what goes wrong in other controller programs: [FIXES.md](../../SerialPrograms/Source/ClaudeGG/FIXES.md).
+- A faster build (Ninja and ccache): about 4 minutes when little changed, 35 minutes from nothing.
+- A security review: [SECURITY.md](../../SECURITY.md). Fixed after it: secrets sealed in the settings file, paths and tokens cleaned from what goes to Claude, firmware checked against hashes, a build that only reads, and the Discord bot out of the Windows build.
+- A test of the interface in every build, on a machine that never ran it. A build that fails is not published.
+
+Not tested yet: the AutoStory on this new base (the test run with Charmander is on the branch `frlg-autostory` of the old repository, MajorLOL/arduino-source).
