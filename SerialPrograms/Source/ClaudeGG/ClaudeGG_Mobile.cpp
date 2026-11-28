@@ -46,6 +46,7 @@
 #include "ClaudeGG_PokemonGoMap.h"
 #include "ClaudeGG_PokemonGoStart.h"
 #include "ClaudeGG_PokemonGoThrow.h"
+#include "ClaudeGG_PokemonGoCatch.h"
 #include "ClaudeGG_PokemonGoThrowPlay.h"
 #include "ClaudeGG_PokemonGoVision.h"
 
@@ -861,6 +862,20 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             }
         }
         check(differ == 0, play_report.isEmpty() ? QString("the throw of a ball is done as gamebot.py does it") : play_report.last());
+    }
+    //  The catch screen around the throw, ported to C++ (issue #31): the ball that is chosen, the berry that is fed (the berry tray read
+    //  by the tesseract program), the throws, waiting for the result, the OK of the result screen, the fast catch (BACK while the ball comes
+    //  down) and finishing a catch when the time is up - little stories played on a pretend phone with a pretend clock, event by event as the
+    //  Python code did them.
+    {
+        QStringList catch_report;
+        const int differ = PokemonGo::Catch::run_catch_checks(agent_folder + "/../tests/fixtures/catch_golden.json.qz", catch_report);
+        for (const QString& line : catch_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, catch_report.isEmpty() ? QString("the catch screen is handled as gamebot.py handles it") : catch_report.last());
     }
     //  The text reader, ported to C++ (issue #30): the table that Tesseract writes made into lines of words with their places, as
     //  gamebot.ocr_lines() makes them (354 tables, 36 of them read from frames of real fights), and - where the tesseract program is
