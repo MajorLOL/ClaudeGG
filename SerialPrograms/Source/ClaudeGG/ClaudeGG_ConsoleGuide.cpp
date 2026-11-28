@@ -779,6 +779,8 @@ const char* const PLAY_TEXTS[] = {
     "Claude Plays, under Other Games",
     "Claude Plays and Macro",
     "Claude Plays and Macro, for any game",
+    "Any game",
+    "Claude Plays, over Wi-Fi",
     "%1 frames a second: presses of %2 ms",
     "yes and no of its own",
     "For a known game, pick it under Which game in Claude Plays: the presses and the yes and no buttons follow it.",
@@ -1050,17 +1052,8 @@ QString games_html(const std::string& code, const ThemeColors& theme){
     std::vector<Row> rows;
     const InputTiming& base = console_traits(code).timing;
     bool any_known = false;
-    for (GameId id : all_games()){
-        const GameProfile& profile = game_profile(id);
-        if (profile.console != code || id == GameId::OTHER_GAMES){
-            continue;
-        }
-        Row row;
-        row.game = tr_ui(QString::fromStdString(profile.title));
-        row.runs = !has_only_claude_plays(id)
-            ? "Programs of its own and Claude Plays"
-            : is_other_games_choice(id) ? "Claude Plays, under Other Games" : "Claude Plays and Macro";
-        for (const KnownGame* game : known_games(id)){
+    auto add_known = [&](Row& row, const std::vector<const KnownGame*>& games){
+        for (const KnownGame* game : games){
             QString text = QString::fromStdString(game->name).toHtmlEscaped();
             QStringList notes;
             if (game->frame_rate > 0){
@@ -1076,6 +1069,26 @@ QString games_html(const std::string& code, const ThemeColors& theme){
             row.known.append(text);
             any_known = true;
         }
+    };
+    for (GameId id : all_games()){
+        const GameProfile& profile = game_profile(id);
+        if (profile.console != code || id == GameId::OTHER_GAMES){
+            continue;
+        }
+        Row row;
+        row.game = tr_ui(QString::fromStdString(profile.title));
+        row.runs = !has_only_claude_plays(id)
+            ? "Programs of its own and Claude Plays"
+            : is_other_games_choice(id) ? "Claude Plays, under Other Games" : "Claude Plays and Macro";
+        add_known(row, known_games(id));
+        rows.push_back(std::move(row));
+    }
+    //  A console over Wi-Fi with a program of its own: any game, and the
+    //  games it knows.
+    const std::vector<const KnownGame*> on_console = known_games_on(code);
+    if (!on_console.empty()){
+        Row row{tr_ui("Any game"), "Claude Plays, over Wi-Fi", {}};
+        add_known(row, on_console);
         rows.push_back(std::move(row));
     }
     if (code == "switch"){
@@ -1392,6 +1405,9 @@ int console_guide_self_test(){
     check(console_guide_html("switch2").contains(t("Games on this console")), "the Switch 2 has the games of the Switch");
     check(console_guide_html("steam").contains("Celeste") && console_guide_html("ps3").contains("Persona 5"),
         "the pages of the other consoles have their known games");
+    check(console_guide_html("wiiu").contains("Mario Kart 8") && console_guide_html("vita").contains("Persona 4 Golden") &&
+        console_guide_html("3ds").contains("Mario Kart 7"),
+        "the pages of the consoles over Wi-Fi have their known games");
     check(!console_guide_html("mobile").contains(t("Timing on this console")), "the phone has no timing of Claude Plays");
     check(all_texts().size() > 100, "the texts of the guide");
     logger.log(

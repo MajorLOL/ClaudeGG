@@ -17,9 +17,12 @@
 #include <stdint.h>
 #include <functional>
 #include <string>
+#include <vector>
+#include "Common/Cpp/Options/EnumDropdownDatabase.h"
 #include "ClaudePlays_AnyGame.h"
 #include "ClaudePlays_Calibrate.h"
 #include "ClaudePlays_Consoles.h"
+#include "ClaudePlays_KnownGames.h"
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -30,6 +33,14 @@ namespace ClaudePlays{
 extern const char* const MEASURE_TIMING_LABEL;
 extern const char* const PRESS_MS_LABEL;
 extern const char* const VIDEO_DELAY_MS_LABEL;
+//  The option "Which game" (its choices: known_games_database()).
+extern const char* const KNOWN_GAME_LABEL;
+
+//  The choices of "Which game": another one (0), then "games" from 1 on.
+IntegerEnumDropdownDatabase known_games_database(const std::vector<const KnownGame*>& games);
+//  The game of choice "index" of known_games_database(games); nullptr for
+//  another one.
+const KnownGame* chosen_known_game(const std::vector<const KnownGame*>& games, size_t index);
 
 
 //  The measuring on a console of a session: DOWN and UP (or the stick, on a

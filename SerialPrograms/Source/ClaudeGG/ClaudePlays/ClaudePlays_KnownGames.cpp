@@ -23,7 +23,10 @@ namespace{
 std::vector<KnownGame> make_known_games(){
     std::vector<KnownGame> games;
     auto add = [&](GameId list, const char* slug, const char* name, const char* notes, const char* yes_no, int frame_rate){
-        games.push_back(KnownGame{list, slug, name, notes, yes_no, frame_rate});
+        games.push_back(KnownGame{list, slug, name, notes, yes_no, frame_rate, ""});
+    };
+    auto add_on = [&](const char* console, const char* slug, const char* name, const char* notes, const char* yes_no){
+        games.push_back(KnownGame{GameId::OTHER_GAMES, slug, name, notes, yes_no, 0, console});
     };
 
     //  The first PlayStation.
@@ -267,6 +270,72 @@ std::vector<KnownGame> make_known_games(){
         "Dying only starts the screen again: try the same jump more than once.",
         "", 0
     );
+
+    //  The consoles over Wi-Fi, with programs of their own.
+    add_on(
+        "wiiu", "wiiu-mario-kart-8", "Mario Kart 8",
+        "This is a racing game: the left stick steers, A accelerates, B brakes, R hops and, held while "
+        "steering, drifts, L or ZL uses the item. PLUS pauses. The race goes on while Claude thinks: prefer "
+        "holding a button for a while over many short presses.",
+        ""
+    );
+    add_on(
+        "wiiu", "wiiu-3d-world", "Super Mario 3D World",
+        "This is a 3D platform game. The left stick runs, A or B jumps, X or Y held dashes and picks up, ZL or "
+        "ZR crouches (in the air: a ground pound), R turns the camera a little. PLUS pauses. Each level ends "
+        "at the flagpole.",
+        ""
+    );
+    add_on(
+        "wiiu", "wiiu-nsmbu", "New Super Mario Bros. U",
+        "This is a 2D platform game: the left stick or the d-pad runs, A or B jumps, X or Y held runs fast and "
+        "picks up a shell (let go: a throw). PLUS pauses. Each level ends at the flagpole; the map between them "
+        "is walked with the d-pad, A enters a level.",
+        ""
+    );
+    add_on(
+        "vita", "vita-persona4g", "Persona 4 Golden",
+        "This is a turn-based role-playing game that is half school life. The left stick walks, CROSS talks, "
+        "examines and picks, CIRCLE cancels, TRIANGLE opens the menu. In battle the commands are a menu: the "
+        "d-pad moves in it, CROSS picks a command and its target.",
+        "Outside Japan CROSS is yes and CIRCLE no in this game; in the Japanese version the other way round."
+    );
+    add_on(
+        "vita", "vita-ffx", "Final Fantasy X HD Remaster",
+        "This is a turn-based role-playing game. The left stick walks, CROSS talks, examines and picks, CIRCLE "
+        "cancels, TRIANGLE opens the menu. In battle the turn order is shown at the right: CROSS picks a "
+        "command and its target, CIRCLE goes back.",
+        ""
+    );
+    add_on(
+        "vita", "vita-stardew", "Stardew Valley",
+        "This is a farming and life game without hurry: a day goes by in about a quarter of an hour. The left "
+        "stick walks, CROSS does the action on what is in front (talk, harvest, open, pick up), SQUARE uses the "
+        "tool or item in hand, CIRCLE opens the menu with the bag, L and R pick in the toolbar. The game saves "
+        "when the farmer goes to bed.",
+        ""
+    );
+    add_on(
+        "3ds", "3ds-pokemon-sm", "Pok\xc3\xa9mon Sun and Moon",
+        "This is a turn-based role-playing game. The circle pad (the left stick here) walks, B held runs, A "
+        "talks, examines and confirms, B cancels, X opens the menu. In battle the commands are on both "
+        "screens: A picks the one with the cursor, B goes back; a touch on the lower screen works too.",
+        ""
+    );
+    add_on(
+        "3ds", "3ds-animal-crossing", "Animal Crossing: New Leaf",
+        "This is a life game in a town of animals, without hurry; it goes by the console's clock. The circle pad (the "
+        "left stick here) walks, B held runs, A talks, picks up and uses the tool in hand, B cancels, X opens "
+        "the pockets. START opens the menu to save and stop.",
+        ""
+    );
+    add_on(
+        "3ds", "3ds-mario-kart-7", "Mario Kart 7",
+        "This is a racing game: the circle pad (the left stick here) steers, A accelerates, B brakes, R hops "
+        "and, held while steering, drifts, L uses the item. START pauses. The race goes on while Claude thinks: "
+        "prefer holding a button for a while over many short presses.",
+        ""
+    );
     return games;
 }
 
@@ -281,7 +350,16 @@ const std::vector<KnownGame>& all_known_games(){
 std::vector<const KnownGame*> known_games(GameId list){
     std::vector<const KnownGame*> games;
     for (const KnownGame& game : all_known_games()){
-        if (game.list == list){
+        if (game.list == list && game.console.empty()){
+            games.push_back(&game);
+        }
+    }
+    return games;
+}
+std::vector<const KnownGame*> known_games_on(const std::string& console){
+    std::vector<const KnownGame*> games;
+    for (const KnownGame& game : all_known_games()){
+        if (!console.empty() && game.console == console){
             games.push_back(&game);
         }
     }
@@ -311,12 +389,18 @@ int known_games_tests(std::string& report){
     //  A slug once in each list (a game can be in several lists).
     std::set<std::pair<int, std::string>> slugs;
     for (const KnownGame& game : all_known_games()){
+        //  A console over Wi-Fi with a program of its own: one with traits.
+        if (!game.console.empty()){
+            if (console_traits(game.console).code != game.console || game.frame_rate != 0){
+                fail(game.slug + " is for a console without traits");
+            }
+        }
         //  Only in the lists of consoles that do not know their game.
         const GameProfile& list = game_profile(game.list);
-        if (!list.name.empty() || list.console == "switch"){
+        if (game.console.empty() && (!list.name.empty() || list.console == "switch")){
             fail(game.slug + " is in the list of a game, not of a console");
         }
-        if (game.slug.empty() || game.name.empty() || game.notes.empty() || !slugs.insert({(int)game.list, game.slug}).second ||
+        if (game.slug.empty() || game.name.empty() || game.notes.empty() || !slugs.insert({game.console.empty() ? (int)game.list : -1, game.console + game.slug}).second ||
             game.slug == "none" || game.notes.back() != '.' || (!game.yes_no.empty() && game.yes_no.back() != '.')
         ){
             fail("the entry " + game.slug);
@@ -334,7 +418,9 @@ int known_games_tests(std::string& report){
         fail("the timing of a game at 60 frames a second");
     }
     if (known_games(GameId::NINTENDO_64).empty() || !known_games(GameId::SCARLET_VIOLET).empty() ||
-        known_games(GameId::PLAYSTATION_3).empty() || known_games(GameId::STEAM).empty()
+        known_games(GameId::PLAYSTATION_3).empty() || known_games(GameId::STEAM).empty() ||
+        known_games_on("wiiu").empty() || known_games_on("vita").empty() || known_games_on("3ds").empty() ||
+        !known_games_on("switch").empty() || !known_games_on("").empty()
     ){
         fail("the lists of the known games");
     }

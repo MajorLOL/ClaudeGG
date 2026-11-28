@@ -51,10 +51,17 @@ struct KnownGame{
     //  The frames a second it runs at where that is below 30 (0: not
     //  below): the presses are made long enough for it.
     int frame_rate = 0;
+    //  For a console over Wi-Fi with a program of its own and no game list
+    //  ("wiiu", "vita", "3ds"): its code ("list" is then OTHER_GAMES and not
+    //  used). Empty: a game of "list".
+    std::string console;
 };
 
 //  The known games of a list, in the order of the option. Empty for most.
 std::vector<const KnownGame*> known_games(GameId list);
+//  The known games of a console over Wi-Fi with a program of its own:
+//  "wiiu", "vita", "3ds". Empty for the others.
+std::vector<const KnownGame*> known_games_on(const std::string& console);
 
 //  The timing for a game of "frame_rate": a direction held at least three
 //  of its frames, a button 30 ms longer. Faster games: "base".
