@@ -53,6 +53,7 @@
 #include "ClaudeGG_PokemonGoBag.h"
 #include "ClaudeGG_PokemonGoGifts.h"
 #include "ClaudeGG_PokemonGoQuests.h"
+#include "ClaudeGG_PokemonGoDaily.h"
 #include "ClaudeGG_PokemonGoRocket.h"
 #include "ClaudeGG_PokemonGoRocketFight.h"
 #include "ClaudeGG_PokemonGoThrowPlay.h"
@@ -981,6 +982,19 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         }
         check(differ == 0, quests_report.isEmpty() ? QString("the quests are handled as gamebot.py handles them") : quests_report.last());
     }
+    //  The daily run, ported to C++ (issue #31): when a run starts (the daily time, the Start button, a bot started again), every app in turn,
+    //  the run time, a catch finished when the time is up, the file of the run, held to what the Python code did on the stories of
+    //  tests/fixtures/daily_golden.json.qz.
+    {
+        QStringList daily_report;
+        const int differ = PokemonGo::Daily::run_daily_checks(agent_folder + "/../tests/fixtures/daily_golden.json.qz", daily_report);
+        for (const QString& line : daily_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, daily_report.isEmpty() ? QString("the daily run goes as gamebot.py runs it") : daily_report.last());
+    }
     //  Team GO Rocket at a stop, ported to C++ (issue #31): the way from the first speech bubble to the map or the Shadow Pokémon (BATTLE, the radar
     //  question, the party and its empty slots, the list of Pokémon, the summary), held to what the Python code did on the little stories of
     //  tests/fixtures/rocket_golden.json.qz.  (The fight itself is a seam in these stories.)
@@ -1465,12 +1479,13 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             //  run-away button.
             {
                 PokemonGo::Bot::Switches asked{{"spin", true}, {"catch", false}, {"rocket_fight", true}, {"quests", true}, {"bag_clean", true},
-                                               {"heat_pause", true}, {"fast_look", true}, {"gifts_open", true}, {"daily_cycle", true}};
+                                               {"heat_pause", true}, {"fast_look", true}, {"gifts_open", true}, {"daily_cycle", true},
+                                               {"battle", true}, {"teams_weekly", true}};
                 PokemonGo::Bot::PhoneBot bot(host, asked, {{"throw_target", "great"}, {"berries", "razz, nanab"}});
                 check(bot.wanted("spin") && bot.setting("fast_look", false) && !bot.wanted("catch") && bot.setting("rocket_fight", false)
                       && bot.setting("quests", false) && bot.setting("bag_clean", false) && !bot.setting("heat_pause", true) && bot.wanted("gifts_open")
-                      && !bot.wanted("daily_cycle"),
-                      "Claude GG plays with what is ported (the gifts, the GO Pass, Team GO Rocket and the clean-up of the bag too), the rest is off");
+                      && bot.wanted("daily_cycle") && !bot.setting("battle", true) && !bot.setting("teams_weekly", true),
+                      "Claude GG plays with what is ported (the gifts, the GO Pass, Team GO Rocket, the clean-up of the bag and the daily run too), the rest is off");
                 {
                     //  Team GO Rocket: the bot is the host of its walk and fight, and reads a fight on the screen as the Battle League does.
                     PokemonGo::Rocket::Host& rocket = bot;

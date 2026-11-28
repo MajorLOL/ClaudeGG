@@ -8,15 +8,18 @@
  */
 
 #include <cmath>
+#include <ctime>
 #include <future>
 #include <stdexcept>
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
 #include "ClaudeGG_PokemonGoBot.h"
 #include "ClaudeGG_PokemonGoCatch.h"
+#include "ClaudeGG_PokemonGoDaily.h"
 #include "ClaudeGG_PokemonGoFlow.h"
 #include "ClaudeGG_PokemonGoMap.h"
 #include "ClaudeGG_PokemonGoRocketFight.h"
@@ -44,7 +47,8 @@ std::vector<Detection> PhoneDetector::map(const cv::Mat& img, const cv::Rect& bo
 Switches playable(const Switches& asked){
     Switches out = asked;
     //  Not ported yet: off, so that the steps leave them alone.
-    for (const char* key : {"daily_cycle", "battle", "teams_weekly"}){
+    //  (The daily run itself is ported - run_daily() -, its battles and the weekly teams are not.)
+    for (const char* key : {"battle", "teams_weekly"}){
         out[QString::fromLatin1(key)] = false;
     }
     //  The pause for the heat needs temperatures that the agent cannot give yet.
@@ -209,7 +213,21 @@ QJsonValue PhoneBot::bag_keep_saved(){
 }
 
 void PhoneBot::run_done(){
-    log("the daily run is over for today (the daily run itself is not in Claude GG yet)");
+    m_run_done = true;
+}
+
+void PhoneBot::reset_for_game(){
+    m_map.spin = m_switches["spin"];
+    m_map.catching = m_switches["catch"];
+    m_spin_at.reset();
+    m_catch_at.reset();
+    m_map.storage_full = false;
+    m_map.bag_is_full = false;
+    m_map.menu_check_last = 0.0;
+    m_map.gift_last = 0.0;                              //  gifts round straight away
+    m_map.rotation.steps = 0;
+    m_map.cooldown.clear();
+    m_run_done = false;
 }
 
 std::optional<QByteArray> PhoneBot::gift_state_read(const QString& file){
@@ -457,6 +475,140 @@ void run(PhoneBot& bot, const std::function<void()>& beat){
             beat();
         }
         bot.sleep(wait);
+    }
+    throw Flow::Interrupted();
+}
+
+
+namespace{
+
+//  The daily run of gamebot.py on this bot (PokemonGo::Daily::Host).
+class PhoneDaily : public Daily::Host{
+public:
+    PhoneDaily(PhoneBot& bot, const DailyStart& start, const QString& folder)
+        : m_bot(bot), m_start(start), m_folder(folder)
+    {}
+
+    double wall() override{ return m_bot.wall(); }
+    double monotonic() override{ return m_bot.monotonic(); }
+    void sleep(double seconds) override{
+        m_bot.sleep(seconds);
+        if (m_bot.stop()){
+            throw Flow::Interrupted();
+        }
+    }
+    void log(const QString& text) override{ m_bot.log(text); }
+
+    QJsonValue setting(const QString& key) override{
+        if (key == "daily_time" && !m_start.time.isEmpty()){
+            return m_start.time;
+        }
+        if (key == "daily_max_min" && m_start.max_min > 0){
+            return m_start.max_min;
+        }
+        return QJsonValue(QJsonValue::Undefined);
+    }
+    bool wanted(const QString& key) override{ return m_bot.wanted(key); }
+
+    QJsonObject load_daily() override{
+        QByteArray data;
+        if (m_folder.isEmpty()){
+            data = m_memory;
+        }else{
+            QFile file(m_folder + "/gamebot_daily.json");
+            if (file.open(QIODevice::ReadOnly)){
+                data = file.readAll();
+            }
+        }
+        const QJsonDocument doc = QJsonDocument::fromJson(data);
+        if (!doc.isObject()){
+            return QJsonObject{{"start", 0}, {"done", QJsonArray()}};
+        }
+        return doc.object();
+    }
+    void save_daily(const QJsonObject& d) override{
+        const QByteArray data = QJsonDocument(d).toJson(QJsonDocument::Compact);
+        if (m_folder.isEmpty()){
+            m_memory = data;
+            return;
+        }
+        QFile file(m_folder + "/gamebot_daily.json");
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write(data) != data.size()){
+            throw std::runtime_error("cannot write " + file.fileName().toStdString());
+        }
+    }
+
+    //  (The agent cannot list the apps of the phone: the one that the bot plays.)
+    QStringList game_packages() override{ return {m_bot.package()}; }
+    void reset_for_game(const QString& package) override{
+        (void)package;
+        m_bot.reset_for_game();
+    }
+    void restart_game() override{ m_bot.restart_game(); }
+    void close_game_completely() override{ Bag::close_game_completely(m_bot); }
+
+    double step() override{
+        if (m_bot.stop()){
+            throw Flow::Interrupted();
+        }
+        m_bot.timers();
+        return Step::step(m_bot, m_bot.map_state(), m_bot.step_state());
+    }
+    bool run_done() override{ return m_bot.run_is_done(); }
+    QString screen_name() override{ return m_bot.screen_class(m_bot.screenshot()).first; }
+
+    QString take_force_start() override{
+        if (m_force_taken){
+            return QString();
+        }
+        m_force_taken = true;
+        return m_start.now ? "button" : "start";
+    }
+
+    double local_time_of_day(double now, int hh, int mm) override{
+        const std::time_t t = (std::time_t)std::floor(now);
+        std::tm day{};
+#ifdef _WIN32
+        localtime_s(&day, &t);
+#else
+        localtime_r(&t, &day);
+#endif
+        day.tm_hour = hh;
+        day.tm_min = mm;
+        day.tm_sec = 0;
+        day.tm_isdst = -1;
+        return (double)std::mktime(&day);
+    }
+    QString local_text(double when) override{
+        const std::time_t t = (std::time_t)std::floor(when);
+        std::tm local{};
+#ifdef _WIN32
+        localtime_s(&local, &t);
+#else
+        localtime_r(&t, &local);
+#endif
+        char text[32];
+        const size_t n = std::strftime(text, sizeof(text), "%Y-%m-%d %H:%M", &local);
+        return QString::fromLatin1(text, (qsizetype)n);
+    }
+
+private:
+    PhoneBot& m_bot;
+    DailyStart m_start;
+    QString m_folder;
+    QByteArray m_memory;
+    bool m_force_taken = false;
+};
+
+}   //  namespace
+
+
+void run_daily(PhoneBot& bot, const DailyStart& start, const QString& folder){
+    PhoneDaily host(bot, start, folder);
+    Daily::State state;
+    while (!bot.stop()){
+        const double wait = Daily::daily_cycle(host, state);
+        host.sleep(wait);
     }
     throw Flow::Interrupted();
 }

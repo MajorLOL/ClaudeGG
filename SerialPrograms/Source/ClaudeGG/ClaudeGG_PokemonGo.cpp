@@ -65,10 +65,9 @@ struct Preset{
 };
 
 //  Can Claude GG play this preset itself (the parts of gamebot.py that are ported to C++)?  Spinning PokéStops, catching Pokémon, the gifts,
-//  the GO Pass rewards, the clean-up of a full bag and Team GO Rocket; not the daily run yet.
+//  the GO Pass rewards, the clean-up of a full bag, Team GO Rocket and the daily run (without its battles and the weekly teams).
 bool claude_can_play(const Preset& preset){
-    return preset.kind == Kind::SERVICE && (preset.spin || preset.catching || preset.gifts || preset.choose)
-        && !preset.daily;
+    return preset.kind == Kind::SERVICE && (preset.spin || preset.catching || preset.gifts || preset.choose);
 }
 
 const Preset PRESETS[] = {
@@ -113,7 +112,9 @@ const Preset PRESETS[] = {
         "ClaudeGG:PokemonGO:Daily", "Daily run",
         "The whole day's play in one: at the time you give, both Pokémon GO apps one after the other (spin, catch, "
         "gifts), each until it is full or the time is up. Choose below to fight GO Battle League battles first, and "
-        "to keep the teams up to date once a week. The program stays and waits for the next day until it is stopped.",
+        "to keep the teams up to date once a week. The program stays and waits for the next day until it is stopped. "
+        "Under Who plays Claude GG can run it itself instead (experimental): one app (the one of the battles, or the Play Store one), "
+        "without the battles and the weekly teams.",
         true, true, true, true, false, false, Kind::SERVICE,
     },
     {
@@ -888,8 +889,20 @@ private:
         if (switches["bag_clean"]){
             add_part("cleans a full bag");
         }
-        env.log("Claude GG itself " + does + " (experimental; the daily run is not in Claude GG yet).");
         try{
+            if (switches["daily_cycle"]){
+                PokemonGo::Bot::DailyStart daily;
+                daily.time = start.daily_time;
+                daily.max_min = start.daily_max_min;
+                daily.now = start.daily_now;
+                env.log(
+                    "Claude GG itself runs the daily run (experimental): at " + (daily.time.isEmpty() ? QString("08:00") : daily.time).toStdString() +
+                    " every day, " + phone.package().toStdString() + " " + does + ", until " + std::to_string(daily.max_min > 0 ? daily.max_min : 480) +
+                    " minutes are played or the storage and the bag are full. (The battles and the weekly teams of the daily run are not in Claude GG yet.)"
+                );
+                PokemonGo::Bot::run_daily(bot, daily, folder);
+            }
+            env.log("Claude GG itself " + does + " (experimental).");
             PokemonGo::Bot::run(bot);
         }catch (const PokemonGo::Flow::Interrupted&){
             env.log("Stopped " + bot.counts().toStdString() + ".");

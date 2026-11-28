@@ -29,8 +29,8 @@
  *  touch events and swipes out of them and sends those to the agent (nothing else is sent), the ones that the throw does not wait for in a
  *  thread of their own.
  *
- *  run() is the loop of gamebot.py around step(): a step, its wait, and an error in a step is told and waited out (10 s).  Experimental: not
- *  tried on a real phone yet.
+ *  run() is the loop of gamebot.py around step(): a step, its wait, and an error in a step is told and waited out (10 s).  run_daily() is the
+ *  daily run of gamebot.py around the same step (ClaudeGG_PokemonGoDaily).  Experimental: not tried on a real phone yet.
  *
  */
 
@@ -104,6 +104,10 @@ public:
     void timers();
     //  "(this run: 3 stops, 1 caught, 0 fled)".
     QString counts() const;
+    //  The daily run (ClaudeGG_PokemonGoDaily): the switches and timers of a new game (reset_for_game() of gamebot.py), and whether the bot
+    //  says that the run of this game is over (run_state["done"]: the storage and the bag are full and the game is closed).
+    void reset_for_game();
+    bool run_is_done() const{ return m_run_done; }
 
     //  ---- Loop::Host
     double monotonic() override{ return m_phone.monotonic(); }
@@ -254,6 +258,7 @@ private:
     std::optional<double> m_spin_at;
     std::optional<double> m_catch_at;
     bool m_told_heat = false;
+    bool m_run_done = false;
     int m_stops = 0;
     int m_caught = 0;
     int m_fled = 0;
@@ -263,6 +268,20 @@ private:
 //  The loop of the bot: step after step until the person stops it (Flow::Interrupted is thrown then).  Every `beat_every` seconds `beat`
 //  is told how it goes (it may be empty).
 void run(PhoneBot& bot, const std::function<void()>& beat = std::function<void()>());
+
+
+//  What the person chose for the daily run (the program "Daily run").
+struct DailyStart{
+    QString time;               //  "HH:MM" (empty: 08:00)
+    int max_min = 0;            //  how long a run may take, all apps together (0: 480 minutes)
+    bool now = false;           //  begin a run right away (the Start button of the web interface)
+};
+
+//  The daily run of gamebot.py (PokemonGo::Daily::daily_cycle) with this bot, until the person stops it (Flow::Interrupted is thrown then):
+//  at the start time a run plays the app until the run time is up or the storage and the bag are full, then waits for the next day.  What the
+//  run did is kept in `folder`/gamebot_daily.json (in the memory of the program when there is no folder).  The agent cannot list the apps of
+//  the phone, so a run plays one app: the one of the bot.
+void run_daily(PhoneBot& bot, const DailyStart& start, const QString& folder);
 
 
 }
