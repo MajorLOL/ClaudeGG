@@ -982,6 +982,10 @@ public:
             //  A Wii U has no board either: a Raspberry Pi is its GamePad, and
             //  the program "Connect the GamePad" of its list does the rest.
             end_installation();
+        }else if (m_result.console_chosen && m_result.console_code == "vita"){
+            //  Nor a Vita: vita-agent-bridge on it takes the commands over the
+            //  network, and "Connect the Vita" of its list checks it.
+            end_installation();
         }else if (m_request.ask_board){
             go_board();
         }else{
@@ -7773,6 +7777,67 @@ QPixmap ps3_picture(){
     return cache;
 }
 
+//  A handheld with rounded ends, a wide screen, two small sticks, a d-pad and
+//  four buttons: the picture of the console "vita", with the waves of a
+//  network beside it (it is worked over Wi-Fi). Drawn here, as the picture of
+//  the Switch 2 is; it is no picture of a particular device.
+QPixmap vita_picture(){
+    static QPixmap cache;
+    if (!cache.isNull()){
+        return cache;
+    }
+    constexpr int W = 560;
+    constexpr int H = 300;
+    QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter p(&image);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(Qt::NoPen);
+
+    //  The body and its screen.
+    p.setBrush(QColor(30, 32, 38));
+    p.drawRoundedRect(QRectF(10, 40, 500, 230), 110, 110);
+    p.setBrush(QColor(16, 16, 20));
+    p.drawRoundedRect(QRectF(128, 66, 264, 178), 8, 8);
+    QLinearGradient screen(0, 74, 0, 236);
+    screen.setColorAt(0, QColor(60, 110, 210));
+    screen.setColorAt(1, QColor(30, 40, 90));
+    p.setBrush(screen);
+    p.drawRect(QRectF(136, 74, 248, 162));
+    //  A few round icons on the screen, as on its home screen.
+    p.setBrush(QColor(255, 255, 255, 170));
+    for (int row = 0; row < 2; row++){
+        for (int column = 0; column < 4; column++){
+            p.drawEllipse(QPointF(170 + column * 60, 120 + row * 64), 20, 20);
+        }
+    }
+
+    //  The left side: a d-pad and a small stick.
+    p.setBrush(QColor(70, 72, 80));
+    p.drawRect(QRectF(62, 96, 18, 54));
+    p.drawRect(QRectF(44, 114, 54, 18));
+    p.drawEllipse(QPointF(96, 204), 16, 16);
+    //  The right side: four buttons and a small stick.
+    p.setBrush(QColor(200, 202, 210));
+    p.drawEllipse(QPointF(442, 98), 10, 10);
+    p.drawEllipse(QPointF(420, 122), 10, 10);
+    p.drawEllipse(QPointF(464, 122), 10, 10);
+    p.drawEllipse(QPointF(442, 146), 10, 10);
+    p.setBrush(QColor(70, 72, 80));
+    p.drawEllipse(QPointF(424, 204), 16, 16);
+
+    //  The waves of the network, at the top right.
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(QColor(120, 200, 255), 8, Qt::SolidLine, Qt::RoundCap));
+    for (int i = 0; i < 3; i++){
+        const double r = 16 + i * 18;
+        p.drawArc(QRectF(520 - r, 46 - r, 2 * r, 2 * r), 200 * 16, 70 * 16);
+    }
+    p.end();
+    cache = QPixmap::fromImage(image);
+    return cache;
+}
+
 //  A tablet-like gamepad, white, with a screen in the middle, two sticks, a
 //  d-pad and four buttons: the picture of the console "wiiu". It stands for
 //  the GamePad that a Raspberry Pi plays. Drawn here, as the picture of the
@@ -8299,6 +8364,10 @@ constexpr ConsoleInfo CONSOLES[] = {
     //  A Steam Deck or a PC with Steam: the wired board as its USB gamepad.
     //  Experimental: not tried yet.
     {"steam",       "Steam Deck and PC",    "The wired board as a gamepad for Steam", true},
+    //  A PlayStation Vita with vita-agent-bridge (MIT, a separate project):
+    //  no board and no capture card, its buttons, touches and pictures go
+    //  over the network. Experimental: not tried on a Vita yet.
+    {"vita",        "PlayStation Vita",     "Over Wi-Fi, with vita-agent-bridge",   true},
 };
 constexpr int CONSOLE_COUNT = (int)(sizeof(CONSOLES) / sizeof(CONSOLES[0]));
 
@@ -8460,8 +8529,8 @@ private:
     }
     static int large_columns(){
         const int count = supported_count();
-        //  More than twelve: three rows of five.
-        return count <= 5 ? count : count > 12 ? 5 : (count + 1) / 2;
+        //  More than twelve: three rows of five; more than fifteen: of six.
+        return count <= 5 ? count : count > 15 ? 6 : count > 12 ? 5 : (count + 1) / 2;
     }
     static int large_rows(){
         const int columns = std::max(1, large_columns());
@@ -8569,6 +8638,7 @@ private:
             : code == "ps3" ? ps3_picture()
             : code == "xbox" ? xbox_picture()
             : code == "wiiu" ? wiiu_picture()
+            : code == "vita" ? vita_picture()
             : console_is_other(code) ? console_picture(code)
             : phone_picture();
         const QRectF room(
@@ -12236,17 +12306,17 @@ int run_setup_test(QApplication& application, const QString& folder){
     checker.check(has_content(canvas.picture()), "the console screen has something on it");
     {
         bool all = true;
-        for (int c = 0; c < 15; c++){
+        for (int c = 0; c < 16; c++){
             const QString tile = "console:" + QString::number(c);
             all = all && canvas.has_hit(tile) && canvas.hit_enabled(tile);
         }
         checker.check(all,
             "the twelve supported consoles (the two Switches, the phone, the PlayStation 3, the original Xbox, the retro "
             "consoles, the Xbox 360, the two of Remote Play, the iPhone, the PlayStation Classic, the Wii U, the two direct ways "
-            "through an adapter and the Steam Deck and PC) are tiles that can be picked"
+            "through an adapter, the Steam Deck and PC and the Vita) are tiles that can be picked"
         );
     }
-    checker.check(!canvas.has_hit("console:15"), "and no console is left that cannot be picked");
+    checker.check(!canvas.has_hit("console:16"), "and no console is left that cannot be picked");
     checker.check(canvas.has_hit("skip") && canvas.has_hit("continue"), "the console screen has Skip setup and Continue");
     checker.check(!canvas.hit_enabled("continue"), "no console, no way on");
     checker.check(canvas.page_state() == "selected=", "nothing is picked at first");
@@ -12266,12 +12336,12 @@ int run_setup_test(QApplication& application, const QString& folder){
     checker.check(canvas.focus_id() == "console:4", "to the original Xbox");
     canvas.press_key(Qt::Key_Right);
     checker.check(canvas.focus_id() == "console:5", "to the retro consoles");
-    for (int c = 6; c < 15; c++){
+    for (int c = 6; c < 16; c++){
         canvas.press_key(Qt::Key_Right);
     }
-    checker.check(canvas.focus_id() == "console:14", "to the Steam Deck and PC, over the rows");
+    checker.check(canvas.focus_id() == "console:15", "to the PlayStation Vita, over the rows");
     canvas.press_key(Qt::Key_Right);
-    checker.check(canvas.focus_id() == "console:14", "and no further than the last");
+    checker.check(canvas.focus_id() == "console:15", "and no further than the last");
     canvas.press_key(Qt::Key_Tab);
     canvas.press_key(Qt::Key_Tab);
     checker.check(!canvas.focus_id().startsWith("console:") || canvas.focus_id() == "console:0" || canvas.focus_id() == "console:1" ||
@@ -12279,7 +12349,7 @@ int run_setup_test(QApplication& application, const QString& folder){
         canvas.focus_id() == "console:5" || canvas.focus_id() == "console:6" || canvas.focus_id() == "console:7" ||
         canvas.focus_id() == "console:8" || canvas.focus_id() == "console:9" || canvas.focus_id() == "console:10" ||
         canvas.focus_id() == "console:11" || canvas.focus_id() == "console:12" || canvas.focus_id() == "console:13" ||
-        canvas.focus_id() == "console:14",
+        canvas.focus_id() == "console:14" || canvas.focus_id() == "console:15",
         "Tab does not stop on them either");
     canvas.set_focus_id("console:1");
     canvas.move_to("console:1");

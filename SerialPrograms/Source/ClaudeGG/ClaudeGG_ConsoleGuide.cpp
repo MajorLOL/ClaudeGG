@@ -665,6 +665,39 @@ const std::vector<Guide>& guides(){
                 TROUBLE_TYPE,
             },
         },
+        {
+            "vita", "PlayStation Vita", Status::EXPERIMENTAL, Speed::SLOW,
+            "None: vita-agent-bridge on the Vita", "Pictures of the screen, from the Vita over Wi-Fi",
+            "A Vita with HENkaku runs vita-agent-bridge (MIT, a separate project): a plugin that presses its buttons, moves its sticks and touches its screen, and sends pictures of the screen. Claude GG talks to it over the home network. There is no board and no capture card.",
+            {
+                NEED_COMPUTER,
+                "A PlayStation Vita with HENkaku Enso and taiHEN (vita-agent-bridge was made on a Vita 2000 with 3.65).",
+                "vita-agent-bridge, installed as its page says, with a token of 64 characters on the Vita and the same token in the file .vita-agent-token in your home folder.",
+                "The Vita and the computer on the same home network.",
+            },
+            {
+                {"Computer", "Network", "Vita with vita-agent-bridge"},
+            },
+            {
+                "Install vita-agent-bridge on the Vita: its two files in ur0:data/vita-agent-bridge/, its token there, and its plugin under *KERNEL in ur0:tai/config.txt. Restart the Vita.",
+                "Put the same token in the file .vita-agent-token in your home folder, and the Vita's address under PlayStation Vita, address in the settings.",
+                "Run Connect the Vita: it saves a picture of the Vita's screen.",
+            },
+            "Every press is a short message over Wi-Fi, but a picture takes a moment: the bridge sends about 2 MB a second, so a small picture takes about a quarter of a second and a full one about a second. Fine for menus and games that wait.",
+            {
+                "The list PlayStation Vita: Connect the Vita, and Claude Plays with the touch screen.",
+            },
+            {
+                LIMIT_UNTESTED,
+                "The Vita's own menus take only touches and the PS button; the buttons work in games.",
+                "A stick and buttons are done one after the other, not at once. The rear touch pad is not used.",
+                "The bridge has no encryption: keep it on your home network, and never open port 1348 to the internet.",
+            },
+            {
+                "The Vita cannot be reached: check its address, that it is not asleep, and that the plugin is in ur0:tai/config.txt.",
+                "The bridge refuses the token: the file .vita-agent-token must have the same 64 characters as the token on the Vita.",
+            },
+        },
     };
     return GUIDES;
 }
@@ -886,7 +919,7 @@ QString guide_html(const Guide& guide){
         html += heading("Steps in short", theme);
         html += list(guide.steps, true);
         //  (Not for the two with a Raspberry Pi in place of a board.)
-        if (QString(guide.code) != "mobile" && QString(guide.code) != "wiiu"){
+        if (QString(guide.code) != "mobile" && QString(guide.code) != "wiiu" && QString(guide.code) != "vita"){
             html += "<p style=\"color: " + theme.muted.name() + ";\">" + t("The setup shows every step with pictures and flashes the board for you.") + "</p>";
         }
     }
@@ -1106,7 +1139,7 @@ int console_guide_self_test(){
         }
     };
     //  Every console of the setup has a page.
-    for (const char* code : {"switch", "switch2", "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu", "psdirect", "xboxdirect", "steam"}){
+    for (const char* code : {"switch", "switch2", "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu", "psdirect", "xboxdirect", "steam", "vita"}){
         const Guide* guide = find_guide(code);
         check(guide != nullptr, QString("no page for ") + code);
         if (guide == nullptr){
