@@ -443,7 +443,10 @@ public:
         : m_file(path)
     {
         QDir().mkpath(QFileInfo(path).absolutePath());
-        m_file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text);
+        //  Without a log the update goes on all the same.
+        if (!m_file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)){
+            return;
+        }
     }
     void line(const QString& text){
         if (m_file.isOpen()){

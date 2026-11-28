@@ -2797,7 +2797,7 @@ QByteArray make_test_zip(const std::vector<std::pair<QString, QByteArray>>& file
     }
     for (const auto& file : files){
         mz_zip_writer_add_mem(
-            &zip, file.first.toUtf8().constData(), file.second.constData(), (size_t)file.second.size(), MZ_DEFAULT_COMPRESSION
+            &zip, file.first.toUtf8().constData(), file.second.constData(), (size_t)file.second.size(), (mz_uint)MZ_DEFAULT_LEVEL
         );
     }
     void* buffer = nullptr;
