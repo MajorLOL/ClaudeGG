@@ -40,8 +40,10 @@
 #include "ClaudePlays_Consoles.h"
 #include "ClaudePlays_External.h"
 #include "ClaudePlays_GameCard.h"
+#include "ClaudePlays_KnownGames.h"
 #include "ClaudePlays_Program.h"
 #include "ClaudePlays_Sees.h"
+#include "ClaudeGG/ClaudeGG_Macro.h"
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -976,6 +978,18 @@ std::string setup_text(const GameProfile& profile){
 //  The choices of the option "Game" of Other Games: nothing in particular, and
 //  each game that has no list of its own (it has its profile, with its buttons,
 //  but no tile on the page with the games).
+//  The choices of the option "Which game": another one, or one of the
+//  well-known games of the list.
+IntegerEnumDropdownDatabase known_games_database(GameId game){
+    IntegerEnumDropdownDatabase database;
+    database.add(0, "none", "Another one (say which under \"About the game\")", true);
+    size_t index = 1;
+    for (const KnownGame* known : known_games(game)){
+        database.add(index++, known->slug, known->name, true);
+    }
+    return database;
+}
+
 EnumDropdownDatabase<GameId> other_games_database(){
     EnumDropdownDatabase<GameId> database;
     database.add(GameId::OTHER_GAMES, "other", "Whatever is on the screen", true);
@@ -1001,6 +1015,14 @@ GameProgram::GameProgram(GameId game)
         other_games_database(),
         LockMode::LOCK_WHILE_RUNNING,
         GameId::OTHER_GAMES
+    )
+    , KNOWN_GAME(
+        "<b>Which game:</b><br>For a well-known game the program tells Claude its controls by default, and "
+        "makes the presses long enough for a game that runs at few frames a second. Another game: say "
+        "which under \"About the game\", or Claude finds out from the screen.",
+        known_games_database(game),
+        LockMode::LOCK_WHILE_RUNNING,
+        0
     )
     , WHO()
     , GOAL(
@@ -1123,6 +1145,9 @@ GameProgram::GameProgram(GameId game)
     if (m_game == GameId::OTHER_GAMES){
         PA_ADD_OPTION(GAME);
     }
+    if (!known_games(m_game).empty()){
+        PA_ADD_OPTION(KNOWN_GAME);
+    }
     add_option(WHO.PLAYER, "PLAYER");
     add_option(WHO.PORT, "MCP_PORT");
     add_option(WHO.IDLE, "MCP_IDLE");
@@ -1193,6 +1218,22 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
     const ConsoleTraits& traits = console_traits(profile.console);
     options.timing = traits.timing;
     options.picture_aspects = traits.picture_aspects;
+    //  A well-known game that the user picked.
+    const KnownGame* known = nullptr;
+    {
+        const std::vector<const KnownGame*> games = known_games(selected);
+        const size_t index = KNOWN_GAME.current_value();
+        if (index > 0 && index <= games.size()){
+            known = games[index - 1];
+            options.timing = timing_for_game(options.timing, known->frame_rate);
+            env.log(
+                "Game: " + known->name + (known->frame_rate > 0
+                    ? " (" + std::to_string(known->frame_rate) + " frames a second: longer presses)"
+                    : std::string()),
+                COLOR_BLUE
+            );
+        }
+    }
     //  Set by hand.
     const uint32_t press_ms = PRESS_MS;
     const uint32_t video_delay_ms = VIDEO_DELAY_MS;
@@ -1213,6 +1254,10 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
     facts.name = profile.name;
     facts.notes = profile.notes;
     facts.user_notes = trimmed(ABOUT);
+    if (known != nullptr){
+        facts.name = known->name;
+        facts.notes = trimmed(profile.notes) + " " + known->notes;
+    }
     const Language text_language = TEXT_LANGUAGE;
     if (text_language != Language::English){
         facts.text_language = language_data(text_language).name;
@@ -1220,6 +1265,10 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
     //  A Japanese PlayStation game: CIRCLE is yes.
     if (text_language == Language::Japanese){
         facts.yes_no = japanese_yes_no(profile.pad);
+    }
+    //  A game with its own way: that.
+    if (known != nullptr && !known->yes_no.empty()){
+        facts.yes_no = known->yes_no;
     }
 
     Limits limits;
@@ -1478,6 +1527,39 @@ QRgb card_ground(GameId game){
 
 }
 
+//  The Switch button that a button of a pad is played with, by the names of
+//  that pad (for the program Macro, ClaudeGG_Macro.h): the tables above, as
+//  the program picks them for each pad.
+bool button_of_pad(PadKind pad, const std::string& name, Button& button){
+    switch (pad){
+    case PadKind::PRO_CONTROLLER:
+    case PadKind::RIGHT_JOYCON:
+        return button_of(name, button);
+    case PadKind::PS3_CONTROLLER:
+    case PadKind::PS1_CONTROLLER:
+    case PadKind::PS2_CONTROLLER:
+    case PadKind::PSCLASSIC_CONTROLLER:
+        return ps3_button_of(name, button);
+    case PadKind::PS4_CONTROLLER:
+        return ps4_button_of(name, button);
+    case PadKind::XBOX_CONTROLLER:
+        return xbox_button_of(name, button);
+    case PadKind::XBOX360_CONTROLLER:
+    case PadKind::XBOXONE_CONTROLLER:
+        return xbox360_button_of(name, button);
+    case PadKind::GAMECUBE_CONTROLLER:
+        return gamecube_button_of(name, button);
+    case PadKind::N64_CONTROLLER:
+        return n64_button_of(name, button);
+    case PadKind::DREAMCAST_CONTROLLER:
+        return dreamcast_button_of(name, button);
+    case PadKind::IPHONE_KEYBOARD:
+        break;
+    }
+    return false;
+}
+
+
 GameOnlyList::GameOnlyList(GameId game)
     : PanelListDescriptor(game_profile(game).title)
     , m_game(game)
@@ -1489,6 +1571,7 @@ std::vector<PanelEntry> GameOnlyList::make_panels() const{
     std::vector<PanelEntry> ret;
     ret.emplace_back("---- Claude ----");
     ret.emplace_back(make_claude_plays(m_game));
+    add_macro(ret, m_game);
     return ret;
 }
 
@@ -1503,6 +1586,7 @@ std::vector<PanelEntry> OtherGamesList::make_panels() const{
     std::vector<PanelEntry> ret;
     ret.emplace_back("---- Claude ----");
     ret.emplace_back(make_claude_plays(GameId::OTHER_GAMES));
+    add_macro(ret, GameId::OTHER_GAMES);
     return ret;
 }
 
