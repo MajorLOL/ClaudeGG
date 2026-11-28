@@ -680,6 +680,13 @@ bool show_instances_overview(){
     return start_overview_process();
 }
 
+bool close_instances_overview(){
+    if (g_test_run){
+        return false;
+    }
+    return send_instance_command(instance_link_name(shared_base_path(), "hub"), "close");
+}
+
 
 //  ---------------------------------------------------------------------
 //  The overview as a process
@@ -741,6 +748,11 @@ int run_instances_hub(QApplication& application, const QString& test_folder){
     InstanceLink link(link_name, [](const QString& command){
         if (command == "show"){
             bring_overview_forward();
+        }else if (command == "close"){
+            //  Later, not inside the answer to the command.
+            QTimer::singleShot(0, qApp, []{
+                QCoreApplication::quit();
+            });
         }
     });
     return run_instances_overview(request, test_folder);

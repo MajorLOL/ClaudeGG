@@ -52,6 +52,7 @@
 #include "ClaudeGG/ClaudeGG_Logo.h"
 #include "ClaudeGG/ClaudeGG_Panel.h"
 #include "ClaudeGG/ClaudeGG_Setup.h"
+#include "ClaudeGG/ClaudeGG_UpdateDialog.h"
 #include "ClaudeGG/Assistant/Assistant_Http.h"
 #include "ClaudeGG/Assistant/Assistant_Panel.h"
 #include "ClaudeGG/Assistant/Assistant_Play.h"
@@ -176,6 +177,12 @@ MainWindow::MainWindow(QWidget* parent, bool app_test)
         ClaudeGG::set_game_opener([this](const QString& game, const QString& program){
             open_game(game, program);
         });
+    }
+    //  Whether a newer build is out (and how the last update went), a while
+    //  after the window is up: not in the tests, not in a window of the host.
+    if (!app_test && !ClaudeGG::is_embedded()){
+        const ClaudeGG::AboutInfo info = about_info();
+        ClaudeGG::start_update_check_at_start(this, info.project_url, info.build);
     }
     //  "Open Output Window at startup": the log, in its panel, once the window is up.
     if (GlobalSettings::instance().LOG_WINDOW_STARTUP && !app_test){

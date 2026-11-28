@@ -295,6 +295,9 @@ bool start_overview_process();
 //  The overview to the front: it is started when it is not there. What an
 //  installation's button "Installations" does (the caller puts its own windows away).
 bool show_instances_overview();
+//  Asks the overview, when it runs, to close (an update of the program does,
+//  ClaudeGG_UpdateDialog.h). False: no overview answered.
+bool close_instances_overview();
 
 //  Asks an installation that runs to close its windows (the overview's
 //  "Close"). False: nobody answered.

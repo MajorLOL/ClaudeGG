@@ -1614,6 +1614,10 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_Theme.h
     Source/ClaudeGG/ClaudeGG_Update.cpp
     Source/ClaudeGG/ClaudeGG_Update.h
+    Source/ClaudeGG/ClaudeGG_UpdateDialog.cpp
+    Source/ClaudeGG/ClaudeGG_UpdateDialog.h
+    Source/ClaudeGG/ClaudeGG_Updater.cpp
+    Source/ClaudeGG/ClaudeGG_Updater.h
     Source/ClaudeGG/ClaudeGG_Vita.cpp
     Source/ClaudeGG/ClaudeGG_Vita.h
     Source/ClaudeGG/ClaudeGG_3DS.cpp

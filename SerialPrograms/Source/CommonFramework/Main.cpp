@@ -57,6 +57,7 @@
 #include "ClaudeGG/ClaudeGG_OldSettings.h"
 #include "ClaudeGG/ClaudeGG_Setup.h"
 #include "ClaudeGG/ClaudeGG_SelfTest.h"
+#include "ClaudeGG/ClaudeGG_Updater.h"
 #include "GlobalSettingsPanel.h"
 #include "GlobalServices.h"
 #include "PersistentSettings.h"
@@ -627,6 +628,12 @@ int main(int argc, char *argv[]){
     // Retrieve and store program name
     set_program_path(argv[0]);
 #endif
+
+    //  The new build of an update, started by the old one to put itself in
+    //  its place (ClaudeGG_Updater.h): nothing else of the program runs.
+    if (ClaudeGG::is_apply_update(argc, argv)){
+        return ClaudeGG::run_apply_update(argc, argv);
+    }
 
     //  Whether this is the main window (the overview with the installations in it)
     //  and whether this is an installation in one: before any folder is asked for.

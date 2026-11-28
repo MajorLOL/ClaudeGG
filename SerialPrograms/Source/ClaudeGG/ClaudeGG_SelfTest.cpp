@@ -35,6 +35,9 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMouseEvent>
+#include <QProgressBar>
+#include <QRadioButton>
+#include <QCryptographicHash>
 #include <QPainter>
 #include <QPixmap>
 #include <QPushButton>
@@ -123,6 +126,9 @@
 #include "ClaudeGG_Setup.h"
 #include "ClaudeGG_SelfTest.h"
 #include "ClaudeGG_Update.h"
+#include "ClaudeGG_UpdateDialog.h"
+#include "ClaudeGG_Updater.h"
+#include "miniz-3.1.1/miniz.h"
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -2909,6 +2915,9 @@ int check_updates(Logger& logger){
                 "the answer is in the window, with the link"
             );
             check(label->openExternalLinks(), "the link opens in the browser");
+            QPushButton* install = about->findChild<QPushButton*>("ppAboutInstallButton");
+            check(install != nullptr && !install->isHidden(), "a newer build: the button to install it");
+            check(about->findChild<QCheckBox*>("ppAboutUpdateAtStart") != nullptr, "the choice to check at the start");
 
             //  A window closed while the check runs.
             transport.silent = true;
@@ -2922,6 +2931,308 @@ int check_updates(Logger& logger){
 
     logger.log(
         "Update test: " + std::to_string(checks - wrong) + " of " + std::to_string(checks) + " checks passed.",
+        wrong == 0 ? COLOR_BLUE : COLOR_RED
+    );
+    return wrong;
+}
+
+
+namespace{
+
+QByteArray make_test_zip(const std::vector<std::pair<QString, QByteArray>>& files){
+    mz_zip_archive zip;
+    memset(&zip, 0, sizeof(zip));
+    if (!mz_zip_writer_init_heap(&zip, 0, 0)){
+        return QByteArray();
+    }
+    for (const auto& file : files){
+        mz_zip_writer_add_mem(
+            &zip, file.first.toUtf8().constData(), file.second.constData(), (size_t)file.second.size(), (mz_uint)MZ_DEFAULT_LEVEL
+        );
+    }
+    void* buffer = nullptr;
+    size_t size = 0;
+    QByteArray bytes;
+    if (mz_zip_writer_finalize_heap_archive(&zip, &buffer, &size)){
+        bytes = QByteArray(static_cast<const char*>(buffer), (qsizetype)size);
+        mz_free(buffer);
+    }
+    mz_zip_writer_end(&zip);
+    return bytes;
+}
+
+bool write_test_file(const QString& path, const QByteArray& bytes){
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QFile file(path);
+    return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+}
+
+QByteArray read_test_file(const QString& path){
+    QFile file(path);
+    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray("<missing>");
+}
+
+}
+
+//  Installing an update (ClaudeGG_Updater.h, ClaudeGG_UpdateDialog.h): what
+//  a release says is new and its SHA-256, unpacking, putting the files over a
+//  copy while the user's stay (and everything put back when one cannot be
+//  written), a copy next to this one, the download with its check, and the
+//  window. All in a folder of its own, without the network. (The step of the
+//  new build itself, --apply-update, is the workflow's "Update test".)
+int check_updater(const QString& out, Logger& logger){
+    int checks = 0;
+    int wrong = 0;
+    auto check = [&](bool ok, const char* what){
+        checks++;
+        if (!ok){
+            wrong++;
+            logger.log(std::string("Updater test: FAILED: ") + what, COLOR_RED);
+        }
+    };
+
+    //  What is new, and the SHA-256.
+    check(
+        whats_new_items(
+            "intro\n## What's new\n* Faster throws by @MajorLOL in https://github.com/x/y/pull/5\n"
+            "- **Bold** `code`\n\n## Other\n* not this\n"
+        ) == QStringList({"Faster throws", "Bold code"}),
+        "the points of \"What's new\", without GitHub's \"by ... in ...\""
+    );
+    check(whats_new_items("## What’s Changed\r\n* A\r\n").size() == 1, "GitHub's own heading, with a curly quote");
+    check(whats_new_items("* a point without a heading").isEmpty(), "no section, no points");
+
+    const QString A64(64, 'a');
+    const QString B64(64, 'b');
+    const QByteArray releases =
+        "[{\"tag_name\":\"v0.2.0.12\",\"draft\":false,\"published_at\":\"2026-11-28T01:00:00Z\","
+        "\"body\":\"## What's new\\n* Updates from the program\\n\","
+        "\"assets\":[{\"name\":\"ClaudeGG-Windows.zip\",\"size\":1234,\"digest\":\"sha256:" + A64.toUpper().toLatin1() + "\","
+        "\"browser_download_url\":\"https://evil.example/x.zip\"}]},"
+        "{\"tag_name\":\"v0.2.0.11\",\"draft\":false,\"published_at\":\"2026-11-27T01:00:00Z\","
+        "\"body\":\"SHA-256 of ClaudeGG-Windows.zip: " + B64.toLatin1() + "\"},"
+        "{\"tag_name\":\"v0.2.0.10\",\"draft\":false,\"body\":\"## What's new\\n* old\"},"
+        "{\"tag_name\":\"v0.2.0.13\",\"draft\":true}]";
+    const ReleaseLocation location = release_location(PROJECT_URL);
+    Assistant::HttpResponse answer = releases_answer(200, releases);
+    UpdateResult result = update_result(answer, location, version_number("0.2.0.10"));
+    check(result.state == UpdateState::NEWER_AVAILABLE && result.latest.package_sha256 == A64, "the SHA-256 from GitHub's digest, in lower case");
+    check(result.latest.package_size == 1234, "the size of the package");
+    check(
+        result.package_url == "https://github.com/MajorLOL/ClaudeGG/releases/download/v0.2.0.12/ClaudeGG-Windows.zip",
+        "the package's address is made from the number, not taken from the answer"
+    );
+    check(
+        result.news.size() == 2 && result.news[0].build == version_number("0.2.0.12") &&
+        result.news[0].items == QStringList({"Updates from the program"}) && result.news[1].items.isEmpty(),
+        "what is new in each newer build, the newest first, no draft"
+    );
+    check(news_html(result).contains("Updates from the program") && !news_html(result).contains("<script"), "\"What's new\" as text");
+    {
+        const QJsonArray list = QJsonDocument::fromJson(releases).array();
+        check(package_sha256_of(list[1].toObject()) == B64, "the SHA-256 from the text of the release");
+        check(package_sha256_of(list[2].toObject()).isEmpty(), "a release without a SHA-256");
+    }
+#ifdef _WIN32
+    check(can_install(result), "a newer build with a SHA-256 can be installed");
+#endif
+    check(!can_install(update_result(answer, location, version_number("0.2.0.12"))), "nothing to install when it is up to date");
+
+    //  What is the user's.
+    check(
+        keep_users_file("UserSettings/PA-Stats.txt") && keep_users_file("ClaudeGG-Settings.json") &&
+        keep_users_file("installations/2/status.json") && keep_users_file("Languages/custom.json") &&
+        keep_users_file("ClaudeGG.log"),
+        "the settings, the installations, the languages and the logs are the user's"
+    );
+    check(
+        !keep_users_file("ClaudeGG.exe") && !keep_users_file("Resources/ResourceDownloadList.json") &&
+        !keep_users_file("version.txt") && !keep_users_file("platforms/qwindows.dll"),
+        "the program's files are not"
+    );
+
+    QTemporaryDir temporary;
+    check(temporary.isValid(), "a folder for the test");
+    const QString T = temporary.path() + "/";
+
+    //  Unpacking.
+    QString error;
+    const QByteArray zip = make_test_zip({
+        {"ClaudeGG/ClaudeGG.exe", "NEW"}, {"ClaudeGG/Qt6Core.dll", "new core"},
+        {"ClaudeGG/UserSettings/PA-Stats.txt", ""}, {"ClaudeGG/Resources/a.json", "new resource"},
+    });
+    check(write_test_file(T + "new.zip", zip), "the zip of the test");
+    check(unpack_zip(T + "new.zip", T + "unpacked", error), "a package is unpacked");
+    check(package_root(T + "unpacked") == T + "unpacked/ClaudeGG/", "the folder with the program in it");
+    write_test_file(T + "bad.zip", make_test_zip({{"../evil.txt", "x"}}));
+    check(!unpack_zip(T + "bad.zip", T + "bad", error) && !QFile::exists(T + "evil.txt"), "a name that leaves the folder is refused");
+    write_test_file(T + "junk.zip", "not a zip");
+    check(!unpack_zip(T + "junk.zip", T + "junk", error) && !error.isEmpty(), "what is not a zip");
+
+    //  Over an older copy.
+    const QString old = T + "old/";
+    write_test_file(old + "ClaudeGG.exe", "OLD");
+    write_test_file(old + "Qt6Core.dll", "old core");
+    write_test_file(old + "UserSettings/PA-Stats.txt", "my stats");
+    write_test_file(old + "Resources/a.json", "old resource");
+    write_test_file(old + "only-in-the-old.txt", "stays");
+    CopyReport report;
+    check(copy_package(T + "unpacked/ClaudeGG/", old, T + "backup/", report), "the update is put in place");
+    check(
+        read_test_file(old + "ClaudeGG.exe") == "NEW" && read_test_file(old + "Resources/a.json") == "new resource",
+        "the program's files are new"
+    );
+    check(read_test_file(old + "UserSettings/PA-Stats.txt") == "my stats", "the user's file stays");
+    check(read_test_file(old + "only-in-the-old.txt") == "stays", "nothing is deleted");
+    check(read_test_file(T + "backup/ClaudeGG.exe") == "OLD", "the old program is in the backup");
+    check(report.replaced == 3 && report.added == 0 && report.kept == 1, "what the report counts");
+
+    //  A file that cannot be written: everything goes back.
+    const QString blocked = T + "blocked/";
+    write_test_file(blocked + "ClaudeGG.exe", "OLD");
+    write_test_file(blocked + "Qt6Core.dll", "old core");
+    QDir().mkpath(blocked + "Resources/a.json");
+    check(!copy_package(T + "unpacked/ClaudeGG/", blocked, T + "backup2/", report) && !report.error.isEmpty(), "an update that cannot be written fails");
+    check(
+        read_test_file(blocked + "ClaudeGG.exe") == "OLD" && read_test_file(blocked + "Qt6Core.dll") == "old core" &&
+        !QFile::exists(blocked + "UserSettings/PA-Stats.txt"),
+        "and everything is as it was"
+    );
+
+    //  Next to this copy.
+    const QString beside = side_by_side_folder(old, version_number("0.2.0.12"));
+    check(beside == T + "Claude GG 0.2.0.12/", "the folder next to this one");
+    write_test_file(T + "data/UserSettings/ClaudeGG-Settings.json", "{\"x\":1}");
+    check(install_side_by_side(T + "unpacked/ClaudeGG/", beside, T + "data/", error), "installed next to this copy");
+    check(
+        read_test_file(beside + "ClaudeGG.exe") == "NEW" && read_test_file(beside + "UserSettings/ClaudeGG-Settings.json") == "{\"x\":1}",
+        "with the program and a copy of the settings"
+    );
+    check(side_by_side_folder(old, version_number("0.2.0.12")) == T + "Claude GG 0.2.0.12 (2)/", "a taken name gets a number");
+
+    //  What the step of the new build leaves for the next start.
+    {
+        bool ok = false;
+        QString build;
+        QString message;
+        check(write_update_outcome(T + "data/", false, "0.2.0.12", "why"), "the note is written");
+        check(take_update_outcome(T + "data/", ok, build, message) && !ok && build == "0.2.0.12" && message == "why", "the note is read");
+        check(!take_update_outcome(T + "data/", ok, build, message), "and only once");
+        QDir().mkpath(T + "data/Updates/0.2.0.12/package");
+        clean_old_updates(T + "data/");
+        check(!QFileInfo::exists(T + "data/Updates/0.2.0.12"), "what an update left is cleaned up");
+    }
+
+    //  The download.
+    const QByteArray package = make_test_zip({{"ClaudeGG/ClaudeGG.exe", "NEWER"}});
+    const QString package_sha = QString::fromLatin1(QCryptographicHash::hash(package, QCryptographicHash::Sha256).toHex());
+    {
+        ScriptedTransport transport;
+        transport.answer = releases_answer(200, package);
+        UpdateDownload download(transport);
+        bool called = false;
+        bool ok = false;
+        QString root;
+        std::vector<UpdateDownload::Stage> stages;
+        download.start(
+            "https://github.com/MajorLOL/ClaudeGG/releases/download/v1/ClaudeGG-Windows.zip", package_sha, package.size(), T + "download/",
+            [&](UpdateDownload::Stage stage, qint64, qint64){ stages.push_back(stage); },
+            [&](bool fine, const QString&, const QString& folder){ called = true; ok = fine; root = folder; }
+        );
+        check(!called && transport.requests.size() == 1, "the download asks once, and answers later");
+        for (int c = 0; c < 100 && !called; c++){
+            let_run(20);
+        }
+        check(called && ok && read_test_file(root + "ClaudeGG.exe") == "NEWER", "downloaded, checked and unpacked");
+        check(!QFile::exists(T + "download/ClaudeGG-Windows.zip"), "the zip is deleted once it is unpacked");
+        check(
+            std::find(stages.begin(), stages.end(), UpdateDownload::Stage::CHECKING) != stages.end() &&
+            std::find(stages.begin(), stages.end(), UpdateDownload::Stage::UNPACKING) != stages.end(),
+            "the progress names the check and the unpacking"
+        );
+        if (!transport.requests.empty()){
+            bool secret = false;
+            for (const Assistant::HttpHeader& header : transport.requests[0].headers){
+                const QByteArray name = header.name.toLower();
+                secret = secret || name == "authorization" || name == "cookie";
+            }
+            check(!secret && transport.requests[0].method == "GET", "a plain GET, without a key or a cookie");
+        }
+    }
+    {
+        ScriptedTransport transport;
+        transport.answer = releases_answer(200, package);
+        UpdateDownload download(transport);
+        bool called = false;
+        bool ok = true;
+        download.start("https://example.com/x.zip", QString(64, '0'), 0, T + "download2/", nullptr,
+            [&](bool fine, const QString&, const QString&){ called = true; ok = fine; }
+        );
+        for (int c = 0; c < 100 && !called; c++){
+            let_run(20);
+        }
+        check(called && !ok, "a package with another SHA-256 is refused");
+        check(QDir(T + "download2/").entryList(QDir::Files).isEmpty() && !QFileInfo::exists(T + "download2/package"), "and nothing of it stays");
+    }
+    {
+        ScriptedTransport transport;
+        transport.answer = releases_answer(200, package);
+        UpdateDownload download(transport);
+        bool called = false;
+        bool ok = true;
+        download.start("https://example.com/x.zip", QString(), 0, T + "download3/", nullptr,
+            [&](bool fine, const QString&, const QString&){ called = true; ok = fine; }
+        );
+        let_run(50);
+        check(called && !ok && transport.requests.empty(), "without a SHA-256 nothing is downloaded");
+    }
+
+    //  The window: shown, and an update downloaded in it (a dry run).
+    {
+        ScriptedTransport transport;
+        transport.answer = releases_answer(200, package);
+        UpdateResult offer = result;
+        offer.latest.package_sha256 = package_sha;
+        offer.latest.package_size = package.size();
+        UpdateTarget target;
+        target.program = T + "w/program/";
+        target.data = T + "w/data/";
+        target.dry_run = true;
+        std::unique_ptr<QDialog> window = make_update_dialog(nullptr, offer, target, &transport, true);
+        window->setAttribute(Qt::WA_DontShowOnScreen, true);
+        window->resize(680, 640);
+        window->show();
+        let_run(300);
+        QLabel* news = window->findChild<QLabel*>("ppUpdateNews");
+        QPushButton* install = window->findChild<QPushButton*>("ppUpdateInstall");
+        QRadioButton* replace = window->findChild<QRadioButton*>("ppUpdateReplace");
+        QRadioButton* next_to = window->findChild<QRadioButton*>("ppUpdateBeside");
+        check(news != nullptr && news->text().contains("Updates from the program"), "the window says what is new");
+        check(window->findChild<QPushButton*>("ppUpdateSkip") != nullptr, "at the start it offers to skip the build");
+        check(window->findChild<QCheckBox*>("ppUpdateAtStart") != nullptr, "and the choice to check at the start");
+        check(replace != nullptr && replace->isChecked() && next_to != nullptr, "updating this copy is the default");
+        window->grab().save(out + "/updater-window.png");
+#ifdef _WIN32
+        check(install != nullptr && install->isEnabled(), "the button installs");
+        if (install != nullptr && next_to != nullptr){
+            next_to->setChecked(true);
+            install->click();
+            QPushButton* start_new = window->findChild<QPushButton*>("ppUpdateStartNew");
+            for (int c = 0; c < 150 && start_new != nullptr && start_new->isHidden(); c++){
+                let_run(20);
+            }
+            check(start_new != nullptr && !start_new->isHidden(), "installed next to this copy from the window");
+            check(read_test_file(T + "w/Claude GG 0.2.0.12/ClaudeGG.exe") == "NEWER", "the new build is in its folder");
+            window->grab().save(out + "/updater-window-installed.png");
+        }
+#else
+        check(install != nullptr && !install->isEnabled(), "only Windows installs itself");
+#endif
+        window->close();
+    }
+
+    logger.log(
+        "Updater test: " + std::to_string(checks - wrong) + " of " + std::to_string(checks) + " checks passed.",
         wrong == 0 ? COLOR_BLUE : COLOR_RED
     );
     return wrong;
@@ -7150,6 +7461,7 @@ int run_ui_screenshots(QApplication& application, MainWindow& window, const std:
         failed += check_assistant(out, logger);
         failed += check_name_mark(logger);
         failed += check_updates(logger);
+        failed += check_updater(out, logger);
         failed += check_story_times(logger);
         failed += check_shiny_clip(logger);
         failed += check_history_frames(logger);
