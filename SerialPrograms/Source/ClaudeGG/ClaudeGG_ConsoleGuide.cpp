@@ -1390,6 +1390,8 @@ int console_guide_self_test(){
     check(console_guide_html("retro").contains("Final Fantasy VII") && console_guide_html("retro").contains(t("Timing on this console")),
         "the page of the retro consoles has their timing and their known games");
     check(console_guide_html("switch2").contains(t("Games on this console")), "the Switch 2 has the games of the Switch");
+    check(console_guide_html("steam").contains("Celeste") && console_guide_html("ps3").contains("Persona 5"),
+        "the pages of the other consoles have their known games");
     check(!console_guide_html("mobile").contains(t("Timing on this console")), "the phone has no timing of Claude Plays");
     check(all_texts().size() > 100, "the texts of the guide");
     logger.log(
