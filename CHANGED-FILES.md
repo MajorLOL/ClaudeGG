@@ -229,6 +229,7 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 
 - M `SerialPrograms/Source/Controllers/ControllerSession.cpp`
 - M `SerialPrograms/Source/Controllers/ControllerStateTable.cpp`
+- M `SerialPrograms/Source/Controllers/StandardHid/StandardHid_Keyboard.cpp`
 
 ## `SerialPrograms/Source/GameConsole`
 
@@ -317,6 +318,8 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Instances.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Intro.cpp`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Intro.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_KeyboardState.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_KeyboardState.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Language.cpp`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Language.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Logo.cpp`

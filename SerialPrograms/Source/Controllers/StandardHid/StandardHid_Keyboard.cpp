@@ -12,6 +12,7 @@
 #endif
 #include "Controllers/ControllerState.h"
 #include "StandardHid_Keyboard.h"
+#include "ClaudeGG/ClaudeGG_KeyboardState.h"
 
 //#include <iostream>
 //using std::cout;
@@ -128,13 +129,13 @@ void Keyboard::run_controller_input(const ControllerInputState& state){
 
     const KeyboardInputState& lstate = static_cast<const KeyboardInputState&>(state);
 
-//    WallClock timestamp;
+    WallClock timestamp;
     if (lstate.is_neutral()){
-//        timestamp = current_time();
+        timestamp = current_time();
         cancel_all_commands();
     }else{
         replace_on_next_command();
-//        timestamp = current_time();
+        timestamp = current_time();
         issue_keys(
             nullptr,
             2000ms, 2000ms, 0ms,
@@ -142,7 +143,8 @@ void Keyboard::run_controller_input(const ControllerInputState& state){
         );
     }
 
-//    on_command_input(timestamp, controller_state);
+    //  ClaudeGG: what is held goes to a recording too (the program Macro).
+    on_command_input(timestamp, ClaudeGG::KeyboardMacroState(lstate.keys()));
 }
 
 
