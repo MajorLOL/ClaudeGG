@@ -8,14 +8,20 @@
  *  Mobile/agent), the map and the screens are read with the ONNX models of the folder of the bot, and the parts that are not ported yet are
  *  switched off in a way that leaves the game alone:
  *
- *  - catching: a catch screen is left with the run-away button (spinning only: no Pokémon is tapped on the map);
+ *  - catching: the ported catch screen (Catch::do_encounter) with the ported throw (Throw::throw_ball: a single touch through /v1/touch of
+ *    agent 0.2.2, or a plain swipe), the berries read with Tesseract; when catching is off, a catch screen is left with the run-away button;
  *  - Team GO Rocket: not battled (the step goes back out of it and leaves that stop alone for 30 minutes);
  *  - the GO Pass, the gifts and the clean-up of the bag: not done (a full bag pauses the spinning for 30 minutes, as the bot does without
  *    its clean-up);
  *  - the temperatures: the agent cannot read them yet, so the pause when it gets hot does not happen;
  *  - the layout of the screen: taken to be the one of the canvas (the agent brings every screenshot to the canvas);
- *  - the camera that turns while the next picture is looked at: the swipe is made right away and waited for (the agent takes one call at a
- *    time), which is slower but the same swipe.
+ *  - the camera that turns while the next picture is looked at: the swipe is made right away and waited for, which is slower but the same
+ *    swipe;
+ *  - the live video: not used for looking or throwing yet (screenshots only).
+ *
+ *  The commands for the phone that the throw makes (Throw::Host::adb_start(), adb()) are the shell lines of gamebot.py; PhoneBot reads the
+ *  touch events and swipes out of them and sends those to the agent (nothing else is sent), the ones that the throw does not wait for in a
+ *  thread of their own.
  *
  *  run() is the loop of gamebot.py around step(): a step, its wait, and an error in a step is told and waited out (10 s).  Experimental: not
  *  tried on a real phone yet.
@@ -26,6 +32,9 @@
 #define PokemonAutomation_ClaudeGG_PokemonGoBot_H
 
 #include <functional>
+#include <memory>
+#include <mutex>
+#include <thread>
 #include <map>
 #include <optional>
 #include <random>
@@ -36,6 +45,7 @@
 #include "ClaudeGG_PokemonGoBrain.h"
 #include "ClaudeGG_PokemonGoPhone.h"
 #include "ClaudeGG_PokemonGoStep.h"
+#include "ClaudeGG_PokemonGoThrowPlay.h"
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -64,9 +74,16 @@ using Switches = std::map<QString, bool>;
 Switches playable(const Switches& asked);
 
 
-class PhoneBot : public Step::Host{
+//  What the person chose that is not a switch: "throw_target" (realistic, nice, great, excellent, off), "ball" and "berries" (the order,
+//  comma separated, as BERRY_ORDER of gamebot.py).
+using Texts = std::map<QString, QString>;
+
+
+class PhoneBot : public Step::Host, public Throw::Host{
 public:
-    PhoneBot(Phone::AgentHost& phone, const Switches& switches);
+    //  `folder`: where what the throws learn is kept (gamebot_throw.json); empty: nowhere.
+    PhoneBot(Phone::AgentHost& phone, const Switches& switches, const Texts& texts = Texts(), const QString& folder = QString());
+    ~PhoneBot() override;
 
     Map::State& map_state(){ return m_map; }
     Step::State& step_state(){ return m_step; }
@@ -114,7 +131,7 @@ public:
     void start_end() override{ m_phone.start_end(); }
 
     //  ---- Map::Host
-    cv::Mat quick_screenshot() override{ return m_phone.screenshot(); }
+    cv::Mat quick_screenshot() override;
     void swipe_async(int x1, int y1, int x2, int y2, int ms) override{ m_phone.swipe(x1, y1, x2, y2, ms); }
     double uniform(double lo, double hi) override;
     double unit() override;
@@ -132,10 +149,27 @@ public:
     std::vector<Detection> buttons(const cv::Mat& img) override{ return m_phone.buttons(img); }
     bool quick_live() override{ return false; }
     double throw_ball(std::optional<bool>& hit) override;
-    QString ball() override{ return "poke"; }
-    QStringList berry_order() override{ return QStringList(); }
-    std::optional<QString> tray_table(const cv::Mat&) override{ return std::nullopt; }
+    QString ball() override;
+    QStringList berry_order() override;
+    std::optional<QString> tray_table(const cv::Mat& gray) override{ return m_phone.ocr_table(gray); }
     double step() override{ return Step::step(*this, m_map, m_step); }
+
+    //  ---- Throw::Host
+    QStringList input_cmd() override{ return {"input"}; }
+    Point to_real(double x, double y) override;
+    double gauss(double mu, double sigma) override;
+    QString setting_text(const QString& key, const QString& fallback) override;
+    double quick_time() override{ return m_quick_t; }
+    bool live_on() override{ return false; }
+    std::vector<std::pair<double, cv::Mat>> live_frames(double, double) override{ return {}; }
+    Throw::Later screenshot_later() override;
+    int adb_start(const QStringList& argv, bool capture) override;
+    QString adb_communicate(int handle) override;
+    void adb_wait(int handle) override;
+    void adb(const QStringList& args) override;
+    std::vector<Detection> encounter_objects(const cv::Mat& img) override{ return m_phone.encounter_objects(img); }
+    std::pair<double, double> throw_params(double cx, double cy, double w, double h) override;
+    void save_cal(const Throw::Cal& cal) override;
 
     //  ---- Step::Host
     std::pair<std::optional<double>, std::optional<double>> read_heat() override;
@@ -159,8 +193,23 @@ public:
     void resume_catch_later(double seconds) override;
 
 private:
+    //  A command of the throw for the phone, sent to the agent: what the phone wrote (throws std::runtime_error when the agent says no).
+    QString send(const QStringList& args);
+    struct Running{
+        std::thread thread;
+        QString out;
+        QString error;
+    };
+
     Phone::AgentHost& m_phone;
     Switches m_switches;
+    Texts m_texts;
+    QString m_folder;
+    Throw::Memory m_memory;
+    double m_quick_t = 0.0;
+    std::mutex m_running_lock;
+    std::map<int, std::unique_ptr<Running>> m_running;
+    int m_next_handle = 1;
     PhoneDetector m_detector;
     Brain::Eyes m_eyes;
     Map::State m_map;

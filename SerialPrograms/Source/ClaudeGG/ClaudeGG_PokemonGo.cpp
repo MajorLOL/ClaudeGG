@@ -64,9 +64,9 @@ struct Preset{
     bool choose = false;    //  Auto play: what it does (spin, catch, gifts, Rocket, GO Pass) is chosen with the options
 };
 
-//  Can Claude GG play this preset itself (the parts of gamebot.py that are ported to C++)?  Spinning PokéStops, for now.
+//  Can Claude GG play this preset itself (the parts of gamebot.py that are ported to C++)?  Spinning PokéStops and catching Pokémon, for now.
 bool claude_can_play(const Preset& preset){
-    return preset.kind == Kind::SERVICE && preset.spin && !preset.catching && !preset.gifts && !preset.daily && !preset.rocket && !preset.quests
+    return preset.kind == Kind::SERVICE && (preset.spin || preset.catching) && !preset.gifts && !preset.daily && !preset.rocket && !preset.quests
         && !preset.choose;
 }
 
@@ -556,7 +556,7 @@ public:
             return;
         }
         if (claude_can_play(m_preset) && PLAYER == Player::CLAUDE_GG){
-            run_spin(env, scope, host, port);
+            run_play(env, scope, host, port);
             return;
         }
         //  Stopping a test waits for the game to be back on the map: that takes longer than a tap.
@@ -735,7 +735,7 @@ private:
 
     //  What Claude GG needs to play itself: an agent that is new enough, a phone that answers, Tesseract on this computer, and the Python bot
     //  not playing at the same time.  Returns the tesseract program.
-    QString prepare_phone(ProgramEnvironment& env, const QString& address, int port, const QString& token, bool battles){
+    QString prepare_phone(ProgramEnvironment& env, const QString& address, int port, const QString& token, bool battles, bool catching = false){
         const MobileAgent agent(address, port, token);
         const MobileAgent patient(address, port, token, 60000);
         const std::string where = address.toStdString() + ":" + std::to_string(port);
@@ -755,6 +755,13 @@ private:
                     "(the token stays the same). Or choose the Python bot on the Pi under Who plays."
                 );
             }
+        }
+        if (catching && !info.features.contains("touch")){
+            throw UserSetupError(
+                env.logger(),
+                "The agent on the Raspberry Pi is too old (" + info.version.toStdString() + ") for Claude GG to throw a ball (0.2.2 and later): on the "
+                "Pi, in the folder of the clone, run  git pull  and then  bash Mobile/agent/install-agent.sh. Or choose the Python bot on the Pi under Who plays."
+            );
         }
         if (info.width <= 0 || info.height <= 0){
             throw UserSetupError(env.logger(), "The phone on the Raspberry Pi does not answer (is it on, unlocked, and does adb devices show it?).");
@@ -814,10 +821,15 @@ private:
         return options;
     }
 
-    //  Spin PokéStops with Claude GG itself (the steps of gamebot.py ported to C++, over the agent).  Experimental.
-    void run_spin(ProgramEnvironment& env, CancellableScope& scope, const QString& address, int port){
+    //  Spin PokéStops and catch Pokémon with Claude GG itself (the steps of gamebot.py ported to C++, over the agent).  Experimental.
+    void run_play(ProgramEnvironment& env, CancellableScope& scope, const QString& address, int port){
         const QString token = mobile_token();
-        const QString tesseract = prepare_phone(env, address, port, token, false);
+        const MobileBotStart start = settings();
+        bool catching = false;
+        for (const std::pair<QString, bool>& option : start.options){
+            catching = catching || (option.first == "catch" && option.second);
+        }
+        const QString tesseract = prepare_phone(env, address, port, token, false, catching);
         const QString folder = QString::fromStdString(USER_FILE_PATH()) + "PokemonGo";
         QDir().mkpath(folder);
         const PokemonGo::Phone::Options options = phone_options(tesseract, folder);
@@ -837,11 +849,16 @@ private:
             throw UserSetupError(env.logger(), "The models of " + options.models.toStdString() + " cannot be used: see the log above.");
         }
         PokemonGo::Bot::Switches switches;
-        for (const std::pair<QString, bool>& option : settings().options){
+        for (const std::pair<QString, bool>& option : start.options){
             switches[option.first] = option.second;
         }
-        PokemonGo::Bot::PhoneBot bot(phone, switches);
-        env.log("Claude GG spins the PokéStops itself (experimental; catching, gifts, Team GO Rocket and the bag clean-up are not in Claude GG yet).");
+        PokemonGo::Bot::Texts texts;
+        if (!start.throw_target.isEmpty()){
+            texts["throw_target"] = start.throw_target;
+        }
+        PokemonGo::Bot::PhoneBot bot(phone, switches, texts, folder);
+        env.log(std::string(catching ? "Claude GG catches the Pokémon itself" : "Claude GG spins the PokéStops itself")
+            + " (experimental; gifts, Team GO Rocket, the GO Pass and the bag clean-up are not in Claude GG yet).");
         try{
             PokemonGo::Bot::run(bot);
         }catch (const PokemonGo::Flow::Interrupted&){

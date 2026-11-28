@@ -58,6 +58,9 @@ public:
     //  The text of a picture that holds nothing else (black letters on white): one line, or a few under each other
     //  (lines > 1) as one.  "" when nothing is read or the program is not there.
     QString line(const cv::Mat& img, int lines = 1) const;
+    //  The table that the program writes (`--psm 11 tsv`) for a picture as it is (gamebot.tray_labels(): the berry tray).  Nothing when the
+    //  program is not there or does not start; throws std::runtime_error when it does not answer in 30 s.
+    std::optional<QString> table(const cv::Mat& img) const;
 
     //  Where the program is looked for: the setting CLAUDEGG_TESSERACT, the PATH and, on Windows, the folders that its
     //  installers use.  Empty: not found.

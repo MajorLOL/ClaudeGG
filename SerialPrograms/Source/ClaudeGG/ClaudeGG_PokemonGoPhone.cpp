@@ -568,6 +568,35 @@ std::vector<Models::Detection> AgentHost::buttons(const cv::Mat& img){
     }
 }
 
+std::vector<Models::Detection> AgentHost::encounter_objects(const cv::Mat& img){
+    std::lock_guard<std::mutex> lock(m_models_lock);
+    Models::Models* models = models_locked();
+    if (models == nullptr){
+        return {};
+    }
+    try{
+        return models->encounter_objects(img);
+    }catch (const std::exception& e){
+        models_broke(e);
+        return {};
+    }
+}
+
+std::optional<std::pair<double, double>> AgentHost::throw_params(double cx, double cy, double w, double h){
+    std::lock_guard<std::mutex> lock(m_models_lock);
+    Models::Models* models = models_locked();
+    if (models == nullptr){
+        return std::nullopt;
+    }
+    try{
+        const Models::ThrowParams p = models->throw_params(cx, cy, w, h);
+        return std::make_pair(p.dy_px, p.duration_ms);
+    }catch (const std::exception& e){
+        models_broke(e);
+        return std::nullopt;
+    }
+}
+
 void AgentHost::wake(){
     QString error;
     if (!m_agent.wake(&error)){
