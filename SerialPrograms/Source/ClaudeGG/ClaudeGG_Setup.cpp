@@ -87,6 +87,7 @@
 #include "ClaudeGG_Language.h"
 #include "ClaudeGG_Mobile.h"
 #include "ClaudeGG_Panel.h"
+#include "ClaudeGG_PiCard.h"
 #include "ClaudeGG_Scrub.h"
 #include "ClaudeGG_Setup.h"
 #include "ClaudeGG_Theme.h"
@@ -8936,6 +8937,8 @@ public:
         const bool can_test = canvas.request().mobile_check && m_stage != 1 && !m_host->text().trimmed().isEmpty();
         const QString test_text = m_stage == 1 ? T("Testing...") : T("Test the connection");
         const double test_width = draw_button(canvas, painter, "pi-test", test_text, 140, top + 348, ButtonKind::SECONDARY, shown, can_test);
+        //  No Raspberry Pi set up yet: Claude GG prepares its SD card (ClaudeGG_PiCard).
+        draw_button(canvas, painter, "pi-card", T("No Pi yet? Prepare an SD card..."), 140, top + 424, ButtonKind::LINK, shown, m_stage != 1);
         if (m_stage != 0){
             //  What the test says is made of the answer of the Pi: not translated.
             const QString line = m_stage == 1 ? T("Asking the Raspberry Pi...") : m_message;
@@ -8984,6 +8987,8 @@ public:
     virtual void activate(Canvas& canvas, const QString& id) override{
         if (id == "pi-test"){
             start_check();
+        }else if (id == "pi-card"){
+            prepare_card();
         }else if (id == "continue"){
             proceed(canvas);
         }else if (id == "back"){
@@ -9083,6 +9088,21 @@ private:
             state->message = message;
             state->done.store(true, std::memory_order_release);
         }).detach();
+    }
+    //  The window of the SD card: when the card is ready, its address and token are filled in here (a token that was filled in
+    //  already is put on the card, so that it keeps working).
+    void prepare_card(){
+        if (m_stage == 1){
+            return;
+        }
+        PiCard::open_dialog(m_canvas, m_token->text().trimmed(), [this](const QString& host, const QString& token){
+            m_host->setText(host);
+            m_port->setText("8765");
+            m_token->setText(token);
+            m_stage = 2;
+            m_message = T("The SD card is ready: start the Pi with it, wait 10 to 15 minutes, then test the connection.");
+        });
+        m_canvas->setFocus();
     }
     int port_value() const{
         const int port = m_port->text().toInt();
@@ -13457,6 +13477,16 @@ int run_setup_test(QApplication& application, const QString& folder){
         checker.check(phone.result().console_chosen && phone.result().console_code == "mobile", "the console is the answer");
         checker.check(phone.page_state().startsWith("host=192.168.7.7;port=8765;token=set;test=idle"), "what was kept of the Raspberry Pi is filled in");
         checker.check(phone.has_hit("pi-test") && phone.hit_enabled("pi-test") && phone.has_hit("back") && phone.has_hit("continue"), "the page has the test, Back and Continue");
+        checker.check(phone.has_hit("pi-card") && phone.hit_enabled("pi-card"), "and the way to prepare an SD card for a Pi");
+        {
+            //  The files that the SD card gets (no drive is touched).
+            QStringList card_report;
+            const int card_failures = PiCard::run_checks(card_report);
+            for (const QString& line : card_report){
+                checker.check(false, line);
+            }
+            checker.check(card_failures == 0, "the files of the SD card of the Pi");
+        }
         save(phone, folder, "setup-62-pi");
         save_preview(phone, folder, "preview-pi");
 
