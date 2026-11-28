@@ -24,6 +24,7 @@
 #include "NintendoSwitch/Controllers/Joycon/NintendoSwitch_JoyconState.h"
 #include "ClaudePlays/ClaudePlays_AnyGame.h"
 #include "ClaudePlays/ClaudePlays_Program.h"
+#include "ClaudeGG_KeyboardState.h"
 #include "ClaudeGG_Language.h"
 #include "ClaudeGG_Macro.h"
 
@@ -38,9 +39,6 @@ using ClaudePlays::game_profile;
 
 
 void add_macro(std::vector<PanelEntry>& list, GameId game){
-    if (game_profile(game).pad == PadKind::IPHONE_KEYBOARD){
-        return;
-    }
     list.emplace_back("---- Macro ----");
     list.emplace_back(std::make_unique<Macro_Descriptor>(game));
 }
@@ -146,6 +144,13 @@ bool read_stick(const JsonObject& step, const char* x_key, const char* y_key, do
 std::string describe_step(PadKind pad, const JsonObject& step){
     std::vector<std::string> parts;
 
+    //  A keyboard (the iPhone): the keys by their names.
+    KeyboardMacroState keyboard;
+    keyboard.load_json(step);
+    for (KeyboardKey key : keyboard.keys){
+        parts.emplace_back(keyboard_key_name(key));
+    }
+
     std::string buttons;
     if (step.read_string(buttons, "buttons") && !buttons.empty()){
         const Button held = string_to_button(buttons, " ");
@@ -230,7 +235,10 @@ Macro_Descriptor::Macro_Descriptor(GameId game)
         "",
         description_of(game),
         PanelQualityStanding::EXPERIMENTAL,
-        ProgramControllerClass::StandardController_NoRestrictions,
+        //  The iPhone's board is a keyboard.
+        game_profile(game).pad == PadKind::IPHONE_KEYBOARD
+            ? ProgramControllerClass::SpecializedController
+            : ProgramControllerClass::StandardController_NoRestrictions,
         //  The video only for the goal picture.
         FeedbackType::OPTIONAL_,
         //  You play while it records.
@@ -268,6 +276,13 @@ namespace{
 //  has the names of the Switch.
 std::string button_names_text(GameId game){
     const ClaudePlays::GameProfile& profile = game_profile(game);
+    if (profile.pad == PadKind::IPHONE_KEYBOARD){
+        return tr_ui(
+            "<b>Keys:</b> the board plays a keyboard, and the log shows the keys by their names (TAB, ENTER, "
+            "UP ...). Everything you type while it records is kept in the file: do not type a password then. "
+            "The list below is for a Switch pad only."
+        ).toStdString();
+    }
     if (profile.pad == PadKind::PRO_CONTROLLER || profile.pad == PadKind::RIGHT_JOYCON){
         return tr_ui(
             "<b>Buttons:</b> the list below and the log use the names of the Switch."
@@ -549,7 +564,10 @@ uint64_t play_steps(
 
 //  Lets go of everything: what is held when a round ends or is cut short.
 void release_all(AbstractControllerContext& context, std::chrono::milliseconds duration){
-    if (context.controller().controller_class() == ControllerClass::NintendoSwitch_ProController){
+    const ControllerClass type = context.controller().controller_class();
+    if (type == ControllerClass::HID_Keyboard){
+        KeyboardMacroState().execute(&context, false, context.controller(), duration);
+    }else if (type == ControllerClass::NintendoSwitch_ProController){
         ProControllerState().execute(&context, false, context.controller(), duration);
     }else{
         JoyconState().execute(&context, false, context.controller(), duration);
@@ -687,14 +705,25 @@ void Macro::play(SingleSwitchProgramEnvironment& env, CancellableScope& scope){
         COLOR_BLUE
     );
     play_rounds(env, scope, [&](AbstractControllerContext& context){
-        return type == ControllerClass::NintendoSwitch_ProController
-            ? play_steps<ProControllerState>(context, steps, speed)
-            : play_steps<JoyconState>(context, steps, speed);
+        switch (type){
+        case ControllerClass::HID_Keyboard:
+            return play_steps<KeyboardMacroState>(context, steps, speed);
+        case ControllerClass::NintendoSwitch_ProController:
+            return play_steps<ProControllerState>(context, steps, speed);
+        default:
+            return play_steps<JoyconState>(context, steps, speed);
+        }
     });
 }
 
 
 void Macro::play_list(SingleSwitchProgramEnvironment& env, CancellableScope& scope){
+    if (env.console.controller().controller_class() == ControllerClass::HID_Keyboard){
+        throw UserSetupError(
+            env.logger(),
+            "The list has the buttons of a Switch pad, and this board plays a keyboard: record a macro instead."
+        );
+    }
     play_rounds(env, scope, [&](AbstractControllerContext& context){
         LIST.run(context, context.controller());
         return (uint64_t)0;
@@ -806,6 +835,20 @@ public:
         start["ms"] = (int64_t)80;
         check(describe_step(PadKind::XBOXONE_CONTROLLER, start) == "MENU, 80 ms", "Xbox One: " + describe_step(PadKind::XBOXONE_CONTROLLER, start));
         check(describe_step(PadKind::PS4_CONTROLLER, start) == "OPTIONS, 80 ms", "PS4: " + describe_step(PadKind::PS4_CONTROLLER, start));
+
+        JsonObject keys;
+        JsonArray codes;
+        codes.push_back((int64_t)KEY_LEFT_SHIFT);
+        codes.push_back((int64_t)KEY_TAB);
+        keys["keys"] = std::move(codes);
+        keys["ms"] = (int64_t)90;
+        check(
+            describe_step(PadKind::IPHONE_KEYBOARD, keys) == "TAB + LEFT_SHIFT, 90 ms",
+            "iPhone keys: " + describe_step(PadKind::IPHONE_KEYBOARD, keys)
+        );
+        KeyboardMacroState back;
+        back.load_json(KeyboardMacroState(std::set<KeyboardKey>{KEY_ENTER, KEY_A}).to_json());
+        check(back.keys == std::vector<KeyboardKey>{KEY_A, KEY_ENTER}, "keys to a file and back");
 
         if (failures.empty()){
             return true;

@@ -371,9 +371,7 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                 }else if (wiiu){
                     wiiu_ok = listed_game.programs == (int)WiiU::wiiu_program_count() && only("wiiu");
                 }else if (LATER.count(listed_game.name) != 0){
-                    //  Claude Plays and Macro; the iPhone has no Macro (ClaudeGG_Macro.h).
-                    const int programs = listed_game.name == "iPhone apps" ? 1 : 2;
-                    if (listed_game.programs == programs && only(LATER.at(listed_game.name))){
+                    if (listed_game.programs == 2 && only(LATER.at(listed_game.name))){
                         later_ok++;
                     }else{
                         retro_wrong = true;
@@ -1632,7 +1630,7 @@ int check_assistant(const QString& out, Logger& logger){
         }
     }
     //  The games that have nothing but Claude Plays: their list is its name,
-    //  a card, that program and Macro (not for the iPhone: ClaudeGG_Macro.h).
+    //  a card, that program and Macro (ClaudeGG_Macro.h).
     int list_cases = 0;
     for (ClaudePlays::GameId id : ClaudePlays::all_games()){
         if (!ClaudePlays::has_only_claude_plays(id)){
@@ -1644,10 +1642,7 @@ int check_assistant(const QString& out, Logger& logger){
         const ImageViewRGB32& card = list.icon();
         const std::vector<PanelListDescriptor::ProgramSummary> programs = list.program_summaries();
         if (list.name() != profile.title || !card || card.width() != 256 || card.height() != 128 ||
-            programs.empty() || programs[0].name != "Claude Plays" ||
-            (profile.pad == ClaudePlays::PadKind::IPHONE_KEYBOARD
-                ? programs.size() != 1
-                : programs.size() != 2 || programs[1].name != "Macro")
+            programs.size() != 2 || programs[0].name != "Claude Plays" || programs[1].name != "Macro"
         ){
             wrong++;
             logger.log("Assistant test: failed: the list of " + profile.title + " (a card, Claude Plays and Macro)", COLOR_RED);

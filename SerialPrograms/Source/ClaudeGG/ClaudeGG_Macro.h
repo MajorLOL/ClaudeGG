@@ -33,8 +33,9 @@
  *  computer between two steps. Steps are not written to the log while they
  *  play.
  *
- *  Not for the iPhone (a keyboard of the board): what it presses is not
- *  recorded.
+ *  The iPhone (a board that plays a keyboard) records and plays its keys
+ *  (ClaudeGG_KeyboardState.h); the list of steps is for a Switch pad only.
+ *  Everything typed while it records is in the file: no passwords then.
  *
  */
 
@@ -65,8 +66,7 @@ class JsonObject;
 namespace ClaudeGG{
 
 
-//  Adds the section "Macro" with the program to the list of a game. Nothing
-//  for the iPhone.
+//  Adds the section "Macro" with the program to the list of a game.
 void add_macro(std::vector<PanelEntry>& list, ClaudePlays::GameId game);
 
 //  The name of a macro as a file name: letters, digits, spaces, "-" and "_"

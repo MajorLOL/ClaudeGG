@@ -131,6 +131,7 @@ Besides the fixes (section 6), the changes in files that the original has are th
 | `ProgramNotifications.cpp`, `DppCommandHandler.cpp`, `DiscordSocial.cpp`, `PokemonBDSP_ShinyEncounterDetector.cpp` | The links in messages point to this project | They said Pokémon Automation's page. |
 | `*Session.h` of the panels and consoles | A small hook for the new screens | The program's screen holds the original's panel widget inside it. |
 | `PokemonFRLG_*` (inference, navigation, panels, hunts) | Shiny clips; readers that the AutoStory also uses; the fixes 10, 11 and 20 | The AutoStory is built on them. |
+| `StandardHid_Keyboard.cpp` | What is held on the keyboard of a board that plays a keyboard goes to a recording (`on_command_input()`, which the original had commented out for want of a keyboard state; the state is `ClaudeGG_KeyboardState.h`) | The program Macro records the iPhone's keys too. |
 | `.github/workflows/cpp-ci-*.yml` (8 files) | Removed | They would start 20 to 40 minutes of builds on three systems at every push and pull request of this repository, where `main` is the branch of Claude GG itself; Claude GG's own workflow builds and tests all of them. `tabs.yml` stays. |
 | `IconResource/*`, `README.md`, `.gitignore`, `SerialPrograms/CMakeLists.txt`, `cmake/SourceFiles.cmake` | Icons, the readme, the generated build number is ignored, new files are listed | |
 
