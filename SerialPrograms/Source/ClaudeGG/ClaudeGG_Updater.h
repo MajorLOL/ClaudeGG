@@ -83,9 +83,6 @@ QString updates_folder(const QString& data);
 //  A package that brings such a file only adds it when it is missing.
 bool keep_users_file(const QString& relative_path);
 
-//  The SHA-256 of a file, 64 digits in lower case; empty when it cannot be read.
-QString file_sha256(const QString& path);
-
 //  Unpacks a zip into "folder" (made when missing). Refuses names that leave
 //  the folder ("..", a drive, a "/" at the start). False, with a reason, when
 //  anything could not be read or written; "cancel" stops it between files.

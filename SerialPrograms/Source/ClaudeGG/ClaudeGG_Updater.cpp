@@ -143,19 +143,6 @@ bool keep_users_file(const QString& relative_path){
 }
 
 
-QString file_sha256(const QString& path){
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly)){
-        return QString();
-    }
-    QCryptographicHash hash(QCryptographicHash::Sha256);
-    if (!hash.addData(&file)){
-        return QString();
-    }
-    return QString::fromLatin1(hash.result().toHex());
-}
-
-
 bool unpack_zip(const QString& zip, const QString& folder, QString& error, const std::atomic<bool>* cancel){
     //  Read through Qt, so that a folder with any name works (miniz opens
     //  files with the narrow names of the C library).
