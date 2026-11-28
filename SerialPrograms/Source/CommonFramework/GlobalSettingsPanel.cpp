@@ -98,6 +98,7 @@ GlobalSettings::GlobalSettings()
             {SetupConsole::XBOX_DIRECT, "xboxdirect", "Xbox One and Series (direct, through a bought adapter)"},
             {SetupConsole::STEAM,       "steam",      "Steam Deck and PC (the wired board as a gamepad)"},
             {SetupConsole::VITA,        "vita",       "PlayStation Vita (over the network, vita-agent-bridge)"},
+            {SetupConsole::N3DS,        "3ds",        "Nintendo 3DS (over the network, Luma3DS and NTR-HR)"},
         },
         LockMode::UNLOCK_WHILE_RUNNING,
         SetupConsole::NONE
@@ -131,6 +132,14 @@ GlobalSettings::GlobalSettings()
         "shows it), for example 192.168.1.60. Its token goes in the file .vita-agent-token in your home folder.",
         LockMode::UNLOCK_WHILE_RUNNING,
         "", "192.168.1.60"
+    )
+    , N3DS_HOST(
+        false,
+        "<b>Nintendo 3DS, address:</b><br>"
+        "The address of a 3DS with Luma3DS and NTR-HR (the Rosalina menu shows it under Misc. settings, "
+        "InputRedirection), for example 192.168.1.70.",
+        LockMode::UNLOCK_WHILE_RUNNING,
+        "", "192.168.1.70"
     )
     , OPEN_SETUP_BUTTON(
         "<b>Setup:</b><br>"
@@ -319,6 +328,7 @@ GlobalSettings::GlobalSettings()
     PA_ADD_OPTION(MOBILE_PORT);
     PA_ADD_OPTION(WIIU_HOST);
     PA_ADD_OPTION(VITA_HOST);
+    PA_ADD_OPTION(N3DS_HOST);
     PA_ADD_OPTION(OPEN_SETUP_BUTTON);
     PA_ADD_OPTION(ASK_LANGUAGE);
     PA_ADD_OPTION(ASK_SETUP);

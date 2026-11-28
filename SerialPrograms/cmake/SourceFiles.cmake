@@ -1607,6 +1607,8 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_Update.h
     Source/ClaudeGG/ClaudeGG_Vita.cpp
     Source/ClaudeGG/ClaudeGG_Vita.h
+    Source/ClaudeGG/ClaudeGG_3DS.cpp
+    Source/ClaudeGG/ClaudeGG_3DS.h
     Source/ClaudeGG/ClaudeGG_WiiU.cpp
     Source/ClaudeGG/ClaudeGG_WiiU.h
     Source/Pokemon/Inference/Pokemon_AbilityReader.cpp
