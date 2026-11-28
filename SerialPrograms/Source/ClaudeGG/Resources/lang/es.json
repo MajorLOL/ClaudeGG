@@ -449,5 +449,6 @@
  "Connect the ESP32 to the computer with a USB cable. Keep it within 1 m (3 ft) of the BlueRetro adapter.": "Conecta el ESP32 al ordenador con un cable USB. Mantenlo a menos de 1 m del adaptador BlueRetro.",
  "Wireless, through a BlueRetro adapter. Experimental. Seven steps.": "Inalámbrico, a través de un adaptador BlueRetro. Experimental. Siete pasos.",
  "BlueRetro and your console": "BlueRetro y tu consola",
- "Through BlueRetro: PS1, PS2, GameCube, N64, Dreamcast": "A través de BlueRetro: PS1, PS2, GameCube, N64, Dreamcast"
+ "Through BlueRetro: PS1, PS2, GameCube, N64, Dreamcast": "A través de BlueRetro: PS1, PS2, GameCube, N64, Dreamcast",
+ "A Raspberry Pi as its GamePad": "Una Raspberry Pi como GamePad"
 }

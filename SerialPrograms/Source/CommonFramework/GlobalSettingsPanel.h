@@ -69,6 +69,7 @@ enum class SetupConsole{
     PS3,        //  PlayStation 3, through a wired board that it sees as a USB gamepad.
     XBOX,       //  The original Xbox, through that board and a Pico with OGX-Mini.
     RETRO,      //  PlayStation, PlayStation 2, GameCube, Nintendo 64, Dreamcast: a wireless board and BlueRetro.
+    WIIU,       //  Nintendo Wii U: a Raspberry Pi that the Wii U takes as its GamePad (WiiU/vanilla-bridge).
 };
 
 
@@ -113,6 +114,9 @@ public:
     //  the assistant (see ClaudeGG_Mobile.h).
     StringOption MOBILE_HOST;
     SimpleIntegerOption<uint16_t> MOBILE_PORT;
+    //  The Raspberry Pi that is the GamePad of a Wii U (the console "wiiu"):
+    //  where its bridge is (see ClaudeGG/ClaudeGG_WiiU.h).
+    StringOption WIIU_HOST;
     ButtonOption OPEN_SETUP_BUTTON;
     BooleanCheckBoxOption ASK_LANGUAGE;
     BooleanCheckBoxOption ASK_SETUP;
