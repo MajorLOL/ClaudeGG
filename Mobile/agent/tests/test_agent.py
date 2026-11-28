@@ -168,7 +168,7 @@ class AgentTest(unittest.TestCase):
             status, body = self.json("GET", path)
             self.assertEqual(status, 200)
             self.assertEqual(body["version"], agent.VERSION)
-            for feature in ("tap_kind", "app", "bot_file", "touch"):
+            for feature in ("tap_kind", "app", "bot_file", "touch", "app_list"):
                 self.assertIn(feature, body["features"], "Claude GG asks for %s before it plays itself" % feature)
 
     def test_the_token_is_needed(self):
@@ -291,6 +291,30 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(self.json("POST", "/v1/app", {"action": "start", "package": GAME})[0], 200)
         self.assertEqual(self.json("POST", "/v1/app", {"action": "start", "package": GAME})[0], 200)
         self.assertEqual(self.json("POST", "/v1/app", {"action": "end", "package": GAME})[0], 200)
+
+    def test_the_installed_apps_are_listed_the_play_store_one_first(self):
+        status, body = self.json("POST", "/v1/app", {"action": "list"})
+        self.assertEqual((status, body), (200, {"ok": True, "packages": [GAME, GAME + ".ares"]}))
+        self.assertEqual(self.agent.calls(), ["shell pm list packages pokemongo"])
+        #  (the same with a package in the body, and an app that /v1/app could not close is not in the list)
+        self.assertEqual(self.json("POST", "/v1/app", {"action": "list", "package": "whatever"})[1]["packages"], [GAME, GAME + ".ares"])
+
+    def test_the_list_of_apps_in_other_cases(self):
+        for answer, expected in (("package:com.nianticlabs.pokemongo.ares", [GAME + ".ares"]),
+                                 ("package:com.nianticlabs.pokemongo.b|package:com.nianticlabs.pokemongo.a|package:com.nianticlabs.pokemongo",
+                                  [GAME, GAME + ".a", GAME + ".b"]),
+                                 ("package:com.nianticlabs.pokemongo  |junk|package:com.nianticlabs.pokemongo|Error: no", [GAME]),
+                                 ("package:com.example.pokemongo.fan", []), ("", [])):
+            os.environ["FAKE_PACKAGES"] = answer
+            self.addCleanup(os.environ.pop, "FAKE_PACKAGES", None)
+            self.assertEqual(self.json("POST", "/v1/app", {"action": "list"})[1]["packages"], expected, answer)
+
+    def test_the_list_of_apps_says_when_the_phone_does_not_answer(self):
+        os.environ["FAKE_ADB_FAIL"] = "1"
+        self.addCleanup(os.environ.pop, "FAKE_ADB_FAIL", None)
+        status, body = self.json("POST", "/v1/app", {"action": "list"})
+        self.assertEqual(status, 502)
+        self.assertIn("device offline", body["error"])
 
     def test_nothing_was_started(self):
         self.assertEqual(self.json("POST", "/v1/app", {"action": "state", "package": GAME})[0], 409)

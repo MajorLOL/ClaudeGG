@@ -32,7 +32,8 @@ taps, swipes and keys go through one `adb shell` that stays open (ShellSession):
     POST /v1/app     {action, package}  the Pokemon GO app (a package like com.nianticlabs.pokemongo): "stop" closes it,
                                         "start" starts it without waiting for the game to be up (monkey can take half a
                                         minute), "state" says how that start is going ({running, code, error}), "end" lets
-                                        go of the start command that still runs
+                                        go of the start command that still runs, "list" (no package) says which Pokemon GO
+                                        apps are installed ({packages}: the Play Store one first)
     GET  /v1/bot?lines=40               the Pokemon GO bot (gamebot.py, installed in the home folder as the service
                                         spin-stop): installed, running, its options, the end of its log, the
                                         counters of today, the GO Battle League matches of today, and the
@@ -68,9 +69,9 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.2.2"
+VERSION = "0.2.3"
 #  What this agent can do that the first one (0.1.0) could not; Claude GG asks for these before a program of its own plays.
-FEATURES = ("tap_kind", "app", "bot_file", "touch")
+FEATURES = ("tap_kind", "app", "bot_file", "touch", "app_list")
 DEFAULT_PORT = 8765
 MAX_BODY = 64 * 1024
 MAX_STROKES = 50
@@ -106,7 +107,8 @@ BOT_BATTLE_LEAGUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 '\-]{0,39}$")
 BOT_BATTLE_COUNT = (1, 50)
 #  The apps that /v1/app may close and start: the Pokemon GO of the Play Store and the other stores.
 APP_PACKAGE = re.compile(r"^com\.nianticlabs\.pokemongo[A-Za-z0-9._]{0,60}$")
-APP_ACTIONS = ("stop", "start", "state", "end")
+APP_ACTIONS = ("stop", "start", "state", "end", "list")
+APP_MAIN = "com.nianticlabs.pokemongo"      #  the Play Store version: always first in the list
 APP_ERROR_BYTES = 2000      #  how much of what the start command wrote as an error is told
 BOT_CHAPTER_KEY = re.compile(r"^[a-z][a-z_]{0,29}$")
 BOT_TEST_STOP_WAIT = 20          #  seconds the service has to stop before a test begins
@@ -624,6 +626,11 @@ class Phone:
         package = body.get("package")
         if action not in APP_ACTIONS:
             raise AgentError(400, "action is " + ", ".join('"%s"' % a for a in APP_ACTIONS))
+        if action == "list":
+            #  The apps of the stores that have "pokemongo" in their name (as `pm list packages` says), the ones /v1/app may close and start.
+            out = self.adb.run("shell", "pm", "list", "packages", "pokemongo")
+            found = {line.split(":", 1)[1].strip() for line in out.splitlines() if line.startswith("package:")}
+            return {"packages": sorted((p for p in found if APP_PACKAGE.match(p)), key=lambda p: (p != APP_MAIN, p))}
         if not isinstance(package, str) or not APP_PACKAGE.match(package):
             raise AgentError(400, "package is the name of a Pokemon GO app (com.nianticlabs.pokemongo...)")
         with self._launch_lock:

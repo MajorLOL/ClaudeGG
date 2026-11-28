@@ -171,6 +171,8 @@ public:
     void swipes(const std::vector<Stroke>& strokes);
     //  The Pokémon GO app that is played (Options::package).
     const QString& package() const{ return m_options.package; }
+    //  Another app is played from now on (the daily run plays the apps of the phone one after the other).
+    void set_package(const QString& package){ m_options.package = package; }
     void back() override;
     std::pair<QString, double> screen_class(const cv::Mat& img) override;
     void restart_game() override;
