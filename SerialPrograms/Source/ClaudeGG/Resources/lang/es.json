@@ -2212,5 +2212,19 @@
  "Reaction time in the log: every action of Claude Plays says how long Claude took and how long the console took, so you see where the time goes.": "Tiempo de reacción en el registro: cada acción de Claude Plays dice cuánto tardó Claude y cuánto la consola, para que veas adónde se va el tiempo.",
  "Macro, in the list Other Games: record what you press and play it back.": "Macro, en la lista Other Games: graba lo que pulsas y reprodúcelo.",
  "Pokemon GO: Auto play (spinning, catching, gifts, Team GO Rocket and the GO Pass, each one to choose), the Daily run, the GO Battle League and more.": "Pokemon GO: Auto play (girar, capturar, regalos, Team GO Rocket y el GO Pass, cada uno a elegir), el Daily run, la Liga Combates GO y más.",
- "Macro: record what you press on the keyboard or a controller, and play it back as often and as fast as you want.": "Macro: graba lo que pulsas en el teclado o en un mando, y reprodúcelo tantas veces y tan rápido como quieras."
+ "Macro: record what you press on the keyboard or a controller, and play it back as often and as fast as you want.": "Macro: graba lo que pulsas en el teclado o en un mando, y reprodúcelo tantas veces y tan rápido como quieras.",
+ "Search": "Buscar",
+ "Another console": "Otra consola",
+ "Claude": "Claude",
+ "Step %1 of %2": "Paso %1 de %2",
+ "Done": "Hecho",
+ "Skip the tour": "Saltar el recorrido",
+ "Show the tour": "Mostrar el recorrido",
+ "Each tile is a game of your console. Click one: its programs come next, each with its options and a Start button.": "Cada mosaico es un juego de tu consola. Haz clic en uno: después vienen sus programas, cada uno con sus opciones y un botón Iniciar.",
+ "Type a few letters to find a program in every game at once.": "Escribe unas letras para encontrar un programa en todos los juegos a la vez.",
+ "The games follow the console. Pick another one here; the setup then shows what the new one needs.": "Los juegos dependen de la consola. Elige otra aquí; la configuración muestra entonces lo que necesita la nueva.",
+ "What you need for each console, how it connects, how quick it is and what to do when it does not work.": "Lo que necesitas para cada consola, cómo se conecta, qué tan rápida es y qué hacer cuando no funciona.",
+ "The capture card, the sound, the language, the theme and the console. Ctrl+F searches them.": "La capturadora, el sonido, el idioma, el tema y la consola. Ctrl+F busca en ellos.",
+ "Ask Claude about a program or the log, or let Claude Plays play a game. It needs an API key of your own.": "Pregunta a Claude por un programa o el registro, o deja que Claude Plays juegue a un juego. Necesitas una clave API propia.",
+ "What the program does while it runs, and why it stopped when something went wrong.": "Lo que hace el programa mientras funciona, y por qué se detuvo cuando algo salió mal."
 }

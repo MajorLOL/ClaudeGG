@@ -15,6 +15,7 @@
 #ifndef PokemonAutomation_ClaudeGG_ConsoleGuide_H
 #define PokemonAutomation_ClaudeGG_ConsoleGuide_H
 
+#include <functional>
 #include <QString>
 #include <QStringList>
 
@@ -28,9 +29,13 @@ namespace ClaudeGG{
 //  that is shown first ("switch", "switch2", "mobile", "ps3", "xbox",
 //  "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic",
 //  "wiiu"); empty or unknown: the page that compares them all. It follows
-//  the language. "open_setup" is called by its button "Open the setup"
-//  (nothing: the button is not shown).
-QWidget* make_console_guide(QWidget* parent, const QString& console_code, void (*open_setup)() = nullptr);
+//  the language. "open_setup" is called by its button "Open the setup", and
+//  "show_tour" by "Show the tour" (empty: the button is not shown).
+QWidget* make_console_guide(
+    QWidget* parent, const QString& console_code,
+    std::function<void()> open_setup = nullptr,
+    std::function<void()> show_tour = nullptr
+);
 
 //  The codes of the consoles that the guide has a page for, in its order.
 QStringList console_guide_codes();

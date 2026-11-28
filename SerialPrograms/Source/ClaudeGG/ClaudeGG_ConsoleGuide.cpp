@@ -665,6 +665,7 @@ const char* const HEADINGS[] = {
     "Slow",
     "Not known yet",
     "Open the setup",
+    "Show the tour",
     "Pick a console on the left. Each page says what you need, how it is connected, how quick it is and what to do when it does not work.",
     "Written for this console, not tried on one yet.",
     "The way of Pokemon Automation, used by many people.",
@@ -872,9 +873,10 @@ QString guide_html(const Guide& guide){
 
 class ConsoleGuide : public QWidget{
 public:
-    ConsoleGuide(QWidget* parent, const QString& console_code, void (*open_setup)())
+    ConsoleGuide(QWidget* parent, const QString& console_code, std::function<void()> open_setup, std::function<void()> show_tour)
         : QWidget(parent)
-        , m_open_setup(open_setup)
+        , m_open_setup(std::move(open_setup))
+        , m_show_tour(std::move(show_tour))
     {
         setObjectName("ppConsoleGuide");
         QHBoxLayout* layout = new QHBoxLayout(this);
@@ -889,7 +891,15 @@ public:
         m_list->setMinimumWidth(220);
         m_list->setMaximumWidth(280);
         left->addWidget(m_list, 1);
-        if (m_open_setup != nullptr){
+        if (m_show_tour){
+            m_tour = new QPushButton(this);
+            m_tour->setObjectName("ppConsoleGuideTour");
+            left->addWidget(m_tour);
+            connect(m_tour, &QPushButton::clicked, this, [this]{
+                m_show_tour();
+            });
+        }
+        if (m_open_setup){
             m_setup = new QPushButton(this);
             m_setup->setObjectName("ppConsoleGuideSetup");
             left->addWidget(m_setup);
@@ -943,6 +953,9 @@ private:
         if (m_setup != nullptr){
             m_setup->setText(tr_ui("Open the setup"));
         }
+        if (m_tour != nullptr){
+            m_tour->setText(tr_ui("Show the tour"));
+        }
     }
     //  A dot in the color of the status, before the name.
     static QIcon dot(const QColor& color){
@@ -974,9 +987,11 @@ private:
     }
 
 private:
-    void (*m_open_setup)();
+    std::function<void()> m_open_setup;
+    std::function<void()> m_show_tour;
     QListWidget* m_list = nullptr;
     QPushButton* m_setup = nullptr;
+    QPushButton* m_tour = nullptr;
     QTextBrowser* m_page = nullptr;
 };
 
@@ -1017,8 +1032,12 @@ QStringList all_texts(){
 
 
 
-QWidget* make_console_guide(QWidget* parent, const QString& console_code, void (*open_setup)()){
-    return new ConsoleGuide(parent, console_code, open_setup);
+QWidget* make_console_guide(
+    QWidget* parent, const QString& console_code,
+    std::function<void()> open_setup,
+    std::function<void()> show_tour
+){
+    return new ConsoleGuide(parent, console_code, std::move(open_setup), std::move(show_tour));
 }
 
 QStringList console_guide_codes(){

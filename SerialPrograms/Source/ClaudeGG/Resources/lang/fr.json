@@ -2212,5 +2212,19 @@
  "Reaction time in the log: every action of Claude Plays says how long Claude took and how long the console took, so you see where the time goes.": "Temps de réaction dans le journal : chaque action de Claude Plays dit combien de temps Claude a pris et combien la console a pris, pour voir où passe le temps.",
  "Macro, in the list Other Games: record what you press and play it back.": "Macro, dans la liste Other Games : enregistre ce que tu appuies et rejoue-le.",
  "Pokemon GO: Auto play (spinning, catching, gifts, Team GO Rocket and the GO Pass, each one to choose), the Daily run, the GO Battle League and more.": "Pokemon GO : Auto play (faire tourner, capturer, cadeaux, Team GO Rocket et le GO Pass, chacun au choix), le Daily run, la Ligue de Combat GO et plus.",
- "Macro: record what you press on the keyboard or a controller, and play it back as often and as fast as you want.": "Macro : enregistre ce que tu appuies au clavier ou sur une manette, et rejoue-le aussi souvent et aussi vite que tu veux."
+ "Macro: record what you press on the keyboard or a controller, and play it back as often and as fast as you want.": "Macro : enregistre ce que tu appuies au clavier ou sur une manette, et rejoue-le aussi souvent et aussi vite que tu veux.",
+ "Search": "Rechercher",
+ "Another console": "Autre console",
+ "Claude": "Claude",
+ "Step %1 of %2": "Étape %1 sur %2",
+ "Done": "Terminé",
+ "Skip the tour": "Passer la visite",
+ "Show the tour": "Montrer la visite",
+ "Each tile is a game of your console. Click one: its programs come next, each with its options and a Start button.": "Chaque tuile est un jeu de ta console. Clique dessus : ses programmes suivent, chacun avec ses options et un bouton Démarrer.",
+ "Type a few letters to find a program in every game at once.": "Tape quelques lettres pour trouver un programme dans tous les jeux à la fois.",
+ "The games follow the console. Pick another one here; the setup then shows what the new one needs.": "Les jeux suivent la console. Choisis-en une autre ici ; la configuration montre alors ce qu'il faut pour la nouvelle.",
+ "What you need for each console, how it connects, how quick it is and what to do when it does not work.": "Ce qu'il faut pour chaque console, comment la brancher, sa rapidité et quoi faire quand ça ne marche pas.",
+ "The capture card, the sound, the language, the theme and the console. Ctrl+F searches them.": "La carte d'acquisition, le son, la langue, le thème et la console. Ctrl+F y cherche.",
+ "Ask Claude about a program or the log, or let Claude Plays play a game. It needs an API key of your own.": "Pose une question à Claude sur un programme ou le journal, ou laisse Claude Plays jouer à un jeu. Il faut ta propre clé API.",
+ "What the program does while it runs, and why it stopped when something went wrong.": "Ce que fait le programme pendant qu'il tourne, et pourquoi il s'est arrêté quand quelque chose a mal tourné."
 }

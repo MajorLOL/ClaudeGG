@@ -734,6 +734,8 @@ public:
     }
     virtual void set_claude(QWidget* panel) override;
     virtual void show_claude(bool show) override;
+    virtual void show_tour() override;
+    virtual QString tour_state() const override;
     virtual bool claude_shown() const override{
         return m_claude_shown;
     }
@@ -1061,6 +1063,18 @@ private:
     void report_presence();
     bool app_activate(const QString& id);
     void place_claude();
+    //  The tour (show_tour()): drawn over the games, its own buttons only.
+    struct TourStep{
+        const char* target;     //  the id of a button, or "game:" for the games (the first one is shown)
+        const char* title;
+        const char* text;
+    };
+    static const std::vector<TourStep>& tour_steps();
+    std::vector<size_t> tour_available() const;
+    bool tour_active() const;
+    void paint_tour(QPainter& painter);
+    void tour_activate(const QString& id);
+    void end_tour();
 
 private:
     SetupRequest m_request;
@@ -1157,6 +1171,10 @@ private:
     //  The main window's own screen.
     bool m_app_mode = false;
     AppActions m_app;
+    //  The step of the tour (-1: none); the buttons it pointed at, as the page
+    //  drew them before the tour took them away.
+    int m_tour_step = -1;
+    std::vector<Hit> m_tour_hits;
     bool m_hosting = false;
     //  The page that host() made, until it is on the screen; and "the main
     //  window is making it now" (so that host() does not queue it twice).
@@ -9747,6 +9765,9 @@ void Canvas::start(QEventLoop* loop){
     m_loop = loop;
     if (m_app_mode){
         //  The window's own screen: it starts on the games and stays.
+        if (m_app.tour){
+            m_tour_step = 0;
+        }
         go_games();
     }else if (m_request.overview){
         go_instances();
@@ -10418,6 +10439,9 @@ void Canvas::paintEvent(QPaintEvent*){
             painter.setOpacity(1.0);
             paint_app_menu(painter);
         }
+        if (tour_active()){
+            paint_tour(painter);
+        }
         if (can_minimize() && m_page->shows_buttons()){
             paint_minimize(painter);
             if (m_request.overview){
@@ -10594,6 +10618,28 @@ void Canvas::keyPressEvent(QKeyEvent* event){
         return;
     }
     if (m_page == nullptr || m_pending){
+        return;
+    }
+    if (tour_active()){
+        //  The tour has the keyboard: Enter and the right arrow go on, the
+        //  left arrow back, Escape ends it.
+        switch (event->key()){
+        case Qt::Key_Return:
+        case Qt::Key_Enter:
+        case Qt::Key_Space:
+        case Qt::Key_Right:
+            tour_activate("tour:next");
+            break;
+        case Qt::Key_Left:
+            tour_activate("tour:back");
+            break;
+        case Qt::Key_Escape:
+            tour_activate("tour:skip");
+            break;
+        default:
+            break;
+        }
+        update();
         return;
     }
     if (m_page->full_screen() && child_has_focus()){
@@ -10774,11 +10820,185 @@ void Canvas::dispatch(const QString& id){
         finish();
         return;
     }
+    if (id.startsWith("tour:")){
+        tour_activate(id);
+        return;
+    }
     if (m_app_mode && id.startsWith("app:")){
         app_activate(id);
         return;
     }
     m_page->activate(*this, id);
+}
+
+//  ---- the tour
+
+const std::vector<Canvas::TourStep>& Canvas::tour_steps(){
+    static const std::vector<TourStep> STEPS{
+        {"game:", "Pick a game",
+            "Each tile is a game of your console. Click one: its programs come next, each with its options and a Start button."},
+        {"gsearch", "Search",
+            "Type a few letters to find a program in every game at once."},
+        {"console", "Another console",
+            "The games follow the console. Pick another one here; the setup then shows what the new one needs."},
+        {"app:consoles", "Consoles",
+            "What you need for each console, how it connects, how quick it is and what to do when it does not work."},
+        {"app:settings", "Settings",
+            "The capture card, the sound, the language, the theme and the console. Ctrl+F searches them."},
+        {"app:claude", "Claude",
+            "Ask Claude about a program or the log, or let Claude Plays play a game. It needs an API key of your own."},
+        {"app:log", "Output",
+            "What the program does while it runs, and why it stopped when something went wrong."},
+    };
+    return STEPS;
+}
+
+std::vector<size_t> Canvas::tour_available() const{
+    std::vector<size_t> available;
+    const std::vector<TourStep>& steps = tour_steps();
+    for (size_t c = 0; c < steps.size(); c++){
+        const QString target = QString::fromLatin1(steps[c].target);
+        for (const Hit& hit : m_tour_hits){
+            if (target.endsWith(':') ? hit.id.startsWith(target) : hit.id == target){
+                available.push_back(c);
+                break;
+            }
+        }
+    }
+    return available;
+}
+
+bool Canvas::tour_active() const{
+    return m_tour_step >= 0 && m_app_mode && m_page != nullptr && !m_hosting
+        && QString(m_page->name()) == "games";
+}
+
+void Canvas::show_tour(){
+    if (!m_app_mode){
+        return;
+    }
+    m_tour_step = 0;
+    if (!m_hosting && (m_page == nullptr || QString(m_page->name()) != "games")){
+        go_games();
+    }
+    update();
+}
+
+QString Canvas::tour_state() const{
+    if (!tour_active()){
+        return QString();
+    }
+    const size_t count = tour_available().size();
+    return QString::number(std::min<size_t>((size_t)m_tour_step + 1, count)) + "/" + QString::number(count);
+}
+
+void Canvas::end_tour(){
+    m_tour_step = -1;
+    m_tour_hits.clear();
+    m_focus.clear();
+    if (m_app.tour_done){
+        m_app.tour_done();
+    }
+    update();
+}
+
+void Canvas::tour_activate(const QString& id){
+    if (m_tour_step < 0){
+        return;
+    }
+    const int count = (int)tour_available().size();
+    if (id == "tour:skip" || (id == "tour:next" && m_tour_step + 1 >= count)){
+        end_tour();
+        return;
+    }
+    if (id == "tour:next"){
+        m_tour_step++;
+    }else if (id == "tour:back" && m_tour_step > 0){
+        m_tour_step--;
+    }
+    m_focus = "tour:next";
+    update();
+}
+
+void Canvas::paint_tour(QPainter& painter){
+    //  What the page drew is where the tour points; only the tour can be
+    //  pressed while it is on.
+    m_tour_hits = m_hits;
+    m_hits.clear();
+    const std::vector<size_t> available = tour_available();
+    if (available.empty()){
+        //  Nothing to point at (no games): the page keeps its buttons.
+        m_hits = m_tour_hits;
+        return;
+    }
+    if (m_tour_step >= (int)available.size()){
+        m_tour_step = (int)available.size() - 1;
+    }
+    const TourStep& step = tour_steps()[available[(size_t)m_tour_step]];
+    const QString target = QString::fromLatin1(step.target);
+    //  (For all the games: the first one, so that the card fits beside it.)
+    QRectF spot;
+    for (const Hit& hit : m_tour_hits){
+        if (target.endsWith(':') ? hit.id.startsWith(target) : hit.id == target){
+            spot = hit.rect;
+            break;
+        }
+    }
+    spot = spot.adjusted(-14, -10, 14, 10);
+    const double a = eo(clamp01(m_fade));
+    painter.setOpacity(1.0);
+
+    //  The screen dimmed, with a hole where the step points.
+    QPainterPath shade;
+    shade.addRect(QRectF(0, 0, DW, DH));
+    QPainterPath hole;
+    hole.addRoundedRect(spot, 18, 18);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(0, 0, 0, (int)(165 * a)));
+    painter.drawPath(shade.subtracted(hole));
+    glow(painter, spot, 18, ORANGE, 0.55 * a);
+    panel(painter, spot, 18, QColor(), with_alpha(ORANGE, a), 3.0);
+
+    //  The card: under the spot, or over it when there is no room below.
+    constexpr double CARD_W = 660;
+    const QFont title_font = serif_font(44);
+    const QFont text_font = ui_font(25, 500);
+    const QStringList lines = wrap_text(text_font, T(step.text), CARD_W - 64);
+    const double line_h = text_height(text_font) * 1.18;
+    const double card_h = 32 + 30 + 10 + text_height(title_font) + 12 + (double)lines.size() * line_h + 30 + 64 + 30;
+    double x = std::max(40.0, std::min(DW - 40 - CARD_W, spot.center().x() - CARD_W / 2));
+    double y = spot.bottom() + 24;
+    if (y + card_h > DH - 30){
+        y = std::max(30.0, spot.top() - 24 - card_h);
+    }
+    const QRectF card(x, y, CARD_W, card_h);
+    panel(painter, card, 26, with_alpha(QColor(24, 24, 27), 0.98 * a), with_alpha(ORANGE, 0.75 * a), 2.0);
+
+    double cy = y + 32;
+    draw_text(painter, T("Step %1 of %2").arg((int)m_tour_step + 1).arg((int)available.size()), x + 32, cy, ui_font(20, 600), with_alpha(ORANGE, a));
+    cy += 30 + 10;
+    draw_text(painter, T(step.title), x + 32, cy, title_font, white(a));
+    cy += text_height(title_font) + 12;
+    for (const QString& line : lines){
+        draw_text(painter, line, x + 32, cy, text_font, white(0.82 * a));
+        cy += line_h;
+    }
+    cy += 30;
+
+    const bool last = m_tour_step + 1 >= (int)available.size();
+    const QString next = last ? T("Done") : T("Next");
+    const double next_w = button_width(next, ButtonKind::PRIMARY);
+    draw_button(*this, painter, "tour:next", next, x + CARD_W - 32 - next_w, cy, ButtonKind::PRIMARY, a);
+    double left = x + 32;
+    if (m_tour_step > 0){
+        left += draw_button(*this, painter, "tour:back", T("Back"), left, cy + 10, ButtonKind::LINK, a) + 26;
+    }
+    if (!last){
+        draw_button(*this, painter, "tour:skip", T("Skip the tour"), left, cy + 10, ButtonKind::LINK, a);
+    }
+    if (!m_focus.startsWith("tour:")){
+        m_focus = "tour:next";
+    }
 }
 
 //  The button that minimizes a window that has no title bar: a small square in
@@ -13675,6 +13895,66 @@ int run_setup_test(QApplication& application, const QString& folder){
         options.wait(0.2);
         checker.check(options.finished() && options.result().program == "Push Joy Sticks", "Enter starts the program that is picked");
         checker.check(g_test_options.saved == saved_before + 1, "after what was changed was kept");
+    }
+
+    //  ---- the tour of the screen, at the first start of the window
+    {
+        int tour_done = 0;
+        int about = 0;
+        AppActions actions;
+        actions.open_program = [](int, const QString&){ return false; };
+        actions.close_program = []{ return true; };
+        actions.settings = []{};
+        actions.about = [&]{ about++; };
+        actions.output = []{};
+        actions.buttons = []{};
+        actions.consoles = []{};
+        actions.claude = [](bool){};
+        actions.tour = true;
+        actions.tour_done = [&]{ tour_done++; };
+        SetupRequest request_tour;
+        request_tour.games = test_games();
+        request_tour.programs = test_programs();
+        Canvas tour(request_tour, true, nullptr, &actions);
+        tour.resize(1920, 1080);
+        tour.set_app_folder(app);
+        tour.start(nullptr);
+        tour.show();
+        tour.wait(2.5);
+        const QString first = tour.tour_state();
+        checker.check(tour.page_name() == "games" && first.startsWith("1/"), "the tour starts on the games, at its first step (" + first + ")");
+        checker.check(first == "1/7", "with all seven steps: the games, the search, another console and four buttons of the top bar");
+        checker.check(tour.has_hit("tour:next") && tour.has_hit("tour:skip") && !tour.has_hit("game:0") && !tour.has_hit("app:about"),
+            "only the tour's own buttons can be pressed");
+        save(tour, folder, "setup-63-tour");
+        save_preview(tour, folder, "preview-tour");
+        tour.click("tour:next");
+        tour.wait(0.2);
+        checker.check(tour.tour_state() == "2/7" && tour.has_hit("tour:back"), "Next goes to the second step, which has Back");
+        tour.press_key(Qt::Key_Left);
+        tour.wait(0.2);
+        checker.check(tour.tour_state() == "1/7", "the left arrow goes back");
+        for (int c = 0; c < 6; c++){
+            tour.press_key(Qt::Key_Return);
+            tour.wait(0.1);
+        }
+        checker.check(tour.tour_state() == "7/7" && !tour.has_hit("tour:skip"), "Enter goes on to the last step, which has no Skip");
+        save(tour, folder, "setup-64-tour-last");
+        tour.press_key(Qt::Key_Return);
+        tour.wait(0.2);
+        checker.check(tour.tour_state().isEmpty() && tour_done == 1, "Done ends the tour, and the window is told once");
+        checker.check(tour.has_hit("game:0") && tour.has_hit("app:about"), "the games and the top bar can be pressed again");
+        tour.click("app:about");
+        checker.check(about == 1, "and they do their own thing");
+
+        //  Again, from the panel of the consoles: Escape ends it at once.
+        tour.show_tour();
+        tour.wait(0.5);
+        checker.check(tour.tour_state() == "1/7", "show_tour() shows it again");
+        tour.press_key(Qt::Key_Escape);
+        tour.wait(0.2);
+        checker.check(tour.tour_state().isEmpty() && tour_done == 2, "Escape skips it");
+        checker.check(tour.page_name() == "games", "and the games stay");
     }
 
     //  ---- the other way out: skip
