@@ -186,10 +186,9 @@ Result run(Bot::PhoneBot& bot, const QString& key){
         }else if (key == "rocket"){
             result = rocket_chapter(bot);
         }else if (key == "rocket_fight"){
-            const double t = bot.wall();
-            RocketFight::rocket_fight(bot);
+            const int seconds = RocketFight::rocket_fight(bot);
             result.ok = true;
-            result.how = QString("the fight took %1 s").arg((int)(bot.wall() - t));
+            result.how = QString("the fight took %1 s").arg(seconds);
         }else if (key == "bag"){
             const int gone = bot.clean_bag();
             result.ok = true;

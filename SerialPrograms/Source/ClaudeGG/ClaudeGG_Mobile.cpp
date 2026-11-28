@@ -842,6 +842,7 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
     Logger& logger = global_logger_tagged();
     int wrong = 0;
     QStringList report;
+    QStringList timed;                                  //  the same lines, each with the seconds since the start
     //  The report is written when the test is over; until then every check goes into the file as it is made, with the seconds since the start, so that
     //  a test that is stopped from outside (the time limit of the CI) shows how far it came and where it was slow.
     QElapsedTimer started;
@@ -850,9 +851,10 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
     const bool progress_open = !agent_folder.isEmpty() && progress.open(QIODevice::WriteOnly | QIODevice::Truncate);
     auto check = [&](bool fine, const QString& what){
         report << (fine ? "ok:     " : "FAILED: ") + what;
+        const QString seconds = QString::number((double)started.elapsed() / 1000.0, 'f', 1);
+        timed << "[" + seconds + " s] " + (fine ? "ok:     " : "FAILED: ") + what;
         if (progress_open){
-            const QString seconds = QString::number((double)started.elapsed() / 1000.0, 'f', 1);
-            progress.write(("[" + seconds + " s] " + (fine ? "ok:     " : "FAILED: ") + what + "\n").toUtf8());
+            progress.write((timed.back() + "\n").toUtf8());
             progress.flush();
         }
         if (!fine){
@@ -870,7 +872,7 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         if (!agent_folder.isEmpty()){
             QFile file(agent_folder + "/mobile-test.txt");
             if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)){
-                QTextStream(&file) << report.join("\n") << "\n" << "the test took " << QString::number((double)started.elapsed() / 1000.0, 'f', 1) << " s\n";
+                QTextStream(&file) << timed.join("\n") << "\n" << "the test took " << QString::number((double)started.elapsed() / 1000.0, 'f', 1) << " s\n";
             }
         }
         logger.log(
