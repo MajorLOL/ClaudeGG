@@ -424,6 +424,11 @@ bool MobileAgent::info(MobileInfo& result, QString* error) const{
     result.android = object.value("android").toString();
     result.width = object.value("width").toInt();
     result.height = object.value("height").toInt();
+    result.version = object.value("version").toString();
+    result.features.clear();
+    for (const QJsonValue& value : object.value("features").toArray()){
+        result.features << value.toString();
+    }
     return true;
 }
 
@@ -624,6 +629,25 @@ bool MobileAgent::bot_test(const QString& key, const MobileBotStart& settings, Q
 
 bool MobileAgent::bot_test_stop(QString* error) const{
     return post("/v1/bot/test/stop", "{}", error);
+}
+
+bool MobileAgent::bot_file(const QString& name, QByteArray& data, bool& found, QString* error) const{
+    Reply reply;
+    QString why;
+    data.clear();
+    found = false;
+    if (request("GET", "/v1/bot/file?name=" + name, QByteArray(), reply, &why)){
+        data = reply.body;
+        found = true;
+        return true;
+    }
+    if (reply.status == 404){
+        return true;
+    }
+    if (error != nullptr){
+        *error = why;
+    }
+    return false;
 }
 
 
@@ -1019,6 +1043,26 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         check(fine, "the phone is described: " + error);
         check(info.model == "FakePhone" && info.android == "14", "its model and Android (" + info.model + ", " + info.android + ")");
         check(info.width == 1000 && info.height == 2200, "its size is the size that was set (" + QString::number(info.width) + "x" + QString::number(info.height) + ")");
+        check(
+            info.features.contains("tap_kind") && info.features.contains("app") && info.features.contains("bot_file"),
+            "the agent (" + info.version + ") can do what GO Battle League needs when Claude GG plays: " + info.features.join(", ")
+        );
+    }
+    //  The files of the bot's battles (the team), read only.
+    {
+        QByteArray data;
+        bool found = true;
+        error.clear();
+        check(phone.bot_file("battle_team.json", data, found, &error) && !found, "the Pi without a team says so: " + error);
+        {
+            QFile team(bot_home + "/battle_team.json");
+            check(team.open(QIODevice::WriteOnly | QIODevice::Truncate) && team.write("[{\"species\": \"Noctowl\"}]") > 0, "a team is written on the Pi");
+        }
+        error.clear();
+        check(phone.bot_file("battle_team.json", data, found, &error) && found && data == "[{\"species\": \"Noctowl\"}]", "and it is read as it is: " + error);
+        error.clear();
+        check(!phone.bot_file("gamebot_control.json", data, found, &error) && !error.isEmpty(), "another file of the bot is refused (" + error + ")");
+        QFile::remove(bot_home + "/battle_team.json");
     }
     {
         QImage picture;
