@@ -6,17 +6,21 @@
  */
 
 #include "Common/Compiler.h"
+#include <algorithm>
 #include <cmath>
+#include <mutex>
 #include <utility>
 #include <vector>
 #include <QApplication>
 #include <QFile>
 #include <QFontDatabase>
 #include <QGuiApplication>
+#include <QImageReader>
 #include <QStyle>
 #include <QStyleFactory>
 #include <QStyleHints>
 #include <QTextStream>
+#include "CommonFramework/Logging/Logger.h"
 #include "CommonFramework/Windows/DpiScaler.h"
 #include "ClaudeGG_Language.h"
 #include "ClaudeGG_Theme.h"
@@ -424,6 +428,93 @@ void apply_theme(UiThemeMode mode, Starter starter){
     app->setStyleSheet(scale_dpi_stylesheet(sheet));
     //  The texts that have a color of their own in the shade of the new theme.
     refresh_text_colors();
+}
+
+
+
+namespace{
+
+//  What the setting says, and what was read of it.
+struct BackgroundSetting{
+    std::mutex lock;
+    QString path;
+    BackgroundFit fit = BackgroundFit::FILL;
+    int darken = 0;
+    uint64_t generation = 1;
+
+    //  Main thread only.
+    CustomBackground current;
+    QString read_path;
+};
+BackgroundSetting& background_setting(){
+    static BackgroundSetting setting;
+    return setting;
+}
+
+//  A picture larger than this is made smaller once: the screens are drawn
+//  from it many times a second.
+constexpr int BACKGROUND_MAX_SIDE = 3840;
+
+}
+
+void set_custom_background(const QString& path, BackgroundFit fit, int darken){
+    BackgroundSetting& setting = background_setting();
+    std::lock_guard<std::mutex> guard(setting.lock);
+    darken = std::max(0, std::min(100, darken));
+    if (setting.path == path && setting.fit == fit && setting.darken == darken){
+        return;
+    }
+    setting.path = path;
+    setting.fit = fit;
+    setting.darken = darken;
+    setting.generation++;
+}
+
+const CustomBackground& custom_background(){
+    BackgroundSetting& setting = background_setting();
+    QString path;
+    BackgroundFit fit;
+    int darken;
+    uint64_t generation;
+    {
+        std::lock_guard<std::mutex> guard(setting.lock);
+        path = setting.path;
+        fit = setting.fit;
+        darken = setting.darken;
+        generation = setting.generation;
+    }
+    CustomBackground& current = setting.current;
+    if (current.generation == generation){
+        return current;
+    }
+    current.generation = generation;
+    current.fit = fit;
+    current.darken = darken / 100.0;
+    if (path != setting.read_path){
+        setting.read_path = path;
+        current.image = QImage();
+        if (!path.isEmpty()){
+            QImageReader reader(path);
+            reader.setAutoTransform(true);
+            QImage image = reader.read();
+            if (image.isNull()){
+                global_logger_tagged().log(
+                    "Background: the picture cannot be read (" + reader.errorString().toStdString() +
+                    "), Claude GG's own background is shown: " + path.toStdString(),
+                    COLOR_RED
+                );
+            }else{
+                if (image.width() > BACKGROUND_MAX_SIDE || image.height() > BACKGROUND_MAX_SIDE){
+                    image = image.scaled(
+                        BACKGROUND_MAX_SIDE, BACKGROUND_MAX_SIDE,
+                        Qt::KeepAspectRatio, Qt::SmoothTransformation
+                    );
+                }
+                current.image = image.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+            }
+        }
+    }
+    return current;
 }
 
 

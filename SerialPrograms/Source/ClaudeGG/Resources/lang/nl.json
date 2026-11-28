@@ -450,6 +450,12 @@
  "Wireless, through a BlueRetro adapter. Experimental. Seven steps.": "Draadloos, via een BlueRetro-adapter. Experimenteel. Zeven stappen.",
  "BlueRetro and your console": "BlueRetro en je console",
  "Through BlueRetro: PS1, PS2, GameCube, N64, Dreamcast": "Via BlueRetro: PS1, PS2, GameCube, N64, Dreamcast",
+ "Background: a picture of your own": "Achtergrond: een eigen afbeelding",
+ "<b>Picture:</b><br>Shown behind the screens with the games and the programs. Empty, or turned off: Claude GG's own background.": "<b>Afbeelding:</b><br>Staat achter de schermen met de spellen en de programma's. Leeg, of uitgezet: de eigen achtergrond van Claude GG.",
+ "<b>How the picture fits:</b>": "<b>Hoe de afbeelding past:</b>",
+ "<b>Darken the picture (%):</b><br>Increase this to keep the texts readable on a light or busy picture.": "<b>De afbeelding donkerder maken (%):</b><br>Zet dit hoger om de teksten leesbaar te houden op een lichte of drukke afbeelding.",
+ "Select a PNG, JPEG, BMP, or WebP image": "Kies een PNG-, JPEG-, BMP- of WebP-afbeelding",
+ "Browse...": "Bladeren...",
  "Copy the Pi Pico file of OGX-Mini onto the Pico, as for the original Xbox. Then put it in its Xbox 360 mode once: plug any USB controller into it and hold START and UP for 3 seconds.": "Kopieer het Pi Pico-bestand van OGX-Mini op de Pico, zoals voor de originele Xbox. Zet hem daarna één keer in de Xbox 360-modus: steek er een willekeurige USB-controller in en houd START en OMHOOG 3 seconden vast.",
  "Plug the USB or OTG port of the ESP32-S3 into the Pico's port for a controller, and the Pico into a USB port of the Xbox 360. With the older OGX-Mini, only an Xbox 360 with UsbdSecPatch takes it.": "Steek de USB- of OTG-poort van de ESP32-S3 in de controllerpoort van de Pico, en de Pico in een USB-poort van de Xbox 360. Met de oudere OGX-Mini neemt alleen een Xbox 360 met UsbdSecPatch hem aan.",
  "Connect to the Xbox 360": "Verbind met de Xbox 360",
@@ -507,5 +513,6 @@
  "Pick NS1: Wired Controller as the type. Click the video and press the arrow keys: they should move through the menu of the console. This has not been tried with Remote Play yet.": "Kies NS1: Wired Controller als type. Klik op het beeld en druk op de pijltjestoetsen: die horen door het menu van de console te gaan. Dit is nog niet met Remote Play geprobeerd.",
  "Wired, through a Pico with OGX-Mini, to Remote Play in a browser. Experimental. Nine steps.": "Bedraad, via een Pico met OGX-Mini, naar Remote Play in een browser. Experimenteel. Negen stappen.",
  "On the iPhone, open Settings, then Accessibility, then Keyboards, and turn on Full Keyboard Access. Under Commands, set Home to Command-H: its own key, Fn-H, needs an Apple keyboard. Leave AssistiveTouch off and plug in no mouse.": "Open op de iPhone Instellingen, dan Toegankelijkheid, dan Toetsenborden, en zet Volledige toetsenbordtoegang aan. Stel onder Commando's Beginscherm in op Command-H: de eigen toets, Fn-H, vraagt een toetsenbord van Apple. Laat AssistiveTouch uit en sluit geen muis aan.",
- "Remote Play, through a Pico with OGX-Mini": "Remote Play, via een Pico met OGX-Mini"
+ "Remote Play, through a Pico with OGX-Mini": "Remote Play, via een Pico met OGX-Mini",
+ "A Raspberry Pi as its GamePad": "Een Raspberry Pi als GamePad"
 }

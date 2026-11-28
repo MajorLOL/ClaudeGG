@@ -450,6 +450,12 @@
  "Wireless, through a BlueRetro adapter. Experimental. Seven steps.": "Inalámbrico, a través de un adaptador BlueRetro. Experimental. Siete pasos.",
  "BlueRetro and your console": "BlueRetro y tu consola",
  "Through BlueRetro: PS1, PS2, GameCube, N64, Dreamcast": "A través de BlueRetro: PS1, PS2, GameCube, N64, Dreamcast",
+ "Background: a picture of your own": "Fondo: una imagen propia",
+ "<b>Picture:</b><br>Shown behind the screens with the games and the programs. Empty, or turned off: Claude GG's own background.": "<b>Imagen:</b><br>Se muestra detrás de las pantallas con los juegos y los programas. Vacío, o desactivado: el fondo propio de Claude GG.",
+ "<b>How the picture fits:</b>": "<b>Cómo se ajusta la imagen:</b>",
+ "<b>Darken the picture (%):</b><br>Increase this to keep the texts readable on a light or busy picture.": "<b>Oscurecer la imagen (%):</b><br>Aumenta este valor para que los textos sigan legibles sobre una imagen clara o recargada.",
+ "Select a PNG, JPEG, BMP, or WebP image": "Elige una imagen PNG, JPEG, BMP o WebP",
+ "Browse...": "Examinar...",
  "Copy the Pi Pico file of OGX-Mini onto the Pico, as for the original Xbox. Then put it in its Xbox 360 mode once: plug any USB controller into it and hold START and UP for 3 seconds.": "Copia el archivo Pi Pico de OGX-Mini en la Pico, como para la Xbox original. Luego ponla una vez en su modo Xbox 360: conecta cualquier mando USB y mantén START y ARRIBA durante 3 segundos.",
  "Plug the USB or OTG port of the ESP32-S3 into the Pico's port for a controller, and the Pico into a USB port of the Xbox 360. With the older OGX-Mini, only an Xbox 360 with UsbdSecPatch takes it.": "Conecta el puerto USB u OTG de la ESP32-S3 al puerto de mando de la Pico, y la Pico a un puerto USB de la Xbox 360. Con el OGX-Mini antiguo, solo una Xbox 360 con UsbdSecPatch lo acepta.",
  "Connect to the Xbox 360": "Conecta con la Xbox 360",
@@ -507,5 +513,6 @@
  "Pick NS1: Wired Controller as the type. Click the video and press the arrow keys: they should move through the menu of the console. This has not been tried with Remote Play yet.": "Elige NS1: Wired Controller como tipo. Haz clic en el vídeo y pulsa las flechas: deberían recorrer el menú de la consola. Esto aún no se ha probado con Remote Play.",
  "Wired, through a Pico with OGX-Mini, to Remote Play in a browser. Experimental. Nine steps.": "Con cable, a través de una Pico con OGX-Mini, al juego remoto en un navegador. Experimental. Nueve pasos.",
  "On the iPhone, open Settings, then Accessibility, then Keyboards, and turn on Full Keyboard Access. Under Commands, set Home to Command-H: its own key, Fn-H, needs an Apple keyboard. Leave AssistiveTouch off and plug in no mouse.": "En el iPhone, abre Ajustes, luego Accesibilidad, luego Teclados, y activa el Acceso total con el teclado. En Comandos, asigna Inicio a Comando-H: su propia tecla, Fn-H, necesita un teclado de Apple. Deja AssistiveTouch desactivado y no conectes ningún ratón.",
- "Remote Play, through a Pico with OGX-Mini": "Juego remoto, a través de una Pico con OGX-Mini"
+ "Remote Play, through a Pico with OGX-Mini": "Juego remoto, a través de una Pico con OGX-Mini",
+ "A Raspberry Pi as its GamePad": "Una Raspberry Pi como GamePad"
 }
