@@ -575,6 +575,7 @@ const std::vector<Guide>& guides(){
             {
                 "The list PS4 and PS5 games, direct of Claude Plays.",
                 GAMES_CLAUDE_PLAYS,
+                GAMES_MACRO,
             },
             {
                 LIMIT_UNTESTED,
@@ -614,6 +615,7 @@ const std::vector<Guide>& guides(){
             {
                 "The list Xbox One and Series games, direct of Claude Plays.",
                 GAMES_CLAUDE_PLAYS,
+                GAMES_MACRO,
             },
             {
                 LIMIT_UNTESTED,
