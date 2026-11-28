@@ -52,6 +52,7 @@
 #include "ClaudeGG_PokemonGoStep.h"
 #include "ClaudeGG_PokemonGoBag.h"
 #include "ClaudeGG_PokemonGoGifts.h"
+#include "ClaudeGG_PokemonGoQuests.h"
 #include "ClaudeGG_PokemonGoThrowPlay.h"
 #include "ClaudeGG_PokemonGoVision.h"
 
@@ -965,6 +966,19 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         }
         check(differ == 0, gifts_report.isEmpty() ? QString("the gifts are handled as gamebot.py handles them") : gifts_report.last());
     }
+    //  The quests of the GO Pass, ported to C++ (issue #31): the check whether the quest button on the map is gold, whether it is time to look at it,
+    //  and the visit (the tab GO PASS, its pages, VIEW REWARDS, CLAIM ALL, a Pokémon that comes as a reward, the X that closes it), held to what the
+    //  Python code did on the little stories of tests/fixtures/quests_golden.json.qz.
+    {
+        QStringList quests_report;
+        const int differ = PokemonGo::Quests::run_quests_checks(agent_folder + "/../tests/fixtures/quests_golden.json.qz", quests_report);
+        for (const QString& line : quests_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, quests_report.isEmpty() ? QString("the quests are handled as gamebot.py handles them") : quests_report.last());
+    }
     //  The text reader, ported to C++ (issue #30): the table that Tesseract writes made into lines of words with their places, as
     //  gamebot.ocr_lines() makes them (354 tables, 36 of them read from frames of real fights), and - where the tesseract program is
     //  found - a picture with words drawn on it read with it.
@@ -1426,9 +1440,18 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
                                                {"heat_pause", true}, {"fast_look", true}, {"gifts_open", true}, {"daily_cycle", true}};
                 PokemonGo::Bot::PhoneBot bot(host, asked, {{"throw_target", "great"}, {"berries", "razz, nanab"}});
                 check(bot.wanted("spin") && bot.setting("fast_look", false) && !bot.wanted("catch") && !bot.setting("rocket_fight", true)
-                      && !bot.setting("quests", true) && bot.setting("bag_clean", false) && !bot.setting("heat_pause", true) && bot.wanted("gifts_open")
+                      && bot.setting("quests", false) && bot.setting("bag_clean", false) && !bot.setting("heat_pause", true) && bot.wanted("gifts_open")
                       && !bot.wanted("daily_cycle"),
-                      "Claude GG plays with what is ported (the gifts and the clean-up of the bag too), the rest is off");
+                      "Claude GG plays with what is ported (the gifts, the GO Pass and the clean-up of the bag too), the rest is off");
+                {
+                    //  The quest button is gold: it is time to look (nothing was looked at yet), and when the person switched the quests off it is not.
+                    cv::Mat gold(2208, 1768, CV_8UC3, cv::Scalar(255, 255, 255));
+                    gold(cv::Rect(1624, 1824, 93, 93)).setTo(cv::Scalar(47, 137, 220));         //  (hue 16, saturation 201, value 220)
+                    const cv::Mat white(2208, 1768, CV_8UC3, cv::Scalar(255, 255, 255));
+                    check(bot.quests_due(gold) && !bot.quests_due(white), "the quests are due when the quest button is gold");
+                    PokemonGo::Bot::PhoneBot without(host, PokemonGo::Bot::Switches{{"quests", false}}, {});
+                    check(!without.quests_due(gold), "and not when the person switched them off");
+                }
                 check(!bot.map_state().catching && bot.map_state().spin && !host.has_models(), "it does not catch when that is off, and there are no models here");
                 check(bot.setting_text("throw_target", "realistic") == "great" && bot.setting_text("fast_look", "") == "True"
                       && bot.berry_order() == QStringList{"razz", "nanab"} && bot.ball() == "poke", "the throw, the berries and the ball are as chosen");

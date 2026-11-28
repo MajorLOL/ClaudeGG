@@ -15,7 +15,8 @@
  *    folder of the bot) and the clean-up of a full bag (Bag::clean_bag, the red FULL marks of the main menu): the ported code, with the keys
  *    and the closing of the game that the bag needs sent to the agent (see shell()); when the storage and the bag are both full and the game
  *    has been closed, the bot stops (gamebot.py waits there until it sees the game running again - `pidof` -, which the agent cannot tell);
- *  - the GO Pass: not done;
+ *  - the GO Pass (Quests::claim_quests: the quest button that turns gold, the tab GO PASS, VIEW REWARDS, CLAIM ALL; the memory of the last look is in
+ *    the program): the ported code, over the same touches and swipes;
  *  - the temperatures: the agent cannot read them yet, so the pause when it gets hot does not happen;
  *  - the layout of the screen: taken to be the one of the canvas (the agent brings every screenshot to the canvas);
  *  - the camera that turns while the next picture is looked at: the swipe is made right away and waited for, which is slower but the same
@@ -52,6 +53,7 @@
 #include "ClaudeGG_PokemonGoBrain.h"
 #include "ClaudeGG_PokemonGoGifts.h"
 #include "ClaudeGG_PokemonGoPhone.h"
+#include "ClaudeGG_PokemonGoQuests.h"
 #include "ClaudeGG_PokemonGoStep.h"
 #include "ClaudeGG_PokemonGoThrowPlay.h"
 
@@ -208,8 +210,8 @@ public:
     void unlock() override{}
     cv::Mat unlock_game(const cv::Mat& img) override{ return img; }
     cv::Mat quick_screenshot_grab(const std::function<void()>& on_grab) override;
-    bool quests_due(const cv::Mat&) override{ return false; }
-    QString claim_quests() override{ return "failed"; }
+    bool quests_due(const cv::Mat& img) override;
+    QString claim_quests() override;
     QString rocket_battle() override{ return "failed"; }
     double do_map(const cv::Mat& img) override;
     double do_pokestop(const cv::Mat& img) override;
@@ -239,6 +241,7 @@ private:
     Map::State m_map;
     Step::State m_step;
     Bag::State m_bag;
+    Quests::State m_quests;                             //  when the quests were looked at last
     std::map<QString, QByteArray> m_files;              //  the files of the gifts when there is no folder
     std::mt19937_64 m_random;
     std::optional<double> m_spin_at;

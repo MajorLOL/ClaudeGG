@@ -43,7 +43,7 @@ std::vector<Detection> PhoneDetector::map(const cv::Mat& img, const cv::Rect& bo
 Switches playable(const Switches& asked){
     Switches out = asked;
     //  Not ported yet: off, so that the steps leave them alone.
-    for (const char* key : {"daily_cycle", "rocket_fight", "quests", "battle", "teams_weekly"}){
+    for (const char* key : {"daily_cycle", "rocket_fight", "battle", "teams_weekly"}){
         out[QString::fromLatin1(key)] = false;
     }
     //  The pause for the heat needs temperatures that the agent cannot give yet.
@@ -140,6 +140,12 @@ QString PhoneBot::count(const QString& key){
 
 void PhoneBot::gifts_round(){
     Gifts::gifts_round(*this);
+}
+bool PhoneBot::quests_due(const cv::Mat& img){
+    return Quests::quests_due(*this, m_quests, img);
+}
+QString PhoneBot::claim_quests(){
+    return Quests::claim_quests(*this, m_quests);
 }
 void PhoneBot::check_menu_full(){
     Bag::check_menu_full(*this, m_map);
