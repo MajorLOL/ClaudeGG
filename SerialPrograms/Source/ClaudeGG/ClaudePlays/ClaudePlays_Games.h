@@ -59,6 +59,20 @@ enum class GameId{
     GAMECUBE,
     NINTENDO_64,
     DREAMCAST,
+    //  An Xbox 360 (with UsbdSecPatch): the wired board through a Pico with
+    //  OGX-Mini in its XInput mode.
+    XBOX_360,
+    //  A PlayStation 4 or 5, and an Xbox One or Series, through Remote Play
+    //  on the computer: the wired board is a USB gamepad of the computer,
+    //  which the Remote Play client passes on.
+    PS_REMOTE_PLAY,
+    XBOX_REMOTE_PLAY,
+    //  An iPhone, worked with a keyboard (the wired board as HID: Keyboard)
+    //  through Full Keyboard Access.
+    IPHONE,
+    //  A PlayStation Classic: the wired board through a Pico with OGX-Mini
+    //  in its PlayStation Classic mode.
+    PS_CLASSIC,
 };
 
 //  The controller the game's programs use.
@@ -80,6 +94,18 @@ enum class PadKind{
     GAMECUBE_CONTROLLER,
     N64_CONTROLLER,
     DREAMCAST_CONTROLLER,
+    //  An Xbox 360 controller (OGX-Mini in XInput mode).
+    XBOX360_CONTROLLER,
+    //  A DualShock 4 or DualSense, and an Xbox One or Series controller, as
+    //  a Remote Play client on the computer takes the wired board.
+    PS4_CONTROLLER,
+    XBOXONE_CONTROLLER,
+    //  A keyboard (the wired board as HID: Keyboard), for an iPhone with
+    //  Full Keyboard Access.
+    IPHONE_KEYBOARD,
+    //  The pad of the PlayStation Classic (OGX-Mini in its PlayStation
+    //  Classic mode): the first PlayStation's, without sticks.
+    PSCLASSIC_CONTROLLER,
 };
 
 struct GameProfile{
@@ -119,8 +145,8 @@ bool has_only_claude_plays(GameId id);
 bool is_other_games_choice(GameId id);
 
 //  The consoles of a list of games by its name, when the list is one of a
-//  game here that is not played on the Switch: {"ps3"}, {"xbox"} or
-//  {"retro"}. Empty:
+//  game here that is not played on the Switch: {"ps3"}, {"xbox"}, {"retro"},
+//  {"xbox360"}, {"psremote"}, {"xboxremote"}, {"iphone"} or {"psclassic"}. Empty:
 //  not one of them.
 std::vector<std::string> consoles_of_list(const std::string& list_name);
 
