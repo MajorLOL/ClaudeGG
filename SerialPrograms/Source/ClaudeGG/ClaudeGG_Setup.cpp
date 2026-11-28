@@ -974,11 +974,21 @@ public:
     }
     //  The choice of a game was asked for, and there are games to choose from.
     bool asks_game() const{
-        return m_request.ask_game && !m_request.games.empty();
+        return m_request.ask_game && (!m_request.games.empty() || m_request.list_games);
+    }
+    //  The games, listed now if they are listed later (SetupRequest::list_games).
+    void fill_games(){
+        if (!m_request.list_games){
+            return;
+        }
+        auto list = std::move(m_request.list_games);
+        m_request.list_games = nullptr;
+        list(m_request.games, m_request.programs);
     }
     //  The installation of the board is over, finished or skipped: with games
     //  to choose from a new screen follows, no part of the installation.
     void end_installation(){
+        fill_games();
         if (m_request.games.empty()){
             finish();
         }else{
@@ -1073,6 +1083,8 @@ private:
         return m_request.ask_language || m_request.ask_console || m_request.ask_board || asks_game();
     }
     void end_intro(const QString& note);
+    //  The games, listed when the film is over, and their page if it is the first one.
+    void games_after_film();
     void drop_intro_player();
     void draw_fitted(QPainter& painter, const QImage& image, QPixmap& cache, QSize& cache_for, double opacity);
     //  A button, a row ... of the page: or one of the buttons along the top.
@@ -1169,6 +1181,8 @@ private:
         FADE,
     };
     IntroState m_intro = IntroState::NONE;
+    //  The choice of a game comes when the film is over: its games are listed then.
+    bool m_games_after_intro = false;
     double m_intro_clock = 0;
     double m_intro_ended = -1;
     double m_intro_fade = 1;
@@ -10039,7 +10053,12 @@ void Canvas::start(QEventLoop* loop){
     }else if (m_request.ask_board){
         go_board();
     }else if (asks_game()){
-        go_games();
+        if (m_request.play_intro && m_request.list_games){
+            //  Listed when the film is over (end_intro()): it starts at once.
+            m_games_after_intro = true;
+        }else{
+            go_games();
+        }
     }
     m_first_page = true;
     if (!m_test_mode){
@@ -10064,6 +10083,11 @@ void Canvas::tick(){
         dt = std::min(0.05, (double)m_clock.restart() / 1000.0);
     }
     advance(dt);
+    //  While the film plays its window covers this one: drawing this one
+    //  under it, sixty times a second, only takes time from the film.
+    if (m_intro == IntroState::FILM && !m_test_mode){
+        return;
+    }
     update();
 }
 
@@ -10205,6 +10229,7 @@ void Canvas::go_done_phone(){
     });
 }
 void Canvas::go_games(int selected){
+    fill_games();
     queue_page([this, selected]{
         return std::unique_ptr<Page>(new GamesPage(*this, selected));
     });
@@ -10425,6 +10450,7 @@ void Canvas::start_intro(){
     const QString path = extract_film("intro");
     if (path.isEmpty()){
         m_intro_note = "the film is not in this build";
+        games_after_film();
         if (!asks_anything()){
             finish();
         }
@@ -10503,6 +10529,16 @@ void Canvas::start_intro(){
     setFocus();
 }
 
+void Canvas::games_after_film(){
+    fill_games();
+    if (m_games_after_intro){
+        m_games_after_intro = false;
+        if (asks_game()){
+            go_games();
+        }
+    }
+}
+
 void Canvas::drop_intro_player(){
     if (m_intro_player != nullptr){
         m_intro_player->stop();
@@ -10519,6 +10555,10 @@ void Canvas::end_intro(const QString& note){
         return;
     }
     m_intro_note = note;
+    //  The film stands still on its last picture: the games are listed now,
+    //  not before the film (it would start late) or while it plays (it would
+    //  jerk).
+    games_after_film();
 
     //  The last picture of the film, kept: the window the film plays on goes
     //  away and this picture is drawn in its place, the same, and fades out.
@@ -11356,7 +11396,9 @@ void Canvas::report_presence(){
         state = "games";
     }
     m_presence_reports++;
-    write_instance_report(state, title, instance_picture(m_app_mode ? window() : this));
+    //  No miniature while the film plays: drawing the window with the film in
+    //  it, once a second, makes the film jerk.
+    write_instance_report(state, title, m_intro == IntroState::FILM ? QImage() : instance_picture(m_app_mode ? window() : this));
 }
 
 //  The buttons of the old top bar, along the top of every page.
@@ -11546,7 +11588,7 @@ QPointer<Canvas> g_held_screen;
 
 SetupResult run_setup(const SetupRequest& request){
     SetupResult result;
-    const bool ask_game = request.ask_game && !request.games.empty();
+    const bool ask_game = request.ask_game && (!request.games.empty() || request.list_games);
     if (!request.ask_language && !request.ask_board && !ask_game && !request.play_intro){
         return result;
     }
@@ -13328,6 +13370,44 @@ int run_setup_test(QApplication& application, const QString& folder){
             save_preview(eighth, folder, "preview-intro-games");
             checker.check(eighth.has_hit("game:0") && !eighth.finished(), "and it can be answered");
         }
+    }
+
+    //  ---- the intro with the games listed after the film (as at a real start):
+    //  the film starts at once, the games are listed when it is over
+    {
+        const bool decodes_here = qEnvironmentVariableIsEmpty("PP_SETUP_TEST_NO_DECODER");
+        int listed = 0;
+        SetupRequest later;
+        later.play_intro = true;
+        later.hold_screen = true;
+        later.ask_game = true;
+        later.list_games = [&listed](std::vector<HomeGame>& games, std::vector<HomeProgram>&){
+            listed++;
+            games = test_games();
+        };
+        Canvas ninth(later, true);
+        ninth.resize(1280, 720);
+        QEventLoop ninth_loop;
+        ninth.start(&ninth_loop);
+        ninth.show();
+        ninth.start_intro();
+        checker.check(listed == 0 && ninth.page_name().isEmpty(), "with the games listed later, nothing is listed before the film");
+        QElapsedTimer ninth_clock;
+        ninth_clock.start();
+        double ninth_last = 0;
+        bool listed_in_film = false;
+        while (ninth_clock.elapsed() < (decodes_here ? 25000 : 9000) && ninth.intro_state() != "none"){
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+            const double now = (double)ninth_clock.elapsed() / 1000.0;
+            ninth.advance(std::min(0.05, now - ninth_last));
+            ninth_last = now;
+            listed_in_film = listed_in_film || (listed > 0 && ninth.intro_state() == "film");
+            QThread::msleep(6);
+        }
+        checker.check(!listed_in_film, "nor while it plays");
+        checker.check(listed == 1, "they are listed once, when it is over (" + QString::number(listed) + ")");
+        checker.check(ninth.intro_state() == "none" && ninth.page_name() == "games",
+            "and the choice of a game follows the film");
     }
 
     //  ---- the console: one that was chosen before is shown as picked
