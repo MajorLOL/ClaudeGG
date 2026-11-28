@@ -1206,7 +1206,7 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
             bool ok = false;
             std::string report;
             session_options.timing = measured_timing(
-                console, options.timing,
+                console, traits.code, options.timing,
                 [&](const std::string& text, bool measured){
                     env.log(text, measured ? COLOR_BLUE : COLOR_ORANGE);
                     ok = measured;
@@ -1216,6 +1216,11 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
                 }
             );
             host.show(report, ok ? COLOR_GREEN : COLOR_ORANGE);
+        }else if (press_ms == 0 && video_delay_ms == 0){
+            //  Measured before on this console: that.
+            session_options.timing = saved_timing(traits.code, options.timing, [&](const std::string& text){
+                env.log(text, COLOR_BLUE);
+            });
         }
         AnyGame game(console, facts, session_options);
         if (external){

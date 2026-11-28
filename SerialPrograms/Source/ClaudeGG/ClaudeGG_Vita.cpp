@@ -884,11 +884,16 @@ public:
         //  move in on the screen).
         if (MEASURE_TIMING){
             options.timing = measured_timing(
-                console, options.timing,
+                console, "vita", options.timing,
                 [&](const std::string& text, bool measured){
                     env.log(text, measured ? COLOR_BLUE : COLOR_ORANGE);
                 }
             );
+        }else if ((uint32_t)PRESS_MS == 0 && (uint32_t)VIDEO_DELAY_MS == 0){
+            //  Measured before on this console: that.
+            options.timing = saved_timing("vita", options.timing, [&](const std::string& text){
+                env.log(text, COLOR_BLUE);
+            });
         }
         VitaGame game(console, facts, options);
         VitaHost host(env, scope);

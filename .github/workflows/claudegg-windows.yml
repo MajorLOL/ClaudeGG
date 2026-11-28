@@ -1065,7 +1065,8 @@ jobs:
           $dir = (Resolve-Path "Arduino-Source/SerialPrograms/bin/RelWithDebInfo").Path
           $process = Start-Process -FilePath "$dir/ClaudeGG.exe" -WorkingDirectory $dir -ArgumentList "--mobile-test", "`"$agent`"" -PassThru
           $handle = $process.Handle
-          if ($process.WaitForExit(480000)) {
+          #  (15 minutes: the checks against the golden files of the Python bot took 7 of the 8 minutes it had before, and more were added.)
+          if ($process.WaitForExit(900000)) {
             $code = $process.ExitCode
           } else {
             $process.Kill()

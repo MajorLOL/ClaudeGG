@@ -304,7 +304,7 @@ class AgentTest(unittest.TestCase):
                                  ("package:com.nianticlabs.pokemongo.b|package:com.nianticlabs.pokemongo.a|package:com.nianticlabs.pokemongo",
                                   [GAME, GAME + ".a", GAME + ".b"]),
                                  ("package:com.nianticlabs.pokemongo  |junk|package:com.nianticlabs.pokemongo|Error: no", [GAME]),
-                                 ("package:com.example.pokemongo.fan", []), ("", [])):
+                                 ("package:com.example.pokemongo.fan", []), ("none", [])):
             os.environ["FAKE_PACKAGES"] = answer
             self.addCleanup(os.environ.pop, "FAKE_PACKAGES", None)
             self.assertEqual(self.json("POST", "/v1/app", {"action": "list"})[1]["packages"], expected, answer)
@@ -338,7 +338,7 @@ class AgentTest(unittest.TestCase):
         for answer, expected in (("  temperature: 430", 43.0), ("temperature: -25", -2.5), ("  temperature:0", 0.0),
                                  ("  voltage: 4000|  temperature: 395|  technology: Li-ion", 39.5),
                                  ("  Temperature: 300", None), ("  temperature: warm", None), ("  mytemperature: 300", None),
-                                 ("Error: no battery service", None), ("", None)):
+                                 ("Error: no battery service", None), ("none", None)):
             os.environ["FAKE_BATTERY"] = answer
             self.addCleanup(os.environ.pop, "FAKE_BATTERY", None)
             self.heat_file("1000")
@@ -359,7 +359,7 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(self.json("GET", "/v1/heat"), (200, {"ok": True, "phone": None, "pi": 50.0}))
 
     def fake(self, name, text):
-        os.environ[name] = text
+        os.environ[name] = text or "none"               #  (on Windows a variable set to "" is no variable)
         self.addCleanup(os.environ.pop, name, None)
 
     def test_the_power_is_the_screen_that_is_on_and_the_lock_screen_that_is_not_there(self):

@@ -25,6 +25,7 @@ Every route from ClaudeGG to a game is the same chain: **the picture** comes in 
 - **Claude Plays, already**: the answer comes as a stream, the conversation is cached on Anthropic's side (a cached request starts sooner and costs less), the effort is "low", and the pictures go as JPEG at the size you choose (384, 640 or 960 wide). A smaller picture is a faster answer.
 - **The capture card's default format**: the format with the most frames a second, and of those the uncompressed one (before: always the uncompressed one, also when that came at 5 fps). See *What you can do yourself*, 2.
 - **Per console**: the waits after a press (longer behind Remote Play, for instance) are set per console in `ClaudePlays_Consoles` (another change of the same night).
+- **Claude Plays, *Measure the timing first* is kept**: the delay and the shortest press that were measured are kept for that console (`ClaudePlays-Timing.json` in the settings folder). The next sessions on it start with that timing without measuring again, and the log says when it was measured. Measure again after you change the capture card, the cable or the connection; the two boxes *Press of a direction* and *Extra wait for the picture* still go first when they are set.
 
 ## What you can do yourself
 
