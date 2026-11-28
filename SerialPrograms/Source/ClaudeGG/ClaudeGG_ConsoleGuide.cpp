@@ -464,6 +464,7 @@ const std::vector<Guide>& guides(){
             "Each key is quick, but reaching a button can take many presses of Tab. Good for menus and slow games, not for action games.",
             {
                 "The list iPhone of Claude Plays.",
+                GAMES_MACRO,
             },
             {
                 LIMIT_UNTESTED,
@@ -653,6 +654,7 @@ const std::vector<Guide>& guides(){
             {
                 "The list Steam Deck and PC games of Claude Plays.",
                 GAMES_CLAUDE_PLAYS,
+                GAMES_MACRO,
             },
             {
                 LIMIT_UNTESTED,
@@ -785,9 +787,13 @@ const char* const HEADINGS[] = {
     "Close other programs that show the capture card: each one adds work.",
     "For Remote Play and the phone: a network cable instead of Wi-Fi.",
     "In Claude Plays, turn on Measure the timing first once, with a menu on the screen, and keep the numbers the log gives.",
+    "One console, two ways",
+    "PS4 and PS5: direct, through a Brook Wingman XE, is the quickest: wired, with an adapter to buy (about 40 dollars or euros), and on a PS5 only in PS4 games. Remote Play needs nothing to buy, but its stream makes it slow.",
+    "Xbox One and Series: direct, through a Brook Wingman XB 3, is the quickest. Remote Play, through a Pico with OGX-Mini, needs no adapter to buy, but is slow.",
+    "Nintendo Switch and Switch 2: the wired ESP32-S3 is the quickest and steadiest. A wireless board over Bluetooth needs no cable to the console, but adds a few milliseconds.",
     "On every console",
     "Claude Plays: Claude plays any game; it looks at the video and presses the buttons.",
-    "Macro: record what you press on the keyboard or a controller and play it back, as often and as fast as you want. In every list without programs of its own (not on the iPhone and the Wii U).",
+    "Macro: record what you press on the keyboard or a controller and play it back, as often and as fast as you want. In every list without programs of its own (not on the Wii U, the Vita and the 3DS).",
     "Measure the timing first, an option of Claude Plays: with a menu on the screen, the program measures how late the picture is and how short a press can be, and plays with that.",
     "Reaction time in the log: every action of Claude Plays says how long Claude took and how long the console took, so you see where the time goes.",
 };
@@ -920,10 +926,16 @@ QString overview_html(){
         "For Remote Play and the phone: a network cable instead of Wi-Fi.",
         "In Claude Plays, turn on Measure the timing first once, with a menu on the screen, and keep the numbers the log gives.",
     }, false);
+    html += heading("One console, two ways", theme);
+    html += list({
+        "PS4 and PS5: direct, through a Brook Wingman XE, is the quickest: wired, with an adapter to buy (about 40 dollars or euros), and on a PS5 only in PS4 games. Remote Play needs nothing to buy, but its stream makes it slow.",
+        "Xbox One and Series: direct, through a Brook Wingman XB 3, is the quickest. Remote Play, through a Pico with OGX-Mini, needs no adapter to buy, but is slow.",
+        "Nintendo Switch and Switch 2: the wired ESP32-S3 is the quickest and steadiest. A wireless board over Bluetooth needs no cable to the console, but adds a few milliseconds.",
+    }, false);
     html += heading("On every console", theme);
     html += list({
         "Claude Plays: Claude plays any game; it looks at the video and presses the buttons.",
-        "Macro: record what you press on the keyboard or a controller and play it back, as often and as fast as you want. In every list without programs of its own (not on the iPhone and the Wii U).",
+        "Macro: record what you press on the keyboard or a controller and play it back, as often and as fast as you want. In every list without programs of its own (not on the Wii U, the Vita and the 3DS).",
         "Measure the timing first, an option of Claude Plays: with a menu on the screen, the program measures how late the picture is and how short a press can be, and plays with that.",
         "Reaction time in the log: every action of Claude Plays says how long Claude took and how long the console took, so you see where the time goes.",
     }, false);
