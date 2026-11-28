@@ -47,6 +47,7 @@
 #include "ClaudeGG_PokemonGoMap.h"
 #include "ClaudeGG_PokemonGoStart.h"
 #include "ClaudeGG_PokemonGoThrow.h"
+#include "ClaudeGG_PokemonGoBot.h"
 #include "ClaudeGG_PokemonGoCatch.h"
 #include "ClaudeGG_PokemonGoStep.h"
 #include "ClaudeGG_PokemonGoThrowPlay.h"
@@ -1365,6 +1366,21 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             {
                 std::lock_guard<std::mutex> lock(told_lock);
                 check(!told.isEmpty() && told.last().contains("the screen classifier cannot be used here"), "and that is told once");
+            }
+            //  Claude GG spins itself (ClaudeGG_PokemonGoBot): what is not ported yet is switched off, and a catch screen is left with the
+            //  run-away button.
+            {
+                PokemonGo::Bot::Switches asked{{"spin", true}, {"catch", true}, {"rocket_fight", true}, {"quests", true}, {"bag_clean", true},
+                                               {"heat_pause", true}, {"fast_look", true}, {"gifts_open", true}};
+                PokemonGo::Bot::PhoneBot bot(host, asked);
+                check(bot.wanted("spin") && bot.setting("fast_look", false) && !bot.wanted("catch") && !bot.setting("rocket_fight", true)
+                      && !bot.setting("quests", true) && !bot.setting("bag_clean", true) && !bot.setting("heat_pause", true) && !bot.wanted("gifts_open"),
+                      "Claude GG spins with what is ported, the rest is off");
+                check(!bot.map_state().catching && bot.map_state().spin && !host.has_models(), "it does not catch, and there are no models here");
+                const qsizetype before_run = read_lines(adb_log).size();
+                const double wait = bot.do_encounter(cv::Mat(2208, 1768, CV_8UC3, cv::Scalar(10, 20, 30)));
+                check(wait == 3 && read_lines(adb_log).size() == before_run + 1, "a catch screen is left with one tap (run away)");
+                check(bot.count("stops") == "(this run: 1 stops, 0 caught, 0 fled)", "the stops of the run are counted");
             }
             const QString models_folder = qEnvironmentVariable("CLAUDEGG_MODELS");
             if (!models_folder.isEmpty()){
