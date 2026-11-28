@@ -41,6 +41,7 @@
 #include "CommonTools/Options/LanguageOCROption.h"
 #include "ComputerPrograms/ComputerProgram.h"
 #include "ClaudePlays/ClaudePlays_AnyGame.h"
+#include "ClaudePlays/ClaudePlays_Consoles.h"
 #include "ClaudePlays/ClaudePlays_Engine.h"
 #include "ClaudePlays/ClaudePlays_External.h"
 #include "ClaudePlays/ClaudePlays_GameCard.h"
@@ -825,6 +826,16 @@ public:
         options.picture_height = half ? SCREEN_HEIGHT / 2 : SCREEN_HEIGHT;
         options.allow_home = ALLOW_HOME;
         options.external = external;
+        //  How presses are played and how late the picture comes, over Wi-Fi
+        //  (ClaudePlays_Consoles.cpp).
+        {
+            const ConsoleTraits traits = console_traits("vita");
+            options.timing = traits.timing;
+            env.log(
+                "Timing: presses of " + std::to_string(options.timing.press_ms) + " ms, the picture looked at " +
+                std::to_string(options.timing.video_delay_ms) + " ms later. " + traits.why
+            );
+        }
 
         GameFacts facts;
         facts.notes =

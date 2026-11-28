@@ -53,6 +53,40 @@ std::vector<ConsoleTraits> make_traits(){
     //  it at once. (A game on this same computer comes in through OBS, a
     //  frame or two late; that is small next to Claude's own pace.)
     add("steam", direct, {}, "A USB pad of the Steam Deck or the PC: the usual timing.");
+    //  The PlayStation Vita: vita-agent-bridge holds the buttons on the Vita
+    //  itself for as long as asked, and takes the picture there when asked,
+    //  so it is never late. (No capture card: the picture is the screen.)
+    add(
+        "vita", direct, {},
+        "Over Wi-Fi, but the Vita holds the buttons itself and its picture is taken when asked: the usual timing."
+    );
+    {
+        //  The Wii U: the Raspberry Pi is the GamePad, and the picture is the
+        //  GamePad's own stream over Wi-Fi, a tenth of a second behind.
+        InputTiming timing;
+        timing.video_delay_ms = 100;
+        add(
+            "wiiu", timing, {},
+            "The GamePad's picture is a Wi-Fi stream, a tenth of a second behind: the picture is looked at later."
+        );
+    }
+    {
+        //  The 3DS: the presses go as UDP packets to InputRedirection, sent
+        //  again every 50 ms (one that is lost must not end a press too
+        //  soon), and the picture comes back as JPEGs of NTR-HR, a frame or
+        //  more behind.
+        InputTiming timing;
+        timing.press_ms = 170;
+        timing.direction_ms = 130;
+        timing.gap_ms = 350;
+        timing.settle_ms = 300;
+        timing.video_delay_ms = 150;
+        add(
+            "3ds", timing, {},
+            "Presses over Wi-Fi with InputRedirection and the picture as a stream of NTR-HR: longer presses, and "
+            "the picture is looked at later."
+        );
+    }
     {
         //  A Bluetooth link to BlueRetro, and games that read the pad once
         //  a frame at 20 to 30 frames a second: a press a little longer, so
@@ -339,6 +373,17 @@ int console_traits_tests(std::string& report){
         if (japanese.empty() == playstation || (playstation && japanese.find("CIRCLE") == std::string::npos)){
             fail("which button is yes in Japan for " + profile.identifier);
         }
+    }
+    //  The consoles over Wi-Fi without a game list of their own: their
+    //  programs ask for their traits by these codes, and their picture is
+    //  the screen itself (never with black bars). The streams are late.
+    for (const char* code : {"vita", "wiiu", "3ds"}){
+        if (console_traits(code).code != code || !console_traits(code).picture_aspects.empty()){
+            fail(std::string("the traits of the console ") + code);
+        }
+    }
+    if (console_traits("wiiu").timing.video_delay_ms <= 0 || console_traits("3ds").timing.video_delay_ms <= 0){
+        fail("the late picture of the Wii U and the 3DS");
     }
     //  The Switch: always the whole capture.
     if (!console_traits("switch").picture_aspects.empty() || console_traits("retro").picture_aspects.empty()){
