@@ -1510,6 +1510,8 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Sees_Tests.h
     Source/ClaudeGG/ClaudeGG_About.cpp
     Source/ClaudeGG/ClaudeGG_About.h
+    Source/ClaudeGG/ClaudeGG_ConsoleGuide.cpp
+    Source/ClaudeGG/ClaudeGG_ConsoleGuide.h
     Source/ClaudeGG/ClaudeGG_Home.cpp
     Source/ClaudeGG/ClaudeGG_Home.h
     Source/ClaudeGG/ClaudeGG_Intro.cpp
