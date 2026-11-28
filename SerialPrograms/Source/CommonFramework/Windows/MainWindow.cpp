@@ -9,6 +9,8 @@
 //#include <QStatusBar>
 #include <QApplication>
 #include <QDateTime>
+#include <QFile>
+#include <QFileInfo>
 #include <QTextDocumentFragment>
 #include <QTimer>
 #include <QDialog>
@@ -477,7 +479,16 @@ void MainWindow::show_window_panel(WindowPanel panel){
         const QString console = ClaudeGG::current_console_code();
         options.wide = true;
         options.own = true;
-        m_panel->show_panel(ClaudeGG::tr_ui("Consoles"), ClaudeGG::make_console_guide(m_panel, console, &ClaudeGG::open_setup), options);
+        //  "Show the tour" puts the panel away first: the tour is on the screen under it.
+        QWidget* guide = ClaudeGG::make_console_guide(m_panel, console, &ClaudeGG::open_setup, [this]{
+            QTimer::singleShot(0, this, [this]{
+                show_window_panel(WindowPanel::NONE);
+                if (m_app != nullptr){
+                    m_app->show_tour();
+                }
+            });
+        });
+        m_panel->show_panel(ClaudeGG::tr_ui("Consoles"), guide, options);
         break;
     }
     case WindowPanel::ABOUT:{
@@ -936,6 +947,21 @@ void MainWindow::make_app_view(bool test){
     actions.consoles = [this]{
         show_window_panel(WindowPanel::CONSOLES);
     };
+    //  The tour of the screen, once: a file in the settings folder says it was seen.
+    {
+        const QString seen = QString::fromStdString(SETTINGS_PATH()) + "tour-seen.txt";
+        //  Not in a run of the tests, nor in an installation inside the main window.
+        actions.tour = !test && !ClaudeGG::is_test_run() && !ClaudeGG::is_embedded() && !QFileInfo::exists(seen);
+        actions.tour_done = [seen, test]{
+            if (test){
+                return;
+            }
+            QFile file(seen);
+            if (file.open(QIODevice::WriteOnly)){
+                file.write("The tour of the screen was shown. Delete this file to see it at the next start.\n");
+            }
+        };
+    }
     actions.claude = [this](bool show){
         show_assistant(show);
     };

@@ -363,6 +363,8 @@ file(GLOB CORE_LIBRARY_SOURCES
     Source/NintendoSwitch/Programs/FastCodeEntry/NintendoSwitch_KeyboardEntryMappings.h
     Source/ClaudeGG/ClaudeGG_InstancePaths.cpp
     Source/ClaudeGG/ClaudeGG_InstancePaths.h
+    Source/ClaudeGG/ClaudeGG_KeyboardState.cpp
+    Source/ClaudeGG/ClaudeGG_KeyboardState.h
 )
 
 file(GLOB LIBRARY_SOURCES
@@ -1530,6 +1532,9 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_Panel.h
     Source/ClaudeGG/ClaudeGG_PokemonGo.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGo.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoBag.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoBag.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoBagCheck.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoBattle.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoBattle.h
     Source/ClaudeGG/ClaudeGG_PokemonGoBot.cpp
@@ -1604,6 +1609,8 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_UpdateDialog.h
     Source/ClaudeGG/ClaudeGG_Updater.cpp
     Source/ClaudeGG/ClaudeGG_Updater.h
+    Source/ClaudeGG/ClaudeGG_Vita.cpp
+    Source/ClaudeGG/ClaudeGG_Vita.h
     Source/ClaudeGG/ClaudeGG_WiiU.cpp
     Source/ClaudeGG/ClaudeGG_WiiU.h
     Source/Pokemon/Inference/Pokemon_AbilityReader.cpp

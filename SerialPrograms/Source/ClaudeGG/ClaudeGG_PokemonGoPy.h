@@ -13,9 +13,11 @@
 #define PokemonAutomation_ClaudeGG_PokemonGoPy_H
 
 #include <cstdio>
+#include <limits>
 #include <stdexcept>
 #include <QChar>
 #include <QString>
+#include <QStringList>
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -100,11 +102,128 @@ inline QString py_strip(const QString& text){
     return text.mid(from, to - from);
 }
 
-//  float(text) and int(text) of Python, for what the table of tesseract holds.
-inline double py_float(const QString& text){
+//  str.split() without an argument: the pieces between runs of white space.
+inline QStringList py_split(const QString& text){
+    QStringList out;
+    QString piece;
+    for (const QChar c : text){
+        if (py_space(c)){
+            if (!piece.isEmpty()){
+                out << piece;
+                piece.clear();
+            }
+        }else{
+            piece += c;
+        }
+    }
+    if (!piece.isEmpty()){
+        out << piece;
+    }
+    return out;
+}
+
+//  str.title() for what is written with letters of the alphabet and spaces ("RAZZ BERRY" is "Razz Berry").
+inline QString py_title(const QString& text){
+    QString out;
+    bool after_letter = false;
+    for (const QChar c : text){
+        if (c.isLetter()){
+            out += after_letter ? c.toLower() : c.toUpper();
+            after_letter = true;
+        }else{
+            out += c;
+            after_letter = false;
+        }
+    }
+    return out;
+}
+
+//  float(text) of Python: false when the text is no number.  What float() takes: white space around it, a sign, then inf, infinity or nan (in any
+//  case) or digits with a point and an exponent, one underscore allowed between two digits; digits of other scripts are digits too (those of the
+//  Basic Multilingual Plane).
+inline bool py_parse_float(const QString& text, double& value){
+    const QString stripped = py_strip(text);
+    QString a;
+    for (const QChar c : stripped){
+        if (c.unicode() < 128){
+            a += c;
+        }else if (c.category() == QChar::Number_DecimalDigit){
+            a += QChar((ushort)('0' + c.digitValue()));
+        }else{
+            return false;
+        }
+    }
+    const qsizetype n = a.size();
+    qsizetype i = 0;
+    bool negative = false;
+    if (i < n && (a.at(i) == '+' || a.at(i) == '-')){
+        negative = a.at(i) == '-';
+        i++;
+    }
+    const QString word = a.mid(i).toLower();
+    if (word == "inf" || word == "infinity"){
+        value = negative ? -std::numeric_limits<double>::infinity() : std::numeric_limits<double>::infinity();
+        return true;
+    }
+    if (word == "nan"){
+        value = std::numeric_limits<double>::quiet_NaN();
+        return true;
+    }
+    const auto digit = [&](qsizetype at){ return at < n && a.at(at) >= '0' && a.at(at) <= '9'; };
+    const auto digits = [&](qsizetype& at){
+        if (!digit(at)){
+            return false;
+        }
+        at++;
+        while (at < n){
+            if (digit(at)){
+                at++;
+            }else if (a.at(at) == '_' && digit(at + 1)){
+                at += 2;
+            }else{
+                break;
+            }
+        }
+        return true;
+    };
+    qsizetype j = i;
+    bool have = digits(j);
+    if (j < n && a.at(j) == '.'){
+        j++;
+        qsizetype k = j;
+        if (digits(k)){
+            j = k;
+            have = true;
+        }
+    }
+    if (!have){
+        return false;
+    }
+    bool negative_exponent = false;
+    if (j < n && (a.at(j) == 'e' || a.at(j) == 'E')){
+        j++;
+        if (j < n && (a.at(j) == '+' || a.at(j) == '-')){
+            negative_exponent = a.at(j) == '-';
+            j++;
+        }
+        if (!digits(j)){
+            return false;
+        }
+    }
+    if (j != n){
+        return false;
+    }
+    a.remove('_');
     bool ok = false;
-    const double value = py_strip(text).toDouble(&ok);
-    if (!ok){
+    value = a.toDouble(&ok);
+    if (!ok){                                               //  (more than a double holds: Python gives infinity or zero)
+        value = negative_exponent ? 0.0 : (negative ? -std::numeric_limits<double>::infinity() : std::numeric_limits<double>::infinity());
+    }
+    return true;
+}
+inline double py_float(const QString& text){
+    double value = 0;
+    if (!py_parse_float(text, value)){
         throw std::runtime_error(("could not convert string to float: " + py_repr(text)).toStdString());
     }
     return value;

@@ -431,7 +431,7 @@ std::optional<double> fast_catch_leave(Host& host, State& state, double t_throw)
 }
 
 
-QString screen_kind(Host& host, const cv::Mat& img, const Nav::Lines& lines){
+QString screen_kind(Loop::Host& host, const cv::Mat& img, const Nav::Lines& lines){
     if (host.on_map(img)){
         return "map";
     }
@@ -477,6 +477,8 @@ void finish_catch(Host& host, bool with_beat){
         QString name;
         try{
             name = host.screen_class(host.screenshot()).first;
+        }catch (const Flow::Interrupted&){                  //  (the person stopped the bot: Python's `except Exception` does not take that)
+            throw;
         }catch (const std::exception&){
             return;
         }
@@ -493,6 +495,8 @@ void finish_catch(Host& host, bool with_beat){
         double wait = 5;
         try{
             wait = host.step();
+        }catch (const Flow::Interrupted&){
+            throw;
         }catch (const std::exception& e){
             host.log(QString("error: %1").arg(QString::fromUtf8(e.what())));
             wait = 5;

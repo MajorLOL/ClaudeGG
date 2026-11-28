@@ -40,6 +40,7 @@
 #include "ClaudeGG/ClaudeGG_PokemonGo.h"
 #include "ClaudeGG/ClaudeGG_ProgramList.h"
 #include "ClaudeGG/ClaudeGG_WiiU.h"
+#include "ClaudeGG/ClaudeGG_Vita.h"
 #include "PanelLists.h"
 
 //#include <iostream>
@@ -100,6 +101,9 @@ std::vector<std::unique_ptr<PanelListDescriptor>> make_all_lists(){
         ClaudeGG::ClaudePlays::GameId::XBOX_REMOTE_PLAY,
         ClaudeGG::ClaudePlays::GameId::IPHONE,
         ClaudeGG::ClaudePlays::GameId::PS_CLASSIC,
+        ClaudeGG::ClaudePlays::GameId::PS_DIRECT,
+        ClaudeGG::ClaudePlays::GameId::XBOX_DIRECT,
+        ClaudeGG::ClaudePlays::GameId::STEAM,
     }){
         lists.emplace_back(std::make_unique<ClaudeGG::ClaudePlays::GameOnlyList>(id));
     }
@@ -112,6 +116,10 @@ std::vector<std::unique_ptr<PanelListDescriptor>> make_all_lists(){
     //  ClaudeGG: the Wii U, whose GamePad is a Raspberry Pi (WiiU/vanilla-bridge):
     //  pairing and Claude Plays. Shown for that console only (consoles_of_game()).
     lists.emplace_back(std::make_unique<ClaudeGG::WiiU::WiiUList>());
+
+    //  ClaudeGG: the PlayStation Vita, over the network with vita-agent-bridge:
+    //  a test of the connection and Claude Plays. Shown for that console only.
+    lists.emplace_back(std::make_unique<ClaudeGG::Vita::VitaList>());
 
     if (STATIC_GLOBALS.DEVELOPER_MODE){
         lists.emplace_back(std::make_unique<ML::PanelListFactory>());

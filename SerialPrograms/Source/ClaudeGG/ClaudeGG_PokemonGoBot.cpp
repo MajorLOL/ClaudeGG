@@ -7,7 +7,14 @@
  *
  */
 
+#include <cmath>
+#include <future>
 #include <stdexcept>
+#include <QDir>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QRegularExpression>
 #include "ClaudeGG_PokemonGoBot.h"
 #include "ClaudeGG_PokemonGoCatch.h"
 #include "ClaudeGG_PokemonGoFlow.h"
@@ -36,8 +43,7 @@ std::vector<Detection> PhoneDetector::map(const cv::Mat& img, const cv::Rect& bo
 Switches playable(const Switches& asked){
     Switches out = asked;
     //  Not ported yet: off, so that the steps leave them alone.
-    for (const char* key : {"catch", "gifts_open", "gifts_send", "daily_cycle", "rocket_fight", "quests", "bag_clean", "battle", "teams_weekly",
-                            "spin_only_when_full", "fast_catch", "curveball"}){
+    for (const char* key : {"gifts_open", "gifts_send", "daily_cycle", "rocket_fight", "quests", "bag_clean", "battle", "teams_weekly"}){
         out[QString::fromLatin1(key)] = false;
     }
     //  The pause for the heat needs temperatures that the agent cannot give yet.
@@ -46,15 +52,42 @@ Switches playable(const Switches& asked){
 }
 
 
-PhoneBot::PhoneBot(Phone::AgentHost& phone, const Switches& switches)
+PhoneBot::PhoneBot(Phone::AgentHost& phone, const Switches& switches, const Texts& texts, const QString& folder)
     : m_phone(phone)
     , m_switches(playable(switches))
+    , m_texts(texts)
+    , m_folder(folder)
     , m_detector(phone)
     , m_eyes(m_detector)
     , m_random(std::random_device{}())
 {
-    m_map.catching = false;
+    m_map.catching = m_switches["catch"];
     m_map.spin = m_switches["spin"];
+    //  What the throws learned before (load_cal()).
+    if (!m_folder.isEmpty()){
+        QFile file(m_folder + "/gamebot_throw.json");
+        if (file.open(QIODevice::ReadOnly)){
+            const QJsonObject saved = QJsonDocument::fromJson(file.readAll()).object();
+            if (Throw::cal_load(m_memory.cal, saved)){
+                log("throw: what was learned of the throws is taken from gamebot_throw.json");
+            }
+        }
+    }
+}
+
+PhoneBot::~PhoneBot(){
+    std::lock_guard<std::mutex> lock(m_running_lock);
+    for (auto& one : m_running){
+        if (one.second->thread.joinable()){
+            one.second->thread.join();
+        }
+    }
+}
+
+cv::Mat PhoneBot::quick_screenshot(){
+    cv::Mat img = m_phone.screenshot();
+    m_quick_t = monotonic();
+    return img;
 }
 
 void PhoneBot::timers(){
@@ -114,8 +147,155 @@ void PhoneBot::resume_spin_later(){
 }
 
 double PhoneBot::throw_ball(std::optional<bool>& hit){
-    hit = std::nullopt;
-    throw std::runtime_error("throwing a ball is not in Claude GG yet");
+    const double t = Throw::throw_ball(*this, m_memory);
+    hit = m_memory.hit;
+    return t;
+}
+
+QString PhoneBot::ball(){
+    const QString chosen = setting_text("ball", "poke").toLower();
+    return chosen == "great" || chosen == "ultra" ? chosen : QString("poke");
+}
+
+QStringList PhoneBot::berry_order(){
+    const auto it = m_texts.find("berries");
+    if (it == m_texts.end()){
+        return {"pinap", "razz", "nanab"};              //  BERRY_ORDER of gamebot.py
+    }
+    QStringList out;
+    for (const QString& one : it->second.split(',', Qt::SkipEmptyParts)){
+        out << one.trimmed().toLower();
+    }
+    return out;
+}
+
+Point PhoneBot::to_real(double x, double y){
+    const int width = m_phone.screen_width();
+    const int height = m_phone.screen_height();
+    if (width <= 0 || height <= 0){
+        return Point{(int)std::nearbyint(x), (int)std::nearbyint(y)};
+    }
+    //  int(round(x * w / REF_W)) of spin_stop.to_real (round() goes to the even one at a half, as nearbyint does).
+    return Point{(int)std::nearbyint(x * width / Loop::REF_W), (int)std::nearbyint(y * height / Loop::REF_H)};
+}
+
+double PhoneBot::gauss(double mu, double sigma){
+    return std::normal_distribution<double>(mu, sigma)(m_random);
+}
+
+QString PhoneBot::setting_text(const QString& key, const QString& fallback){
+    const auto text = m_texts.find(key);
+    if (text != m_texts.end()){
+        return text->second;
+    }
+    const auto on = m_switches.find(key);
+    if (on != m_switches.end()){
+        return on->second ? "True" : "False";               //  str() of a yes or no of Python
+    }
+    return fallback;
+}
+
+Throw::Later PhoneBot::screenshot_later(){
+    std::shared_future<cv::Mat> shot = std::async(std::launch::async, [this]{ return m_phone.screenshot(); }).share();
+    return [shot]{ return shot.get(); };
+}
+
+QString PhoneBot::send(const QStringList& args){
+    //  The commands of the throw (see Throw::touch_line(), aim()): "input swipe x1 y1 x2 y2 ms", "input motionevent ACTION x y", or a
+    //  shell line with motionevents.  The places are on the real screen already.
+    QStringList words = args;
+    if (!words.isEmpty() && words.front() == "adb"){
+        words.pop_front();
+    }
+    if (!words.isEmpty() && words.front() == "shell"){
+        words.pop_front();
+    }
+    const QString line = words.join(" ");
+    QString error;
+    static const QRegularExpression swipe_re("^input swipe (\\d+) (\\d+) (\\d+) (\\d+) (\\d+)$");
+    const QRegularExpressionMatch swipe = swipe_re.match(line.trimmed());
+    if (swipe.hasMatch()){
+        if (!m_phone.agent().swipe(swipe.captured(1).toInt(), swipe.captured(2).toInt(), swipe.captured(3).toInt(), swipe.captured(4).toInt(),
+                                   swipe.captured(5).toInt(), &error)){
+            throw std::runtime_error("the swipe did not reach the phone: " + error.toStdString());
+        }
+        return QString();
+    }
+    static const QRegularExpression touch_re("motionevent (DOWN|MOVE|UP) (\\d+) (\\d+)");
+    std::vector<MobileTouch> events;
+    QRegularExpressionMatchIterator it = touch_re.globalMatch(line);
+    while (it.hasNext()){
+        const QRegularExpressionMatch m = it.next();
+        events.push_back(MobileTouch{m.captured(1), m.captured(2).toInt(), m.captured(3).toInt()});
+    }
+    if (events.empty()){
+        throw std::runtime_error("not a command that the agent can give the phone: " + line.toStdString());
+    }
+    QString out;
+    if (!m_phone.agent().touch(events, out, &error)){
+        throw std::runtime_error("the touch did not reach the phone: " + error.toStdString());
+    }
+    return out;
+}
+
+int PhoneBot::adb_start(const QStringList& argv, bool capture){
+    (void)capture;
+    std::lock_guard<std::mutex> lock(m_running_lock);
+    const int handle = m_next_handle++;
+    std::unique_ptr<Running> running = std::make_unique<Running>();
+    Running* slot = running.get();
+    slot->thread = std::thread([this, argv, slot]{
+        try{
+            slot->out = send(argv);
+        }catch (const std::exception& e){
+            slot->error = QString::fromUtf8(e.what());
+        }
+    });
+    m_running.emplace(handle, std::move(running));
+    return handle;
+}
+
+QString PhoneBot::adb_communicate(int handle){
+    std::unique_ptr<Running> running;
+    {
+        std::lock_guard<std::mutex> lock(m_running_lock);
+        const auto it = m_running.find(handle);
+        if (it == m_running.end()){
+            return QString();
+        }
+        running = std::move(it->second);
+        m_running.erase(it);
+    }
+    if (running->thread.joinable()){
+        running->thread.join();
+    }
+    //  (an error of the agent is what the phone "wrote": the throw looks for the words of a phone that does not know touch events)
+    return running->error.isEmpty() ? running->out : running->error;
+}
+
+void PhoneBot::adb_wait(int handle){
+    adb_communicate(handle);
+}
+
+void PhoneBot::adb(const QStringList& args){
+    send(args);
+}
+
+std::pair<double, double> PhoneBot::throw_params(double cx, double cy, double w, double h){
+    const std::optional<std::pair<double, double>> p = m_phone.throw_params(cx, cy, w, h);
+    return p.has_value() ? *p : std::make_pair(Throw::THROW_FALLBACK_DY, Throw::THROW_FALLBACK_MS);
+}
+
+void PhoneBot::save_cal(const Throw::Cal& cal){
+    if (m_folder.isEmpty()){
+        return;
+    }
+    QFile file(m_folder + "/gamebot_throw.json");
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)){
+        log("throw: what was learned cannot be written to " + file.fileName());
+        return;
+    }
+    file.write(QJsonDocument(Throw::cal_file(cal)).toJson(QJsonDocument::Indented));
 }
 
 std::pair<std::optional<double>, std::optional<double>> PhoneBot::read_heat(){
@@ -146,9 +326,13 @@ double PhoneBot::do_map(const cv::Mat& img){
 double PhoneBot::do_pokestop(const cv::Mat& img){
     return Map::do_pokestop(*this, m_map, img);
 }
-double PhoneBot::do_encounter(const cv::Mat&){
-    //  Catching is not in Claude GG yet: the catch screen opened anyway (a Pokémon came up by itself, or was tapped by the person).
-    log("catch screen, but catching is not in Claude GG yet - running away");
+double PhoneBot::do_encounter(const cv::Mat& img){
+    if (m_map.catching && wanted("catch")){
+        return Catch::do_encounter(*this, m_map, img);
+    }
+    //  Not catching (only spinning, or the storage is full): the catch screen opened anyway (a Pokémon came up by itself, or was tapped
+    //  by the person).
+    log("catch screen, but catching is off - running away");
     tap(Catch::RUN_BTN.x, Catch::RUN_BTN.y);
     Map::reset_encounter(*this, m_map);
     return 3;

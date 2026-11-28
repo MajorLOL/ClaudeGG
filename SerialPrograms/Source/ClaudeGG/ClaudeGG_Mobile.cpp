@@ -50,6 +50,7 @@
 #include "ClaudeGG_PokemonGoBot.h"
 #include "ClaudeGG_PokemonGoCatch.h"
 #include "ClaudeGG_PokemonGoStep.h"
+#include "ClaudeGG_PokemonGoBag.h"
 #include "ClaudeGG_PokemonGoThrowPlay.h"
 #include "ClaudeGG_PokemonGoVision.h"
 
@@ -502,6 +503,21 @@ bool MobileAgent::wake(QString* error) const{
     return post("/v1/wake", "{}", error);
 }
 
+bool MobileAgent::touch(const std::vector<MobileTouch>& events, QString& out, QString* error) const{
+    QJsonArray list;
+    for (const MobileTouch& event : events){
+        list.append(QJsonArray{event.action, event.x, event.y});
+    }
+    QJsonObject body;
+    body["events"] = list;
+    Reply reply;
+    if (!request("POST", "/v1/touch", QJsonDocument(body).toJson(QJsonDocument::Compact), reply, error)){
+        return false;
+    }
+    out = QJsonDocument::fromJson(reply.body).object().value("out").toString();
+    return true;
+}
+
 bool MobileAgent::app(const char* action, const QString& package, Reply& reply, QString* error) const{
     QJsonObject body;
     body["action"] = QString::fromLatin1(action);
@@ -920,6 +936,20 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         }
         check(differ == 0, step_report.isEmpty() ? QString("a step of the bot is made as gamebot.py makes it") : step_report.last());
     }
+    //  The item bag, ported to C++ (issue #31): what the bag keeps of each item, the rows of a page of the bag, the question 'Discard <item>?'
+    //  that is read and set to the number wanted, the way to the bag and back to the map, the clean-up of a full bag, the red FULL marks of the
+    //  main menu and closing the game when the storage and the bag are both full, held to what the Python code did on the little stories of
+    //  tests/fixtures/bag_golden.json.qz.
+    {
+        QStringList bag_report;
+        const int differ = PokemonGo::Bag::run_bag_checks(agent_folder + "/../tests/fixtures/bag_golden.json.qz", bag_report);
+        for (const QString& line : bag_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, bag_report.isEmpty() ? QString("the item bag is handled as gamebot.py handles it") : bag_report.last());
+    }
     //  The text reader, ported to C++ (issue #30): the table that Tesseract writes made into lines of words with their places, as
     //  gamebot.ocr_lines() makes them (354 tables, 36 of them read from frames of real fights), and - where the tesseract program is
     //  found - a picture with words drawn on it read with it.
@@ -1103,6 +1133,12 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
     check(phone.key("BACK", &error), "a key: " + error);
     check(phone.text("a b", &error), "a text: " + error);
     check(phone.wake(&error), "waking: " + error);
+    {
+        QString out;
+        check(phone.touch({{"DOWN", 1, 2}, {"MOVE", 3, 4}, {"UP", 5, 6}}, out, &error), "touch events (agent 0.2.2): " + error);
+        QString refused;
+        check(!phone.touch({{"PRESS", 1, 2}}, out, &refused) && !refused.isEmpty(), "a touch event that does not exist is refused (" + refused + ")");
+    }
     const QStringList pressed = read_lines(adb_log).mid(before.size());
     const QStringList wanted{
         "shell input swipe 300 400 300 400 120",
@@ -1112,6 +1148,7 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         "shell input keyevent 4",
         "shell input text a%sb",
         "shell input keyevent 224",
+        "shell { input motionevent DOWN 1 2; input motionevent MOVE 3 4; input motionevent UP 5 6; } 2>&1",
     };
     check(pressed == wanted, "the phone was asked just that (" + QString::number(pressed.size()) + " commands)");
     if (pressed != wanted){
@@ -1370,13 +1407,51 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             //  Claude GG spins itself (ClaudeGG_PokemonGoBot): what is not ported yet is switched off, and a catch screen is left with the
             //  run-away button.
             {
-                PokemonGo::Bot::Switches asked{{"spin", true}, {"catch", true}, {"rocket_fight", true}, {"quests", true}, {"bag_clean", true},
+                PokemonGo::Bot::Switches asked{{"spin", true}, {"catch", false}, {"rocket_fight", true}, {"quests", true}, {"bag_clean", true},
                                                {"heat_pause", true}, {"fast_look", true}, {"gifts_open", true}};
-                PokemonGo::Bot::PhoneBot bot(host, asked);
+                PokemonGo::Bot::PhoneBot bot(host, asked, {{"throw_target", "great"}, {"berries", "razz, nanab"}});
                 check(bot.wanted("spin") && bot.setting("fast_look", false) && !bot.wanted("catch") && !bot.setting("rocket_fight", true)
                       && !bot.setting("quests", true) && !bot.setting("bag_clean", true) && !bot.setting("heat_pause", true) && !bot.wanted("gifts_open"),
-                      "Claude GG spins with what is ported, the rest is off");
-                check(!bot.map_state().catching && bot.map_state().spin && !host.has_models(), "it does not catch, and there are no models here");
+                      "Claude GG plays with what is ported, the rest is off");
+                check(!bot.map_state().catching && bot.map_state().spin && !host.has_models(), "it does not catch when that is off, and there are no models here");
+                check(bot.setting_text("throw_target", "realistic") == "great" && bot.setting_text("fast_look", "") == "True"
+                      && bot.berry_order() == QStringList{"razz", "nanab"} && bot.ball() == "poke", "the throw, the berries and the ball are as chosen");
+                const PokemonGo::Loop::Point real = bot.to_real(884, 1104);
+                //  (The screen is the size of the last screenshot of the made-up phone, which need not be 1000 x 2200 any more.)
+                const int real_w = host.screen_width();
+                const int real_h = host.screen_height();
+                check(real_w > 0 && real_h > 0 && real.x == (int)std::nearbyint(884.0 * real_w / PokemonGo::Loop::REF_W)
+                      && real.y == (int)std::nearbyint(1104.0 * real_h / PokemonGo::Loop::REF_H),
+                      "the throw is sent on the real screen (" + QString::number(real_w) + " x " + QString::number(real_h) + ": "
+                      + QString::number(real.x) + ", " + QString::number(real.y) + ")");
+                {
+                    //  The commands of the throw reach the phone as touch events and swipes (and nothing else is sent).
+                    const QStringList throw_start = read_lines(adb_log);
+                    const int hold = bot.adb_start({"adb", "shell", "{ input motionevent DOWN 500 1900; input motionevent MOVE 520 1880; } 2>&1"}, true);
+                    bot.adb_communicate(hold);
+                    bot.adb({"shell", "input", "motionevent", "UP", "520", "1880"});
+                    const int aim = bot.adb_start({"adb", "shell", "input", "swipe", "500", "1900", "500", "1900", "1300"}, false);
+                    bot.adb_wait(aim);
+                    bool refused = false;
+                    try{
+                        bot.adb({"shell", "reboot"});
+                    }catch (const std::runtime_error&){
+                        refused = true;
+                    }
+                    const QStringList throw_got = read_lines(adb_log).mid(throw_start.size());
+                    const QStringList throw_want{
+                        "shell { input motionevent DOWN 500 1900; input motionevent MOVE 520 1880; } 2>&1",
+                        "shell { input motionevent UP 520 1880; } 2>&1",
+                        "shell input swipe 500 1900 500 1900 1300",
+                    };
+                    check(throw_got == throw_want && refused, "the commands of the throw reach the phone through the agent, any other is refused ("
+                          + QString::number(throw_got.size()) + " commands)");
+                    if (throw_got != throw_want){
+                        for (const QString& line : throw_got){
+                            report << "         it was asked: " + line;
+                        }
+                    }
+                }
                 const qsizetype before_run = read_lines(adb_log).size();
                 const double wait = bot.do_encounter(cv::Mat(2208, 1768, CV_8UC3, cv::Scalar(10, 20, 30)));
                 check(wait == 3 && read_lines(adb_log).size() == before_run + 1, "a catch screen is left with one tap (run away)");

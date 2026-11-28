@@ -176,6 +176,14 @@ public:
     std::vector<Models::Detection> buttons(const cv::Mat& img);
     //  Wake the screen of the phone up (/v1/wake of the agent; what fails is told in the log).
     void wake();
+    //  The detector of the catch screen and the throw predictor (Brain.encounter_objects, Brain.throw_params); nothing / the fallback of
+    //  gamebot.py's throw when there are no models.
+    std::vector<Models::Detection> encounter_objects(const cv::Mat& img);
+    std::optional<std::pair<double, double>> throw_params(double cx, double cy, double w, double h);
+    //  The table of the text reader for a picture (Text::Reader::table()).
+    std::optional<QString> ocr_table(const cv::Mat& img){ return m_reader.table(img); }
+    //  The agent itself (its calls take places on the real screen).
+    const MobileAgent& agent() const{ return m_agent; }
     void mark_battles_done() override;
     QString day_count(const QString& key) override;
     QStringList team_names() override;

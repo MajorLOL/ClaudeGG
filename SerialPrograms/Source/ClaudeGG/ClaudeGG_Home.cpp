@@ -10,6 +10,7 @@
 #include "ClaudePlays/ClaudePlays_Games.h"
 #include "ClaudeGG_Home.h"
 #include "ClaudeGG_WiiU.h"
+#include "ClaudeGG_Vita.h"
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -32,6 +33,10 @@ QStringList consoles_of_game(const QString& name){
     //  The list of the Wii U (ClaudeGG_WiiU.h): its GamePad is a Raspberry Pi.
     if (name == WiiU::WIIU_LIST_NAME){
         return QStringList{"wiiu"};
+    }
+    //  The list of the PlayStation Vita (ClaudeGG_Vita.h): over the network.
+    if (name == Vita::VITA_LIST_NAME){
+        return QStringList{"vita"};
     }
     //  The list of another console (the Claude Plays of the PlayStation 3 and
     //  of the original Xbox).

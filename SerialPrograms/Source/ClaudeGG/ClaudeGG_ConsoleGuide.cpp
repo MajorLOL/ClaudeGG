@@ -548,6 +548,156 @@ const std::vector<Guide>& guides(){
                 "No picture: check the address of the Pi and that a firewall does not block ports 51200 to 51202.",
             },
         },
+        {
+            "psdirect", "PS4 and PS5, direct", Status::EXPERIMENTAL, Speed::FAST,
+            "ESP32-S3 and a Brook Wingman XE", "Capture card (HDMI)",
+            "The ESP32-S3 plays a Switch pad into a bought Brook Wingman XE, which plays a PlayStation 4 controller and answers the console's check of a pad. No network and no stream: quicker than Remote Play.",
+            {
+                NEED_COMPUTER,
+                NEED_ESP32S3,
+                "A Brook Wingman XE (bought, about 40 dollars or euros): it answers the console's check",
+                "A PlayStation 4 or 5 (a PlayStation 5 takes it in PS4 games only)",
+                NEED_CAPTURE,
+            },
+            {
+                {"Computer", "USB (COM)", "ESP32-S3", "USB (OTG)", "Brook Wingman XE", "USB", "PS4 or PS5"},
+                {"PS4 or PS5", "HDMI", "Capture card", "USB", "Computer"},
+            },
+            {
+                STEP_FLASH,
+                "Update the Brook Wingman XE to its latest firmware with Brook's updater. It plays a PlayStation 4 controller: a PlayStation 5 takes it in PS4 games only.",
+                "Plug the adapter into a USB port of the console, and the USB or OTG port of the ESP32-S3 into the adapter. The console's picture goes into the capture card over HDMI.",
+                STEP_PORTS,
+                STEP_VIDEO,
+                STEP_TEST,
+            },
+            "Wired all the way: the adapter adds a few milliseconds, far less than the stream of Remote Play.",
+            {
+                "The list PS4 and PS5 games, direct of Claude Plays.",
+                GAMES_CLAUDE_PLAYS,
+                GAMES_MACRO,
+            },
+            {
+                LIMIT_UNTESTED,
+                "The adapter has to be bought: no open adapter answers the check of these consoles.",
+                LIMIT_POSITION,
+            },
+            {
+                "The console does not take the adapter: update it with Brook's updater and plug it straight into the console, without a hub.",
+                TROUBLE_WRONG_PORT,
+                TROUBLE_TYPE,
+            },
+        },
+        {
+            "xboxdirect", "Xbox One and Series, direct", Status::EXPERIMENTAL, Speed::FAST,
+            "ESP32-S3 and a Brook Wingman XB 3", "Capture card (HDMI)",
+            "The ESP32-S3 plays a Switch pad into a bought Brook Wingman XB 3, which plays an Xbox controller and answers the console's check of a pad. No network and no stream: quicker than Remote Play.",
+            {
+                NEED_COMPUTER,
+                NEED_ESP32S3,
+                "A Brook Wingman XB 3 (bought): it answers the console's check",
+                "An Xbox One or Series",
+                NEED_CAPTURE,
+            },
+            {
+                {"Computer", "USB (COM)", "ESP32-S3", "USB (OTG)", "Brook Wingman XB 3", "USB", "Xbox"},
+                {"Xbox", "HDMI", "Capture card", "USB", "Computer"},
+            },
+            {
+                STEP_FLASH,
+                "Update the Brook Wingman XB 3 to its latest firmware with Brook's updater. It plays an Xbox controller to an Xbox One or Series.",
+                "Plug the adapter into a USB port of the console, and the USB or OTG port of the ESP32-S3 into the adapter. The console's picture goes into the capture card over HDMI.",
+                STEP_PORTS,
+                STEP_VIDEO,
+                STEP_TEST,
+            },
+            "Wired all the way: the adapter adds a few milliseconds, far less than the stream of Remote Play.",
+            {
+                "The list Xbox One and Series games, direct of Claude Plays.",
+                GAMES_CLAUDE_PLAYS,
+                GAMES_MACRO,
+            },
+            {
+                LIMIT_UNTESTED,
+                "The adapter has to be bought: no open adapter answers the check of these consoles.",
+                LIMIT_POSITION,
+            },
+            {
+                "The console does not take the adapter: update it with Brook's updater and plug it straight into the console, without a hub.",
+                TROUBLE_WRONG_PORT,
+                TROUBLE_TYPE,
+            },
+        },
+        {
+            "steam", "Steam Deck and PC", Status::EXPERIMENTAL, Speed::FAST,
+            "ESP32-S3", "Capture card (HDMI from the dock), or OBS Virtual Camera",
+            "The ESP32-S3 is a plain USB gamepad of the Steam Deck or the PC, and Steam takes it like any other pad. The picture of a Steam Deck comes from its dock through a capture card; a game on this same computer comes in through OBS.",
+            {
+                NEED_COMPUTER,
+                NEED_ESP32S3,
+                "A Steam Deck with a USB-C dock that has HDMI, or a PC with Steam",
+                "A capture card for the Steam Deck; for a game on this same PC, OBS Studio (free) instead",
+            },
+            {
+                {"Computer", "USB (COM)", "ESP32-S3", "USB (OTG)", "Steam Deck dock or PC"},
+                {"Steam Deck dock", "HDMI", "Capture card", "USB", "Computer"},
+            },
+            {
+                STEP_FLASH,
+                "Plug the USB or OTG port of the ESP32-S3 into a USB port of the Steam Deck's dock, or of the PC that runs the game (this same computer is fine). In Steam, under Settings and Controller, it shows up as a gamepad.",
+                "Steam Deck: from the HDMI of its dock into the capture card. A game on this same computer: in OBS Studio, add a Window Capture of the game, press Start Virtual Camera and pick OBS Virtual Camera as the video.",
+                STEP_PORTS,
+                STEP_TEST,
+            },
+            "Wired all the way, and Steam reads the pad at once. A game on this same computer comes in through OBS, a frame or two late.",
+            {
+                "The list Steam Deck and PC games of Claude Plays.",
+                GAMES_CLAUDE_PLAYS,
+            },
+            {
+                LIMIT_UNTESTED,
+                "Steam passes the buttons on by their places, as an Xbox pad's. If A and B are swapped, turn off the Nintendo button layout in Steam's controller settings.",
+                "A game outside Steam may not see the pad: add it to Steam as a game that is not from Steam, so that Steam Input passes the pad on.",
+            },
+            {
+                "Steam does not show the pad: try another USB port of the dock, and check that the USB or OTG port of the ESP32-S3 is the one plugged in.",
+                TROUBLE_WRONG_PORT,
+                TROUBLE_TYPE,
+            },
+        },
+        {
+            "vita", "PlayStation Vita", Status::EXPERIMENTAL, Speed::SLOW,
+            "None: vita-agent-bridge on the Vita", "Pictures of the screen, from the Vita over Wi-Fi",
+            "A Vita with HENkaku runs vita-agent-bridge (MIT, a separate project): a plugin that presses its buttons, moves its sticks and touches its screen, and sends pictures of the screen. Claude GG talks to it over the home network. There is no board and no capture card.",
+            {
+                NEED_COMPUTER,
+                "A PlayStation Vita with HENkaku Enso and taiHEN (vita-agent-bridge was made on a Vita 2000 with 3.65).",
+                "vita-agent-bridge, installed as its page says, with a token of 64 characters on the Vita and the same token in the file .vita-agent-token in your home folder.",
+                "The Vita and the computer on the same home network.",
+            },
+            {
+                {"Computer", "Network", "Vita with vita-agent-bridge"},
+            },
+            {
+                "Install vita-agent-bridge on the Vita: its two files in ur0:data/vita-agent-bridge/, its token there, and its plugin under *KERNEL in ur0:tai/config.txt. Restart the Vita.",
+                "Put the same token in the file .vita-agent-token in your home folder, and the Vita's address under PlayStation Vita, address in the settings.",
+                "Run Connect the Vita: it saves a picture of the Vita's screen.",
+            },
+            "Every press is a short message over Wi-Fi, but a picture takes a moment: the bridge sends about 2 MB a second, so a small picture takes about a quarter of a second and a full one about a second. Fine for menus and games that wait.",
+            {
+                "The list PlayStation Vita: Connect the Vita, and Claude Plays with the touch screen.",
+            },
+            {
+                LIMIT_UNTESTED,
+                "The Vita's own menus take only touches and the PS button; the buttons work in games.",
+                "A stick and buttons are done one after the other, not at once. The rear touch pad is not used.",
+                "The bridge has no encryption: keep it on your home network, and never open port 1348 to the internet.",
+            },
+            {
+                "The Vita cannot be reached: check its address, that it is not asleep, and that the plugin is in ur0:tai/config.txt.",
+                "The bridge refuses the token: the file .vita-agent-token must have the same 64 characters as the token on the Vita.",
+            },
+        },
     };
     return GUIDES;
 }
@@ -587,6 +737,7 @@ const char* const HEADINGS[] = {
     "Slow",
     "Not known yet",
     "Open the setup",
+    "Show the tour",
     "Pick a console on the left. Each page says what you need, how it is connected, how quick it is and what to do when it does not work.",
     "Written for this console, not tried on one yet.",
     "The way of Pokemon Automation, used by many people.",
@@ -768,7 +919,7 @@ QString guide_html(const Guide& guide){
         html += heading("Steps in short", theme);
         html += list(guide.steps, true);
         //  (Not for the two with a Raspberry Pi in place of a board.)
-        if (QString(guide.code) != "mobile" && QString(guide.code) != "wiiu"){
+        if (QString(guide.code) != "mobile" && QString(guide.code) != "wiiu" && QString(guide.code) != "vita"){
             html += "<p style=\"color: " + theme.muted.name() + ";\">" + t("The setup shows every step with pictures and flashes the board for you.") + "</p>";
         }
     }
@@ -794,9 +945,10 @@ QString guide_html(const Guide& guide){
 
 class ConsoleGuide : public QWidget{
 public:
-    ConsoleGuide(QWidget* parent, const QString& console_code, void (*open_setup)())
+    ConsoleGuide(QWidget* parent, const QString& console_code, std::function<void()> open_setup, std::function<void()> show_tour)
         : QWidget(parent)
-        , m_open_setup(open_setup)
+        , m_open_setup(std::move(open_setup))
+        , m_show_tour(std::move(show_tour))
     {
         setObjectName("ppConsoleGuide");
         QHBoxLayout* layout = new QHBoxLayout(this);
@@ -811,7 +963,15 @@ public:
         m_list->setMinimumWidth(220);
         m_list->setMaximumWidth(280);
         left->addWidget(m_list, 1);
-        if (m_open_setup != nullptr){
+        if (m_show_tour){
+            m_tour = new QPushButton(this);
+            m_tour->setObjectName("ppConsoleGuideTour");
+            left->addWidget(m_tour);
+            connect(m_tour, &QPushButton::clicked, this, [this]{
+                m_show_tour();
+            });
+        }
+        if (m_open_setup){
             m_setup = new QPushButton(this);
             m_setup->setObjectName("ppConsoleGuideSetup");
             left->addWidget(m_setup);
@@ -865,6 +1025,9 @@ private:
         if (m_setup != nullptr){
             m_setup->setText(tr_ui("Open the setup"));
         }
+        if (m_tour != nullptr){
+            m_tour->setText(tr_ui("Show the tour"));
+        }
     }
     //  A dot in the color of the status, before the name.
     static QIcon dot(const QColor& color){
@@ -896,9 +1059,11 @@ private:
     }
 
 private:
-    void (*m_open_setup)();
+    std::function<void()> m_open_setup;
+    std::function<void()> m_show_tour;
     QListWidget* m_list = nullptr;
     QPushButton* m_setup = nullptr;
+    QPushButton* m_tour = nullptr;
     QTextBrowser* m_page = nullptr;
 };
 
@@ -939,8 +1104,12 @@ QStringList all_texts(){
 
 
 
-QWidget* make_console_guide(QWidget* parent, const QString& console_code, void (*open_setup)()){
-    return new ConsoleGuide(parent, console_code, open_setup);
+QWidget* make_console_guide(
+    QWidget* parent, const QString& console_code,
+    std::function<void()> open_setup,
+    std::function<void()> show_tour
+){
+    return new ConsoleGuide(parent, console_code, std::move(open_setup), std::move(show_tour));
 }
 
 QStringList console_guide_codes(){
@@ -970,7 +1139,7 @@ int console_guide_self_test(){
         }
     };
     //  Every console of the setup has a page.
-    for (const char* code : {"switch", "switch2", "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu"}){
+    for (const char* code : {"switch", "switch2", "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu", "psdirect", "xboxdirect", "steam", "vita"}){
         const Guide* guide = find_guide(code);
         check(guide != nullptr, QString("no page for ") + code);
         if (guide == nullptr){

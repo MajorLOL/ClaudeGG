@@ -94,6 +94,10 @@ GlobalSettings::GlobalSettings()
             {SetupConsole::IPHONE,  "iphone",  "iPhone"},
             {SetupConsole::PS_CLASSIC,  "psclassic",  "PlayStation Classic"},
             {SetupConsole::WIIU,        "wiiu",       "Nintendo Wii U (GamePad through a Raspberry Pi)"},
+            {SetupConsole::PS_DIRECT,   "psdirect",   "PS4 and PS5 (direct, through a bought adapter)"},
+            {SetupConsole::XBOX_DIRECT, "xboxdirect", "Xbox One and Series (direct, through a bought adapter)"},
+            {SetupConsole::STEAM,       "steam",      "Steam Deck and PC (the wired board as a gamepad)"},
+            {SetupConsole::VITA,        "vita",       "PlayStation Vita (over the network, vita-agent-bridge)"},
         },
         LockMode::UNLOCK_WHILE_RUNNING,
         SetupConsole::NONE
@@ -119,6 +123,14 @@ GlobalSettings::GlobalSettings()
         "phone's Raspberry Pi above.",
         LockMode::UNLOCK_WHILE_RUNNING,
         "", "192.168.1.50"
+    )
+    , VITA_HOST(
+        false,
+        "<b>PlayStation Vita, address:</b><br>"
+        "The address of a PlayStation Vita with vita-agent-bridge (Settings, Network, Wi-Fi Settings on the Vita "
+        "shows it), for example 192.168.1.60. Its token goes in the file .vita-agent-token in your home folder.",
+        LockMode::UNLOCK_WHILE_RUNNING,
+        "", "192.168.1.60"
     )
     , OPEN_SETUP_BUTTON(
         "<b>Setup:</b><br>"
@@ -306,6 +318,7 @@ GlobalSettings::GlobalSettings()
     PA_ADD_OPTION(MOBILE_HOST);
     PA_ADD_OPTION(MOBILE_PORT);
     PA_ADD_OPTION(WIIU_HOST);
+    PA_ADD_OPTION(VITA_HOST);
     PA_ADD_OPTION(OPEN_SETUP_BUTTON);
     PA_ADD_OPTION(ASK_LANGUAGE);
     PA_ADD_OPTION(ASK_SETUP);
