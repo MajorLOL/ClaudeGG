@@ -7478,29 +7478,161 @@ private:
 //  ---------------------------------------------------------------------
 
 //  The pictures of the consoles are drawn here by hand, after the real pads:
-//  their shape, where the sticks and the buttons are, and their colors and
-//  symbols, so that each is known at a glance. No logo and nothing copied
-//  from a picture of the maker. A few parts are the same on several pads.
+//  their outline and proportions, where the sticks and the buttons are, and
+//  their colors and symbols, with light and shade, so that each is known at
+//  a glance. No logo and nothing copied from a picture of the maker. A few
+//  parts are the same on several pads.
 
-//  A stick: its well, and the cap with a lighter top.
+//  Between two colors: t = 0 is "a", 1 is "b".
+QColor pad_mix(const QColor& a, const QColor& b, double t){
+    return QColor::fromRgbF(
+        (float)(a.redF() + (b.redF() - a.redF()) * t),
+        (float)(a.greenF() + (b.greenF() - a.greenF()) * t),
+        (float)(a.blueF() + (b.blueF() - a.blueF()) * t),
+        (float)(a.alphaF() + (b.alphaF() - a.alphaF()) * t)
+    );
+}
+//  One curve of an outline: two control points and where it ends.
+struct PadCurve{
+    QPointF c1;
+    QPointF c2;
+    QPointF to;
+};
+//  An outline that is the same on both sides: the left half from the top
+//  of the middle ("start", at x = cx) down to the bottom of the middle, and
+//  the right half mirrored.
+QPainterPath pad_outline(double cx, const QPointF& start, const std::vector<PadCurve>& left){
+    auto mirror = [cx](const QPointF& point){
+        return QPointF(2 * cx - point.x(), point.y());
+    };
+    QPainterPath path;
+    path.moveTo(start);
+    for (const PadCurve& curve : left){
+        path.cubicTo(curve.c1, curve.c2, curve.to);
+    }
+    for (size_t c = left.size(); c-- > 0;){
+        const QPointF from = c == 0 ? start : left[c - 1].to;
+        path.cubicTo(mirror(left[c].c2), mirror(left[c].c1), mirror(from));
+    }
+    path.closeSubpath();
+    return path;
+}
+//  A soft shadow under a shape, as if it lay on the tile.
+void pad_shadow(QPainter& p, const QPainterPath& shape, double dy){
+    p.save();
+    p.setBrush(Qt::NoBrush);
+    for (int i = 5; i >= 1; i--){
+        QPen pen(QColor(0, 0, 0, 16), 4.0 * i);
+        pen.setJoinStyle(Qt::RoundJoin);
+        p.setPen(pen);
+        p.drawPath(shape.translated(0, dy));
+    }
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0, 0, 0, 60));
+    p.drawPath(shape.translated(0, dy));
+    p.restore();
+}
+//  A body of plastic: its shadow, light at the top and darker at the
+//  bottom, a sheen, a light edge along the top and a dark one along the
+//  bottom, and a thin rim.
+void pad_body(QPainter& p, const QPainterPath& shape, const QColor& light, const QColor& dark, const QColor& rim){
+    pad_shadow(p, shape, 9);
+    const QRectF box = shape.boundingRect();
+    QLinearGradient fill(0, box.top(), 0, box.bottom());
+    fill.setColorAt(0, light);
+    fill.setColorAt(0.5, pad_mix(light, dark, 0.45));
+    fill.setColorAt(1, dark);
+    p.setPen(Qt::NoPen);
+    p.setBrush(fill);
+    p.drawPath(shape);
+    p.save();
+    p.setClipPath(shape);
+    QRadialGradient sheen(QPointF(box.center().x(), box.top() + box.height() * 0.18), box.width() * 0.5);
+    sheen.setColorAt(0, QColor(255, 255, 255, 40));
+    sheen.setColorAt(1, QColor(255, 255, 255, 0));
+    p.setBrush(sheen);
+    p.drawRect(box);
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(QColor(255, 255, 255, 44), 8));
+    p.drawPath(shape.translated(0, 5));
+    p.setPen(QPen(QColor(0, 0, 0, 54), 14));
+    p.drawPath(shape.translated(0, -8));
+    p.restore();
+    p.setPen(QPen(rim, 1.6));
+    p.setBrush(Qt::NoBrush);
+    p.drawPath(shape);
+    p.setPen(Qt::NoPen);
+}
+//  A hollow in the body, darker at its top edge.
+void pad_hollow(QPainter& p, const QPointF& c, double r, const QColor& color){
+    QLinearGradient fill(0, c.y() - r, 0, c.y() + r);
+    fill.setColorAt(0, color.darker(135));
+    fill.setColorAt(1, pad_mix(color, Qt::white, 0.08));
+    p.setPen(Qt::NoPen);
+    p.setBrush(fill);
+    p.drawEllipse(c, r, r);
+}
+//  A round button: the gap round it, rounded with light from the top left,
+//  and a glint.
+void pad_button(QPainter& p, const QPointF& c, double r, const QColor& color){
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0, 0, 0, 90));
+    p.drawEllipse(QPointF(c.x(), c.y() + r * 0.1), r * 1.13, r * 1.13);
+    QRadialGradient fill(QPointF(c.x() - r * 0.35, c.y() - r * 0.45), r * 1.6);
+    fill.setColorAt(0, pad_mix(color, Qt::white, 0.28));
+    fill.setColorAt(0.55, color);
+    fill.setColorAt(1, color.darker(160));
+    p.setBrush(fill);
+    p.drawEllipse(c, r, r);
+    p.setBrush(QColor(255, 255, 255, 64));
+    p.drawEllipse(QPointF(c.x() - r * 0.28, c.y() - r * 0.46), r * 0.42, r * 0.22);
+}
+//  A stick: its well, the shadow of the cap, the cap's side and its hollow
+//  top with a ring of grip.
 void pad_stick(QPainter& p, const QPointF& c, double r, const QColor& well, const QColor& cap){
     p.setPen(Qt::NoPen);
-    p.setBrush(well);
+    QRadialGradient hole(c, r);
+    hole.setColorAt(0.6, well);
+    hole.setColorAt(1, pad_mix(well, Qt::black, 0.5));
+    p.setBrush(hole);
     p.drawEllipse(c, r, r);
-    p.setBrush(cap);
-    p.drawEllipse(c, r * 0.72, r * 0.72);
-    p.setBrush(cap.lighter(122));
-    p.drawEllipse(c, r * 0.48, r * 0.48);
+    p.setBrush(QColor(0, 0, 0, 110));
+    p.drawEllipse(QPointF(c.x(), c.y() + r * 0.1), r * 0.8, r * 0.8);
+    QLinearGradient side(0, c.y() - r * 0.76, 0, c.y() + r * 0.76);
+    side.setColorAt(0, pad_mix(cap, Qt::white, 0.3));
+    side.setColorAt(1, cap.darker(150));
+    p.setBrush(side);
+    p.drawEllipse(c, r * 0.76, r * 0.76);
+    QLinearGradient top(0, c.y() - r * 0.58, 0, c.y() + r * 0.58);
+    top.setColorAt(0, cap.darker(140));
+    top.setColorAt(1, pad_mix(cap, Qt::white, 0.16));
+    p.setBrush(top);
+    p.drawEllipse(c, r * 0.58, r * 0.58);
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(QColor(0, 0, 0, 60), std::max(1.0, r * 0.05)));
+    p.drawEllipse(c, r * 0.66, r * 0.66);
+    p.setPen(Qt::NoPen);
 }
-//  A d-pad in one piece: a cross (Nintendo, Xbox, most other pads).
+//  A d-pad in one piece: a cross (Nintendo, Xbox, most other pads), with a
+//  dimple in the middle.
 void pad_cross(QPainter& p, const QPointF& c, double size, double arm, const QColor& color){
     QPainterPath cross;
-    cross.setFillRule(Qt::WindingFill);
     cross.addRoundedRect(QRectF(c.x() - arm / 2, c.y() - size, arm, 2 * size), arm * 0.22, arm * 0.22);
     cross.addRoundedRect(QRectF(c.x() - size, c.y() - arm / 2, 2 * size, arm), arm * 0.22, arm * 0.22);
+    const QPainterPath shape = cross.simplified();
     p.setPen(Qt::NoPen);
-    p.setBrush(color);
-    p.drawPath(cross);
+    p.setBrush(QColor(0, 0, 0, 90));
+    p.drawPath(shape.translated(0, size * 0.06));
+    QLinearGradient fill(0, c.y() - size, 0, c.y() + size);
+    fill.setColorAt(0, pad_mix(color, Qt::white, 0.22));
+    fill.setColorAt(1, color.darker(140));
+    p.setBrush(fill);
+    p.drawPath(shape);
+    QRadialGradient dimple(c, arm * 0.42);
+    dimple.setColorAt(0, color.darker(150));
+    dimple.setColorAt(1, color);
+    p.setBrush(dimple);
+    p.drawEllipse(c, arm * 0.36, arm * 0.36);
 }
 //  The d-pad of a PlayStation pad: four buttons apart, each pointed toward
 //  the middle. "size" is from the middle to the outer end of a button.
@@ -7511,26 +7643,35 @@ void pad_split_dpad(QPainter& p, const QPointF& c, double size, const QColor& co
         QPointF(-half, -size), QPointF(half, -size), QPointF(half, -inner - half),
         QPointF(0, -inner), QPointF(-half, -inner - half),
     });
-    QPen pen(color, size * 0.08);
+    QPen pen(QColor(0, 0, 0, 0), size * 0.1);
     pen.setJoinStyle(Qt::RoundJoin);
-    p.setPen(pen);
-    p.setBrush(color);
     for (int k = 0; k < 4; k++){
         QTransform turn;
         turn.translate(c.x(), c.y());
         turn.rotate(90.0 * k);
-        p.drawPolygon(turn.map(up));
+        const QPolygonF button = turn.map(up);
+        const QRectF box = button.boundingRect();
+        QLinearGradient fill(0, box.top(), 0, box.bottom());
+        fill.setColorAt(0, pad_mix(color, Qt::white, 0.24));
+        fill.setColorAt(1, color.darker(140));
+        pen.setColor(QColor(0, 0, 0, 80));
+        p.setPen(pen);
+        p.setBrush(Qt::NoBrush);
+        p.drawPolygon(button.translated(0, size * 0.05));
+        pen.setColor(color);
+        pen.setBrush(fill);
+        p.setPen(pen);
+        p.setBrush(fill);
+        p.drawPolygon(button);
     }
     p.setPen(Qt::NoPen);
 }
 //  Four round buttons in a diamond round "c".
 void pad_four(QPainter& p, const QPointF& c, double spread, double r, const QColor& color){
-    p.setPen(Qt::NoPen);
-    p.setBrush(color);
-    p.drawEllipse(QPointF(c.x(), c.y() - spread), r, r);
-    p.drawEllipse(QPointF(c.x() + spread, c.y()), r, r);
-    p.drawEllipse(QPointF(c.x(), c.y() + spread), r, r);
-    p.drawEllipse(QPointF(c.x() - spread, c.y()), r, r);
+    pad_button(p, QPointF(c.x(), c.y() - spread), r, color);
+    pad_button(p, QPointF(c.x() + spread, c.y()), r, color);
+    pad_button(p, QPointF(c.x(), c.y() + spread), r, color);
+    pad_button(p, QPointF(c.x() - spread, c.y()), r, color);
 }
 //  The four symbols of a PlayStation pad, on its buttons (pad_four):
 //  triangle at the top, circle right, cross at the bottom, square left. In
@@ -7593,20 +7734,51 @@ void pad_xbox_face(QPainter& p, const QPointF& c, double spread, double r, bool 
     };
     for (const auto& key : keys){
         const QPointF at(c.x() + key.dx, c.y() + key.dy);
-        p.setPen(Qt::NoPen);
-        p.setBrush(lit ? key.color : QColor(30, 31, 36));
-        p.drawEllipse(at, r, r);
-        p.setBrush(QColor(255, 255, 255, lit ? 46 : 18));
-        p.drawEllipse(QPointF(at.x() - r * 0.3, at.y() - r * 0.34), r * 0.42, r * 0.3);
-        pad_letter(p, at, r * 1.05, key.letter, lit ? QColor(255, 255, 255, 220) : key.color.lighter(125));
+        pad_button(p, at, r, lit ? key.color : QColor(34, 35, 40));
+        pad_letter(p, at, r * 1.05, key.letter, lit ? QColor(255, 255, 255, 225) : key.color.lighter(125));
     }
 }
 //  A d-pad of the Xbox 360 and the newer Xbox pads: a cross on a round plate.
 void pad_disc_dpad(QPainter& p, const QPointF& c, double r, const QColor& plate, const QColor& cross){
+    pad_hollow(p, c, r * 1.08, QColor(0, 0, 0, 120));
+    QLinearGradient fill(0, c.y() - r, 0, c.y() + r);
+    fill.setColorAt(0, pad_mix(plate, Qt::white, 0.18));
+    fill.setColorAt(1, plate.darker(140));
     p.setPen(Qt::NoPen);
-    p.setBrush(plate);
+    p.setBrush(fill);
     p.drawEllipse(c, r, r);
     pad_cross(p, c, r * 0.8, r * 0.5, cross);
+}
+//  A small flat button (SELECT, START, View, Menu...): a rounded bar.
+void pad_pill(QPainter& p, const QRectF& box, const QColor& color){
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0, 0, 0, 90));
+    p.drawRoundedRect(box.translated(0, 1.5), box.height() / 2, box.height() / 2);
+    QLinearGradient fill(0, box.top(), 0, box.bottom());
+    fill.setColorAt(0, pad_mix(color, Qt::white, 0.25));
+    fill.setColorAt(1, color.darker(130));
+    p.setBrush(fill);
+    p.drawRoundedRect(box, box.height() / 2, box.height() / 2);
+}
+//  A screen: its black frame, the picture, and a glint across it.
+void pad_screen(QPainter& p, const QRectF& frame, const QRectF& picture, const QColor& top, const QColor& bottom, double radius){
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(8, 8, 11));
+    p.drawRoundedRect(frame, radius, radius);
+    QLinearGradient fill(0, picture.top(), 0, picture.bottom());
+    fill.setColorAt(0, top);
+    fill.setColorAt(1, bottom);
+    p.setBrush(fill);
+    p.drawRect(picture);
+    p.save();
+    p.setClipRect(frame);
+    p.setBrush(QColor(255, 255, 255, 18));
+    const double w = frame.width();
+    p.drawPolygon(QPolygonF({
+        QPointF(frame.left() + w * 0.5, frame.top()), QPointF(frame.left() + w * 0.78, frame.top()),
+        QPointF(frame.left() + w * 0.42, frame.bottom()), QPointF(frame.left() + w * 0.14, frame.bottom()),
+    }));
+    p.restore();
 }
 
 //  The Switch 2, in the style of the picture of the first Switch (the
@@ -7619,7 +7791,7 @@ QPixmap switch2_picture(){
         return cache;
     }
     constexpr int W = 900;
-    constexpr int H = 385;
+    constexpr int H = 400;
     QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
     image.fill(Qt::transparent);
     QPainter p(&image);
@@ -7627,61 +7799,350 @@ QPixmap switch2_picture(){
     p.setPen(Qt::NoPen);
 
     //  The two controllers at the sides, with the rail on top.
-    const QRectF bodies[2] = {QRectF(0, 20, 136, 362), QRectF(764, 20, 136, 362)};
+    const QRectF bodies[2] = {QRectF(2, 20, 134, 362), QRectF(764, 20, 134, 362)};
     const QColor accents[2] = {QColor(72, 178, 236), QColor(240, 92, 92)};
     for (int side = 0; side < 2; side++){
         const QRectF& body = bodies[side];
-        QLinearGradient shade(0, body.top(), 0, body.bottom());
-        shade.setColorAt(0, QColor(70, 73, 82));
-        shade.setColorAt(1, QColor(38, 40, 47));
-        p.setBrush(shade);
-        p.drawRoundedRect(body, 58, 58);
-        p.setPen(QPen(QColor(104, 108, 120), 2));
-        p.setBrush(Qt::NoBrush);
-        p.drawRoundedRect(body.adjusted(1, 1, -1, -1), 57, 57);
-        p.setPen(Qt::NoPen);
         p.setBrush(QColor(30, 32, 38));
-        p.drawRoundedRect(QRectF(body.left() + 20, 4, body.width() - 40, 22), 7, 7);
+        p.drawRoundedRect(QRectF(body.left() + 20, 6, body.width() - 40, 24), 7, 7);
+        //  Round at the outer corners, square by the screen.
+        QPainterPath shape;
+        const double r = 60;
+        if (side == 0){
+            shape.moveTo(body.right(), body.top());
+            shape.lineTo(body.left() + r, body.top());
+            shape.arcTo(QRectF(body.left(), body.top(), 2 * r, 2 * r), 90, 90);
+            shape.lineTo(body.left(), body.bottom() - r);
+            shape.arcTo(QRectF(body.left(), body.bottom() - 2 * r, 2 * r, 2 * r), 180, 90);
+            shape.lineTo(body.right(), body.bottom());
+        }else{
+            shape.moveTo(body.left(), body.top());
+            shape.lineTo(body.right() - r, body.top());
+            shape.arcTo(QRectF(body.right() - 2 * r, body.top(), 2 * r, 2 * r), 90, -90);
+            shape.lineTo(body.right(), body.bottom() - r);
+            shape.arcTo(QRectF(body.right() - 2 * r, body.bottom() - 2 * r, 2 * r, 2 * r), 0, -90);
+            shape.lineTo(body.left(), body.bottom());
+        }
+        shape.closeSubpath();
+        pad_body(p, shape, QColor(78, 81, 92), QColor(34, 36, 42), QColor(110, 114, 126));
         //  The color, on the edge by the screen.
         p.setBrush(accents[side]);
-        const double x = side == 0 ? body.right() - 9 : body.left() + 1;
-        p.drawRoundedRect(QRectF(x, body.top() + 34, 8, body.height() - 68), 4, 4);
+        const double x = side == 0 ? body.right() - 8 : body.left();
+        p.drawRect(QRectF(x, body.top() + 4, 8, body.height() - 8));
     }
 
     //  The frame and the screen.
-    p.setBrush(QColor(40, 42, 48));
-    p.drawRoundedRect(QRectF(140, 10, 620, 364), 22, 22);
-    p.setPen(QPen(QColor(100, 104, 116), 2));
-    p.setBrush(Qt::NoBrush);
-    p.drawRoundedRect(QRectF(141, 11, 618, 362), 21, 21);
-    p.setPen(Qt::NoPen);
-    p.setBrush(QColor(4, 4, 6));
-    const QRectF screen(152, 22, 596, 340);
-    p.drawRoundedRect(screen, 12, 12);
-    p.save();
-    QPainterPath clip;
-    clip.addRoundedRect(screen, 12, 12);
-    p.setClipPath(clip);
-    p.setBrush(QColor(255, 255, 255, 14));
-    p.drawPolygon(QPolygonF({QPointF(470, 22), QPointF(640, 22), QPointF(380, 362), QPointF(210, 362)}));
-    p.restore();
+    QPainterPath frame;
+    frame.addRoundedRect(QRectF(140, 12, 620, 364), 20, 20);
+    pad_body(p, frame, QColor(56, 58, 66), QColor(30, 31, 36), QColor(96, 100, 112));
+    pad_screen(p, QRectF(152, 24, 596, 340), QRectF(160, 32, 580, 324), QColor(22, 24, 32), QColor(6, 6, 9), 12);
 
     //  Sticks, buttons, minus and plus, capture, HOME and C.
-    const QColor dark(18, 19, 24);
-    const QColor cap(52, 55, 64);
-    pad_stick(p, QPointF(68, 116), 36, dark, cap);
-    pad_stick(p, QPointF(832, 270), 36, dark, cap);
-    pad_four(p, QPointF(68, 262), 30, 13, dark);
-    pad_four(p, QPointF(832, 130), 30, 13, dark);
+    const QColor dark(28, 29, 34);
+    const QColor cap(56, 59, 68);
+    pad_stick(p, QPointF(68, 118), 38, QColor(14, 14, 17), cap);
+    pad_stick(p, QPointF(832, 272), 38, QColor(14, 14, 17), cap);
+    pad_four(p, QPointF(68, 264), 31, 13.5, dark);
+    pad_four(p, QPointF(832, 130), 31, 13.5, dark);
+    pad_pill(p, QRectF(88, 50, 24, 7), dark);
+    pad_pill(p, QRectF(788, 50, 24, 7), dark);
+    pad_pill(p, QRectF(796.5, 41.5, 7, 24), dark);
+    p.setBrush(QColor(0, 0, 0, 90));
+    p.drawRoundedRect(QRectF(93, 195, 18, 18), 4, 4);
     p.setBrush(dark);
-    p.drawRoundedRect(QRectF(86, 54, 24, 6), 3, 3);
-    p.drawRoundedRect(QRectF(790, 54, 24, 6), 3, 3);
-    p.drawRoundedRect(QRectF(799, 45, 6, 24), 3, 3);
-    p.drawRoundedRect(QRectF(92, 192, 18, 18), 4, 4);
-    p.drawEllipse(QPointF(798, 202), 10, 10);
-    p.drawEllipse(QPointF(798, 230), 8, 8);
-    p.setBrush(QColor(120, 124, 136));
-    p.drawEllipse(QPointF(798, 202), 4, 4);
+    p.drawRoundedRect(QRectF(92, 193, 18, 18), 4, 4);
+    pad_button(p, QPointF(798, 204), 10, dark);
+    p.setBrush(QColor(130, 134, 146));
+    p.drawEllipse(QPointF(798, 204), 3.5, 3.5);
+    pad_button(p, QPointF(798, 232), 8, dark);
+    pad_letter(p, QPointF(798, 232), 8, "C", QColor(150, 154, 166));
+    p.end();
+    cache = QPixmap::fromImage(image);
+    return cache;
+}
+
+//  The outline of the PlayStation 3's pad (and, with the grips a little
+//  shorter, the first PlayStation's): a bar with two long grips that go
+//  down and out, and the sticks in the middle above the curve between them.
+QPainterPath ps3_outline(double grip){
+    return pad_outline(260, QPointF(260, 46), {
+        {QPointF(206, 44), QPointF(140, 38), QPointF(100, 46)},
+        {QPointF(64, 54), QPointF(44, 92), QPointF(40, 136)},
+        {QPointF(34, 196), QPointF(20, 262 + grip), QPointF(36, 306 + grip)},
+        {QPointF(50, 342 + grip), QPointF(104, 346 + grip), QPointF(120, 314 + grip)},
+        {QPointF(134, 286 + grip * 0.5), QPointF(150, 260), QPointF(180, 250)},
+        {QPointF(210, 244), QPointF(236, 242), QPointF(260, 242)},
+    });
+}
+
+//  The PlayStation 3's pad: black, the d-pad of four separate buttons, the
+//  two sticks side by side low in the middle, SELECT and START (a small bar
+//  and a small triangle), the round PS button, and the four buttons with
+//  their colored symbols: the picture of the console "ps3".
+QPixmap ps3_picture(){
+    static QPixmap cache;
+    if (!cache.isNull()){
+        return cache;
+    }
+    constexpr int W = 520;
+    constexpr int H = 370;
+    QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter p(&image);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(Qt::NoPen);
+
+    //  L1 and R1 along the top, behind the body.
+    pad_pill(p, QRectF(92, 26, 100, 34), QColor(40, 42, 50));
+    pad_pill(p, QRectF(328, 26, 100, 34), QColor(40, 42, 50));
+
+    pad_body(p, ps3_outline(0), QColor(76, 80, 92), QColor(18, 19, 24), QColor(110, 116, 130));
+
+    //  The d-pad and the four buttons, in their hollows.
+    pad_hollow(p, QPointF(124, 124), 50, QColor(30, 32, 38));
+    pad_hollow(p, QPointF(394, 124), 56, QColor(30, 32, 38));
+    pad_split_dpad(p, QPointF(124, 124), 40, QColor(26, 27, 32));
+    pad_four(p, QPointF(394, 124), 35, 18.5, QColor(24, 25, 30));
+    pad_ps_symbols(p, QPointF(394, 124), 35, 9, 3.4, true);
+
+    //  SELECT and START, the round PS button, the sticks.
+    pad_pill(p, QRectF(208, 118, 28, 10), QColor(120, 126, 140));
+    p.setBrush(QColor(120, 126, 140));
+    p.drawPolygon(QPolygonF({QPointF(286, 114), QPointF(286, 132), QPointF(306, 123)}));
+    pad_button(p, QPointF(260, 158), 15, QColor(28, 29, 34));
+    pad_stick(p, QPointF(196, 196), 36, QColor(14, 15, 18), QColor(50, 53, 62));
+    pad_stick(p, QPointF(324, 196), 36, QColor(14, 15, 18), QColor(50, 53, 62));
+    p.end();
+    cache = QPixmap::fromImage(image);
+    return cache;
+}
+
+//  The pad of the PlayStation 5 (the PlayStation 4's has the same layout):
+//  white wings round a black middle, the large touchpad at the top with its
+//  blue light bars, the d-pad of four buttons, the two sticks low in the
+//  middle, the PS button between them, and the four buttons with gray
+//  symbols. For "psremote" and "psdirect".
+QPixmap dualsense_picture(){
+    static QPixmap cache;
+    if (!cache.isNull()){
+        return cache;
+    }
+    constexpr int W = 540;
+    constexpr int H = 380;
+    QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter p(&image);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(Qt::NoPen);
+
+    //  L1 and R1, behind.
+    pad_pill(p, QRectF(84, 28, 110, 36), QColor(40, 42, 50));
+    pad_pill(p, QRectF(346, 28, 110, 36), QColor(40, 42, 50));
+
+    //  The body: round, full grips.
+    const QPainterPath shape = pad_outline(270, QPointF(270, 48), {
+        {QPointF(200, 46), QPointF(134, 42), QPointF(98, 52)},
+        {QPointF(58, 64), QPointF(40, 112), QPointF(36, 164)},
+        {QPointF(30, 236), QPointF(30, 304), QPointF(58, 342)},
+        {QPointF(86, 374), QPointF(146, 370), QPointF(164, 334)},
+        {QPointF(178, 308), QPointF(192, 290), QPointF(216, 282)},
+        {QPointF(240, 276), QPointF(256, 274), QPointF(270, 274)},
+    });
+    pad_body(p, shape, QColor(252, 252, 254), QColor(196, 199, 208), QColor(150, 154, 166));
+
+    //  The black middle: down from the touchpad to the bottom, between the
+    //  white grips.
+    QPainterPath middle;
+    middle.moveTo(156, 90);
+    middle.lineTo(384, 90);
+    middle.cubicTo(392, 170, 380, 250, 372, 380);
+    middle.lineTo(168, 380);
+    middle.cubicTo(160, 250, 148, 170, 156, 90);
+    middle.closeSubpath();
+    p.save();
+    p.setClipPath(shape);
+    QLinearGradient black(0, 90, 0, 290);
+    black.setColorAt(0, QColor(44, 46, 54));
+    black.setColorAt(1, QColor(14, 15, 18));
+    p.setBrush(black);
+    p.drawPath(middle);
+    p.restore();
+
+    //  The touchpad, with the light bars beside it; Create and Options.
+    QPainterPath pad;
+    pad.addRoundedRect(QRectF(176, 32, 188, 116), 18, 18);
+    pad_body(p, pad, QColor(250, 250, 252), QColor(214, 216, 224), QColor(160, 164, 176));
+    p.setBrush(QColor(90, 160, 255));
+    p.drawRoundedRect(QRectF(168, 58, 5, 74), 2.5, 2.5);
+    p.drawRoundedRect(QRectF(367, 58, 5, 74), 2.5, 2.5);
+    pad_pill(p, QRectF(150, 66, 10, 24), QColor(56, 58, 66));
+    pad_pill(p, QRectF(380, 66, 10, 24), QColor(56, 58, 66));
+
+    //  The d-pad and the four buttons, on the white.
+    const QColor key(46, 48, 58);
+    pad_split_dpad(p, QPointF(114, 138), 36, key);
+    pad_four(p, QPointF(426, 138), 34, 18, key);
+    pad_ps_symbols(p, QPointF(426, 138), 34, 8.5, 3.0, false, QColor(206, 210, 220));
+
+    //  The sticks, the PS button and the mute button.
+    pad_stick(p, QPointF(204, 226), 34, QColor(10, 10, 12), QColor(46, 48, 56));
+    pad_stick(p, QPointF(336, 226), 34, QColor(10, 10, 12), QColor(46, 48, 56));
+    pad_button(p, QPointF(270, 200), 12, QColor(56, 58, 66));
+    pad_pill(p, QRectF(259, 226, 22, 8), QColor(70, 72, 82));
+    p.end();
+    cache = QPixmap::fromImage(image);
+    return cache;
+}
+
+//  The outline of an Xbox pad (the 360, the One and the Series; the
+//  first Xbox's is larger): a wide top, heavy grips, the left stick high.
+QPainterPath xbox_outline(double fat){
+    return pad_outline(270, QPointF(270, 52), {
+        {QPointF(212, 48), QPointF(134, 42), QPointF(94, 56)},
+        {QPointF(54 - fat, 70), QPointF(36 - fat, 116), QPointF(30 - fat, 170)},
+        {QPointF(22 - fat, 240), QPointF(22 - fat, 314 + fat), QPointF(54 - fat * 0.5, 348 + fat)},
+        {QPointF(82, 376 + fat), QPointF(134 + fat * 0.5, 370 + fat), QPointF(152 + fat * 0.5, 340 + fat * 0.5)},
+        {QPointF(168, 312), QPointF(182, 292), QPointF(208, 282)},
+        {QPointF(236, 274), QPointF(254, 272), QPointF(270, 272)},
+    });
+}
+
+//  The Xbox Series' pad (the One's has the same layout): dark, with the
+//  round Guide button and its white light, View, Share and Menu under it,
+//  the left stick high, the d-pad on its round plate low, and dark A, B, X
+//  and Y with colored letters. For "xboxremote" and "xboxdirect".
+QPixmap xbox_series_picture(){
+    static QPixmap cache;
+    if (!cache.isNull()){
+        return cache;
+    }
+    constexpr int W = 540;
+    constexpr int H = 400;
+    QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter p(&image);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(Qt::NoPen);
+
+    pad_pill(p, QRectF(74, 30, 140, 40), QColor(34, 36, 42));
+    pad_pill(p, QRectF(326, 30, 140, 40), QColor(34, 36, 42));
+    pad_body(p, xbox_outline(0), QColor(74, 77, 88), QColor(20, 21, 25), QColor(100, 104, 116));
+
+    //  The Guide button with its white light; View, Share and Menu.
+    pad_button(p, QPointF(270, 96), 24, QColor(44, 46, 52));
+    p.setPen(QPen(QColor(240, 242, 246, 235), 3.5));
+    p.setBrush(Qt::NoBrush);
+    p.drawEllipse(QPointF(270, 96), 14, 14);
+    p.setPen(Qt::NoPen);
+    pad_button(p, QPointF(222, 142), 10, QColor(30, 31, 36));
+    pad_button(p, QPointF(318, 142), 10, QColor(30, 31, 36));
+    pad_pill(p, QRectF(259, 150, 22, 11), QColor(30, 31, 36));
+
+    //  The sticks and the d-pad.
+    const QColor cap(48, 51, 58);
+    pad_stick(p, QPointF(120, 128), 36, QColor(10, 10, 12), cap);
+    pad_stick(p, QPointF(354, 232), 34, QColor(10, 10, 12), cap);
+    pad_disc_dpad(p, QPointF(186, 232), 32, QColor(26, 27, 31), QColor(92, 96, 108));
+
+    //  A, B, X, Y.
+    pad_xbox_face(p, QPointF(420, 126), 33, 17, false);
+    p.end();
+    cache = QPixmap::fromImage(image);
+    return cache;
+}
+
+//  The Xbox 360's pad: white, with the round Guide button in the middle and
+//  its ring of four green lights, Back and Start beside it, the left stick
+//  high and the d-pad on its round plate low, the colored A, B, X and Y with
+//  their letters and two bumpers: the picture of the console "xbox360".
+QPixmap xbox360_picture(){
+    static QPixmap cache;
+    if (!cache.isNull()){
+        return cache;
+    }
+    constexpr int W = 540;
+    constexpr int H = 400;
+    QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter p(&image);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(Qt::NoPen);
+
+    pad_pill(p, QRectF(74, 30, 140, 40), QColor(176, 180, 188));
+    pad_pill(p, QRectF(326, 30, 140, 40), QColor(176, 180, 188));
+    pad_body(p, xbox_outline(4), QColor(252, 252, 253), QColor(190, 193, 201), QColor(140, 144, 154));
+
+    //  The Guide button: silver, in its ring of four green lights; Back and
+    //  Start beside it.
+    p.setBrush(QColor(60, 64, 70));
+    p.drawEllipse(QPointF(270, 108), 36, 36);
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(QColor(120, 230, 90), 6, Qt::SolidLine, Qt::FlatCap));
+    for (int k = 0; k < 4; k++){
+        p.drawArc(QRectF(270 - 30, 108 - 30, 60, 60), (8 + 90 * k) * 16, 74 * 16);
+    }
+    p.setPen(Qt::NoPen);
+    pad_button(p, QPointF(270, 108), 23, QColor(176, 180, 188));
+    pad_button(p, QPointF(218, 114), 9, QColor(170, 174, 182));
+    pad_button(p, QPointF(322, 114), 9, QColor(170, 174, 182));
+
+    //  The sticks and the d-pad.
+    const QColor dark(52, 54, 60);
+    pad_stick(p, QPointF(120, 128), 36, dark, QColor(84, 88, 96));
+    pad_stick(p, QPointF(354, 232), 34, dark, QColor(84, 88, 96));
+    pad_disc_dpad(p, QPointF(186, 232), 32, QColor(196, 198, 206), QColor(70, 72, 80));
+
+    //  A, B, X, Y.
+    pad_xbox_face(p, QPointF(420, 126), 33, 17, true);
+    p.end();
+    cache = QPixmap::fromImage(image);
+    return cache;
+}
+
+//  The original Xbox's pad (the smaller "S" one): black and large, with
+//  heavy grips; the left stick high and the d-pad low, the round middle
+//  with its green jewel, A, B, X and Y as colored buttons with their
+//  letters, and the black and white buttons beside them: the picture of the
+//  console "xbox".
+QPixmap xbox_picture(){
+    static QPixmap cache;
+    if (!cache.isNull()){
+        return cache;
+    }
+    constexpr int W = 540;
+    constexpr int H = 400;
+    QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter p(&image);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(Qt::NoPen);
+
+    pad_body(p, xbox_outline(12), QColor(70, 74, 84), QColor(16, 17, 20), QColor(104, 110, 122));
+
+    //  The round middle with its green jewel.
+    pad_hollow(p, QPointF(270, 112), 48, QColor(26, 28, 34));
+    QRadialGradient jewel(QPointF(260, 100), 36);
+    jewel.setColorAt(0, QColor(170, 236, 120));
+    jewel.setColorAt(0.6, QColor(80, 160, 56));
+    jewel.setColorAt(1, QColor(30, 90, 30));
+    p.setBrush(jewel);
+    p.drawEllipse(QPointF(270, 112), 30, 30);
+    p.setBrush(QColor(255, 255, 255, 80));
+    p.drawEllipse(QPointF(261, 100), 11, 7);
+
+    //  The left stick (high), the d-pad (low), the right stick; Back and
+    //  Start between the d-pad and the jewel.
+    const QColor cap(56, 60, 70);
+    pad_stick(p, QPointF(118, 130), 40, QColor(10, 10, 12), cap);
+    pad_stick(p, QPointF(356, 240), 36, QColor(10, 10, 12), cap);
+    pad_disc_dpad(p, QPointF(186, 240), 36, QColor(24, 25, 30), QColor(120, 126, 140));
+    pad_button(p, QPointF(238, 186), 8, QColor(22, 23, 27));
+    pad_button(p, QPointF(264, 196), 8, QColor(22, 23, 27));
+
+    //  A, B, X, Y, and black and white beside them.
+    pad_xbox_face(p, QPointF(418, 116), 34, 18, true);
+    pad_button(p, QPointF(462, 168), 11, QColor(20, 20, 24));
+    pad_button(p, QPointF(484, 140), 11, QColor(226, 226, 232));
     p.end();
     cache = QPixmap::fromImage(image);
     return cache;
@@ -7763,153 +8224,6 @@ QPixmap phone_picture(){
     return cache;
 }
 
-//  The original Xbox's pad (the smaller "S" one): black, wide, with heavy
-//  grips; the left stick high and the d-pad low, the round middle with its
-//  green jewel, A, B, X and Y as colored buttons with their letters, and
-//  the black and white buttons beside them: the picture of the console "xbox".
-QPixmap xbox_picture(){
-    static QPixmap cache;
-    if (!cache.isNull()){
-        return cache;
-    }
-    constexpr int W = 540;
-    constexpr int H = 380;
-    QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
-    image.fill(Qt::transparent);
-    QPainter p(&image);
-    p.setRenderHint(QPainter::Antialiasing, true);
-    p.setPen(Qt::NoPen);
-
-    //  The body: wide, with heavy grips.
-    QPainterPath body;
-    body.addRoundedRect(QRectF(40, 30, 460, 190), 90, 90);
-    QPainterPath left;
-    left.addEllipse(QRectF(16, 120, 170, 250));
-    QPainterPath right;
-    right.addEllipse(QRectF(354, 120, 170, 250));
-    const QPainterPath shape = body.united(left).united(right);
-    QLinearGradient shade(0, 30, 0, 370);
-    shade.setColorAt(0, QColor(64, 68, 76));
-    shade.setColorAt(1, QColor(22, 24, 28));
-    p.setBrush(shade);
-    p.drawPath(shape);
-    p.setPen(QPen(QColor(118, 124, 136), 2));
-    p.setBrush(Qt::NoBrush);
-    p.drawPath(shape);
-    p.setPen(Qt::NoPen);
-
-    //  The round middle with its green jewel.
-    p.setBrush(QColor(30, 32, 38));
-    p.drawEllipse(QPointF(270, 112), 50, 50);
-    QRadialGradient jewel(QPointF(262, 102), 34);
-    jewel.setColorAt(0, QColor(150, 220, 110));
-    jewel.setColorAt(1, QColor(60, 140, 50));
-    p.setBrush(jewel);
-    p.drawEllipse(QPointF(270, 112), 30, 30);
-    p.setBrush(QColor(255, 255, 255, 60));
-    p.drawEllipse(QPointF(261, 101), 11, 8);
-
-    //  The left stick (high), the d-pad (low), the right stick; Back and
-    //  Start under the d-pad.
-    const QColor dark(16, 17, 21);
-    const QColor cap(58, 62, 72);
-    pad_stick(p, QPointF(116, 118), 40, dark, cap);
-    pad_stick(p, QPointF(362, 238), 36, dark, cap);
-    p.setBrush(dark);
-    p.drawEllipse(QPointF(178, 241), 40, 40);
-    pad_cross(p, QPointF(178, 241), 32, 20, QColor(132, 138, 152));
-    p.setBrush(QColor(12, 12, 14));
-    p.drawEllipse(QPointF(214, 300), 9, 9);
-    p.drawEllipse(QPointF(240, 310), 9, 9);
-
-    //  A, B, X, Y, and black and white beside them.
-    pad_xbox_face(p, QPointF(420, 108), 34, 18, true);
-    p.setBrush(QColor(12, 12, 14));
-    p.drawEllipse(QPointF(462, 160), 11, 11);
-    p.setBrush(QColor(232, 232, 236));
-    p.drawEllipse(QPointF(482, 132), 11, 11);
-    p.end();
-    cache = QPixmap::fromImage(image);
-    return cache;
-}
-
-//  The PlayStation 3's pad: black, a bar with two long grips that go down
-//  and out, the d-pad of four separate buttons, the two sticks side by side
-//  low in the middle, SELECT and START (a small bar and a small triangle),
-//  the round PS button, and the four buttons with their colored symbols:
-//  the picture of the console "ps3".
-QPixmap ps3_picture(){
-    static QPixmap cache;
-    if (!cache.isNull()){
-        return cache;
-    }
-    constexpr int W = 520;
-    constexpr int H = 330;
-    QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
-    image.fill(Qt::transparent);
-    QPainter p(&image);
-    p.setRenderHint(QPainter::Antialiasing, true);
-    p.setPen(Qt::NoPen);
-
-    //  L1 and R1 along the top, behind the body.
-    p.setBrush(QColor(44, 47, 56));
-    p.drawRoundedRect(QRectF(96, 24, 92, 30), 12, 12);
-    p.drawRoundedRect(QRectF(332, 24, 92, 30), 12, 12);
-
-    //  The body: a bar and two grips that go down and out.
-    QPainterPath body;
-    body.addRoundedRect(QRectF(70, 40, 380, 150), 70, 70);
-    QPainterPath left;
-    left.moveTo(92, 110);
-    left.cubicTo(40, 170, 10, 290, 60, 318);
-    left.cubicTo(110, 340, 150, 260, 200, 190);
-    left.closeSubpath();
-    QPainterPath right;
-    right.moveTo(428, 110);
-    right.cubicTo(480, 170, 510, 290, 460, 318);
-    right.cubicTo(410, 340, 370, 260, 320, 190);
-    right.closeSubpath();
-    const QPainterPath shape = body.united(left).united(right);
-    QLinearGradient shade(0, 40, 0, 330);
-    shade.setColorAt(0, QColor(70, 74, 84));
-    shade.setColorAt(1, QColor(26, 28, 34));
-    p.setBrush(shade);
-    p.drawPath(shape);
-    p.setPen(QPen(QColor(120, 126, 140), 2));
-    p.setBrush(Qt::NoBrush);
-    p.drawPath(shape);
-    p.setPen(Qt::NoPen);
-
-    //  The hollows of the d-pad and of the four buttons.
-    p.setBrush(QColor(38, 40, 48));
-    p.drawEllipse(QPointF(130, 122), 50, 50);
-    p.drawEllipse(QPointF(388, 122), 58, 58);
-
-    //  The d-pad: four separate buttons.
-    pad_split_dpad(p, QPointF(130, 122), 40, QColor(18, 19, 24));
-
-    //  The four buttons with their symbols.
-    pad_four(p, QPointF(388, 122), 36, 19, QColor(18, 19, 24));
-    pad_ps_symbols(p, QPointF(388, 122), 36, 9.5, 3.6, true);
-
-    //  The sticks, SELECT and START, and the round PS button in the middle.
-    pad_stick(p, QPointF(196, 200), 36, QColor(18, 19, 24), QColor(56, 60, 70));
-    pad_stick(p, QPointF(324, 200), 36, QColor(18, 19, 24), QColor(56, 60, 70));
-    const QColor key(150, 156, 170);
-    p.setBrush(key);
-    p.drawRoundedRect(QRectF(210, 116, 28, 11), 3, 3);
-    p.drawPolygon(QPolygonF({QPointF(284, 113), QPointF(284, 131), QPointF(306, 122)}));
-    p.setBrush(QColor(18, 19, 24));
-    p.drawEllipse(QPointF(260, 150), 16, 16);
-    p.setPen(QPen(QColor(110, 116, 130), 2));
-    p.setBrush(Qt::NoBrush);
-    p.drawEllipse(QPointF(260, 150), 16, 16);
-    p.setPen(Qt::NoPen);
-    p.end();
-    cache = QPixmap::fromImage(image);
-    return cache;
-}
-
 //  An open 3DS: a wide top screen over a smaller lower one; the circle pad
 //  above the d-pad, A, B, X and Y with their letters, SELECT, HOME and
 //  START under the lower screen, the camera and the slider of the 3D; with
@@ -7921,65 +8235,49 @@ QPixmap n3ds_picture(){
         return cache;
     }
     constexpr int W = 420;
-    constexpr int H = 440;
+    constexpr int H = 450;
     QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
     image.fill(Qt::transparent);
     QPainter p(&image);
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setPen(Qt::NoPen);
 
-    //  The two halves and the hinge.
-    QLinearGradient upper(0, 10, 0, 216);
-    upper.setColorAt(0, QColor(206, 44, 58));
-    upper.setColorAt(1, QColor(160, 26, 40));
-    p.setBrush(upper);
-    p.drawRoundedRect(QRectF(30, 10, 340, 206), 22, 22);
-    QLinearGradient lower(0, 224, 0, 430);
-    lower.setColorAt(0, QColor(196, 38, 52));
-    lower.setColorAt(1, QColor(150, 22, 36));
-    p.setBrush(lower);
-    p.drawRoundedRect(QRectF(30, 224, 340, 206), 22, 22);
-    p.setBrush(QColor(110, 16, 28));
-    p.drawRoundedRect(QRectF(40, 212, 320, 16), 6, 6);
+    //  The hinge, the two halves.
+    pad_pill(p, QRectF(40, 208, 320, 22), QColor(120, 18, 30));
+    QPainterPath upper;
+    upper.addRoundedRect(QRectF(30, 10, 340, 204), 22, 22);
+    pad_body(p, upper, QColor(226, 60, 72), QColor(150, 22, 36), QColor(240, 110, 120));
+    QPainterPath lower;
+    lower.addRoundedRect(QRectF(30, 226, 340, 206), 22, 22);
+    pad_body(p, lower, QColor(222, 56, 68), QColor(140, 20, 32), QColor(240, 110, 120));
+
     //  The screens.
-    p.setBrush(QColor(16, 16, 20));
-    p.drawRoundedRect(QRectF(62, 30, 276, 168), 6, 6);
-    p.drawRoundedRect(QRectF(108, 242, 184, 140), 6, 6);
-    QLinearGradient top(0, 38, 0, 190);
-    top.setColorAt(0, QColor(90, 170, 230));
-    top.setColorAt(1, QColor(40, 90, 60));
-    p.setBrush(top);
-    p.drawRect(QRectF(70, 38, 260, 152));
-    p.setBrush(QColor(230, 232, 238));
-    p.drawRect(QRectF(116, 250, 168, 124));
+    pad_screen(p, QRectF(62, 30, 276, 166), QRectF(72, 40, 256, 146), QColor(96, 176, 236), QColor(46, 100, 64), 6);
+    pad_screen(p, QRectF(108, 244, 184, 140), QRectF(118, 254, 164, 120), QColor(236, 238, 244), QColor(210, 214, 222), 6);
     //  A few buttons on the lower screen, as a game's menu.
     p.setBrush(QColor(90, 150, 220));
-    p.drawRoundedRect(QRectF(130, 264, 64, 40), 6, 6);
-    p.drawRoundedRect(QRectF(206, 264, 64, 40), 6, 6);
+    p.drawRoundedRect(QRectF(130, 266, 64, 40), 6, 6);
+    p.drawRoundedRect(QRectF(206, 266, 64, 40), 6, 6);
     p.drawRoundedRect(QRectF(130, 318, 140, 40), 6, 6);
     //  The camera over the top screen, the slider of the 3D beside it.
     p.setBrush(QColor(30, 30, 36));
     p.drawEllipse(QPointF(200, 20), 4, 4);
-    p.drawRoundedRect(QRectF(346, 50, 10, 56), 4, 4);
-    p.setBrush(QColor(200, 200, 208));
-    p.drawRoundedRect(QRectF(345, 78, 12, 14), 3, 3);
+    p.drawRoundedRect(QRectF(348, 50, 10, 56), 4, 4);
+    p.setBrush(QColor(210, 210, 218));
+    p.drawRoundedRect(QRectF(347, 78, 12, 14), 3, 3);
     //  The circle pad above the d-pad; the four buttons with their letters.
-    p.setBrush(QColor(60, 62, 70));
-    p.drawEllipse(QPointF(72, 268), 21, 21);
-    p.setBrush(QColor(130, 132, 142));
-    p.drawEllipse(QPointF(72, 268), 15, 15);
-    pad_cross(p, QPointF(72, 336), 24, 16, QColor(60, 62, 70));
-    pad_four(p, QPointF(330, 284), 19, 10, QColor(236, 236, 240));
+    pad_stick(p, QPointF(72, 270), 24, QColor(70, 20, 28), QColor(120, 122, 132));
+    pad_cross(p, QPointF(72, 340), 24, 16, QColor(64, 66, 74));
+    pad_four(p, QPointF(330, 286), 19, 10, QColor(232, 232, 238));
     const QColor letter(150, 30, 44);
-    pad_letter(p, QPointF(330, 265), 11, "X", letter);
-    pad_letter(p, QPointF(349, 284), 11, "A", letter);
-    pad_letter(p, QPointF(330, 303), 11, "B", letter);
-    pad_letter(p, QPointF(311, 284), 11, "Y", letter);
+    pad_letter(p, QPointF(330, 267), 10.5, "X", letter);
+    pad_letter(p, QPointF(349, 286), 10.5, "A", letter);
+    pad_letter(p, QPointF(330, 305), 10.5, "B", letter);
+    pad_letter(p, QPointF(311, 286), 10.5, "Y", letter);
     //  SELECT, HOME and START under the lower screen.
-    p.setBrush(QColor(110, 16, 28));
-    p.drawRoundedRect(QRectF(138, 396, 36, 12), 6, 6);
-    p.drawRoundedRect(QRectF(182, 396, 36, 12), 6, 6);
-    p.drawRoundedRect(QRectF(226, 396, 36, 12), 6, 6);
+    pad_pill(p, QRectF(140, 398, 34, 12), QColor(170, 30, 44));
+    pad_pill(p, QRectF(183, 398, 34, 12), QColor(170, 30, 44));
+    pad_pill(p, QRectF(226, 398, 34, 12), QColor(170, 30, 44));
 
     //  The waves of the network, at the top right.
     p.setBrush(Qt::NoBrush);
@@ -8012,22 +8310,20 @@ QPixmap vita_picture(){
     p.setPen(Qt::NoPen);
 
     //  The body, its silver edge and its screen.
-    QLinearGradient shade(0, 40, 0, 270);
-    shade.setColorAt(0, QColor(46, 48, 56));
-    shade.setColorAt(1, QColor(20, 21, 26));
-    p.setBrush(shade);
-    p.drawRoundedRect(QRectF(10, 40, 500, 230), 110, 110);
-    p.setPen(QPen(QColor(150, 154, 166), 3));
+    QPainterPath body;
+    body.addRoundedRect(QRectF(10, 40, 500, 230), 112, 112);
+    pad_body(p, body, QColor(58, 60, 70), QColor(12, 12, 16), QColor(170, 174, 186));
+    p.setPen(QPen(QColor(150, 154, 166, 160), 2));
     p.setBrush(Qt::NoBrush);
-    p.drawRoundedRect(QRectF(11.5, 41.5, 497, 227), 109, 109);
+    p.drawRoundedRect(QRectF(16, 46, 488, 218), 106, 106);
     p.setPen(Qt::NoPen);
-    p.setBrush(QColor(10, 10, 14));
-    p.drawRoundedRect(QRectF(128, 66, 264, 178), 8, 8);
-    QLinearGradient screen(0, 74, 0, 236);
-    screen.setColorAt(0, QColor(60, 110, 210));
-    screen.setColorAt(1, QColor(30, 40, 90));
-    p.setBrush(screen);
-    p.drawRect(QRectF(136, 74, 248, 162));
+    //  The holes of the speakers, at the top left and right.
+    p.setBrush(QColor(6, 6, 8));
+    for (int k = 0; k < 4; k++){
+        p.drawEllipse(QPointF(84 + k * 9, 62), 2, 2);
+        p.drawEllipse(QPointF(409 + k * 9, 62), 2, 2);
+    }
+    pad_screen(p, QRectF(128, 64, 264, 180), QRectF(136, 72, 248, 164), QColor(60, 110, 210), QColor(30, 40, 90), 8);
     //  A few round icons on the screen, as on its home screen.
     p.setBrush(QColor(255, 255, 255, 170));
     for (int row = 0; row < 2; row++){
@@ -8037,18 +8333,16 @@ QPixmap vita_picture(){
     }
 
     //  The left side: the d-pad, the small stick under it, the PS button.
-    pad_split_dpad(p, QPointF(72, 118), 30, QColor(84, 86, 96));
-    pad_stick(p, QPointF(104, 200), 17, QColor(10, 10, 12), QColor(54, 56, 64));
-    p.setBrush(QColor(70, 72, 82));
-    p.drawEllipse(QPointF(58, 222), 9, 9);
+    pad_split_dpad(p, QPointF(72, 118), 30, QColor(70, 72, 82));
+    pad_stick(p, QPointF(104, 200), 18, QColor(6, 6, 8), QColor(52, 54, 62));
+    pad_button(p, QPointF(58, 224), 9, QColor(54, 56, 64));
     //  The right side: the four buttons with their symbols, the small stick,
     //  SELECT and START.
-    pad_four(p, QPointF(450, 118), 24, 12.5, QColor(64, 66, 76));
+    pad_four(p, QPointF(450, 118), 24, 12.5, QColor(48, 50, 58));
     pad_ps_symbols(p, QPointF(450, 118), 24, 6, 2.4, true);
-    pad_stick(p, QPointF(416, 200), 17, QColor(10, 10, 12), QColor(54, 56, 64));
-    p.setBrush(QColor(70, 72, 82));
-    p.drawRoundedRect(QRectF(444, 220, 16, 8), 4, 4);
-    p.drawRoundedRect(QRectF(468, 220, 16, 8), 4, 4);
+    pad_stick(p, QPointF(416, 200), 18, QColor(6, 6, 8), QColor(52, 54, 62));
+    pad_pill(p, QRectF(444, 220, 16, 8), QColor(70, 72, 82));
+    pad_pill(p, QRectF(468, 220, 16, 8), QColor(70, 72, 82));
 
     //  The waves of the network, at the top right.
     p.setBrush(Qt::NoBrush);
@@ -8073,60 +8367,45 @@ QPixmap wiiu_picture(){
         return cache;
     }
     constexpr int W = 560;
-    constexpr int H = 300;
+    constexpr int H = 310;
     QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
     image.fill(Qt::transparent);
     QPainter p(&image);
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setPen(Qt::NoPen);
 
-    //  The grips on the back, that show at the bottom.
-    p.setBrush(QColor(176, 178, 186));
-    p.drawRoundedRect(QRectF(60, 200, 110, 86), 36, 36);
-    p.drawRoundedRect(QRectF(390, 200, 110, 86), 36, 36);
-    //  The body.
-    QPainterPath body;
-    body.addRoundedRect(QRectF(10, 20, 540, 250), 64, 64);
-    QLinearGradient shade(0, 20, 0, 270);
-    shade.setColorAt(0, QColor(248, 249, 251));
-    shade.setColorAt(1, QColor(204, 206, 214));
-    p.setBrush(shade);
-    p.drawPath(body);
-    p.setPen(QPen(QColor(170, 174, 184), 2));
-    p.setBrush(Qt::NoBrush);
-    p.drawPath(body);
-    p.setPen(Qt::NoPen);
+    //  The body: a slab, a little lower in the middle of its bottom edge.
+    const QPainterPath body = pad_outline(280, QPointF(280, 20), {
+        {QPointF(200, 20), QPointF(110, 18), QPointF(70, 22)},
+        {QPointF(30, 26), QPointF(10, 60), QPointF(10, 110)},
+        {QPointF(10, 170), QPointF(12, 236), QPointF(40, 262)},
+        {QPointF(66, 284), QPointF(130, 278), QPointF(180, 274)},
+        {QPointF(220, 271), QPointF(250, 270), QPointF(280, 270)},
+    });
+    pad_body(p, body, QColor(253, 253, 254), QColor(200, 202, 210), QColor(150, 154, 164));
 
-    //  The screen, in its black frame, with a glint; the camera over it.
-    p.setBrush(QColor(24, 26, 32));
-    p.drawRoundedRect(QRectF(140, 42, 280, 196), 10, 10);
-    QLinearGradient glint(150, 54, 410, 226);
-    glint.setColorAt(0, QColor(90, 140, 220));
-    glint.setColorAt(1, QColor(30, 40, 70));
-    p.setBrush(glint);
-    p.drawRect(QRectF(154, 56, 252, 168));
+    //  The screen in its black frame; the camera over it.
+    pad_screen(p, QRectF(138, 40, 284, 202), QRectF(152, 54, 256, 174), QColor(96, 146, 226), QColor(30, 40, 70), 10);
     p.setBrush(QColor(40, 42, 50));
-    p.drawEllipse(QPointF(280, 31), 4.5, 4.5);
+    p.drawEllipse(QPointF(280, 30), 4.5, 4.5);
 
     //  The two sticks, high on the sides.
-    pad_stick(p, QPointF(78, 86), 30, QColor(70, 72, 82), QColor(120, 124, 136));
-    pad_stick(p, QPointF(482, 86), 30, QColor(70, 72, 82), QColor(120, 124, 136));
+    pad_stick(p, QPointF(78, 86), 30, QColor(150, 152, 162), QColor(110, 114, 126));
+    pad_stick(p, QPointF(482, 86), 30, QColor(150, 152, 162), QColor(110, 114, 126));
 
     //  The d-pad under the left stick, the TV button under it; the four
     //  buttons under the right one, then minus, plus and HOME.
-    pad_cross(p, QPointF(78, 166), 28, 18, QColor(66, 68, 78));
-    p.setBrush(QColor(120, 124, 136));
-    p.drawEllipse(QPointF(64, 226), 7, 7);
-    pad_four(p, QPointF(482, 164), 23, 12, QColor(66, 68, 78));
+    pad_cross(p, QPointF(78, 166), 28, 18, QColor(70, 72, 82));
+    pad_button(p, QPointF(64, 228), 7, QColor(170, 174, 184));
+    pad_four(p, QPointF(482, 164), 23, 12, QColor(70, 72, 82));
     const QColor letter(214, 216, 224);
     pad_letter(p, QPointF(482, 141), 12, "X", letter);
     pad_letter(p, QPointF(505, 164), 12, "A", letter);
     pad_letter(p, QPointF(482, 187), 12, "B", letter);
     pad_letter(p, QPointF(459, 164), 12, "Y", letter);
-    p.setBrush(QColor(120, 124, 136));
-    p.drawEllipse(QPointF(462, 214), 6, 6);
-    p.drawEllipse(QPointF(502, 214), 6, 6);
-    p.drawEllipse(QPointF(482, 238), 8, 8);
+    pad_button(p, QPointF(462, 214), 6, QColor(170, 174, 184));
+    pad_button(p, QPointF(502, 214), 6, QColor(170, 174, 184));
+    pad_button(p, QPointF(482, 238), 8, QColor(170, 174, 184));
     p.end();
     cache = QPixmap::fromImage(image);
     return cache;
@@ -8142,7 +8421,7 @@ QPixmap retro_picture(){
         return cache;
     }
     constexpr int W = 600;
-    constexpr int H = 400;
+    constexpr int H = 410;
     QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
     image.fill(Qt::transparent);
     QPainter p(&image);
@@ -8150,12 +8429,10 @@ QPixmap retro_picture(){
     p.setPen(Qt::NoPen);
 
     //  The adapter, with the waves of Bluetooth.
-    p.setBrush(QColor(70, 74, 84));
-    p.drawRoundedRect(QRectF(236, 18, 112, 62), 16, 16);
-    p.setBrush(QColor(52, 130, 230));
-    p.drawEllipse(QPointF(292, 49), 13, 13);
-    p.setBrush(QColor(255, 255, 255, 80));
-    p.drawEllipse(QPointF(288, 45), 5, 4);
+    QPainterPath adapter;
+    adapter.addRoundedRect(QRectF(236, 18, 112, 62), 16, 16);
+    pad_body(p, adapter, QColor(90, 94, 106), QColor(44, 46, 54), QColor(120, 124, 136));
+    pad_button(p, QPointF(292, 49), 12, QColor(52, 130, 230));
     p.setBrush(Qt::NoBrush);
     p.setPen(QPen(QColor(120, 200, 255), 7, Qt::SolidLine, Qt::RoundCap));
     for (int i = 0; i < 2; i++){
@@ -8165,51 +8442,36 @@ QPixmap retro_picture(){
     }
     p.setPen(Qt::NoPen);
 
-    //  The Nintendo 64's pad: gray, a bar with three grips.
-    QPainterPath n64;
-    n64.setFillRule(Qt::WindingFill);
-    n64.addRoundedRect(QRectF(20, 128, 300, 112), 50, 50);
-    n64.addRoundedRect(QRectF(26, 170, 84, 186), 42, 42);
-    n64.addRoundedRect(QRectF(128, 190, 84, 176), 42, 42);
-    n64.addRoundedRect(QRectF(230, 170, 84, 186), 42, 42);
-    const QPainterPath n64_shape = n64.simplified();
-    QLinearGradient gray(0, 128, 0, 366);
-    gray.setColorAt(0, QColor(204, 206, 212));
-    gray.setColorAt(1, QColor(150, 152, 160));
-    p.setBrush(gray);
-    p.drawPath(n64_shape);
-    p.setPen(QPen(QColor(236, 238, 242), 2));
-    p.setBrush(Qt::NoBrush);
-    p.drawPath(n64_shape);
-    p.setPen(Qt::NoPen);
+    //  The Nintendo 64's pad: gray, a curved bar with three grips.
+    const QPainterPath n64 = pad_outline(170, QPointF(170, 124), {
+        {QPointF(110, 122), QPointF(52, 120), QPointF(32, 146)},
+        {QPointF(16, 166), QPointF(18, 194), QPointF(28, 214)},
+        {QPointF(36, 262), QPointF(32, 318), QPointF(44, 346)},
+        {QPointF(56, 372), QPointF(98, 372), QPointF(106, 344)},
+        {QPointF(112, 310), QPointF(114, 274), QPointF(124, 258)},
+        {QPointF(130, 248), QPointF(136, 252), QPointF(138, 266)},
+        {QPointF(140, 304), QPointF(136, 346), QPointF(146, 366)},
+        {QPointF(152, 380), QPointF(160, 382), QPointF(170, 382)},
+    });
+    pad_body(p, n64, QColor(222, 223, 228), QColor(138, 140, 150), QColor(240, 241, 244));
     //  Its d-pad on the left grip, START in the middle, the stick on the
     //  middle grip; B, A and the four yellow C buttons on the right.
-    pad_cross(p, QPointF(68, 186), 24, 15, QColor(64, 66, 74));
-    p.setBrush(QColor(206, 52, 52));
-    p.drawEllipse(QPointF(170, 172), 10, 10);
-    pad_stick(p, QPointF(170, 252), 22, QColor(70, 72, 80), QColor(176, 178, 186));
-    p.setBrush(QColor(52, 158, 82));
-    p.drawEllipse(QPointF(238, 196), 12, 12);
-    p.setBrush(QColor(56, 96, 204));
-    p.drawEllipse(QPointF(258, 222), 12, 12);
-    pad_four(p, QPointF(288, 168), 13, 7, QColor(234, 196, 48));
+    pad_cross(p, QPointF(68, 188), 24, 15, QColor(60, 62, 70));
+    pad_button(p, QPointF(170, 172), 10, QColor(206, 48, 48));
+    pad_stick(p, QPointF(170, 258), 24, QColor(90, 92, 100), QColor(170, 172, 180));
+    pad_button(p, QPointF(238, 198), 12, QColor(48, 156, 80));
+    pad_button(p, QPointF(260, 224), 12, QColor(52, 92, 200));
+    pad_four(p, QPointF(290, 170), 13, 7, QColor(236, 196, 44));
 
-    //  The GameCube pad, in front: indigo, wide grips.
-    QPainterPath cube;
-    cube.setFillRule(Qt::WindingFill);
-    cube.addRoundedRect(QRectF(270, 212, 320, 112), 56, 56);
-    cube.addEllipse(QRectF(268, 250, 118, 140));
-    cube.addEllipse(QRectF(472, 250, 118, 140));
-    const QPainterPath cube_shape = cube.simplified();
-    QLinearGradient indigo(0, 212, 0, 390);
-    indigo.setColorAt(0, QColor(118, 106, 204));
-    indigo.setColorAt(1, QColor(70, 60, 150));
-    p.setBrush(indigo);
-    p.drawPath(cube_shape);
-    p.setPen(QPen(QColor(150, 140, 230), 2));
-    p.setBrush(Qt::NoBrush);
-    p.drawPath(cube_shape);
-    p.setPen(Qt::NoPen);
+    //  The GameCube pad, in front: indigo, round grips.
+    const QPainterPath cube = pad_outline(430, QPointF(430, 214), {
+        {QPointF(390, 210), QPointF(318, 206), QPointF(294, 226)},
+        {QPointF(268, 248), QPointF(262, 290), QPointF(272, 332)},
+        {QPointF(282, 372), QPointF(318, 396), QPointF(342, 390)},
+        {QPointF(364, 384), QPointF(372, 352), QPointF(388, 332)},
+        {QPointF(402, 318), QPointF(416, 314), QPointF(430, 314)},
+    });
+    pad_body(p, cube, QColor(140, 128, 226), QColor(60, 50, 136), QColor(170, 160, 240));
     //  The stick in its eight-sided gate at the top left, the small d-pad
     //  under it, START in the middle.
     auto gate = [&](const QPointF& c, double r){
@@ -8218,259 +8480,28 @@ QPixmap retro_picture(){
             const double angle = (22.5 + 45.0 * k) * 3.14159265358979 / 180.0;
             corners << QPointF(c.x() + r * std::cos(angle), c.y() + r * std::sin(angle));
         }
-        p.setBrush(QColor(58, 50, 120));
+        p.setBrush(QColor(50, 42, 110));
         p.drawPolygon(corners);
     };
     gate(QPointF(326, 262), 32);
-    pad_stick(p, QPointF(326, 262), 23, QColor(150, 150, 162), QColor(196, 196, 206));
-    pad_cross(p, QPointF(360, 322), 15, 10, QColor(196, 196, 206));
-    p.setBrush(QColor(196, 196, 206));
-    p.drawEllipse(QPointF(430, 268), 8, 8);
+    pad_stick(p, QPointF(326, 262), 25, QColor(50, 42, 110), QColor(184, 184, 196));
+    pad_cross(p, QPointF(364, 322), 15, 10, QColor(190, 190, 202));
+    pad_button(p, QPointF(430, 270), 8, QColor(190, 190, 202));
     //  The big green A, the small red B, X and Y as curved keys round A, and
     //  the yellow C stick.
     p.setBrush(Qt::NoBrush);
-    p.setPen(QPen(QColor(214, 214, 222), 15, Qt::SolidLine, Qt::RoundCap));
-    const QRectF round_a(520 - 37, 270 - 37, 74, 74);
+    const QRectF round_a(520 - 37, 272 - 37, 74, 74);
+    p.setPen(QPen(QColor(0, 0, 0, 80), 16, Qt::SolidLine, Qt::RoundCap));
+    p.drawArc(round_a.translated(0, 2), -50 * 16, 85 * 16);
+    p.drawArc(round_a.translated(0, 2), 72 * 16, 70 * 16);
+    p.setPen(QPen(QColor(218, 218, 226), 14, Qt::SolidLine, Qt::RoundCap));
     p.drawArc(round_a, -50 * 16, 85 * 16);
     p.drawArc(round_a, 72 * 16, 70 * 16);
     p.setPen(Qt::NoPen);
-    p.setBrush(QColor(52, 178, 108));
-    p.drawEllipse(QPointF(520, 270), 22, 22);
-    p.setBrush(QColor(214, 58, 68));
-    p.drawEllipse(QPointF(486, 302), 11, 11);
-    gate(QPointF(450, 324), 21);
-    p.setBrush(QColor(240, 200, 60));
-    p.drawEllipse(QPointF(450, 324), 14, 14);
-    p.end();
-    cache = QPixmap::fromImage(image);
-    return cache;
-}
-
-//  The Xbox 360's pad: white, with the round Guide button in the middle and
-//  its ring of four green lights, Back and Start beside it, the left stick
-//  high and the d-pad on its round plate low, the colored A, B, X and Y with
-//  their letters and two bumpers: the picture of the console "xbox360".
-QPixmap xbox360_picture(){
-    static QPixmap cache;
-    if (!cache.isNull()){
-        return cache;
-    }
-    constexpr int W = 540;
-    constexpr int H = 380;
-    QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
-    image.fill(Qt::transparent);
-    QPainter p(&image);
-    p.setRenderHint(QPainter::Antialiasing, true);
-    p.setPen(Qt::NoPen);
-
-    //  The bumpers, behind the body.
-    p.setBrush(QColor(170, 174, 182));
-    p.drawRoundedRect(QRectF(70, 26, 140, 40), 18, 18);
-    p.drawRoundedRect(QRectF(330, 26, 140, 40), 18, 18);
-
-    //  The body: wide, with grips.
-    QPainterPath body;
-    body.addRoundedRect(QRectF(44, 44, 452, 180), 86, 86);
-    QPainterPath left;
-    left.addEllipse(QRectF(22, 126, 160, 238));
-    QPainterPath right;
-    right.addEllipse(QRectF(358, 126, 160, 238));
-    const QPainterPath shape = body.united(left).united(right);
-    QLinearGradient shade(0, 44, 0, 364);
-    shade.setColorAt(0, QColor(246, 247, 249));
-    shade.setColorAt(1, QColor(196, 199, 206));
-    p.setBrush(shade);
-    p.drawPath(shape);
-    p.setPen(QPen(QColor(150, 154, 162), 2));
-    p.setBrush(Qt::NoBrush);
-    p.drawPath(shape);
-    p.setPen(Qt::NoPen);
-
-    //  The Guide button: silver, in its ring of four green lights; Back and
-    //  Start beside it.
-    p.setBrush(QColor(70, 74, 80));
-    p.drawEllipse(QPointF(270, 112), 36, 36);
-    p.setBrush(Qt::NoBrush);
-    p.setPen(QPen(QColor(110, 220, 80), 6, Qt::SolidLine, Qt::FlatCap));
-    for (int k = 0; k < 4; k++){
-        p.drawArc(QRectF(270 - 31, 112 - 31, 62, 62), (8 + 90 * k) * 16, 74 * 16);
-    }
-    p.setPen(Qt::NoPen);
-    QRadialGradient silver(QPointF(262, 104), 30);
-    silver.setColorAt(0, QColor(236, 238, 242));
-    silver.setColorAt(1, QColor(150, 154, 162));
-    p.setBrush(silver);
-    p.drawEllipse(QPointF(270, 112), 24, 24);
-    p.setBrush(QColor(160, 164, 172));
-    p.drawEllipse(QPointF(218, 116), 9, 9);
-    p.drawEllipse(QPointF(322, 116), 9, 9);
-
-    //  The sticks and the d-pad.
-    const QColor dark(58, 60, 66);
-    pad_stick(p, QPointF(118, 120), 36, dark, QColor(88, 92, 100));
-    pad_stick(p, QPointF(360, 236), 34, dark, QColor(88, 92, 100));
-    pad_disc_dpad(p, QPointF(180, 236), 34, QColor(206, 208, 214), dark);
-
-    //  A, B, X, Y.
-    pad_xbox_face(p, QPointF(420, 116), 34, 18, true);
-    p.end();
-    cache = QPixmap::fromImage(image);
-    return cache;
-}
-
-//  The pad of the PlayStation 5 (the PlayStation 4's has the same layout):
-//  white wings round a black middle, the large touchpad at the top with its
-//  blue light bars, the d-pad of four buttons, the two sticks low in the
-//  middle, the PS button between them, and the four buttons with gray
-//  symbols. For "psremote" and "psdirect".
-QPixmap dualsense_picture(){
-    static QPixmap cache;
-    if (!cache.isNull()){
-        return cache;
-    }
-    constexpr int W = 540;
-    constexpr int H = 360;
-    QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
-    image.fill(Qt::transparent);
-    QPainter p(&image);
-    p.setRenderHint(QPainter::Antialiasing, true);
-    p.setPen(Qt::NoPen);
-
-    //  L1 and R1, behind.
-    p.setBrush(QColor(54, 56, 64));
-    p.drawRoundedRect(QRectF(88, 26, 104, 34), 14, 14);
-    p.drawRoundedRect(QRectF(348, 26, 104, 34), 14, 14);
-
-    //  The white body: a bar and two round grips.
-    QPainterPath body;
-    body.addRoundedRect(QRectF(60, 42, 420, 168), 72, 72);
-    QPainterPath left;
-    left.moveTo(84, 120);
-    left.cubicTo(36, 196, 18, 318, 80, 344);
-    left.cubicTo(138, 366, 168, 288, 214, 214);
-    left.closeSubpath();
-    QPainterPath right;
-    right.moveTo(456, 120);
-    right.cubicTo(504, 196, 522, 318, 460, 344);
-    right.cubicTo(402, 366, 372, 288, 326, 214);
-    right.closeSubpath();
-    const QPainterPath shape = body.united(left).united(right);
-    QLinearGradient shade(0, 42, 0, 360);
-    shade.setColorAt(0, QColor(248, 249, 251));
-    shade.setColorAt(1, QColor(204, 206, 214));
-    p.setBrush(shade);
-    p.drawPath(shape);
-    p.setPen(QPen(QColor(160, 164, 174), 2));
-    p.setBrush(Qt::NoBrush);
-    p.drawPath(shape);
-    p.setPen(Qt::NoPen);
-
-    //  The black middle, under the touchpad, down between the sticks.
-    QPainterPath middle;
-    middle.moveTo(166, 96);
-    middle.lineTo(374, 96);
-    middle.cubicTo(392, 196, 382, 276, 304, 286);
-    middle.lineTo(236, 286);
-    middle.cubicTo(158, 276, 148, 196, 166, 96);
-    middle.closeSubpath();
-    p.setBrush(QColor(30, 32, 38));
-    p.drawPath(middle);
-
-    //  The touchpad, with the light bars beside it; Create and Options.
-    QLinearGradient pad(0, 30, 0, 140);
-    pad.setColorAt(0, QColor(244, 245, 248));
-    pad.setColorAt(1, QColor(214, 216, 222));
-    p.setBrush(pad);
-    p.drawRoundedRect(QRectF(178, 30, 184, 112), 16, 16);
-    p.setPen(QPen(QColor(170, 174, 184), 1.5));
-    p.setBrush(Qt::NoBrush);
-    p.drawRoundedRect(QRectF(178, 30, 184, 112), 16, 16);
-    p.setPen(Qt::NoPen);
-    p.setBrush(QColor(80, 150, 255));
-    p.drawRoundedRect(QRectF(170, 54, 5, 72), 2.5, 2.5);
-    p.drawRoundedRect(QRectF(365, 54, 5, 72), 2.5, 2.5);
-    p.setBrush(QColor(60, 62, 70));
-    p.drawRoundedRect(QRectF(150, 66, 9, 22), 4, 4);
-    p.drawRoundedRect(QRectF(381, 66, 9, 22), 4, 4);
-
-    //  The d-pad and the four buttons, on the white.
-    const QColor key(54, 56, 66);
-    pad_split_dpad(p, QPointF(116, 134), 36, key);
-    pad_four(p, QPointF(426, 134), 34, 18, key);
-    pad_ps_symbols(p, QPointF(426, 134), 34, 8.5, 3.2, false, QColor(206, 210, 220));
-
-    //  The sticks, the PS button and the mute button.
-    pad_stick(p, QPointF(202, 220), 34, QColor(14, 15, 18), QColor(50, 52, 60));
-    pad_stick(p, QPointF(338, 220), 34, QColor(14, 15, 18), QColor(50, 52, 60));
-    p.setBrush(QColor(70, 72, 82));
-    p.drawEllipse(QPointF(270, 196), 12, 12);
-    p.drawRoundedRect(QRectF(258, 222, 24, 8), 4, 4);
-    p.end();
-    cache = QPixmap::fromImage(image);
-    return cache;
-}
-
-//  The pad of the Xbox Series (the One's has the same layout): dark, with
-//  the round Guide button and its white light, View, Share and Menu under
-//  it, the left stick high, the d-pad on its round plate low, and dark A, B,
-//  X and Y with colored letters. For "xboxremote" and "xboxdirect".
-QPixmap xbox_series_picture(){
-    static QPixmap cache;
-    if (!cache.isNull()){
-        return cache;
-    }
-    constexpr int W = 540;
-    constexpr int H = 380;
-    QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
-    image.fill(Qt::transparent);
-    QPainter p(&image);
-    p.setRenderHint(QPainter::Antialiasing, true);
-    p.setPen(Qt::NoPen);
-
-    //  The bumpers, behind the body.
-    p.setBrush(QColor(36, 38, 44));
-    p.drawRoundedRect(QRectF(70, 28, 140, 40), 18, 18);
-    p.drawRoundedRect(QRectF(330, 28, 140, 40), 18, 18);
-
-    //  The body: wide, with grips.
-    QPainterPath body;
-    body.addRoundedRect(QRectF(44, 46, 452, 178), 86, 86);
-    QPainterPath left;
-    left.addEllipse(QRectF(24, 126, 158, 236));
-    QPainterPath right;
-    right.addEllipse(QRectF(358, 126, 158, 236));
-    const QPainterPath shape = body.united(left).united(right);
-    QLinearGradient shade(0, 46, 0, 362);
-    shade.setColorAt(0, QColor(70, 73, 82));
-    shade.setColorAt(1, QColor(28, 30, 35));
-    p.setBrush(shade);
-    p.drawPath(shape);
-    p.setPen(QPen(QColor(110, 114, 126), 2));
-    p.setBrush(Qt::NoBrush);
-    p.drawPath(shape);
-    p.setPen(Qt::NoPen);
-
-    //  The Guide button with its white light; View, Share and Menu.
-    p.setBrush(QColor(40, 42, 48));
-    p.drawEllipse(QPointF(270, 92), 26, 26);
-    p.setPen(QPen(QColor(240, 242, 246, 230), 3.5));
-    p.setBrush(Qt::NoBrush);
-    p.drawEllipse(QPointF(270, 92), 16, 16);
-    p.setPen(Qt::NoPen);
-    p.setBrush(QColor(22, 23, 27));
-    p.drawEllipse(QPointF(224, 140), 10, 10);
-    p.drawEllipse(QPointF(316, 140), 10, 10);
-    p.drawRoundedRect(QRectF(259, 148, 22, 11), 5.5, 5.5);
-
-    //  The sticks and the d-pad.
-    const QColor dark(16, 17, 20);
-    const QColor cap(52, 55, 62);
-    pad_stick(p, QPointF(118, 120), 36, dark, cap);
-    pad_stick(p, QPointF(360, 236), 34, dark, cap);
-    pad_disc_dpad(p, QPointF(180, 236), 34, dark, QColor(70, 74, 84));
-
-    //  A, B, X, Y.
-    pad_xbox_face(p, QPointF(420, 116), 34, 18, false);
+    pad_button(p, QPointF(520, 272), 22, QColor(48, 176, 106));
+    pad_button(p, QPointF(486, 304), 11, QColor(214, 54, 64));
+    gate(QPointF(452, 326), 21);
+    pad_stick(p, QPointF(452, 326), 16, QColor(50, 42, 110), QColor(236, 196, 52));
     p.end();
     cache = QPixmap::fromImage(image);
     return cache;
@@ -8496,15 +8527,13 @@ QPixmap remote_picture(bool xbox){
 
     //  The screen and its foot.
     p.setBrush(QColor(52, 56, 64));
-    p.drawRoundedRect(QRectF(40, 10, 480, 290), 18, 18);
-    QLinearGradient stream(0, 26, 0, 284);
-    stream.setColorAt(0, xbox ? QColor(40, 120, 60) : QColor(40, 70, 150));
-    stream.setColorAt(1, QColor(18, 22, 30));
-    p.setBrush(stream);
-    p.drawRoundedRect(QRectF(56, 26, 448, 258), 10, 10);
-    p.setBrush(QColor(52, 56, 64));
     p.drawRect(QRectF(250, 300, 60, 40));
     p.drawRoundedRect(QRectF(190, 334, 180, 16), 8, 8);
+    QPainterPath frame;
+    frame.addRoundedRect(QRectF(40, 10, 480, 290), 18, 18);
+    pad_body(p, frame, QColor(70, 74, 84), QColor(36, 38, 44), QColor(96, 100, 112));
+    pad_screen(p, QRectF(52, 22, 456, 266), QRectF(58, 28, 444, 254),
+        xbox ? QColor(40, 120, 60) : QColor(40, 70, 150), QColor(18, 22, 30), 10);
     //  A play mark on the stream.
     p.setBrush(QColor(255, 255, 255, 150));
     p.drawPolygon(QPolygonF({QPointF(200, 116), QPointF(200, 184), QPointF(256, 150)}));
@@ -8513,7 +8542,7 @@ QPixmap remote_picture(bool xbox){
     const QPixmap pad = xbox ? xbox_series_picture() : dualsense_picture();
     const double w = 300;
     const double h = w * pad.height() / pad.width();
-    p.drawPixmap(QRectF(W - w - 2, H - h - 2, w, h), pad, QRectF(pad.rect()));
+    p.drawPixmap(QRectF(W - w - 2, H - h, w, h), pad, QRectF(pad.rect()));
     p.end();
     cache = QPixmap::fromImage(image);
     return cache;
@@ -8540,21 +8569,21 @@ QPixmap direct_picture(bool xbox){
     //  The adapter at the top right: its USB plug and its light.
     p.setBrush(QColor(196, 200, 208));
     p.drawRoundedRect(QRectF(372, 30, 34, 30), 4, 4);
-    p.setBrush(QColor(52, 56, 64));
-    p.drawRoundedRect(QRectF(400, 14, 140, 62), 16, 16);
-    p.setBrush(xbox ? QColor(110, 220, 80) : QColor(80, 150, 255));
-    p.drawEllipse(QPointF(510, 45), 10, 10);
+    QPainterPath adapter;
+    adapter.addRoundedRect(QRectF(400, 14, 140, 62), 16, 16);
+    pad_body(p, adapter, QColor(80, 84, 96), QColor(36, 38, 44), QColor(110, 114, 126));
+    pad_button(p, QPointF(510, 45), 10, xbox ? QColor(110, 220, 80) : QColor(80, 150, 255));
     p.setBrush(Qt::NoBrush);
     p.setPen(QPen(QColor(120, 200, 255), 7, Qt::SolidLine, Qt::RoundCap));
     for (int i = 0; i < 2; i++){
         const double r = 18 + i * 16;
-        p.drawArc(QRectF(450 - r, 90 - r, 2 * r, 2 * r), 200 * 16, 60 * 16);
+        p.drawArc(QRectF(450 - r, 96 - r, 2 * r, 2 * r), 200 * 16, 60 * 16);
     }
     p.setPen(Qt::NoPen);
 
     //  The pad.
     const QPixmap pad = xbox ? xbox_series_picture() : dualsense_picture();
-    const double w = 440;
+    const double w = 430;
     const double h = w * pad.height() / pad.width();
     p.drawPixmap(QRectF(0, H - h, w, h), pad, QRectF(pad.rect()));
     p.end();
@@ -8619,9 +8648,10 @@ QPixmap iphone_picture(){
 }
 
 //  The Steam Deck, with its dock: a wide dark handheld with the screen in
-//  the middle; on each side the d-pad (left) or A, B, X and Y (right) at the
-//  outer top, the stick by the screen and the square trackpad under it: the
-//  picture of the console "steam".
+//  the middle and grips that hang lower than the middle; on each side the
+//  d-pad (left) or A, B, X and Y (right) at the outer top, the stick by the
+//  screen and the square trackpad under it: the picture of the console
+//  "steam".
 QPixmap steam_picture(){
     static QPixmap cache;
     if (!cache.isNull()){
@@ -8636,53 +8666,52 @@ QPixmap steam_picture(){
     p.setPen(Qt::NoPen);
 
     //  The dock, behind.
-    p.setBrush(QColor(44, 46, 52));
-    p.drawRoundedRect(QRectF(170, 286, 220, 70), 14, 14);
-    p.setBrush(QColor(30, 30, 34));
-    p.drawRoundedRect(QRectF(196, 304, 40, 14), 4, 4);
-    p.drawRoundedRect(QRectF(250, 304, 40, 14), 4, 4);
-    p.drawRoundedRect(QRectF(304, 304, 60, 14), 4, 4);
+    QPainterPath dock;
+    dock.addRoundedRect(QRectF(170, 300, 220, 66), 14, 14);
+    pad_body(p, dock, QColor(64, 66, 74), QColor(32, 33, 38), QColor(90, 94, 104));
+    p.setBrush(QColor(20, 20, 24));
+    p.drawRoundedRect(QRectF(196, 326, 40, 14), 4, 4);
+    p.drawRoundedRect(QRectF(250, 326, 40, 14), 4, 4);
+    p.drawRoundedRect(QRectF(304, 326, 60, 14), 4, 4);
 
-    //  The body and its screen.
-    QLinearGradient shade(0, 60, 0, 280);
-    shade.setColorAt(0, QColor(50, 52, 60));
-    shade.setColorAt(1, QColor(28, 30, 35));
-    p.setBrush(shade);
-    p.drawRoundedRect(QRectF(10, 60, 540, 220), 90, 90);
-    p.setBrush(QColor(14, 14, 18));
-    p.drawRoundedRect(QRectF(150, 76, 260, 188), 10, 10);
-    QLinearGradient screen(0, 90, 0, 250);
-    screen.setColorAt(0, QColor(40, 90, 160));
-    screen.setColorAt(1, QColor(20, 30, 60));
-    p.setBrush(screen);
-    p.drawRect(QRectF(160, 88, 240, 150));
+    //  The body: flat on top, the grips lower than the middle.
+    const QPainterPath body = pad_outline(280, QPointF(280, 62), {
+        {QPointF(200, 62), QPointF(120, 60), QPointF(80, 66)},
+        {QPointF(34, 74), QPointF(10, 110), QPointF(10, 160)},
+        {QPointF(10, 220), QPointF(28, 288), QPointF(78, 300)},
+        {QPointF(118, 308), QPointF(140, 290), QPointF(166, 276)},
+        {QPointF(200, 268), QPointF(240, 268), QPointF(280, 268)},
+    });
+    pad_body(p, body, QColor(70, 72, 82), QColor(22, 23, 27), QColor(96, 100, 112));
+    pad_screen(p, QRectF(150, 76, 260, 180), QRectF(160, 86, 240, 150), QColor(40, 90, 160), QColor(20, 30, 60), 10);
     //  A row of game covers on the screen.
     p.setBrush(QColor(255, 255, 255, 170));
     for (int i = 0; i < 4; i++){
-        p.drawRoundedRect(QRectF(172 + i * 56, 132, 46, 64), 5, 5);
+        p.drawRoundedRect(QRectF(172 + i * 56, 128, 46, 64), 5, 5);
     }
 
     //  The left side: the d-pad, the stick, the trackpad.
-    const QColor well(14, 15, 18);
-    const QColor cap(66, 68, 78);
-    pad_cross(p, QPointF(56, 118), 22, 14, QColor(84, 86, 96));
-    pad_stick(p, QPointF(116, 120), 22, well, cap);
-    p.setBrush(QColor(60, 63, 72));
-    p.setPen(QPen(QColor(84, 88, 100), 2));
-    p.drawRoundedRect(QRectF(66, 168, 62, 62), 10, 10);
-    p.setPen(Qt::NoPen);
+    const QColor well(10, 10, 12);
+    const QColor cap(60, 62, 72);
+    auto trackpad = [&](const QRectF& box){
+        QLinearGradient fill(0, box.top(), 0, box.bottom());
+        fill.setColorAt(0, QColor(26, 27, 31));
+        fill.setColorAt(1, QColor(58, 60, 68));
+        p.setBrush(fill);
+        p.drawRoundedRect(box, 12, 12);
+    };
+    pad_cross(p, QPointF(54, 116), 22, 14, QColor(78, 80, 90));
+    pad_stick(p, QPointF(116, 120), 23, well, cap);
+    trackpad(QRectF(70, 170, 62, 62));
     //  The right side: the four buttons, the stick, the trackpad.
-    pad_four(p, QPointF(504, 118), 18, 9, QColor(84, 86, 96));
+    pad_four(p, QPointF(506, 116), 18, 9, QColor(70, 72, 82));
     const QColor letter(206, 210, 220);
-    pad_letter(p, QPointF(504, 100), 9, "Y", letter);
-    pad_letter(p, QPointF(522, 118), 9, "B", letter);
-    pad_letter(p, QPointF(504, 136), 9, "A", letter);
-    pad_letter(p, QPointF(486, 118), 9, "X", letter);
-    pad_stick(p, QPointF(444, 120), 22, well, cap);
-    p.setBrush(QColor(60, 63, 72));
-    p.setPen(QPen(QColor(84, 88, 100), 2));
-    p.drawRoundedRect(QRectF(432, 168, 62, 62), 10, 10);
-    p.setPen(Qt::NoPen);
+    pad_letter(p, QPointF(506, 98), 9, "Y", letter);
+    pad_letter(p, QPointF(524, 116), 9, "B", letter);
+    pad_letter(p, QPointF(506, 134), 9, "A", letter);
+    pad_letter(p, QPointF(488, 116), 9, "X", letter);
+    pad_stick(p, QPointF(444, 120), 23, well, cap);
+    trackpad(QRectF(428, 170, 62, 62));
     p.end();
     cache = QPixmap::fromImage(image);
     return cache;
@@ -8698,7 +8727,7 @@ QPixmap psclassic_picture(){
         return cache;
     }
     constexpr int W = 520;
-    constexpr int H = 380;
+    constexpr int H = 440;
     QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
     image.fill(Qt::transparent);
     QPainter p(&image);
@@ -8706,56 +8735,27 @@ QPixmap psclassic_picture(){
     p.setPen(Qt::NoPen);
 
     //  The console, behind: a flat box, with the lid and two buttons.
-    QLinearGradient box(0, 10, 0, 170);
-    box.setColorAt(0, QColor(212, 212, 218));
-    box.setColorAt(1, QColor(160, 162, 170));
-    p.setBrush(box);
-    p.drawRoundedRect(QRectF(110, 10, 300, 160), 14, 14);
-    p.setBrush(QColor(140, 142, 150));
-    p.drawEllipse(QPointF(300, 84), 62, 62);
-    p.setBrush(QColor(186, 188, 196));
-    p.drawEllipse(QPointF(300, 84), 52, 52);
-    p.setBrush(QColor(120, 122, 130));
-    p.drawRoundedRect(QRectF(138, 40, 64, 20), 8, 8);
-    p.drawRoundedRect(QRectF(138, 74, 64, 20), 8, 8);
+    QPainterPath box;
+    box.addRoundedRect(QRectF(110, 6, 300, 150), 14, 14);
+    pad_body(p, box, QColor(226, 226, 232), QColor(150, 152, 160), QColor(240, 240, 244));
+    pad_hollow(p, QPointF(300, 78), 60, QColor(150, 152, 160));
+    pad_button(p, QPointF(300, 78), 52, QColor(196, 198, 206));
+    pad_pill(p, QRectF(138, 36, 64, 20), QColor(130, 132, 140));
+    pad_pill(p, QRectF(138, 70, 64, 20), QColor(130, 132, 140));
 
-    //  The pad, in front: a bar and two grips.
-    QPainterPath body;
-    body.addRoundedRect(QRectF(70, 190, 380, 120), 56, 56);
-    QPainterPath left;
-    left.moveTo(92, 240);
-    left.cubicTo(52, 290, 36, 360, 80, 372);
-    left.cubicTo(124, 384, 150, 330, 190, 300);
-    left.closeSubpath();
-    QPainterPath right;
-    right.moveTo(428, 240);
-    right.cubicTo(468, 290, 484, 360, 440, 372);
-    right.cubicTo(396, 384, 370, 330, 330, 300);
-    right.closeSubpath();
-    const QPainterPath shape = body.united(left).united(right);
-    QLinearGradient shade(0, 190, 0, 380);
-    shade.setColorAt(0, QColor(204, 205, 212));
-    shade.setColorAt(1, QColor(150, 152, 160));
-    p.setBrush(shade);
-    p.drawPath(shape);
-    p.setPen(QPen(QColor(110, 112, 122), 2));
-    p.setBrush(Qt::NoBrush);
-    p.drawPath(shape);
-    p.setPen(Qt::NoPen);
-
-    //  The d-pad (four buttons) and the four buttons with their symbols, in
-    //  their hollows.
-    p.setBrush(QColor(176, 178, 186));
-    p.drawEllipse(QPointF(130, 255), 44, 44);
-    p.drawEllipse(QPointF(388, 255), 50, 50);
-    pad_split_dpad(p, QPointF(130, 255), 34, QColor(86, 88, 98));
-    pad_four(p, QPointF(388, 255), 31, 17, QColor(70, 72, 82));
-    pad_ps_symbols(p, QPointF(388, 255), 31, 8, 3.2, true);
-
-    //  SELECT and START in the middle.
-    p.setBrush(QColor(90, 92, 102));
-    p.drawRoundedRect(QRectF(218, 262, 34, 12), 6, 6);
-    p.drawRoundedRect(QRectF(268, 262, 34, 12), 6, 6);
+    //  The pad, in front: the outline of the PlayStation 3's, with the
+    //  grips a little shorter and no sticks.
+    p.save();
+    p.translate(0, 84);
+    pad_body(p, ps3_outline(-6), QColor(224, 225, 230), QColor(140, 142, 152), QColor(240, 240, 244));
+    pad_hollow(p, QPointF(124, 124), 48, QColor(170, 172, 180));
+    pad_hollow(p, QPointF(394, 124), 54, QColor(170, 172, 180));
+    pad_split_dpad(p, QPointF(124, 124), 38, QColor(110, 112, 122));
+    pad_four(p, QPointF(394, 124), 33, 17.5, QColor(92, 94, 104));
+    pad_ps_symbols(p, QPointF(394, 124), 33, 8.5, 3.2, true);
+    pad_pill(p, QRectF(212, 150, 34, 12), QColor(100, 102, 112));
+    pad_pill(p, QRectF(274, 150, 34, 12), QColor(100, 102, 112));
+    p.restore();
     p.end();
     cache = QPixmap::fromImage(image);
     return cache;
