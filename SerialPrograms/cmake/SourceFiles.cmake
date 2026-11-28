@@ -1500,6 +1500,8 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudePlays/ClaudePlays_GameCard.h
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Games.cpp
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Games.h
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_KnownGames.cpp
+    Source/ClaudeGG/ClaudePlays/ClaudePlays_KnownGames.h
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Program.cpp
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Program.h
     Source/ClaudeGG/ClaudePlays/ClaudePlays_Sees.cpp
