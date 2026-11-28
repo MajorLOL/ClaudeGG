@@ -18,6 +18,7 @@
 #include <functional>
 #include <string>
 #include <vector>
+#include "Common/Cpp/Json/JsonObject.h"
 #include "Common/Cpp/Options/EnumDropdownDatabase.h"
 #include "ClaudePlays_AnyGame.h"
 #include "ClaudePlays_Calibrate.h"
@@ -69,10 +70,23 @@ InputTiming timing_by_hand(InputTiming timing, uint32_t press_ms, uint32_t video
 //  Measures on the console (a menu that DOWN and UP move in must be on the
 //  screen) and returns the timing to use: the measured one, or "timing" if
 //  it could not be measured. "log" gets what happened (true: measured).
+//  The measurement is kept for the console "console_code" (in
+//  ClaudePlays-Timing.json in the settings folder).
 InputTiming measured_timing(
-    PlayConsole& console, const InputTiming& timing,
+    PlayConsole& console, const std::string& console_code, const InputTiming& timing,
     const std::function<void(const std::string& text, bool measured)>& log
 );
+
+//  "timing" with the measurement kept for "console_code", if there is one
+//  (it is logged); "timing" itself if not.
+InputTiming saved_timing(
+    const std::string& console_code, const InputTiming& timing,
+    const std::function<void(const std::string& text)>& log
+);
+
+//  A measurement as it is kept, and back (false: not a measurement).
+JsonObject saved_measurement_json(const Calibration& measured, const std::string& date);
+bool saved_measurement_from_json(const JsonObject& entry, Calibration& measured, std::string& date);
 
 
 }
