@@ -55,6 +55,7 @@
 #include "ClaudeGG_PokemonGoBrain.h"
 #include "ClaudeGG_PokemonGoDaily.h"
 #include "ClaudeGG_PokemonGoGifts.h"
+#include "ClaudeGG_PokemonGoLayout.h"
 #include "ClaudeGG_PokemonGoLock.h"
 #include "ClaudeGG_PokemonGoPhone.h"
 #include "ClaudeGG_PokemonGoQuests.h"
@@ -95,7 +96,7 @@ Switches playable(const Switches& asked, bool heat = false);
 using Texts = std::map<QString, QString>;
 
 
-class PhoneBot : public Step::Host, public Throw::Host, public Bag::Host, public Gifts::Host, public Rocket::Host, public Daily::Host, public Lock::Host{
+class PhoneBot : public Step::Host, public Throw::Host, public virtual Bag::Host, public Gifts::Host, public Rocket::Host, public Daily::Host, public Lock::Host, public Layout::Host{
 public:
     //  `folder`: where what the throws learn is kept (gamebot_throw.json); empty: nowhere.
     PhoneBot(Phone::AgentHost& phone, const Switches& switches, const Texts& texts = Texts(), const QString& folder = QString());
@@ -113,7 +114,6 @@ public:
     double monotonic() override{ return m_phone.monotonic(); }
     void sleep(double seconds) override{ m_phone.sleep(seconds); }
     void log(const QString& text) override{ m_phone.log(text); }
-    cv::Mat screenshot() override{ return m_phone.screenshot(); }
     Loop::Stream* stream() override{ return m_phone.stream(); }
     std::unique_ptr<Loop::Tapper> make_tapper(Point fast, int ms) override{ return m_phone.make_tapper(fast, ms); }
     bool on_map(const cv::Mat& canvas) override{ return m_phone.on_map(canvas); }
@@ -210,18 +210,53 @@ public:
 
     //  ---- Step::Host
     std::pair<std::optional<double>, std::optional<double>> read_heat() override;
-    bool screen_ok() override{ return true; }
-    QString layout_state() override{ return "confirmed"; }
-    bool layout_adapt(const QString&) override{ return false; }
-    void wait_unsupported() override{ sleep(5); }
-    void layout_watch() override{}
-    void layout_verify(const cv::Mat&) override{}
+    //  The shape of the screen and the check of the layout (ClaudeGG_PokemonGoLayout.h).
+    //  (An agent before 0.2.6 cannot change the display or read the switch files: the check is off then, as it was before it was ported.)
+    bool layout_active() const{ return m_phone.reads_display(); }
+    bool screen_ok() override{ return !layout_active() || m_layout.screen.ok; }
+    QString layout_state() override{ return layout_active() ? m_layout.state : QString("confirmed"); }
+    bool layout_adapt(const QString& why) override{ return layout_active() && Layout::layout_adapt(m_layout, *this, why); }
+    void wait_unsupported() override{
+        if (layout_active()){
+            Layout::wait_unsupported(m_layout, *this);
+        }else{
+            sleep(5);
+        }
+    }
+    void layout_watch() override{
+        if (layout_active()){
+            Layout::layout_watch(m_layout, *this);
+        }
+    }
+    void layout_verify(const cv::Mat& img) override{
+        if (layout_active()){
+            Layout::layout_verify(m_layout, *this, img);
+        }
+    }
     //  What `dumpsys power` says: "mWakefulness=Awake" or not (the agent says which; an agent before 0.2.5 cannot: the phone is taken as awake).
     QString power_state() override;
     void key_wakeup() override{ m_phone.wake(); }
     //  The swipe lock screen and the game that dims and locks itself (ClaudeGG_PokemonGoLock.h).
     void unlock() override{ Lock::unlock(*this); }
     cv::Mat unlock_game(const cv::Mat& img) override{ return Lock::unlock_game(*this, img); }
+
+    //  ---- Layout::Host  (/v1/info and /v1/display of the agent; an agent before 0.2.6 cannot change the display or read the switch files)
+    QString wm_size_text() override;
+    void wm_size_set(const QString& size) override;
+    void wm_size_reset() override;
+    std::optional<QString> record_text() override;
+    QString record_write(const QJsonObject& record) override;
+    void record_forget() override;
+    bool file_exists(const QString& which) override;
+    QString file_path(const QString& which) override;
+    std::optional<Layout::ScreenRead> read_screen(bool wake) override;
+    void reset_same_screen() override{ m_step.same_screen.name.reset(); m_step.same_screen.count = 0; }
+    //  The start of a run: look at the screen of the phone (the log says what it is) and take over a display change that an earlier run did not put back.
+    void layout_start();
+    //  The end of a run: put the display size back when this bot changed it.
+    void layout_end();
+    //  Layout::screen_seen() for the size of the last screenshot: called after every screenshot of the bot.
+    cv::Mat screenshot() override;
 
     //  ---- Lock::Host  (/v1/power and /v1/unlock of the agent; an agent before 0.2.5 has none: no lock screen is seen then)
     bool keyguard_showing() override;
@@ -302,6 +337,8 @@ private:
     bool m_told_heat = false;
     bool m_told_power = false;
     void told_no_power();
+    Layout::State m_layout;
+    std::optional<MobileDisplayFiles> display_files();   //  the files of the Pi for the display (nothing when the agent cannot say)
     int m_stops = 0;
     int m_caught = 0;
     int m_fled = 0;

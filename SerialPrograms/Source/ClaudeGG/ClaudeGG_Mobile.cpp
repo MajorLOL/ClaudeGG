@@ -42,6 +42,7 @@
 #include "ClaudeGG_PokemonGoFight.h"
 #include "ClaudeGG_PokemonGoFlow.h"
 #include "ClaudeGG_PokemonGoMinigame.h"
+#include "ClaudeGG_PokemonGoLayout.h"
 #include "ClaudeGG_PokemonGoLock.h"
 #include "ClaudeGG_PokemonGoLoop.h"
 #include "ClaudeGG_PokemonGoText.h"
@@ -619,6 +620,62 @@ bool MobileAgent::unlock(QString* error) const{
     return post("/v1/unlock", "{}", error);
 }
 
+bool MobileAgent::display_wm(QString& text, QString* error) const{
+    Reply reply;
+    if (!request("GET", "/v1/display?only=wm", QByteArray(), reply, error)){
+        return false;
+    }
+    const QJsonValue found = QJsonDocument::fromJson(reply.body).object().value("wm");
+    if (!found.isString()){
+        if (error != nullptr){
+            *error = "the agent did not say what the display size is";
+        }
+        return false;
+    }
+    text = found.toString();
+    return true;
+}
+
+bool MobileAgent::display_files(MobileDisplayFiles& files, QString* error) const{
+    Reply reply;
+    if (!request("GET", "/v1/display?only=files", QByteArray(), reply, error)){
+        return false;
+    }
+    const QJsonObject object = QJsonDocument::fromJson(reply.body).object();
+    const QJsonObject paths = object.value("paths").toObject();
+    files = MobileDisplayFiles();
+    if (object.value("record").isString()){
+        files.record = object.value("record").toString();
+    }
+    files.allow = object.value("allow").toBool();
+    files.no_adapt = object.value("no_adapt").toBool();
+    files.record_path = paths.value("record").toString();
+    files.allow_path = paths.value("allow").toString();
+    files.no_adapt_path = paths.value("no_adapt").toString();
+    return true;
+}
+
+bool MobileAgent::display_record(const QJsonObject& record, QString* error) const{
+    QJsonObject body = record;
+    body["action"] = "record";
+    return post("/v1/display", QJsonDocument(body).toJson(QJsonDocument::Compact), error);
+}
+
+bool MobileAgent::display_size(const QString& size, QString* error) const{
+    QJsonObject body;
+    body["action"] = "size";
+    body["size"] = size;
+    return post("/v1/display", QJsonDocument(body).toJson(QJsonDocument::Compact), error);
+}
+
+bool MobileAgent::display_reset(QString* error) const{
+    return post("/v1/display", "{\"action\":\"reset\"}", error);
+}
+
+bool MobileAgent::display_forget(QString* error) const{
+    return post("/v1/display", "{\"action\":\"forget\"}", error);
+}
+
 bool MobileAgent::bot_state(MobileBotState& state, int lines, QString* error) const{
     Reply reply;
     if (!request("GET", "/v1/bot?lines=" + QString::number(std::max(1, std::min(200, lines))), QByteArray(), reply, error)){
@@ -1095,6 +1152,18 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         }
         check(differ == 0, lock_report.isEmpty() ? QString("the lock screen is taken away as spin_stop.py takes it away") : lock_report.last());
     }
+    //  The shape of the screen, the menu button and the change of the display size, ported to C++ (issue #31): held to what the Python code did on the
+    //  stories of tests/fixtures/layout_golden.json.qz.
+    {
+        QStringList layout_report;
+        const int differ = PokemonGo::Layout::run_layout_checks(agent_folder + "/../tests/fixtures/layout_golden.json.qz", layout_report);
+        for (const QString& line : layout_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, layout_report.isEmpty() ? QString("the layout of the game is checked as gamebot.py checks it") : layout_report.last());
+    }
     //  The text reader, ported to C++ (issue #30): the table that Tesseract writes made into lines of words with their places, as
     //  gamebot.ocr_lines() makes them (354 tables, 36 of them read from frames of real fights), and - where the tesseract program is
     //  found - a picture with words drawn on it read with it.
@@ -1174,6 +1243,14 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
     const QString window_file = scratch.path() + "/window";
     environment.insert("FAKE_POWER_FILE", power_file);
     environment.insert("FAKE_WINDOW_FILE", window_file);
+    //  The display size that the fake phone says (see fake_adb.py: `wm size WxH` and `wm size reset` write it; no file: the fixed answer), and the home
+    //  folder of the agent, where it keeps the files of the display (the record and the two switch files).
+    const QString wm_file = scratch.path() + "/wm";
+    const QString home_folder = scratch.path() + "/home";
+    check(QDir().mkpath(home_folder), "a home folder for the agent");
+    environment.insert("FAKE_WM_FILE", wm_file);
+    environment.insert("HOME", home_folder);                                    //  (where Python looks for "~" on Linux and macOS ...)
+    environment.insert("USERPROFILE", QDir::toNativeSeparators(home_folder));   //  (... and on Windows)
     environment.insert("FAKE_MONKEY_FILE", scratch.path() + "/monkey");
     environment.insert("FAKE_SYSTEMCTL_STATE", scratch.path() + "/service-state");
     environment.insert("FAKE_SYSTEMCTL_LOG", scratch.path() + "/service-calls");
@@ -1244,8 +1321,8 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         check(info.width == 1000 && info.height == 2200, "its size is the size that was set (" + QString::number(info.width) + "x" + QString::number(info.height) + ")");
         check(
             info.features.contains("tap_kind") && info.features.contains("app") && info.features.contains("bot_file") && info.features.contains("app_list")
-                && info.features.contains("heat") && info.features.contains("power"),
-            "the agent (" + info.version + ") can do what GO Battle League, the daily run and the pause for the heat and the lock screen need when Claude GG plays: " + info.features.join(", ")
+                && info.features.contains("heat") && info.features.contains("power") && info.features.contains("display"),
+            "the agent (" + info.version + ") can do what GO Battle League, the daily run, the pause for the heat, the lock screen and the layout of the game need when Claude GG plays: " + info.features.join(", ")
         );
     }
     //  The files of the bot's battles (the team), read only.
@@ -1562,6 +1639,70 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
                 check(phone.power_awake(awake, &error) && awake && phone.power_locked(locked, &error) && !locked, "it is awake and unlocked again when the files are gone");
             }
 
+            //  The display (agent 0.2.6): what `wm size` says, the files of the Pi, and the steps of a change (record, size, reset, forget).
+            {
+                const auto write_text = [&](const QString& file, const QByteArray& text){
+                    QFile out(file);
+                    check(out.open(QIODevice::WriteOnly | QIODevice::Truncate) && out.write(text) >= 0, "a file of the fake phone is written");
+                };
+                QString wm;
+                error.clear();
+                check(phone.display_wm(wm, &error) && wm == "Physical size: 1080x2340\nOverride size: 1000x2200\n", "the display size is what `wm size` says (" + wm + ") " + error);
+                check(read_lines(adb_log).last() == "shell wm size", "asked with `wm size`");
+                MobileDisplayFiles files;
+                error.clear();
+                check(phone.display_files(files, &error) && !files.record.has_value() && !files.allow && !files.no_adapt, "the Pi has no record and no switch file yet: " + error);
+                check(QDir::fromNativeSeparators(files.record_path) == home_folder + "/gamebot_wm_override.json"
+                      && QDir::fromNativeSeparators(files.allow_path) == home_folder + "/gamebot_allow_unsupported"
+                      && QDir::fromNativeSeparators(files.no_adapt_path) == home_folder + "/gamebot_no_display_change",
+                      "the files are in the home folder of the agent (" + files.record_path + ")");
+                const QStringList before_display = read_lines(adb_log);
+                error.clear();
+                check(!phone.display_size("1080x1348", &error) && error.contains("write down"), "a size is not set before it is written down (" + error + ")");
+                check(read_lines(adb_log) == before_display, "and the phone did not hear of it");
+                QJsonObject record;
+                record["set"] = "1080x1348";
+                record["time"] = 1234.5;
+                record["model"] = "Fake";
+                record["was"] = "1080x2340";
+                error.clear();
+                check(phone.display_record(record, &error), "what is going to be changed is written down: " + error);
+                check(phone.display_files(files, &error) && files.record.has_value()
+                      && QJsonDocument::fromJson(files.record->toUtf8()).object() == record, "and the Pi has it as it was said");
+                QJsonObject command = record;
+                command["set"] = "1080x1348; reboot";
+                error.clear();
+                check(!phone.display_record(command, &error) && !error.isEmpty(), "a size that could be a command is not written down (" + error + ")");
+                error.clear();
+                check(!phone.display_size("1080x1349", &error) && error.contains("write down"), "a size that the record does not name is not set (" + error + ")");
+                write_text(wm_file, "");
+                error.clear();
+                check(phone.display_size("1080x1348", &error), "the size that the record names is set: " + error);
+                check(read_lines(adb_log).last() == "shell wm size 1080x1348", "with `wm size`");
+                check(phone.display_wm(wm, &error) && wm == "Physical size: 1080x2340\nOverride size: 1080x1348\n", "and `wm size` says so (" + wm + ")");
+                write_text(home_folder + "/gamebot_no_display_change", "");
+                error.clear();
+                check(phone.display_files(files, &error) && files.no_adapt, "a switch file that is there is seen");
+                check(!phone.display_size("1080x1348", &error) && error.contains("is not changed"), "and the size is not set while it is there (" + error + ")");
+                QFile::remove(home_folder + "/gamebot_no_display_change");
+                error.clear();
+                check(phone.display_reset(&error), "the size is put back: " + error);
+                check(read_lines(adb_log).last() == "shell wm size reset", "with `wm size reset`");
+                check(phone.display_wm(wm, &error) && wm == "Physical size: 1080x2340\n", "and `wm size` says no override any more (" + wm + ")");
+                check(phone.display_forget(&error) && phone.display_files(files, &error) && !files.record.has_value(), "the record is forgotten");
+                {
+                    QFile off(off_file);
+                    check(off.open(QIODevice::WriteOnly), "the phone is switched off");
+                    off.close();
+                    error.clear();
+                    check(!phone.display_wm(wm, &error) && error.contains("device offline"), "a phone that is off says no size (" + error + ")");
+                    error.clear();
+                    check(!phone.display_reset(&error) && error.contains("device offline"), "and does not put it back (" + error + ")");
+                    QFile::remove(off_file);
+                }
+                QFile::remove(wm_file);
+            }
+
             //  What the agent refuses.
             const QStringList count = read_lines(adb_log);
             error.clear();
@@ -1621,6 +1762,13 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             {
                 PokemonGo::Bot::Switches asked{{"spin", true}, {"catch", false}, {"rocket_fight", true}, {"quests", true}, {"bag_clean", true},
                                                {"heat_pause", true}, {"fast_look", true}, {"gifts_open", true}, {"daily_cycle", true}, {"teams_weekly", true}};
+                //  The picture of the fake phone is 48 x 96: not the shape the bot is written for.  Where that is not what is tested the Pi is told to play on
+                //  anyway (the file of ~/gamebot_allow_unsupported), as a person with a phone of another shape does.
+                const QString allow_file = home_folder + "/gamebot_allow_unsupported";
+                {
+                    QFile out(allow_file);
+                    check(out.open(QIODevice::WriteOnly | QIODevice::Truncate), "the Pi is told to play on a screen of any shape");
+                }
                 PokemonGo::Bot::PhoneBot bot(host, asked, {{"throw_target", "great"}, {"berries", "razz, nanab"}});
                 check(bot.wanted("spin") && bot.setting("fast_look", false) && !bot.wanted("catch") && bot.setting("rocket_fight", false)
                       && bot.setting("quests", false) && bot.setting("bag_clean", false) && bot.setting("heat_pause", false) && bot.wanted("gifts_open")
@@ -1676,6 +1824,142 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
                         QFile::remove(off_file);
                     }
                     QFile::remove(power_file);
+                }
+                {
+                    //  The layout of the game (agent 0.2.6): the bot looks at the shape of the screen, lets Android draw the game in the right shape when it is
+                    //  not, and puts that back.  The fake phone says the display it has in the file `wm`: no override at first (1080 x 2340, tall and narrow).
+                    const auto write_text = [&](const QString& file, const QByteArray& text){
+                        QFile out(file);
+                        check(out.open(QIODevice::WriteOnly | QIODevice::Truncate) && out.write(text) >= 0, "a file of the fake phone is written");
+                    };
+                    const auto told_lines = [&]{
+                        std::lock_guard<std::mutex> lock(told_lock);
+                        return told;
+                    };
+                    const auto said = [&](const QStringList& lines, const QString& part){
+                        for (const QString& line : lines){
+                            if (line.contains(part)){
+                                return true;
+                            }
+                        }
+                        return false;
+                    };
+                    check(host.reads_display() && bot.layout_active(), "the fake agent can change the display, so the layout is checked");
+                    QFile::remove(allow_file);
+                    write_text(wm_file, "");
+                    const QStringList before_told = told_lines();
+                    PokemonGo::Bot::PhoneBot looks(host, PokemonGo::Bot::Switches{}, {});
+                    check(looks.screen_ok(), "the shape of the screen is taken as right before it is looked at");
+                    looks.layout_start();
+                    const QStringList start_told = told_lines().mid(before_told.size());
+                    check(!looks.screen_ok(), "a screen of 1080 x 2340 has another shape than the canvas");
+                    check(said(start_told, "screen check: ") && said(start_told, "using the display 1080x2340"), "the start says which display it uses (" + start_told.join(" | ") + ")");
+                    check(said(start_told, "has a different shape than the 1768x2208"), "and why it cannot be played on as it is");
+                    check(looks.layout_state() == "new", "the layout is not settled yet");
+                    //  The display is changed: written down first, then set, and the shape is right.
+                    const QStringList adb_before = read_lines(adb_log);
+                    check(looks.layout_adapt("the menu button is not where it should be"), "the bot lets Android draw the game in the right shape");
+                    const QStringList adb_after = read_lines(adb_log).mid(adb_before.size());
+                    check(adb_after.contains("shell wm size 1080x1348"), "with `wm size 1080x1348` (" + adb_after.join(" | ") + ")");
+                    check(looks.screen_ok() && looks.layout_state() == "adapting", "the shape is right now and the bot checks the game on the map");
+                    {
+                        MobileDisplayFiles files;
+                        QString display_error;
+                        check(host.agent().display_files(files, &display_error) && files.record.has_value(), "the change is written down on the Pi: " + display_error);
+                        const QJsonObject written = QJsonDocument::fromJson(files.record.value_or(QString()).toUtf8()).object();
+                        check(written.value("set").toString() == "1080x1348" && written.value("was").toString() == "1080x2340", "with the size it set and the size it was");
+                    }
+                    check(said(told_lines(), "display size set to 1080x1348"), "and the log says what was done");
+                    check(!looks.layout_adapt("again"), "and it does not try again within half an hour");
+                    //  The run ends: the size is put back and the record is forgotten.
+                    looks.layout_end();
+                    {
+                        QString wm;
+                        QString display_error;
+                        MobileDisplayFiles files;
+                        check(host.agent().display_wm(wm, &display_error) && !wm.contains("Override"), "the display size is put back when the run ends (" + wm + ")");
+                        check(host.agent().display_files(files, &display_error) && !files.record.has_value(), "and the record is forgotten");
+                        check(read_lines(adb_log).contains("shell wm size reset"), "with `wm size reset`");
+                    }
+                    check(said(told_lines(), "display size put back"), "and the log says so");
+                    looks.layout_end();                                  //  (nothing to put back the second time)
+                    //  A change that an earlier run did not put back is taken over (and put back by this one).
+                    {
+                        QJsonObject record;
+                        record["set"] = "1080x1348";
+                        record["time"] = 1.0;
+                        record["model"] = "Fake";
+                        record["was"] = "1080x2340";
+                        QString display_error;
+                        check(host.agent().display_record(record, &display_error) && host.agent().display_size("1080x1348", &display_error),
+                              "an earlier run changed the display and did not put it back: " + display_error);
+                        PokemonGo::Bot::PhoneBot next(host, PokemonGo::Bot::Switches{}, {});
+                        const QStringList before_next = told_lines();
+                        next.layout_start();
+                        const QStringList next_told = told_lines().mid(before_next.size());
+                        check(next.screen_ok() && next.layout_state() == "adapting", "a screen that is right in the shape it was left in is checked on the map");
+                        check(said(next_told, "set by an earlier run is still active"), "and the log says that the earlier run left it (" + next_told.join(" | ") + ")");
+                        next.layout_end();
+                        QString wm;
+                        check(host.agent().display_wm(wm, &display_error) && !wm.contains("Override"), "and this run puts it back");
+                    }
+                    //  The run: its start takes over a change that was left, and its end puts the size back, whichever way the run ends (here: at once, as the
+                    //  person who stops it does).
+                    {
+                        QJsonObject record;
+                        record["set"] = "1080x1348";
+                        record["time"] = 1.0;
+                        record["model"] = "Fake";
+                        record["was"] = "1080x2340";
+                        QString display_error;
+                        check(host.agent().display_record(record, &display_error) && host.agent().display_size("1080x1348", &display_error),
+                              "a display change is left on the phone: " + display_error);
+                        std::mutex run_lock;
+                        QStringList run_told;
+                        AgentHost stopping("127.0.0.1", port, token, options, [&](const QString& line){
+                            std::lock_guard<std::mutex> lock(run_lock);
+                            run_told << line;
+                        }, []{ return true; });
+                        bool interrupted = false;
+                        {
+                            PokemonGo::Bot::PhoneBot playing(stopping, PokemonGo::Bot::Switches{}, {});
+                            try{
+                                PokemonGo::Bot::run(playing);
+                            }catch (const PokemonGo::Flow::Interrupted&){
+                                interrupted = true;
+                            }
+                        }
+                        check(interrupted, "the run ends with the stop of the person");
+                        {
+                            std::lock_guard<std::mutex> lock(run_lock);
+                            check(said(run_told, "screen check: FakePhone; using the display 1080x1348") && said(run_told, "set by an earlier run is still active"),
+                                  "the start looks at the screen and takes over what the earlier run left (" + run_told.join(" | ") + ")");
+                            check(said(run_told, "display size put back"), "and the end puts it back");
+                        }
+                        QString wm;
+                        MobileDisplayFiles files;
+                        check(host.agent().display_wm(wm, &display_error) && !wm.contains("Override") && host.agent().display_files(files, &display_error)
+                              && !files.record.has_value(), "the phone is as it was and the record is gone (" + wm + ")");
+                    }
+                    //  A switch file: the Pi is told not to change the display, and to play on anyway.
+                    {
+                        PokemonGo::Bot::PhoneBot other(host, PokemonGo::Bot::Switches{}, {});
+                        other.layout_start();
+                        write_text(home_folder + "/gamebot_no_display_change", "");
+                        const QStringList before_other = read_lines(adb_log);
+                        const QStringList told_other = told_lines();
+                        check(!other.layout_adapt("the menu button is not where it should be"), "the display is not changed when the Pi is told not to");
+                        check(!read_lines(adb_log).mid(before_other.size()).join(" | ").contains("wm size 1"), "the phone did not hear of a size");
+                        check(said(told_lines().mid(told_other.size()), "no_display_change exists") || said(told_lines().mid(told_other.size()), "not changing the display size"),
+                              "and the log says why");
+                        QFile::remove(home_folder + "/gamebot_no_display_change");
+                        write_text(allow_file, "");
+                        PokemonGo::Bot::PhoneBot allowed(host, PokemonGo::Bot::Switches{}, {});
+                        allowed.layout_start();
+                        check(allowed.screen_ok(), "a screen of another shape is played on when the Pi is told to");
+                    }
+                    QFile::remove(wm_file);
+                    write_text(allow_file, "");
                 }
                 {
                     //  The daily run: the bot is its host (the file of the run, the apps of the phone, what is chosen for the battles, the time of the day).

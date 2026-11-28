@@ -364,6 +364,7 @@ AgentHost::AgentHost(const QString& address, int port, const QString& token, con
         m_height = info.height;
         m_reads_heat = info.features.contains("heat");
         m_reads_power = info.features.contains("power");
+        m_reads_display = info.features.contains("display");
     }else{
         this->log("battle: the phone did not say how big its screen is (" + error + "): the touches are made as if it were the canvas");
     }
@@ -409,7 +410,9 @@ cv::Mat AgentHost::screenshot(){
         m_width = screen.cols;
         m_height = screen.rows;
         m_fingers->set_screen(m_width, m_height);
-        log(QString("screen size is %1x%2").arg(m_width.load()).arg(m_height.load()));
+        if (!m_watch_size){
+            log(QString("screen size is %1x%2").arg(m_width.load()).arg(m_height.load()));
+        }
     }
     return canvas_of(screen);
 }

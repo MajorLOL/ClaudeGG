@@ -70,6 +70,8 @@ PhoneBot::PhoneBot(Phone::AgentHost& phone, const Switches& switches, const Text
 {
     m_map.catching = m_switches["catch"];
     m_map.spin = m_switches["spin"];
+    //  The layout check tells the log of a new size of the screen (and judges its shape) when it is on.
+    m_phone.watch_size(layout_active());
     //  The Start button of the program: a new run right away ("button"); otherwise (the bot was started again) a run that is still going carries on.
     const auto force = m_texts.find("daily_force");
     m_daily.force = force == m_texts.end() ? QString("button") : force->second;
@@ -86,6 +88,7 @@ PhoneBot::PhoneBot(Phone::AgentHost& phone, const Switches& switches, const Text
 }
 
 PhoneBot::~PhoneBot(){
+    m_phone.watch_size(false);
     std::lock_guard<std::mutex> lock(m_running_lock);
     for (auto& one : m_running){
         if (one.second->thread.joinable()){
@@ -593,6 +596,136 @@ QString PhoneBot::power_state(){
     return awake ? "mWakefulness=Awake" : "mWakefulness=Asleep";
 }
 
+cv::Mat PhoneBot::screenshot(){
+    cv::Mat img = m_phone.screenshot();
+    if (layout_active()){
+        //  (the log of the new size, and whether the shape of the screen is supported, are the layout check's: _normalize() of spin_stop.py)
+        Layout::screen_seen(m_layout, *this, m_phone.screen_width(), m_phone.screen_height());
+    }
+    return img;
+}
+
+std::optional<MobileDisplayFiles> PhoneBot::display_files(){
+    MobileDisplayFiles files;
+    QString error;
+    if (!m_phone.agent().display_files(files, &error)){
+        return std::nullopt;
+    }
+    return files;
+}
+
+QString PhoneBot::wm_size_text(){
+    QString text;
+    QString error;
+    if (!m_phone.agent().display_wm(text, &error)){
+        throw std::runtime_error(error.toStdString());
+    }
+    return text;
+}
+
+void PhoneBot::wm_size_set(const QString& size){
+    QString error;
+    if (!m_phone.agent().display_size(size, &error)){
+        throw std::runtime_error(error.toStdString());
+    }
+}
+
+void PhoneBot::wm_size_reset(){
+    QString error;
+    if (!m_phone.agent().display_reset(&error)){
+        throw std::runtime_error(error.toStdString());
+    }
+}
+
+std::optional<QString> PhoneBot::record_text(){
+    const std::optional<MobileDisplayFiles> files = display_files();
+    return files.has_value() ? files->record : std::nullopt;
+}
+
+QString PhoneBot::record_write(const QJsonObject& record){
+    QString error;
+    if (m_phone.agent().display_record(record, &error)){
+        return QString();
+    }
+    return error.isEmpty() ? QString("the agent refused it") : error;
+}
+
+void PhoneBot::record_forget(){
+    QString error;
+    m_phone.agent().display_forget(&error);
+}
+
+bool PhoneBot::file_exists(const QString& which){
+    const std::optional<MobileDisplayFiles> files = display_files();
+    if (!files.has_value()){
+        return false;
+    }
+    if (which == "allow"){
+        return files->allow;
+    }
+    if (which == "no_adapt"){
+        return files->no_adapt;
+    }
+    return which == "record" && files->record.has_value();
+}
+
+QString PhoneBot::file_path(const QString& which){
+    //  (the places of the bot of the Pi, when the agent cannot say)
+    const std::optional<MobileDisplayFiles> files = display_files();
+    if (which == "allow"){
+        return files.has_value() && !files->allow_path.isEmpty() ? files->allow_path : QString("~/gamebot_allow_unsupported");
+    }
+    if (which == "no_adapt"){
+        return files.has_value() && !files->no_adapt_path.isEmpty() ? files->no_adapt_path : QString("~/gamebot_no_display_change");
+    }
+    return files.has_value() && !files->record_path.isEmpty() ? files->record_path : QString("~/gamebot_wm_override.json");
+}
+
+std::optional<Layout::ScreenRead> PhoneBot::read_screen(bool){
+    //  detect_screen() of spin_stop.py looks at every display of the phone with `screencap` and wakes the phone up when all are black.  The agent plays on
+    //  one display (its option --display) and says its size, which does not depend on whether the screen is lit: nothing to wake up here.
+    MobileInfo info;
+    QString error;
+    if (!m_phone.agent().info(info, &error) || info.width <= 0 || info.height <= 0){
+        return std::nullopt;
+    }
+    return Layout::ScreenRead{info.width, info.height, info.model};
+}
+
+void PhoneBot::layout_start(){
+    if (!layout_active()){
+        log("the agent cannot change the display size or read the switch files of the Pi (agent 0.2.6 and later can): the shape of the screen is not checked");
+        return;
+    }
+    try{
+        if (Layout::detect_screen(m_layout, *this, true)){
+            const Layout::Screen& screen = m_layout.screen;
+            log(QString("screen check: %1; using the display %2x%3").arg(screen.model.isEmpty() ? QString("unknown phone") : screen.model).arg(screen.w).arg(screen.h));
+            if (!screen.note.isEmpty()){
+                log("screen check: " + screen.note);
+            }
+        }else{
+            log("screen check: no display can be captured (is the phone connected, and is USB debugging on?)");
+        }
+        Layout::layout_init(m_layout, *this);
+    }catch (const Flow::Interrupted&){
+        throw;
+    }catch (const std::exception& e){
+        log(QString("screen check failed: ") + QString::fromUtf8(e.what()));
+    }
+}
+
+void PhoneBot::layout_end(){
+    if (!layout_active()){
+        return;
+    }
+    try{
+        Layout::restore_display(m_layout, *this);
+    }catch (...){
+        //  (it is the end of the run: whatever was not put back can be with `adb shell wm size reset`, and the log said so)
+    }
+}
+
 bool PhoneBot::keyguard_showing(){
     if (!m_phone.reads_power()){
         told_no_power();
@@ -651,6 +784,17 @@ void PhoneBot::resume_catch_later(double seconds){
 
 
 void run(PhoneBot& bot, const std::function<void()>& beat){
+    bot.layout_start();
+    //  A display size that this run changed is put back when it ends, however it ends (atexit of gamebot.layout_init()).
+    class PutBack{
+    public:
+        explicit PutBack(PhoneBot& owner) : m_bot(owner){}
+        PutBack(const PutBack&) = delete;
+        PutBack& operator=(const PutBack&) = delete;
+        ~PutBack(){ m_bot.layout_end(); }
+    private:
+        PhoneBot& m_bot;
+    } put_back(bot);
     const bool daily = bot.wanted("daily_cycle");
     while (!bot.stop()){
         double wait = 0.0;

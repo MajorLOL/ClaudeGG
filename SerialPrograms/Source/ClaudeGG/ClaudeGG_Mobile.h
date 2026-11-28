@@ -26,6 +26,7 @@
 #include <utility>
 #include <vector>
 #include <QImage>
+#include <QJsonObject>
 #include <QString>
 #include <QStringList>
 
@@ -44,7 +45,18 @@ struct MobileInfo{
     int width = 0;
     int height = 0;
     QString version;            //  of the agent ("0.1.0" did not say what it can do)
-    QStringList features;       //  what it can do beyond 0.1.0: "tap_kind", "app", "bot_file", "touch", "app_list", "heat", "power"
+    QStringList features;       //  what it can do beyond 0.1.0: "tap_kind", "app", "bot_file", "touch", "app_list", "heat", "power", "display"
+};
+
+//  What the agent keeps for the change of the display (/v1/display?only=files): the record of what was changed (its text; nothing when there is none),
+//  whether the two switch files exist on the Pi, and where the three files are.
+struct MobileDisplayFiles{
+    std::optional<QString> record;
+    bool allow = false;         //  ~/gamebot_allow_unsupported: play on a screen of any shape
+    bool no_adapt = false;      //  ~/gamebot_no_display_change: never change the display size
+    QString record_path;
+    QString allow_path;
+    QString no_adapt_path;
 };
 
 //  How the start of the Pokémon GO app is going (the command that starts it does not come back while the game starts).
@@ -134,6 +146,16 @@ public:
     bool power_locked(bool& locked, QString* error = nullptr) const;
     //  Take the swipe lock screen away (/v1/unlock: `wm dismiss-keyguard`; a PIN or a pattern stays).
     bool unlock(QString* error = nullptr) const;
+    //  The display of the phone (/v1/display, the feature "display" of agent 0.2.6): what `wm size` says (the physical size and the override), and the
+    //  files of the Pi that go with a change of the display.  False (and `error`) when the agent or the phone does not answer.
+    bool display_wm(QString& text, QString* error = nullptr) const;
+    bool display_files(MobileDisplayFiles& files, QString* error = nullptr) const;
+    //  Write down what is going to be changed (the record: "set" the size, "time", the "model" and "was" the size before), then set the size
+    //  ("WxH": the agent only does that when the record names it, and not while the switch file exists), put it back (`wm size reset`) and forget the record.
+    bool display_record(const QJsonObject& record, QString* error = nullptr) const;
+    bool display_size(const QString& size, QString* error = nullptr) const;
+    bool display_reset(QString* error = nullptr) const;
+    bool display_forget(QString* error = nullptr) const;
 
     //  A press of "ms" milliseconds (a very short tap is missed by games made with Unity).
     bool tap(int x, int y, int ms = 120, QString* error = nullptr) const;

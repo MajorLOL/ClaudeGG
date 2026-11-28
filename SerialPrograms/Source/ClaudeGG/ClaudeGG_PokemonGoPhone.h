@@ -214,6 +214,11 @@ public:
     bool reads_heat() const{ return m_reads_heat; }
     //  Can the agent say whether the phone is awake and shows its lock screen, and take that away (/v1/power and /v1/unlock, agent 0.2.5 and later)?
     bool reads_power() const{ return m_reads_power; }
+    //  Can the agent change the display size and keep the record of it (/v1/display, agent 0.2.6 and later)?
+    bool reads_display() const{ return m_reads_display; }
+    //  Say who tells the log that the size of the screenshots changed: with `on` the screenshot() leaves that to the one who watches (the bot's check of the
+    //  layout does: it judges the new shape at the same time), and without it says so itself.
+    void watch_size(bool on){ m_watch_size = on; }
     //  The size of the real screen the agent told (0: not known).
     int screen_width() const{ return m_width; }
     int screen_height() const{ return m_height; }
@@ -234,6 +239,8 @@ private:
     std::atomic<int> m_height{0};
     std::atomic<bool> m_reads_heat{false};
     std::atomic<bool> m_reads_power{false};
+    std::atomic<bool> m_reads_display{false};
+    std::atomic<bool> m_watch_size{false};
     Hooks m_hooks;
     std::optional<Start::Launch> m_launch_failed;   //  the start of the game that did not even reach the agent
     std::mutex m_models_lock;

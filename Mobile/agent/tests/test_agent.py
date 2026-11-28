@@ -168,7 +168,7 @@ class AgentTest(unittest.TestCase):
             status, body = self.json("GET", path)
             self.assertEqual(status, 200)
             self.assertEqual(body["version"], agent.VERSION)
-            for feature in ("tap_kind", "app", "bot_file", "touch", "app_list", "heat", "power"):
+            for feature in ("tap_kind", "app", "bot_file", "touch", "app_list", "heat", "power", "display"):
                 self.assertIn(feature, body["features"], "Claude GG asks for %s before it plays itself" % feature)
 
     def test_the_token_is_needed(self):
@@ -304,7 +304,7 @@ class AgentTest(unittest.TestCase):
                                  ("package:com.nianticlabs.pokemongo.b|package:com.nianticlabs.pokemongo.a|package:com.nianticlabs.pokemongo",
                                   [GAME, GAME + ".a", GAME + ".b"]),
                                  ("package:com.nianticlabs.pokemongo  |junk|package:com.nianticlabs.pokemongo|Error: no", [GAME]),
-                                 ("package:com.example.pokemongo.fan", []), ("", [])):
+                                 ("package:com.example.pokemongo.fan", []), ("<empty>", [])):
             os.environ["FAKE_PACKAGES"] = answer
             self.addCleanup(os.environ.pop, "FAKE_PACKAGES", None)
             self.assertEqual(self.json("POST", "/v1/app", {"action": "list"})[1]["packages"], expected, answer)
@@ -338,7 +338,7 @@ class AgentTest(unittest.TestCase):
         for answer, expected in (("  temperature: 430", 43.0), ("temperature: -25", -2.5), ("  temperature:0", 0.0),
                                  ("  voltage: 4000|  temperature: 395|  technology: Li-ion", 39.5),
                                  ("  Temperature: 300", None), ("  temperature: warm", None), ("  mytemperature: 300", None),
-                                 ("Error: no battery service", None), ("", None)):
+                                 ("Error: no battery service", None), ("<empty>", None)):
             os.environ["FAKE_BATTERY"] = answer
             self.addCleanup(os.environ.pop, "FAKE_BATTERY", None)
             self.heat_file("1000")
@@ -378,7 +378,7 @@ class AgentTest(unittest.TestCase):
         for answer, expected in (("  mWakefulness=Asleep", False), ("  mWakefulness=Dozing", False), ("  mWakefulness=Awake", True),
                                  ("Power Manager State:|  mWakefulnessChanging=false|  mWakefulness=Awake|  mBootCompleted=true", True),
                                  ("  mwakefulness=awake", False), ("  mWakefulness= Awake", False), ("Awake", False),
-                                 ("Error: no power service", False), ("", False)):
+                                 ("Error: no power service", False), ("<empty>", False)):
             self.fake("FAKE_POWER", answer)
             self.assertEqual(self.json("GET", "/v1/power?only=awake")[1], {"ok": True, "awake": expected}, answer)
 
@@ -387,7 +387,7 @@ class AgentTest(unittest.TestCase):
                                  ("  KeyguardShowing=true", True), ("  mKeyguardShowing=false", False), ("  mShowingLockscreen=false", False),
                                  ("  mCurrentFocus=null|  mKeyguardShowing=false|  isKeyguardShowing=true|  mOther=1", True),
                                  ("  mkeyguardshowing=true", False), ("  mKeyguardShowing = true", False), ("  KeyguardShowing=True", False),
-                                 ("  mKeyguardGoingAway=true", False), ("Error: no window service", False), ("", False)):
+                                 ("  mKeyguardGoingAway=true", False), ("Error: no window service", False), ("<empty>", False)):
             self.fake("FAKE_WINDOW", answer)
             self.assertEqual(self.json("GET", "/v1/power?only=locked")[1], {"ok": True, "locked": expected}, answer)
 
@@ -421,6 +421,171 @@ class AgentTest(unittest.TestCase):
         status, body = self.json("POST", "/v1/unlock", {})
         self.assertEqual(status, 502)
         self.assertIn("device offline", body["error"])
+
+    def display_files(self):
+        """The three files of the display in the folder of the test (not in the home folder of whoever runs it)."""
+        folder = self.agent.folder.name
+        phone = self.agent.phone
+        phone.wm_file = os.path.join(folder, "wm.json")
+        phone.allow_file = os.path.join(folder, "allow")
+        phone.no_adapt_file = os.path.join(folder, "no_adapt")
+        return phone
+
+    def test_the_display_is_the_size_of_the_screen_and_the_files_of_the_pi(self):
+        phone = self.display_files()
+        status, body = self.json("GET", "/v1/display")
+        self.assertEqual(status, 200)
+        self.assertEqual(body, {"ok": True, "wm": "Physical size: 1080x2340\nOverride size: 1000x2200\n", "record": None, "allow": False,
+                                "no_adapt": False, "paths": {"record": phone.wm_file, "allow": phone.allow_file, "no_adapt": phone.no_adapt_file}})
+        self.assertEqual(self.agent.calls(), ["shell wm size"])
+
+    def test_the_lines_of_wm_size_end_the_same_way_whatever_adb_did(self):
+        self.display_files()
+        self.fake("FAKE_WM_FILE", os.path.join(self.agent.folder.name, "no-such-file"))
+        self.assertEqual(self.json("GET", "/v1/display?only=wm")[1]["wm"], "Physical size: 1080x2340\nOverride size: 1000x2200\n")
+        self.fake("FAKE_CRLF", "1")
+        self.assertEqual(self.json("GET", "/v1/display?only=wm")[1]["wm"], "Physical size: 1080x2340\nOverride size: 1000x2200\n")
+        self.assertEqual(self.json("GET", "/v1/info")[1]["width"], 1000)         #  (and /v1/info reads the same text)
+
+    def test_the_display_needs_the_token(self):
+        self.display_files()
+        self.assertEqual(self.json("GET", "/v1/display", token=None)[0], 401)
+        self.assertEqual(self.json("GET", "/v1/display", token="wrong")[0], 401)
+        self.assertEqual(self.json("POST", "/v1/display", {"action": "reset"}, token=None)[0], 401)
+        self.assertEqual(self.json("POST", "/v1/display", {"action": "reset"}, token="wrong")[0], 401)
+        self.assertEqual(self.agent.calls(), [])
+
+    def test_the_display_can_be_asked_in_part(self):
+        phone = self.display_files()
+        with open(phone.allow_file, "w", encoding="utf-8"):
+            pass
+        status, body = self.json("GET", "/v1/display?only=files")
+        self.assertEqual(status, 200)
+        self.assertEqual(sorted(body), ["allow", "no_adapt", "ok", "paths", "record"])
+        self.assertEqual((body["allow"], body["no_adapt"]), (True, False))
+        self.assertEqual(self.agent.calls(), [])                #  (the files are the Pi's: the phone is not asked)
+        status, body = self.json("GET", "/v1/display?only=wm")
+        self.assertEqual((status, body), (200, {"ok": True, "wm": "Physical size: 1080x2340\nOverride size: 1000x2200\n"}))
+        self.assertEqual(self.agent.calls(), ["shell wm size"])
+
+    def test_the_display_is_only_asked_in_the_ways_there_are(self):
+        self.display_files()
+        for path in ("/v1/display?only=", "/v1/display?only=Wm", "/v1/display?only=wm,files", "/v1/display?only=size", "/v1/display?only=record"):
+            self.assertEqual(self.json("GET", path)[0], 400, path)
+        self.assertEqual(self.agent.calls(), [])
+
+    def test_the_display_says_nothing_of_a_phone_that_does_not_answer(self):
+        self.display_files()
+        self.fake("FAKE_ADB_FAIL", "1")
+        for path in ("/v1/display", "/v1/display?only=wm"):
+            status, body = self.json("GET", path)
+            self.assertEqual(status, 502, path)
+            self.assertIn("device offline", body["error"])
+        self.assertEqual(self.json("GET", "/v1/display?only=files")[0], 200)     #  (the files are there anyway)
+
+    def test_the_display_is_changed_in_the_steps_of_the_bot_of_the_pi(self):
+        phone = self.display_files()
+        wm = os.path.join(self.agent.folder.name, "fake-wm")
+        self.fake("FAKE_WM_FILE", wm)
+        record = {"action": "record", "set": "1080x1348", "time": 1234.5, "model": "Pixel 7", "was": "1080x2400"}
+        self.assertEqual(self.json("POST", "/v1/display", record), (200, {"ok": True}))
+        with open(phone.wm_file, encoding="utf-8") as handle:
+            self.assertEqual(json.load(handle), {"set": "1080x1348", "time": 1234.5, "model": "Pixel 7", "was": "1080x2400"})
+        with open(phone.wm_file, encoding="utf-8") as handle:
+            self.assertEqual(self.json("GET", "/v1/display?only=files")[1]["record"], handle.read())
+        self.assertEqual(self.json("POST", "/v1/display", {"action": "size", "size": "1080x1348"}), (200, {"ok": True}))
+        self.assertEqual(self.json("GET", "/v1/display?only=wm")[1]["wm"], "Physical size: 1080x2340\nOverride size: 1080x1348\n")
+        self.assertEqual(self.json("POST", "/v1/display", {"action": "reset"}), (200, {"ok": True}))
+        self.assertEqual(self.json("GET", "/v1/display?only=wm")[1]["wm"], "Physical size: 1080x2340\n")
+        self.assertEqual(self.json("POST", "/v1/display", {"action": "forget"}), (200, {"ok": True}))
+        self.assertFalse(os.path.exists(phone.wm_file))
+        self.assertEqual(self.json("POST", "/v1/display", {"action": "forget"}), (200, {"ok": True}))     #  (nothing to forget is fine)
+        self.assertEqual(self.agent.calls(), ["shell wm size 1080x1348", "shell wm size", "shell wm size reset", "shell wm size"])
+
+    def test_the_size_goes_with_a_record_that_names_it(self):
+        phone = self.display_files()
+        size = {"action": "size", "size": "1080x1348"}
+        status, body = self.json("POST", "/v1/display", size)                       #  no record at all
+        self.assertEqual(status, 409)
+        self.assertIn("write down", body["error"])
+        with open(phone.wm_file, "w", encoding="utf-8") as handle:
+            handle.write("not json")
+        self.assertEqual(self.json("POST", "/v1/display", size)[0], 409)
+        for text in ("[]", "null", '"1080x1348"', '{"set": 5}', '{"set": "1080x1349"}', '{}'):
+            with open(phone.wm_file, "w", encoding="utf-8") as handle:
+                handle.write(text)
+            self.assertEqual(self.json("POST", "/v1/display", size)[0], 409, text)
+        self.assertEqual(self.agent.calls(), [])
+        with open(phone.wm_file, "w", encoding="utf-8") as handle:
+            handle.write('{"set": "1080x1348"}')
+        self.assertEqual(self.json("POST", "/v1/display", size)[0], 200)
+        self.assertEqual(self.agent.calls(), ["shell wm size 1080x1348"])
+
+    def test_the_size_is_not_changed_when_the_pi_is_told_not_to(self):
+        phone = self.display_files()
+        with open(phone.wm_file, "w", encoding="utf-8") as handle:
+            handle.write('{"set": "1080x1348"}')
+        with open(phone.no_adapt_file, "w", encoding="utf-8"):
+            pass
+        status, body = self.json("POST", "/v1/display", {"action": "size", "size": "1080x1348"})
+        self.assertEqual(status, 409)
+        self.assertIn("is not changed", body["error"])
+        self.assertIn(phone.no_adapt_file, body["error"])
+        self.assertEqual(self.json("POST", "/v1/display", {"action": "reset"})[0], 200)       #  (putting it back is always allowed)
+        self.assertEqual(self.agent.calls(), ["shell wm size reset"])
+
+    def test_the_size_is_only_a_size(self):
+        phone = self.display_files()
+        for size in ("1080x1348; reboot", "1080x1348 ", " 1080x1348", "1080X1348", "1080*1348", "reset", "-1080x1348", "0x1348", "1080x0",
+                     "1080x13", "12x1348", "123456x1348", "1080x123456", "1080x1348x2", "$(id)", "1080x1348\n", "", 1080, None, ["1080x1348"], True):
+            with open(phone.wm_file, "w", encoding="utf-8") as handle:
+                handle.write(json.dumps({"set": size}))
+            self.assertEqual(self.json("POST", "/v1/display", {"action": "size", "size": size})[0], 400, repr(size))
+        self.assertEqual(self.json("POST", "/v1/display", {"action": "size"})[0], 400)
+        self.assertEqual(self.agent.calls(), [])
+        for size in ("100x100", "99999x99999", "1080x1348"):
+            with open(phone.wm_file, "w", encoding="utf-8") as handle:
+                handle.write(json.dumps({"set": size}))
+            self.assertEqual(self.json("POST", "/v1/display", {"action": "size", "size": size})[0], 200, size)
+        self.assertEqual(self.agent.calls(), ["shell wm size 100x100", "shell wm size 99999x99999", "shell wm size 1080x1348"])
+
+    def test_the_record_is_only_what_the_bot_of_the_pi_writes(self):
+        phone = self.display_files()
+        good = {"action": "record", "set": "1080x1348", "time": 1.0, "model": "Pixel 7", "was": "1080x2400"}
+        for change in ({"set": "1080x1348; reboot"}, {"set": "1080x13"}, {"set": 5}, {"set": None}, {"was": "1080x2400; id"}, {"was": "1080x2400\n"}, {"set": "1080x1348\n"}, {"was": "abc"}, {"was": "123456x1"},
+                       {"was": 5}, {"model": 5}, {"model": "x" * 101}, {"model": None}, {"time": "now"}, {"time": None}, {"time": True}, {"time": [1]}):
+            self.assertEqual(self.json("POST", "/v1/display", dict(good, **change))[0], 400, repr(change))
+        for key in ("set", "was", "model", "time"):
+            body = dict(good)
+            del body[key]
+            self.assertEqual(self.json("POST", "/v1/display", body)[0], 400, key)
+        self.assertFalse(os.path.exists(phone.wm_file))
+        for change in ({"was": "0x0"}, {"was": "1080x2400"}, {"model": ""}, {"model": "x" * 100}, {"time": 0}, {"time": -2.5}, {"time": 1700000000}):
+            self.assertEqual(self.json("POST", "/v1/display", dict(good, **change))[0], 200, repr(change))
+        self.assertEqual(self.agent.calls(), [])
+
+    def test_the_display_is_only_changed_in_the_ways_there_are(self):
+        self.display_files()
+        for body in ({}, {"action": ""}, {"action": "Reset"}, {"action": "wm"}, {"action": "size reset"}, {"action": None}, {"action": 5}, {"action": ["reset"]}):
+            self.assertEqual(self.json("POST", "/v1/display", body)[0], 400, repr(body))
+        self.assertEqual(self.agent.calls(), [])
+
+    def test_the_display_is_not_put_back_on_a_phone_that_does_not_answer(self):
+        phone = self.display_files()
+        with open(phone.wm_file, "w", encoding="utf-8") as handle:
+            handle.write('{"set": "1080x1348"}')
+        self.fake("FAKE_ADB_FAIL", "1")
+        for body in ({"action": "reset"}, {"action": "size", "size": "1080x1348"}):
+            status, answer = self.json("POST", "/v1/display", body)
+            self.assertEqual(status, 502, repr(body))
+            self.assertIn("device offline", answer["error"])
+        self.assertEqual(self.json("POST", "/v1/display", {"action": "forget"})[0], 200)       #  (the record is the Pi's own)
+
+    def test_the_record_that_is_too_long_is_cut_off(self):
+        phone = self.display_files()
+        with open(phone.wm_file, "w", encoding="utf-8") as handle:
+            handle.write("x" * (agent.DISPLAY_RECORD_BYTES + 100))
+        self.assertEqual(len(self.json("GET", "/v1/display?only=files")[1]["record"]), agent.DISPLAY_RECORD_BYTES)
 
     def test_nothing_was_started(self):
         self.assertEqual(self.json("POST", "/v1/app", {"action": "state", "package": GAME})[0], 409)
@@ -862,6 +1027,20 @@ class BotTest(unittest.TestCase):
             time.sleep(0.05)
         self.fail("the test did not %s" % ("start" if running else "end"))
 
+    def wait_for_the_test_to_begin(self):
+        """The fake gamebot.py says "begins" once it is ready to be stopped (its handler of the stop is there): under a heavy load Python takes a while to
+        start, and a stop before that ends it without a word."""
+        until = time.time() + 30
+        while time.time() < until:
+            try:
+                with open(os.path.join(self.home, "spin.log"), encoding="utf-8") as handle:
+                    if "begins" in handle.read():
+                        return
+            except OSError:
+                pass
+            time.sleep(0.05)
+        self.fail("the test did not begin")
+
     def test_a_part_of_the_bot_runs_on_its_own(self):
         self.install_with_tests()
         os.environ["FAKE_SYSTEMCTL_STATE"] = os.path.join(self.home, "service-state")
@@ -897,6 +1076,7 @@ class BotTest(unittest.TestCase):
         self.addCleanup(lambda: os.environ.pop("FAKE_TEST_HANG", None))
         self.assertEqual(self.json("POST", "/v1/bot/test", {"key": "scan"})[0], 200)
         self.assertTrue(self.wait_for_test(True)["running"])
+        self.wait_for_the_test_to_begin()
         #  While it runs, no second one and no bot: they would fight over the phone.
         status, answer = self.json("POST", "/v1/bot/test", {"key": "screen"})
         self.assertEqual(status, 409)

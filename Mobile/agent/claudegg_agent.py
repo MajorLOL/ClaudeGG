@@ -22,6 +22,13 @@ taps, swipes and keys go through one `adb shell` that stays open (ShellSession):
                                         machine the agent runs on, in degrees Celsius (null for what cannot be read)
     GET  /v1/power?only=awake|locked    {awake, locked}: is the screen of the phone on (`dumpsys power`), and does it show the
                                         lock screen (`dumpsys window`); `only` asks for one of the two
+    GET  /v1/display?only=wm|files      the shape of the screen as Android draws it: {wm} is what `wm size` says (the physical size and the
+                                        override), {record, allow, no_adapt, paths} what the Pi keeps for the change of the display (the record of
+                                        what was changed, the two switch files); `only` asks for one of the two parts
+    POST /v1/display {action, ...}      "record" {set, time, model, was} writes down what is going to be changed (~/gamebot_wm_override.json),
+                                        "size" {size: "WxH"} sets the size of the display (`wm size`: refused unless the record names that size,
+                                        and while ~/gamebot_no_display_change exists), "reset" puts it back (`wm size reset`), "forget" removes
+                                        the record
     POST /v1/unlock                     asks Android to take away the swipe lock screen (`wm dismiss-keyguard`; a PIN or a
                                         pattern stays)
     GET  /v1/video?fps=10&width=540     the screen live: JPEG pictures in a multipart/x-mixed-replace stream
@@ -75,9 +82,12 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.2.5"
+VERSION = "0.2.6"
 #  What this agent can do that the first one (0.1.0) could not; Claude GG asks for these before a program of its own plays.
-FEATURES = ("tap_kind", "app", "bot_file", "touch", "app_list", "heat", "power")
+FEATURES = ("tap_kind", "app", "bot_file", "touch", "app_list", "heat", "power", "display")
+DISPLAY_SIZE = re.compile(r"[1-9][0-9]{2,4}x[1-9][0-9]{2,4}\Z")      #  the argument of `wm size`: two whole numbers, nothing else
+DISPLAY_WAS = re.compile(r"[0-9]{1,5}x[0-9]{1,5}\Z")
+DISPLAY_RECORD_BYTES = 64 * 1024
 DEFAULT_PORT = 8765
 MAX_BODY = 64 * 1024
 MAX_STROKES = 50
@@ -507,6 +517,11 @@ class Phone:
     def __init__(self, adb, display=None, video=None, bot=None, heat_file=PI_TEMPERATURE_FILE):
         self.adb = adb
         self.heat_file = heat_file
+        #  The files of the bot of the Pi for the change of the display (spin_stop.py: WM_FILE, ALLOW_FILE, NO_ADAPT_FILE).
+        home = os.path.expanduser("~")
+        self.wm_file = os.path.join(home, "gamebot_wm_override.json")
+        self.allow_file = os.path.join(home, "gamebot_allow_unsupported")
+        self.no_adapt_file = os.path.join(home, "gamebot_no_display_change")
         self.display = display
         self.video = video if video is not None else VideoPipeline(adb, display)
         self.bot = bot if bot is not None else Bot()
@@ -568,6 +583,72 @@ class Phone:
             window = self.adb.run("shell", "dumpsys", "window")
             answer["locked"] = any(word in window for word in self.KEYGUARD_WORDS)
         return answer
+
+    def _record_text(self):
+        try:
+            with open(self.wm_file, encoding="utf-8", errors="replace") as handle:
+                return handle.read(DISPLAY_RECORD_BYTES)
+        except OSError:
+            return None
+
+    def display_state(self, only=None):
+        """The shape of the screen as Android draws it (what the bot of the Pi asks in wm_info(), load_wm_record() and for the two switch files):
+        `wm` is what `wm size` says; `record` the text of the record of what was changed (null: there is none), `allow` and `no_adapt` whether the
+        two switch files exist, `paths` where they are. `only` ("wm" or "files") asks for one of the two parts; "files" does not ask the phone."""
+        if only not in (None, "wm", "files"):
+            raise AgentError(400, "only must be wm or files")
+        answer = {}
+        if only in (None, "wm"):
+            answer["wm"] = self.adb.run("shell", "wm", "size").replace("\r\n", "\n")     #  (an adb through a terminal ends its lines with \r\n)
+        if only in (None, "files"):
+            answer["record"] = self._record_text()
+            answer["allow"] = os.path.exists(self.allow_file)
+            answer["no_adapt"] = os.path.exists(self.no_adapt_file)
+            answer["paths"] = {"record": self.wm_file, "allow": self.allow_file, "no_adapt": self.no_adapt_file}
+        return answer
+
+    def display_change(self, body):
+        """Change the display and put it back, in the steps of adapt_display() and restore_display() of spin_stop.py: `record` first (what is going to be
+        changed is written down), then `size`, and `reset` (and `forget` for the record) when it is over. `size` only goes with a record that names it,
+        so that there is always a way back, and not while the switch file ~/gamebot_no_display_change exists."""
+        action = body.get("action")
+        if action == "record":
+            size, was, model, moment = body.get("set"), body.get("was"), body.get("model"), body.get("time")
+            if not isinstance(size, str) or not DISPLAY_SIZE.match(size):
+                raise AgentError(400, "set must be a size like 1080x1348")
+            if not isinstance(was, str) or not DISPLAY_WAS.match(was):
+                raise AgentError(400, "was must be a size like 1080x2400")
+            if not isinstance(model, str) or len(model) > 100:
+                raise AgentError(400, "model must be a text of at most 100 letters")
+            if isinstance(moment, bool) or not isinstance(moment, (int, float)):
+                raise AgentError(400, "time must be a number")
+            try:
+                with open(self.wm_file, "w", encoding="utf-8") as handle:
+                    json.dump({"set": size, "time": moment, "model": model, "was": was}, handle)
+            except OSError as error:
+                raise AgentError(500, str(error))
+        elif action == "forget":
+            try:
+                os.remove(self.wm_file)
+            except OSError:
+                pass
+        elif action == "size":
+            size = body.get("size")
+            if not isinstance(size, str) or not DISPLAY_SIZE.match(size):
+                raise AgentError(400, "size must be like 1080x1348")
+            if os.path.exists(self.no_adapt_file):
+                raise AgentError(409, "the display size is not changed: %s exists" % self.no_adapt_file)
+            try:
+                record = json.loads(self._record_text() or "")
+            except ValueError:
+                record = None
+            if not isinstance(record, dict) or record.get("set") != size:
+                raise AgentError(409, "write down what is going to be changed first (action record with set %s)" % size)
+            self.adb.run("shell", "wm", "size", size)
+        elif action == "reset":
+            self.adb.run("shell", "wm", "size", "reset")
+        else:
+            raise AgentError(400, "action must be record, size, reset or forget")
 
     def unlock(self):
         """`wm dismiss-keyguard`: the swipe lock screen goes away (a PIN or a pattern does not)."""
@@ -1455,6 +1536,13 @@ def make_handler(phone, token, quiet=True):
                                                     features=list(FEATURES)))
                 if method == "GET" and path == "/v1/heat":
                     return self._send(200, dict(phone.heat(), ok=True))
+                if method == "GET" and path == "/v1/display":
+                    query = self.path.split("?", 1)[1] if "?" in self.path else ""
+                    values = dict(part.split("=", 1) for part in query.split("&") if "=" in part)
+                    return self._send(200, dict(phone.display_state(values.get("only")), ok=True))
+                if method == "POST" and path == "/v1/display":
+                    phone.display_change(self._body())
+                    return self._send(200, {"ok": True})
                 if method == "GET" and path == "/v1/power":
                     query = self.path.split("?", 1)[1] if "?" in self.path else ""
                     values = dict(part.split("=", 1) for part in query.split("&") if "=" in part)

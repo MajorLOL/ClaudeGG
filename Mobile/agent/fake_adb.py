@@ -50,6 +50,13 @@ def session(log, off_file):
     return 0
 
 
+def answer_of(name, default):
+    """What the answer is in the environment variable `name`: `default` when it is not set, nothing at all when it says "<empty>" (an environment variable
+    that is set to the empty text does not exist on Windows, so a test cannot use that for an answer of nothing)."""
+    value = os.environ.get(name, default)
+    return "" if value == "<empty>" else value
+
+
 def from_file(variable, default):
     """The text in the file that the variable names when that file is there (a test changes what the phone says while the agent runs), else the default."""
     path = os.environ.get(variable)
@@ -108,28 +115,45 @@ def main(argv):
             return 1
     elif args[:4] == ["shell", "pm", "list", "packages"]:
         #  The apps that are installed (FAKE_PACKAGES: the lines of the answer, "|" for a new line; a Play Store one and an app of another store when it is not set).
-        lines = os.environ.get("FAKE_PACKAGES", "package:com.nianticlabs.pokemongo.ares|package:com.example.pokemongo.fan|package:com.nianticlabs.pokemongo")
+        lines = answer_of("FAKE_PACKAGES", "package:com.nianticlabs.pokemongo.ares|package:com.example.pokemongo.fan|package:com.nianticlabs.pokemongo")
         sys.stdout.write("\n".join(lines.split("|")) + "\n")
     elif args[:3] == ["shell", "dumpsys", "battery"]:
         #  What `dumpsys battery` says (FAKE_BATTERY: the lines of the answer, "|" for a new line; a battery of 31.2 degrees when it is not set).
-        lines = os.environ.get("FAKE_BATTERY", "Current Battery Service state:|  AC powered: false|  USB powered: true|  level: 80|  temperature: 312|  technology: Li-ion")
+        lines = answer_of("FAKE_BATTERY", "Current Battery Service state:|  AC powered: false|  USB powered: true|  level: 80|  temperature: 312|  technology: Li-ion")
         sys.stdout.write("\n".join(lines.split("|")) + "\n")
     elif args[:3] == ["shell", "dumpsys", "power"]:
         #  What `dumpsys power` says (FAKE_POWER: the lines of the answer, "|" for a new line; a screen that is on when it is not set).
         #  (a test that has to change it while the agent runs puts the answer in the file FAKE_POWER_FILE)
-        lines = os.environ.get("FAKE_POWER", "POWER MANAGER (power)|Power Manager State:|  mWakefulness=Awake|  mWakefulnessChanging=false")
+        lines = answer_of("FAKE_POWER", "POWER MANAGER (power)|Power Manager State:|  mWakefulness=Awake|  mWakefulnessChanging=false")
         lines = from_file("FAKE_POWER_FILE", lines)
         sys.stdout.write("\n".join(lines.split("|")) + "\n")
     elif args[:3] == ["shell", "dumpsys", "window"]:
         #  What `dumpsys window` says (FAKE_WINDOW: the lines of the answer, "|" for a new line; no lock screen when it is not set).
         #  (and in FAKE_WINDOW_FILE when it has to change while the agent runs)
-        lines = os.environ.get("FAKE_WINDOW", "WINDOW MANAGER POLICY STATE (dumpsys window policy)|  mKeyguardShowing=false|  mCurrentFocus=Window{1 u0 com.nianticlabs.pokemongo}")
+        lines = answer_of("FAKE_WINDOW", "WINDOW MANAGER POLICY STATE (dumpsys window policy)|  mKeyguardShowing=false|  mCurrentFocus=Window{1 u0 com.nianticlabs.pokemongo}")
         lines = from_file("FAKE_WINDOW_FILE", lines)
         sys.stdout.write("\n".join(lines.split("|")) + "\n")
     elif args[:3] == ["shell", "wm", "dismiss-keyguard"]:
         pass
+    elif args[:3] == ["shell", "wm", "size"] and len(args) == 4:
+        #  `wm size WxH` and `wm size reset`: the override is kept in the file FAKE_WM_FILE when there is one (an empty file: no override).
+        path = os.environ.get("FAKE_WM_FILE")
+        if path:
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("" if args[3] == "reset" else args[3])
     elif args[:2] == ["shell", "wm"]:
-        sys.stdout.write("Physical size: 1080x2340\nOverride size: 1000x2200\n")
+        #  What `wm size` says: the screen of the phone and, when it was changed, the override (the file FAKE_WM_FILE says it when there is one).  The lines
+        #  end with \n, or with \r\n as an adb through a terminal ends them when FAKE_CRLF is set (written as bytes: the same on every system).
+        path = os.environ.get("FAKE_WM_FILE")
+        if path and os.path.exists(path):
+            with open(path, encoding="utf-8") as handle:
+                override = handle.read().strip()
+            text = "Physical size: 1080x2340\n" + ("Override size: %s\n" % override if override else "")
+        else:
+            text = "Physical size: 1080x2340\nOverride size: 1000x2200\n"
+        if os.environ.get("FAKE_CRLF"):
+            text = text.replace("\n", "\r\n")
+        sys.stdout.buffer.write(text.encode())
     elif args[:3] == ["shell", "getprop", "ro.product.model"]:
         sys.stdout.write("FakePhone\n")
     elif args[:3] == ["shell", "getprop", "ro.build.version.release"]:
