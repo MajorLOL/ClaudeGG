@@ -121,6 +121,8 @@ inline constexpr double HOLD = 25.0;
 
 //  The colour of the icons of a type (R, G, B): false for a type that does not exist.
 bool type_colour(const QString& kind, int rgb[3]);
+//  The names of all the types that have a colour (TYPE_RGB of battle_minigame.py), in alphabetical order.
+QStringList type_names();
 
 //  Middles of the icons of type "kind" on a picture (8 bit, BGR), the clearest first.  An icon is a disc in
 //  the colour of the type with a white drawing in its middle: its ring has the colour, what lies around it has

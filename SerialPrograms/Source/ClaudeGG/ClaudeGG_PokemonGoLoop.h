@@ -43,6 +43,9 @@ namespace PokemonGo{
 namespace Loop{
 
 
+//  FIGHT_TAP_MS of gamebot.py: how long a fast attack is tapped (ms).
+inline constexpr int FIGHT_TAP_MS = 70;
+
 //  The canvas of the phone (the size that all places on the screen are given in) and the small picture that the readers of a fight look at.
 inline constexpr int REF_W = 1768;
 inline constexpr int REF_H = 2208;
@@ -242,6 +245,10 @@ QString white_words(Host& host, const cv::Mat& pic, double x0, double y0, double
 QString result_words(Host& host, const cv::Mat& pic);
 //  Does the screen show a running fight (name boxes, or a question with its countdown)?  (gamebot._fight_on_screen)
 bool fight_on_screen(Host& host);
+//  battle_fight.state(battle_vision.features(small)) of a small picture (704 wide): "fight", "prompt", "result" or "other".
+QString fight_state(Host& host, const cv::Mat& small);
+//  gamebot._fight_box(): the name and the CP in one of the two name boxes at the top of a picture on the canvas (mine on the left, the foe's on the right).
+Nav::NameBox fight_name_box(Host& host, const cv::Mat& canvas, bool me);
 
 //  Reads the names in the name boxes and the labels under the buttons (and the banner of the foe's charged attack) next to
 //  the loop: the text reader takes seconds on a Pi, and a charged attack is worth more than a name.

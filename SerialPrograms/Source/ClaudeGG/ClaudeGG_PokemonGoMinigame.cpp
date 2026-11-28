@@ -368,6 +368,15 @@ bool type_colour(const QString& kind, int rgb[3]){
 }
 
 
+QStringList type_names(){
+    QStringList names;
+    for (const TypeColour& type : TYPE_RGB){
+        names << QString::fromLatin1(type.name);
+    }
+    names.sort();
+    return names;
+}
+
 Points find_icons(const cv::Mat& img, const QString& kind, double top, int limit){
     int rgb[3];
     if (img.empty() || !type_colour(kind, rgb)){

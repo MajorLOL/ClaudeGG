@@ -65,10 +65,10 @@ struct Preset{
 };
 
 //  Can Claude GG play this preset itself (the parts of gamebot.py that are ported to C++)?  Spinning PokéStops, catching Pokémon, the gifts,
-//  the GO Pass rewards and the clean-up of a full bag; not Team GO Rocket and the daily run yet (Auto play, where they are chosen, says so).
+//  the GO Pass rewards, the clean-up of a full bag and Team GO Rocket; not the daily run yet.
 bool claude_can_play(const Preset& preset){
     return preset.kind == Kind::SERVICE && (preset.spin || preset.catching || preset.gifts || preset.choose)
-        && !preset.daily && !preset.rocket;
+        && !preset.daily;
 }
 
 const Preset PRESETS[] = {
@@ -79,8 +79,7 @@ const Preset PRESETS[] = {
         "rewards, each on or off, with all the options of the catch, the bag and the look. It is the normal play "
         "of the bot's own web interface. Pokémon GO must be on the map. Claude GG starts the bot, shows what it "
         "writes and stops it when this program is stopped. Under Who plays Claude GG can play itself instead "
-        "(experimental): spin, catch and gifts, with the clean-up of a full bag; Team GO Rocket and the GO Pass "
-        "are only played by the bot on the Pi.",
+        "(experimental): spin, catch, gifts, Team GO Rocket and the GO Pass, with the clean-up of a full bag.",
         true, true, true, false, false, false, Kind::SERVICE, true,
     },
     {
@@ -454,9 +453,6 @@ public:
     virtual std::string check_validity() const override{
         if (m_preset.choose && !SPIN_ON && !CATCH_ON && !GIFTS_OPEN && !GIFTS_SEND && !ROCKET_ON && !QUESTS_ON){
             return "Choose at least one thing to do: spin, catch, gifts, Team GO Rocket or the GO Pass.";
-        }
-        if (claude_can_play(m_preset) && PLAYER == Player::CLAUDE_GG && m_preset.choose && ROCKET_ON){
-            return "Claude GG does not battle Team GO Rocket yet: switch it off, or choose the Python bot on the Raspberry Pi under Who plays.";
         }
         if (m_preset.gifts && !m_preset.daily && !GIFTS_OPEN && !GIFTS_SEND){
             return "Choose to open gifts, to send gifts, or both.";
@@ -883,13 +879,16 @@ private:
         if (switches["gifts_send"]){
             add_part("sends gifts");
         }
+        if (switches["rocket_fight"]){
+            add_part("battles Team GO Rocket");
+        }
         if (switches["quests"]){
             add_part("claims the GO Pass rewards");
         }
         if (switches["bag_clean"]){
             add_part("cleans a full bag");
         }
-        env.log("Claude GG itself " + does + " (experimental; Team GO Rocket and the daily run are not in Claude GG yet).");
+        env.log("Claude GG itself " + does + " (experimental; the daily run is not in Claude GG yet).");
         try{
             PokemonGo::Bot::run(bot);
         }catch (const PokemonGo::Flow::Interrupted&){

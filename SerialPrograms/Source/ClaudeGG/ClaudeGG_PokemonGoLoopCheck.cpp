@@ -21,6 +21,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include "ClaudeGG_PokemonGoLoop.h"
+#include "ClaudeGG_PokemonGoRocketFight.h"
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -176,6 +177,10 @@ public:
         if (exit){
             file.chop(5);
         }
+        const bool no_hud = file.endsWith("+nohud");  //  (the name boxes at the top painted black: the little game of a charged attack without the HUD)
+        if (no_hud){
+            file.chop(6);
+        }
         const cv::Mat raw = cv::imread((m_fixtures + "/" + file + ".jpg").toStdString());
         if (raw.empty()){
             fail("the picture is not there: " + file);
@@ -185,6 +190,9 @@ public:
         if (exit){
             cv::rectangle(img, cv::Point((int)(0.08 * w), (int)(0.30 * h)), cv::Point((int)(0.92 * w), (int)(0.72 * h)), cv::Scalar(255, 255, 255), cv::FILLED);
             cv::rectangle(img, cv::Point((int)(0.27 * w), (int)(0.49 * h)), cv::Point((int)(0.73 * w), (int)(0.55 * h)), cv::Scalar(110, 205, 120), cv::FILLED);
+        }
+        if (no_hud){
+            img(cv::Rect(0, 0, w, (int)(0.2 * h))) = cv::Scalar(0, 0, 0);
         }
         m_pictures[key] = img;
         return img;
@@ -354,6 +362,22 @@ public:
         }
     }
     bool threads() override{ return false; }
+    //  The fights against Team GO Rocket tell that no screen check is wanted while the fight goes on (the fights of the league do not).
+    void busy(double seconds) override{
+        if (m_spec.value("fn").toString() != "rocket_fight"){
+            return;
+        }
+        const QJsonArray event = out("busy", QString("busy(%1)").arg(seconds));
+        same(event, 2, seconds, "the busy time");
+    }
+    //  The person who stops the bot: asked only in a story that has such a person.
+    bool stop() override{
+        if (!m_spec.contains("stop_at")){
+            return false;
+        }
+        const QJsonArray event = out("stop", "the question whether the person stopped the bot");
+        return event.at(2).toBool();
+    }
     std::function<void(const char*)> looker_trace() override{
         return [this](const char* kind){ out(kind, QString("the looker starts to read (%1)").arg(kind)); };
     }
@@ -583,6 +607,69 @@ int run_loop_checks(const QString& golden, const QString& fixtures, const QStrin
         }
     }
     report << QString("%1 fights played, %2 events, %3 of them went another way").arg(cases.size()).arg(events).arg(wrong);
+    return wrong;
+}
+
+int run_rocket_fight_checks(const QString& golden, const QString& fixtures, const QString& data, QStringList& report, bool stop_at_first){
+    QString error;
+    if (!Battle::data_loaded() && !Battle::load_data(data, error)){
+        report << "FAILED: the data of the engine is not there: " + error;
+        return 1;
+    }
+    QFile file(golden);
+    if (!file.open(QIODevice::ReadOnly)){
+        report << "FAILED: the fights against Team GO Rocket are not there: " + golden;
+        return 1;
+    }
+    const QJsonObject root = QJsonDocument::fromJson(qUncompress(file.readAll())).object();
+    const QJsonArray cases = root.value("cases").toArray();
+    if (cases.isEmpty()){
+        report << "FAILED: the file of fights against Team GO Rocket is empty or not right: " + golden;
+        return 1;
+    }
+    int wrong = 0;
+    int events = 0;
+    for (const QJsonValue& value : cases){
+        const QJsonObject one = value.toObject();
+        Replay host(one, root, fixtures);
+        try{
+            int seconds = 0;
+            QString what;
+            bool threw = false;
+            try{
+                seconds = RocketFight::rocket_fight(host);
+            }catch (const Abort&){
+                throw;
+            }catch (const std::exception& e){
+                threw = true;
+                what = QString::fromUtf8(e.what());
+            }
+            if (threw){
+                const QJsonArray event = host.out("raised", "the end of the fight (it threw)");
+                if (event.at(2).toString() != what){
+                    host.fail("the port threw '" + what + "', the Python code '" + event.at(2).toString() + "'");
+                }
+            }else{
+                const QJsonArray event = host.out("result", "the end of the fight");
+                if (event.at(2).toInt() != seconds){
+                    host.fail(QString("the fight took another time: the Python code %1 s, the port %2 s").arg(event.at(2).toInt()).arg(seconds));
+                }
+            }
+            if (host.index != one.value("events").toArray().size()){
+                host.fail("the port ended before the Python code did");
+            }
+        }catch (const Abort&){
+        }
+        events += (int)host.index;
+        if (host.failed){
+            wrong++;
+            report << "FAILED: " + one.value("id").toString() + ": " + host.message;
+            if (stop_at_first){
+                break;
+            }
+        }
+    }
+    report << QString("rocket fight: %1 fights played, %2 events, %3 of them went another way").arg(cases.size()).arg(events).arg(wrong);
     return wrong;
 }
 

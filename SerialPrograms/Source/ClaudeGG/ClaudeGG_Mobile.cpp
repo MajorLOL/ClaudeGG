@@ -54,6 +54,7 @@
 #include "ClaudeGG_PokemonGoGifts.h"
 #include "ClaudeGG_PokemonGoQuests.h"
 #include "ClaudeGG_PokemonGoRocket.h"
+#include "ClaudeGG_PokemonGoRocketFight.h"
 #include "ClaudeGG_PokemonGoThrowPlay.h"
 #include "ClaudeGG_PokemonGoVision.h"
 
@@ -993,6 +994,19 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         }
         check(differ == 0, rocket_report.isEmpty() ? QString("the way through Team GO Rocket is walked as gamebot.py walks it") : rocket_report.last());
     }
+    //  The fight against Team GO Rocket itself, ported to C++ (issue #31): the fast taps, the shield, the charged attacks, the little game of the type
+    //  of the attack, until the fight is over, played on the real pictures of fights and little games (tests/fixtures/rocketfight_golden.json.qz).
+    {
+        QStringList fight_report;
+        const int differ = PokemonGo::Loop::run_rocket_fight_checks(agent_folder + "/../tests/fixtures/rocketfight_golden.json.qz",
+            agent_folder + "/../tests/fixtures", agent_folder + "/../models/battle_data.json", fight_report);
+        for (const QString& line : fight_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, fight_report.isEmpty() ? QString("the fight against Team GO Rocket is fought as gamebot.py fights it") : fight_report.last());
+    }
     //  The text reader, ported to C++ (issue #30): the table that Tesseract writes made into lines of words with their places, as
     //  gamebot.ocr_lines() makes them (354 tables, 36 of them read from frames of real fights), and - where the tesseract program is
     //  found - a picture with words drawn on it read with it.
@@ -1453,10 +1467,16 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
                 PokemonGo::Bot::Switches asked{{"spin", true}, {"catch", false}, {"rocket_fight", true}, {"quests", true}, {"bag_clean", true},
                                                {"heat_pause", true}, {"fast_look", true}, {"gifts_open", true}, {"daily_cycle", true}};
                 PokemonGo::Bot::PhoneBot bot(host, asked, {{"throw_target", "great"}, {"berries", "razz, nanab"}});
-                check(bot.wanted("spin") && bot.setting("fast_look", false) && !bot.wanted("catch") && !bot.setting("rocket_fight", true)
+                check(bot.wanted("spin") && bot.setting("fast_look", false) && !bot.wanted("catch") && bot.setting("rocket_fight", false)
                       && bot.setting("quests", false) && bot.setting("bag_clean", false) && !bot.setting("heat_pause", true) && bot.wanted("gifts_open")
                       && !bot.wanted("daily_cycle"),
-                      "Claude GG plays with what is ported (the gifts, the GO Pass and the clean-up of the bag too), the rest is off");
+                      "Claude GG plays with what is ported (the gifts, the GO Pass, Team GO Rocket and the clean-up of the bag too), the rest is off");
+                {
+                    //  Team GO Rocket: the bot is the host of its walk and fight, and reads a fight on the screen as the Battle League does.
+                    PokemonGo::Rocket::Host& rocket = bot;
+                    check(rocket.screen_state(cv::Mat(880, 704, CV_8UC3, cv::Scalar(10, 20, 30))) == "other",
+                          "a plain picture is no fight on the screen, for the Team GO Rocket battles as well");
+                }
                 {
                     //  The quest button is gold: it is time to look (nothing was looked at yet), and when the person switched the quests off it is not.
                     cv::Mat gold(2208, 1768, CV_8UC3, cv::Scalar(255, 255, 255));
