@@ -59,7 +59,7 @@ The cost of a fork is that it has to keep up with the original. The design follo
 | The original's check for a new version | It points at Pokémon Automation's releases. Replaced by the button in the About window. |
 | Discord Rich Presence by default | It shows the program as Pokémon Automation, whose Discord application it is. |
 | The Discord bot and the Discord Social SDK in the Windows build | Nothing here uses them, and D++ brings OpenSSL 1.1.1k, which is no longer maintained. The Discord webhooks (the notifications) stay. |
-| The wallpaper (on until now) | Off until it is turned on: the new interface has its own background. |
+| The wallpaper (on until now) | Off until it is turned on: the new interface has its own background. Turned on (Settings > "Background: a picture of your own"), the picture is drawn behind the screens with the games and the programs, darkened so the texts stay readable; empty or off is Claude GG's own background. |
 | The links to Pokémon Automation's Discord and its error reporting | This is not their release, and their team cannot help with this fork. Error reports are saved on the computer (`ErrorReportsLocal`), not sent. |
 
 ## 5. A change to how pictures are made (memory)
@@ -124,7 +124,7 @@ Besides the fixes (section 6), the changes in files that the original has are th
 |---|---|---|
 | `Main.cpp`, `MainWindow.*`, `PanelLists.*`, the `*_Panels.cpp` of the games, `Panels/*` | The new window and setup start from here; the programs are registered with a description the new screens use; one installation's id is read first | The new interface needs the list of programs with their games, and the options of a program as widgets in its own screen. |
 | `Globals.*`, `GlobalAutoPaths.*`, `StaticGlobals.cpp`, `PersistentSettings.*` | Name, home page of the project, the build's number, settings file named after the program, per-installation folders | The identity (section 3). `RUNTIME_BASE_PATH()` is the one place that folders are made from, so the installations changed it only. |
-| `GlobalSettingsPanel.*`, `ThemeSelectorOption.*`, `WallpaperOption.cpp` | The new themes, the settings search, the wallpaper off | The interface. |
+| `GlobalSettingsPanel.*`, `ThemeSelectorOption.*`, `WallpaperOption.cpp`, `WallpaperWidget.*`, `MainWindow.cpp`, `Main.cpp` | The new themes, the settings search, the wallpaper off; turned on it is the background of the new screens (`ClaudeGG_Theme.h`), not of the window under them | The interface. |
 | `VideoSession.*`, `SnapshotManager.*`, `VideoFrameConversion.*` | The latest frame of a session can be asked for; the frame converter | The miniature of an installation shows the capture card's picture; section 5. |
 | `QFormatAggregator.cpp` | For a resolution, the capture card's default format is the one with the most frames a second (of those the uncompressed one), not always the uncompressed one | A card on USB 2 often gives 1080p uncompressed at 5 or 10 fps and MJPEG at 60: a new picture every 100 to 200 ms instead of every 17. See [LATENCY.md](SerialPrograms/Source/ClaudeGG/LATENCY.md). |
 | `ColoredText.*`, `StringOption.cpp`, `OptionsPanelWidget.cpp`, `PanelElements.cpp` | Colors that read on both themes | Section 6, last paragraph. |

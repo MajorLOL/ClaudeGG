@@ -9,6 +9,7 @@
 #include <QString>
 #include "ClaudePlays/ClaudePlays_Games.h"
 #include "ClaudeGG_Home.h"
+#include "ClaudeGG_WiiU.h"
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -27,6 +28,10 @@ bool is_pokemon_go(const QString& name){
 QStringList consoles_of_game(const QString& name){
     if (is_pokemon_go(name)){
         return QStringList{"mobile"};
+    }
+    //  The list of the Wii U (ClaudeGG_WiiU.h): its GamePad is a Raspberry Pi.
+    if (name == WiiU::WIIU_LIST_NAME){
+        return QStringList{"wiiu"};
     }
     //  The list of another console (the Claude Plays of the PlayStation 3 and
     //  of the original Xbox).
