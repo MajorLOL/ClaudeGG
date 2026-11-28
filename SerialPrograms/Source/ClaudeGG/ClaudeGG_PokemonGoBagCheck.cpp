@@ -80,7 +80,7 @@ public:
             fail("the touches differ: the Python code did " + describe(event) + ", the port: " + doing + " " + mine);
         }
     }
-    QString adb(const QStringList& args) override{
+    QString shell(const QStringList& args) override{
         const QString doing = "the adb command " + args.join(' ');
         const QJsonArray event = input("adb", doing);
         QStringList was;

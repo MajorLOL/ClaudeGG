@@ -1423,11 +1423,12 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             //  run-away button.
             {
                 PokemonGo::Bot::Switches asked{{"spin", true}, {"catch", false}, {"rocket_fight", true}, {"quests", true}, {"bag_clean", true},
-                                               {"heat_pause", true}, {"fast_look", true}, {"gifts_open", true}};
+                                               {"heat_pause", true}, {"fast_look", true}, {"gifts_open", true}, {"daily_cycle", true}};
                 PokemonGo::Bot::PhoneBot bot(host, asked, {{"throw_target", "great"}, {"berries", "razz, nanab"}});
                 check(bot.wanted("spin") && bot.setting("fast_look", false) && !bot.wanted("catch") && !bot.setting("rocket_fight", true)
-                      && !bot.setting("quests", true) && !bot.setting("bag_clean", true) && !bot.setting("heat_pause", true) && !bot.wanted("gifts_open"),
-                      "Claude GG plays with what is ported, the rest is off");
+                      && !bot.setting("quests", true) && bot.setting("bag_clean", false) && !bot.setting("heat_pause", true) && bot.wanted("gifts_open")
+                      && !bot.wanted("daily_cycle"),
+                      "Claude GG plays with what is ported (the gifts and the clean-up of the bag too), the rest is off");
                 check(!bot.map_state().catching && bot.map_state().spin && !host.has_models(), "it does not catch when that is off, and there are no models here");
                 check(bot.setting_text("throw_target", "realistic") == "great" && bot.setting_text("fast_look", "") == "True"
                       && bot.berry_order() == QStringList{"razz", "nanab"} && bot.ball() == "poke", "the throw, the berries and the ball are as chosen");
@@ -1466,6 +1467,62 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
                             report << "         it was asked: " + line;
                         }
                     }
+                }
+                {
+                    //  The shell lines of the bag reach the phone as the agent does them: the game is closed (/v1/app) and a key is a key
+                    //  (/v1/key); `pidof` cannot be answered, so the bot stops; anything else is refused.
+                    const QStringList bag_start = read_lines(adb_log);
+                    bot.shell({"shell", "am", "force-stop", host.package()});
+                    bot.shell({"shell", "input", "keyevent", "KEYCODE_APP_SWITCH"});
+                    bot.shell({"adb", "shell", "input", "keyevent", "KEYCODE_HOME"});
+                    bool other_app = false;
+                    bool other_line = false;
+                    bool stopped = false;
+                    try{
+                        bot.shell({"shell", "am", "force-stop", "com.android.settings"});
+                    }catch (const std::runtime_error&){
+                        other_app = true;
+                    }
+                    try{
+                        bot.shell({"shell", "reboot"});
+                    }catch (const std::runtime_error&){
+                        other_line = true;
+                    }
+                    try{
+                        bot.shell({"shell", "pidof", host.package()});
+                    }catch (const PokemonGo::Flow::Interrupted&){
+                        stopped = true;
+                    }
+                    const QStringList bag_got = read_lines(adb_log).mid(bag_start.size());
+                    const QStringList bag_want{"shell am force-stop " + host.package(), "shell input keyevent 187", "shell input keyevent 3"};
+                    check(bag_got == bag_want && other_app && other_line && stopped,
+                          "the shell lines of the bag reach the phone through the agent, pidof stops the bot, any other is refused ("
+                          + QString::number(bag_got.size()) + " commands)");
+                    //  A touch that lasts and several swipes in one command (the gifts and the bag).
+                    const QStringList touch_start = read_lines(adb_log);
+                    bot.tap_press(100, 200, 200);
+                    bot.swipes({PokemonGo::Loop::Stroke{1, 2, 3, 4, 100}, PokemonGo::Loop::Stroke{5, 6, 7, 8, 70}});
+                    const QStringList touch_got = read_lines(adb_log).mid(touch_start.size());
+                    check(touch_got.size() == 2 && touch_got[0].startsWith("shell input swipe ") && touch_got[0].endsWith(" 200")
+                          && touch_got[1].count("input swipe") == 2, "a press that lasts is one touch and swipes go in one command");
+                    //  What the person chose to keep, the day, and the memory of the gifts (a file in the folder of the bot, in the program without one).
+                    check(bot.bag_keep_saved().isNull() && bot.today() == PokemonGo::Phone::today_text(), "nothing is chosen to keep unless the person chose, and the day is the day");
+                    PokemonGo::Bot::PhoneBot chosen(host, asked, {{"bag_keep", "{\"Potion\": 5}"}});
+                    PokemonGo::Bot::PhoneBot garbled(host, asked, {{"bag_keep", "[1, 2"}});
+                    check(chosen.bag_keep_saved().isObject() && chosen.bag_keep_saved().toObject().value("Potion").toInt() == 5 && garbled.bag_keep_saved().isNull(),
+                          "what the person chose to keep is a JSON object, anything else is nothing chosen");
+                    check(!bot.gift_state_read("gifts_state.json").has_value(), "there is no memory of the gifts before one is written");
+                    bot.gift_state_write("gifts_state.json", "{\"day\": \"2026-11-22\"}");
+                    const std::optional<QByteArray> again = bot.gift_state_read("gifts_state.json");
+                    check(again.has_value() && *again == QByteArray("{\"day\": \"2026-11-22\"}") && !QFile::exists(options.folder + "/gifts_state.json"),
+                          "without a folder the memory of the gifts is kept by the program");
+                    PokemonGo::Bot::PhoneBot kept(host, asked, {}, options.folder);
+                    check(!kept.gift_state_read("gifts_state.json").has_value(), "a folder has its own memory");
+                    kept.gift_state_write("gifts_state.json", "{\"day\": \"2026-11-23\"}");
+                    const std::optional<QByteArray> in_folder = kept.gift_state_read("gifts_state.json");
+                    check(in_folder.has_value() && *in_folder == QByteArray("{\"day\": \"2026-11-23\"}") && QFile::exists(options.folder + "/gifts_state.json"),
+                          "and the memory of the gifts is a file there");
+                    QFile::remove(options.folder + "/gifts_state.json");
                 }
                 const qsizetype before_run = read_lines(adb_log).size();
                 const double wait = bot.do_encounter(cv::Mat(2208, 1768, CV_8UC3, cv::Scalar(10, 20, 30)));

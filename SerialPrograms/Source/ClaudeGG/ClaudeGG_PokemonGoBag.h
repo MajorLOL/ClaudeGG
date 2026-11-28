@@ -101,8 +101,9 @@ class Host : public virtual Map::Host{
 public:
     //  S.swipes(strokes): touches one after the other in ONE adb command.
     virtual void swipes(const std::vector<Loop::Stroke>& strokes) = 0;
-    //  S.adb(...): what an adb command answered.  Throws std::runtime_error with the text of the error when it fails.
-    virtual QString adb(const QStringList& args) = 0;
+    //  S.adb(...): what an adb shell line answered ("shell", ...: the words after `adb`).  Throws std::runtime_error with the text of the error when it
+    //  fails.  (Named shell(): the bot of the phone is also a Throw::Host, whose adb() answers nothing.)
+    virtual QString shell(const QStringList& args) = 0;
     //  S.PACKAGE: the package of the game on the phone.
     virtual QString package() = 0;
     //  setting("bag_keep", None): what the person chose to keep (null when nothing was chosen).

@@ -643,9 +643,9 @@ void check_menu_full(Host& host, Map::State& state){
 
 void close_game_completely(Host& host){
     try{
-        host.adb({"shell", "am", "force-stop", host.package()});
+        host.shell({"shell", "am", "force-stop", host.package()});
         host.sleep(1);
-        host.adb({"shell", "input", "keyevent", "KEYCODE_APP_SWITCH"});         //  recent apps
+        host.shell({"shell", "input", "keyevent", "KEYCODE_APP_SWITCH"});         //  recent apps
         host.sleep(2.5);
         const cv::Mat img = host.screenshot();
         std::optional<Spot> target;
@@ -664,8 +664,8 @@ void close_game_completely(Host& host){
         }
         host.tap(target.has_value() ? target->first : CLOSE_ALL_BTN.x, target.has_value() ? target->second : CLOSE_ALL_BTN.y);
         host.sleep(2);
-        host.adb({"shell", "input", "keyevent", "KEYCODE_HOME"});
-        host.adb({"shell", "am", "force-stop", host.package()});
+        host.shell({"shell", "input", "keyevent", "KEYCODE_HOME"});
+        host.shell({"shell", "am", "force-stop", host.package()});
         host.log("Pokémon GO closed (also removed from recent apps)");
     }catch (const Flow::Interrupted&){
         throw;
@@ -688,7 +688,7 @@ void check_all_full(Host& host, Map::State& state){
     while (true){                                               //  wait until the game is opened again
         host.sleep(30);
         try{
-            if (!py_strip(host.adb({"shell", "pidof", host.package()})).isEmpty()){
+            if (!py_strip(host.shell({"shell", "pidof", host.package()})).isEmpty()){
                 break;
             }
         }catch (const Flow::Interrupted&){

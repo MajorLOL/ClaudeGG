@@ -43,7 +43,7 @@ std::vector<Detection> PhoneDetector::map(const cv::Mat& img, const cv::Rect& bo
 Switches playable(const Switches& asked){
     Switches out = asked;
     //  Not ported yet: off, so that the steps leave them alone.
-    for (const char* key : {"gifts_open", "gifts_send", "daily_cycle", "rocket_fight", "quests", "bag_clean", "battle", "teams_weekly"}){
+    for (const char* key : {"daily_cycle", "rocket_fight", "quests", "battle", "teams_weekly"}){
         out[QString::fromLatin1(key)] = false;
     }
     //  The pause for the heat needs temperatures that the agent cannot give yet.
@@ -138,8 +138,90 @@ QString PhoneBot::count(const QString& key){
     return counts();
 }
 
+void PhoneBot::gifts_round(){
+    Gifts::gifts_round(*this);
+}
+void PhoneBot::check_menu_full(){
+    Bag::check_menu_full(*this, m_map);
+}
+void PhoneBot::check_all_full(){
+    Bag::check_all_full(*this, m_map);
+}
 int PhoneBot::clean_bag(){
-    throw std::runtime_error("cleaning the bag is not in Claude GG yet");
+    return Bag::clean_bag(*this, m_bag);
+}
+void PhoneBot::bag_to_map(){
+    Bag::bag_to_map(*this);
+}
+
+QString PhoneBot::shell(const QStringList& args){
+    QStringList words = args;
+    if (!words.isEmpty() && words.front() == "adb"){
+        words.pop_front();
+    }
+    if (!words.isEmpty() && words.front() == "shell"){
+        words.pop_front();
+    }
+    QString error;
+    if (words.size() == 3 && words[0] == "am" && words[1] == "force-stop"){
+        if (words[2] != m_phone.package()){
+            throw std::runtime_error("only the Pokémon GO app that is played can be closed: " + words[2].toStdString());
+        }
+        if (!m_phone.agent().app_stop(words[2], &error)){
+            throw std::runtime_error("closing the game failed: " + error.toStdString());
+        }
+        return QString();
+    }
+    if (words.size() == 3 && words[0] == "input" && words[1] == "keyevent" && words[2].startsWith("KEYCODE_")){
+        if (!m_phone.agent().key(words[2].mid(8), &error)){
+            throw std::runtime_error(("the key " + words[2] + " did not reach the phone: " + error).toStdString());
+        }
+        return QString();
+    }
+    if (words.size() == 2 && words[0] == "pidof"){
+        //  gamebot.py waits here until the game runs again; the agent cannot say whether it does, so the bot ends the run.
+        log("the game is closed and the agent cannot tell when it is open again: the bot stops here - start it again when the game is open");
+        throw Flow::Interrupted();
+    }
+    throw std::runtime_error("not a command that the agent can give the phone: " + words.join(" ").toStdString());
+}
+
+QJsonValue PhoneBot::bag_keep_saved(){
+    const auto it = m_texts.find("bag_keep");
+    if (it == m_texts.end()){
+        return QJsonValue();
+    }
+    const QJsonDocument doc = QJsonDocument::fromJson(it->second.toUtf8());
+    return doc.isObject() ? QJsonValue(doc.object()) : QJsonValue();
+}
+
+void PhoneBot::run_done(){
+    log("the daily run is over for today (the daily run itself is not in Claude GG yet)");
+}
+
+std::optional<QByteArray> PhoneBot::gift_state_read(const QString& file){
+    if (m_folder.isEmpty()){
+        const auto it = m_files.find(file);
+        return it == m_files.end() ? std::nullopt : std::optional<QByteArray>(it->second);
+    }
+    QFile in(m_folder + "/" + file);
+    if (!in.open(QIODevice::ReadOnly)){
+        return std::nullopt;
+    }
+    return in.readAll();
+}
+
+void PhoneBot::gift_state_write(const QString& file, const QByteArray& json){
+    if (m_folder.isEmpty()){
+        m_files[file] = json;
+        return;
+    }
+    QFile out(m_folder + "/" + file);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)){
+        log("gifts: the memory of the day cannot be written to " + out.fileName());
+        return;
+    }
+    out.write(json);
 }
 
 void PhoneBot::resume_spin_later(){

@@ -166,6 +166,11 @@ public:
     double wall() override;
     void tap(int x, int y) override;
     void swipe(int x1, int y1, int x2, int y2, int ms) override;
+    //  A touch that lasts `ms` milliseconds (tap() is the short one), and several swipes one after the other in one command (the gifts, the bag).
+    void press(int x, int y, int ms);
+    void swipes(const std::vector<Stroke>& strokes);
+    //  The Pokémon GO app that is played (Options::package).
+    const QString& package() const{ return m_options.package; }
     void back() override;
     std::pair<QString, double> screen_class(const cv::Mat& img) override;
     void restart_game() override;

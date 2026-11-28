@@ -11,8 +11,11 @@
  *  - catching: the ported catch screen (Catch::do_encounter) with the ported throw (Throw::throw_ball: a single touch through /v1/touch of
  *    agent 0.2.2, or a plain swipe), the berries read with Tesseract; when catching is off, a catch screen is left with the run-away button;
  *  - Team GO Rocket: not battled (the step goes back out of it and leaves that stop alone for 30 minutes);
- *  - the GO Pass, the gifts and the clean-up of the bag: not done (a full bag pauses the spinning for 30 minutes, as the bot does without
- *    its clean-up);
+ *  - the gifts of the friends (Gifts::gifts_round: open the ones that wait, send one to every friend; the memory of the day is a file in the
+ *    folder of the bot) and the clean-up of a full bag (Bag::clean_bag, the red FULL marks of the main menu): the ported code, with the keys
+ *    and the closing of the game that the bag needs sent to the agent (see shell()); when the storage and the bag are both full and the game
+ *    has been closed, the bot stops (gamebot.py waits there until it sees the game running again - `pidof` -, which the agent cannot tell);
+ *  - the GO Pass: not done;
  *  - the temperatures: the agent cannot read them yet, so the pause when it gets hot does not happen;
  *  - the layout of the screen: taken to be the one of the canvas (the agent brings every screenshot to the canvas);
  *  - the camera that turns while the next picture is looked at: the swipe is made right away and waited for, which is slower but the same
@@ -41,8 +44,13 @@
 #include <utility>
 #include <vector>
 #include <opencv2/core.hpp>
+#include <QByteArray>
+#include <QJsonValue>
 #include <QString>
+#include <QStringList>
+#include "ClaudeGG_PokemonGoBag.h"
 #include "ClaudeGG_PokemonGoBrain.h"
+#include "ClaudeGG_PokemonGoGifts.h"
 #include "ClaudeGG_PokemonGoPhone.h"
 #include "ClaudeGG_PokemonGoStep.h"
 #include "ClaudeGG_PokemonGoThrowPlay.h"
@@ -79,7 +87,7 @@ Switches playable(const Switches& asked);
 using Texts = std::map<QString, QString>;
 
 
-class PhoneBot : public Step::Host, public Throw::Host{
+class PhoneBot : public Step::Host, public Throw::Host, public Bag::Host, public Gifts::Host{
 public:
     //  `folder`: where what the throws learn is kept (gamebot_throw.json); empty: nowhere.
     PhoneBot(Phone::AgentHost& phone, const Switches& switches, const Texts& texts = Texts(), const QString& folder = QString());
@@ -138,12 +146,28 @@ public:
     bool setting(const QString& key, bool fallback) override;
     bool wanted(const QString& key) override;
     QString count(const QString& key) override;
-    void gifts_round() override{}
-    void check_menu_full() override{}
-    void check_all_full() override{}
+    void gifts_round() override;
+    void check_menu_full() override;
+    void check_all_full() override;
     int clean_bag() override;
-    void bag_to_map() override{ m_phone.back(); }
+    void bag_to_map() override;
     void resume_spin_later() override;
+
+    //  ---- Bag::Host
+    void swipes(const std::vector<Loop::Stroke>& strokes) override{ m_phone.swipes(strokes); }
+    //  The shell lines of the bag as the agent can do them: `am force-stop <package>` (/v1/app) and `input keyevent KEYCODE_X` (/v1/key).
+    //  `pidof <package>` cannot be answered: the bot says so and stops (Flow::Interrupted).  Any other line throws std::runtime_error.
+    QString shell(const QStringList& args) override;
+    QJsonValue bag_keep_saved() override;
+    void run_done() override;
+
+    //  ---- Gifts::Host  (package() is that of the bag too)
+    void tap_press(int x, int y, int ms) override{ m_phone.press(x, y, ms); }
+    QString package() override{ return m_phone.package(); }
+    QString today() override{ return Phone::today_text(); }
+    //  The memory of the day is a file in the folder of the bot (in the memory of the program when there is no folder).
+    std::optional<QByteArray> gift_state_read(const QString& file) override;
+    void gift_state_write(const QString& file, const QByteArray& json) override;
 
     //  ---- Catch::Host
     std::vector<Detection> buttons(const cv::Mat& img) override{ return m_phone.buttons(img); }
@@ -214,6 +238,8 @@ private:
     Brain::Eyes m_eyes;
     Map::State m_map;
     Step::State m_step;
+    Bag::State m_bag;
+    std::map<QString, QByteArray> m_files;              //  the files of the gifts when there is no folder
     std::mt19937_64 m_random;
     std::optional<double> m_spin_at;
     std::optional<double> m_catch_at;

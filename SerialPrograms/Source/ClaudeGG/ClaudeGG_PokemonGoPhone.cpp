@@ -492,6 +492,14 @@ void AgentHost::swipe(int x1, int y1, int x2, int y2, int ms){
     m_fingers->swipes({Stroke{x1, y1, x2, y2, ms}});
 }
 
+void AgentHost::press(int x, int y, int ms){
+    m_fingers->tap(x, y, ms);
+}
+
+void AgentHost::swipes(const std::vector<Stroke>& strokes){
+    m_fingers->swipes(strokes);
+}
+
 void AgentHost::back(){
     QString error;
     if (!m_agent.key("BACK", &error)){
