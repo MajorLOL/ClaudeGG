@@ -119,6 +119,7 @@
 #include "ClaudeGG_Theme.h"
 #include "ClaudeGG_WiiU.h"
 #include "ClaudeGG_Vita.h"
+#include "ClaudeGG_3DS.h"
 #include "ClaudeGG_Setup.h"
 #include "ClaudeGG_SelfTest.h"
 #include "ClaudeGG_Update.h"
@@ -332,10 +333,11 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
             bool xbox_ok = false;
             bool wiiu_ok = false;
             bool vita_ok = false;
+            bool n3ds_ok = false;
             int retro_ok = 0;
             bool retro_wrong = false;
             bool switch_ok = true;
-            const char* const OTHERS[] = {"mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu", "psdirect", "xboxdirect", "steam", "vita"};
+            const char* const OTHERS[] = {"mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu", "psdirect", "xboxdirect", "steam", "vita", "3ds"};
             //  The lists of the Xbox 360, Remote Play, the iPhone and the PlayStation Classic, and their consoles.
             const std::map<QString, const char*> LATER{
                 {"Xbox 360 games", "xbox360"},
@@ -358,6 +360,7 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                 const bool retro = RETRO_LISTS.contains(listed_game.name);
                 const bool wiiu = listed_game.name == WiiU::WIIU_LIST_NAME;
                 const bool vita = listed_game.name == Vita::VITA_LIST_NAME;
+                const bool n3ds = listed_game.name == ThreeDS::LIST_NAME;
                 const auto only = [&](const char* console){
                     bool fine = game_is_for_console(listed_game, console) &&
                         !game_is_for_console(listed_game, "switch") && !game_is_for_console(listed_game, "switch2");
@@ -378,6 +381,8 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     wiiu_ok = listed_game.programs == (int)WiiU::wiiu_program_count() && only("wiiu");
                 }else if (vita){
                     vita_ok = listed_game.programs == (int)Vita::vita_program_count() && only("vita");
+                }else if (n3ds){
+                    n3ds_ok = listed_game.programs == (int)ThreeDS::program_count() && only("3ds");
                 }else if (LATER.count(listed_game.name) != 0){
                     if (listed_game.programs == 2 && only(LATER.at(listed_game.name))){
                         later_ok++;
@@ -400,7 +405,7 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     switch_ok = switch_ok && fine;
                 }
             }
-            if (!go_ok || !ps3_ok || !xbox_ok || !wiiu_ok || !vita_ok || retro_ok != 5 || later_ok != (int)LATER.size() || retro_wrong || !switch_ok){
+            if (!go_ok || !ps3_ok || !xbox_ok || !wiiu_ok || !vita_ok || !n3ds_ok || retro_ok != 5 || later_ok != (int)LATER.size() || retro_wrong || !switch_ok){
                 failed++;
                 logger.log("UI test: the games are not divided over the consoles (Pokemon GO for the phone, Claude Plays of the PlayStation 3, the original Xbox, the five retro consoles, the Xbox 360, Remote Play, the iPhone, the PlayStation Classic and the Wii U for them, the rest for the Switch)", COLOR_RED);
             }
@@ -465,6 +470,61 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
             if (!fine){
                 failed++;
                 logger.log("UI test: the Vita's buttons, sticks, token, touches or pictures are not read as they should be", COLOR_RED);
+            }
+        }
+        //  The Nintendo 3DS: the 20 bytes of InputRedirection, the command
+        //  that starts NTR's stream, the pieces of a picture put together,
+        //  and a touch on the picture of both screens.
+        {
+            auto u32 = [](const QByteArray& data, int at){
+                uint32_t v = 0;
+                for (int b = 3; b >= 0; b--){
+                    v = (v << 8) | (uint8_t)data[at + b];
+                }
+                return v;
+            };
+            const QByteArray none = ThreeDS::input_packet(ThreeDS::PadState());
+            ThreeDS::PadState pressed;
+            pressed.buttons = {"A", "DOWN", "ZR", "HOME"};
+            pressed.touch_x = 320;
+            pressed.touch_y = 0;
+            pressed.circle_x = 1;
+            const QByteArray held = ThreeDS::input_packet(pressed);
+            const QByteArray start = ThreeDS::ntr_start_packet(true, 5, 75, 105);
+            ThreeDS::FrameAssembler assembler;
+            const unsigned char first_bytes[] = {7, 0x01, 2, 0, 0xff, 0xd8, 1};
+            const char* first = reinterpret_cast<const char*>(first_bytes);
+            const unsigned char last_bytes[] = {7, 0x11, 2, 1, 2, 0xff, 0xd9};
+            const char* last = reinterpret_cast<const char*>(last_bytes);
+            const char wrong[] = {8, 0x10, 2, 3, 0};
+            bool top = false;
+            QByteArray jpeg;
+            const bool not_yet = !assembler.add(first, sizeof(first_bytes), top, jpeg);
+            const bool whole = assembler.add(last, sizeof(last_bytes), top, jpeg);
+            const bool missing = !assembler.add(wrong, sizeof(wrong), top, jpeg);
+            int tx = -1;
+            int ty = -1;
+            const bool on_bottom = ThreeDS::touch_point(200, 360, 400, 480, tx, ty);
+            int ux = -1;
+            int uy = -1;
+            const bool on_top = ThreeDS::touch_point(200, 100, 400, 480, ux, uy);
+            const QImage both = ThreeDS::both_screens(QImage(), QImage());
+            const QImage side(240, 400, QImage::Format_RGB32);
+            const bool fine =
+                none.size() == 20 && u32(none, 0) == 0xfff && u32(none, 4) == 0x02000000 && u32(none, 8) == 0x007ff7ff &&
+                u32(none, 12) == 0x80800081 && u32(none, 16) == 0 &&
+                u32(held, 0) == (0xfffu & ~0x1u & ~0x80u) && u32(held, 4) == ((1u << 24) | 0xfffu) &&
+                (u32(held, 8) & 0xfff) == 0xdd0 && (u32(held, 8) >> 12) == 0x800 &&
+                ((u32(held, 12) >> 8) & 0xff) == 0x2 && u32(held, 16) == 1 &&
+                start.size() == 84 && u32(start, 0) == 0x12345678 && u32(start, 12) == 901 &&
+                u32(start, 16) == 0x105 && u32(start, 20) == 75 && u32(start, 24) == (210u << 16) &&
+                not_yet && whole && top && jpeg == QByteArray("\xff\xd8\x01\x02\xff\xd9", 6) && missing &&
+                on_bottom && tx == 160 && ty == 120 && !on_top &&
+                both.width() == 400 && both.height() == 480 &&
+                ThreeDS::upright(side).width() == 400 && ThreeDS::upright(side).height() == 240;
+            if (!fine){
+                failed++;
+                logger.log("UI test: the 3DS's input, its stream or its touches are not made as they should be", COLOR_RED);
             }
         }
         if (!window.open_game(QString::fromStdString(GAME))){

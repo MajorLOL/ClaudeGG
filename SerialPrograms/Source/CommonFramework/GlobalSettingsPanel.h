@@ -79,6 +79,7 @@ enum class SetupConsole{
     XBOX_DIRECT,//  Xbox One and Series, straight: the wired board and a bought Brook Wingman XB 3.
     STEAM,      //  A Steam Deck or a PC with Steam: the wired board as its USB gamepad.
     VITA,       //  A PlayStation Vita with vita-agent-bridge, over the network (no board).
+    N3DS,       //  A Nintendo 3DS with Luma3DS and NTR-HR, over the network (no board).
 };
 
 
@@ -129,6 +130,9 @@ public:
     //  A PlayStation Vita with vita-agent-bridge (the console "vita"): its
     //  address. Its token is in a file of its own (see ClaudeGG/ClaudeGG_Vita.h).
     StringOption VITA_HOST;
+    //  A Nintendo 3DS with Luma3DS (InputRedirection) and NTR-HR (the console
+    //  "3ds"): its address (see ClaudeGG/ClaudeGG_3DS.h).
+    StringOption N3DS_HOST;
     ButtonOption OPEN_SETUP_BUTTON;
     BooleanCheckBoxOption ASK_LANGUAGE;
     BooleanCheckBoxOption ASK_SETUP;

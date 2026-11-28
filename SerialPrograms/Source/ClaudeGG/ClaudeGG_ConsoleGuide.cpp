@@ -698,6 +698,42 @@ const std::vector<Guide>& guides(){
                 "The bridge refuses the token: the file .vita-agent-token must have the same 64 characters as the token on the Vita.",
             },
         },
+        {
+            "3ds", "Nintendo 3DS", Status::EXPERIMENTAL, Speed::SLOWER,
+            "None: Luma3DS and NTR-HR on the 3DS", "Both screens from NTR-HR, over Wi-Fi",
+            "A 3DS with Luma3DS takes its buttons over the network (InputRedirection in the Rosalina menu), and NTR-HR (GPL-2.0, a separate project) sends both screens as pictures. Claude GG speaks both itself: there is no board and no capture card, and no other viewer is needed.",
+            {
+                NEED_COMPUTER,
+                "A 3DS with Luma3DS; a New 3DS or New 2DS is best (on the older ones NTR-HR sends only a few pictures a second).",
+                "NTR-HR (free), installed with BootNTR Selector as its page says.",
+                "The 3DS and the computer on the same home network, and UDP port 8001 open in the firewall of the computer.",
+            },
+            {
+                {"Computer", "Wi-Fi (InputRedirection)", "3DS with Luma3DS"},
+                {"3DS with NTR-HR", "Wi-Fi (both screens)", "Computer"},
+            },
+            {
+                "On the 3DS, open the Rosalina menu (L, DOWN and SELECT), turn on InputRedirection under Misc. settings and note the address it shows.",
+                "Start NTR-HR with BootNTR Selector.",
+                "Type the address under Nintendo 3DS, address in the settings.",
+                "Run Connect the 3DS: it saves a picture of both screens. Let Windows allow the program on the network when it asks.",
+            },
+            "A press is one small message over Wi-Fi, a few milliseconds. The picture comes as a stream: on a New 3DS often 40 to 60 pictures a second with a little delay, on an older 3DS only a few.",
+            {
+                "The list Nintendo 3DS: Connect the 3DS, and Claude Plays with the touch screen.",
+            },
+            {
+                LIMIT_UNTESTED,
+                "Claude sees both screens in one picture: the top one above, the lower one below it.",
+                "ZL, ZR and the C-stick are on a New 3DS only.",
+                "Only one program can take the stream of NTR-HR: close other 3DS viewers first.",
+            },
+            {
+                "No picture: start NTR-HR again, check the address, and let UDP port 8001 through the firewall of the computer.",
+                "The picture works but the buttons do not: turn on InputRedirection in the Rosalina menu again (after a restart it can be off).",
+                "The 3DS freezes when the Wi-Fi drops while InputRedirection is on: hold POWER to turn it off, and keep it near the router.",
+            },
+        },
     };
     return GUIDES;
 }
@@ -919,7 +955,7 @@ QString guide_html(const Guide& guide){
         html += heading("Steps in short", theme);
         html += list(guide.steps, true);
         //  (Not for the two with a Raspberry Pi in place of a board.)
-        if (QString(guide.code) != "mobile" && QString(guide.code) != "wiiu" && QString(guide.code) != "vita"){
+        if (QString(guide.code) != "mobile" && QString(guide.code) != "wiiu" && QString(guide.code) != "vita" && QString(guide.code) != "3ds"){
             html += "<p style=\"color: " + theme.muted.name() + ";\">" + t("The setup shows every step with pictures and flashes the board for you.") + "</p>";
         }
     }
@@ -1139,7 +1175,7 @@ int console_guide_self_test(){
         }
     };
     //  Every console of the setup has a page.
-    for (const char* code : {"switch", "switch2", "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu", "psdirect", "xboxdirect", "steam", "vita"}){
+    for (const char* code : {"switch", "switch2", "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu", "psdirect", "xboxdirect", "steam", "vita", "3ds"}){
         const Guide* guide = find_guide(code);
         check(guide != nullptr, QString("no page for ") + code);
         if (guide == nullptr){

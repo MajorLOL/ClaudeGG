@@ -41,6 +41,7 @@
 #include "ClaudeGG/ClaudeGG_ProgramList.h"
 #include "ClaudeGG/ClaudeGG_WiiU.h"
 #include "ClaudeGG/ClaudeGG_Vita.h"
+#include "ClaudeGG/ClaudeGG_3DS.h"
 #include "PanelLists.h"
 
 //#include <iostream>
@@ -120,6 +121,10 @@ std::vector<std::unique_ptr<PanelListDescriptor>> make_all_lists(){
     //  ClaudeGG: the PlayStation Vita, over the network with vita-agent-bridge:
     //  a test of the connection and Claude Plays. Shown for that console only.
     lists.emplace_back(std::make_unique<ClaudeGG::Vita::VitaList>());
+
+    //  ClaudeGG: the Nintendo 3DS, over the network with Luma3DS's
+    //  InputRedirection and NTR-HR's picture. Shown for that console only.
+    lists.emplace_back(std::make_unique<ClaudeGG::ThreeDS::ThreeDSList>());
 
     if (STATIC_GLOBALS.DEVELOPER_MODE){
         lists.emplace_back(std::make_unique<ML::PanelListFactory>());
