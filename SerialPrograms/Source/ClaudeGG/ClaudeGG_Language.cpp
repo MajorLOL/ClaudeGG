@@ -923,7 +923,7 @@ std::function<std::unique_ptr<SetupProgramOptions>(QWidget*, int, const QString&
 QString g_chosen_game;
 QString g_chosen_program;
 
-void run_and_keep(bool ask_language, bool ask_board, bool play_intro = false, bool ask_game = false){
+void run_and_keep(bool ask_language, bool ask_board, bool play_intro = false, bool ask_game = false, const QString& console_code = QString()){
     GlobalSettings& settings = GlobalSettings::instance();
 
     SetupRequest request;
@@ -932,6 +932,10 @@ void run_and_keep(bool ask_language, bool ask_board, bool play_intro = false, bo
     //  The console is a screen of the setup: asked where the board is asked.
     request.ask_console = ask_board;
     request.console_code = console_code_of(settings.GAME_CONSOLE.get());
+    //  Opened for one console (the Consoles guide): that one is picked already.
+    if (!console_code.isEmpty()){
+        request.console_code = console_code;
+    }
     fill_mobile(request);
     request.language_code = setting_code();
     request.play_intro = play_intro;
@@ -1025,8 +1029,8 @@ void ask_setup_if_needed(){
 QString current_console_code(){
     return console_code_of(GlobalSettings::instance().GAME_CONSOLE.get());
 }
-void open_setup(){
-    run_and_keep(true, true);
+void open_setup(const QString& console_code){
+    run_and_keep(true, true, false, false, console_code);
 }
 
 AppView* make_main_view(
