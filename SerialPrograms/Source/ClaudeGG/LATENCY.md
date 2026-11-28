@@ -37,6 +37,7 @@ Every route from ClaudeGG to a game is the same chain: **the picture** comes in 
 
 ## Measuring it yourself
 
+- Claude Plays: every action in the log says how long Claude's turn took and how long the console took (`(Claude 2.1 s, the console 0.6 s)`), every tenth action and the end of the session give the average and the slowest turn. Through the MCP server it is Claude Code's turn. That shows at once whether to choose a faster model or a smaller picture (Claude's part) or to look at the console's side.
 - The phone: `claudegg_agent.py --measure` (above).
 - The whole chain on a console: film the screen and the board's LED (or a press you can see) with a phone in slow motion (240 fps is 4 ms a frame) and count the frames from the press to the first change on screen. A streaming company measured its latency this way, with a 1000 fps camera.
 

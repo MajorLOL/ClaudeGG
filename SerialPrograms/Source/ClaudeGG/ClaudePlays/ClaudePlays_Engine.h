@@ -121,6 +121,29 @@ struct Limits{
 };
 
 //  How a session ended.
+//  Where the time of a session went: what the user waits for between an
+//  action and the next. "thinking" is Claude's turn, from the moment the
+//  result of the action before went out until the next call came (for a
+//  session through the API: the request and its answer; for one through
+//  the MCP server: Claude Code's turn). "acting" is the program running a
+//  call on the console, the look at the screen afterwards included.
+struct Timing{
+    double thinking_seconds = 0;
+    double slowest_thinking = 0;
+    uint64_t turns = 0;
+    double acting_seconds = 0;
+    uint64_t actions = 0;
+
+    void thought(double seconds);
+    void acted(double seconds);
+};
+//  "1.4 s"
+std::string seconds_line(double seconds);
+//  "Reaction time: Claude 2.3 s a turn (slowest 4.1 s), the console 0.6 s
+//  an action." Empty before anything was timed.
+std::string timing_line(const Timing& timing, const std::string& who);
+
+
 struct Ending{
     //  Claude said that the goal is reached.
     bool reached = false;
@@ -131,6 +154,7 @@ struct Ending{
     std::string summary;
     uint64_t actions = 0;
     PlayUsage usage;
+    Timing timing;
 };
 
 //  Plays toward "goal" until Claude calls done, a limit is reached, Claude
