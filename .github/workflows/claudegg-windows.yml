@@ -351,6 +351,48 @@ jobs:
           }
           New-Item -ItemType Directory -Path "package" | Out-Null
           Copy-Item -Recurse $out "package/ClaudeGG"
+          #  The two big OCR models (165 MB of the 375 MB zip) go on the
+          #  release as files of their own, and the program downloads them
+          #  at their first use (download_resource_now, in DownloadThread.cpp;
+          #  the SHA-256 is checked). The list in the package says where they
+          #  are ("ClaudeGG": true: Pokemon Automation's list online is not
+          #  asked). A build that is not published keeps them in the folder,
+          #  as its release does not exist.
+          New-Item -ItemType Directory -Force -Path "resources" | Out-Null
+          if ($env:PUBLISH -eq "true") {
+            $pkg = "package/ClaudeGG"
+            $base = "https://github.com/${{ github.repository }}/releases/download/v$env:BUILD_NUMBER"
+            $listPath = "$pkg/Resources/ResourceDownloadList.json"
+            $list = Get-Content $listPath -Raw | ConvertFrom-Json
+            function Set-Resource($name, $zip, $decompressed) {
+              $entry = [ordered]@{
+                ResourceName      = $name
+                Version           = 1
+                CompressedBytes   = (Get-Item $zip).Length
+                DecompressedBytes = $decompressed
+                URL               = "$base/$name.zip"
+                SHA256            = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+                ClaudeGG          = $true
+              }
+              $script:list.ResourceList = @($script:list.ResourceList | Where-Object { $_.ResourceName -ne $name }) + [pscustomobject]$entry
+              Write-Host "$name at its first use: $($entry.CompressedBytes) bytes, $($entry.URL), SHA-256 $($entry.SHA256)"
+            }
+            #  The text detection: Pokemon Automation's zip as it is.
+            Copy-Item "Arduino-Source/Packages/DownloadedResources/PaddleOCRDetection.zip" "resources/PaddleOCRDetection.zip"
+            $detBytes = (Get-ChildItem "$pkg/DownloadedResources/PaddleOCRDetection" -File | Measure-Object Length -Sum).Sum
+            Set-Resource "PaddleOCRDetection" "resources/PaddleOCRDetection.zip" $detBytes
+            Remove-Item -Recurse -Force "$pkg/DownloadedResources/PaddleOCRDetection"
+            #  The reading of Japanese and Chinese; its dictionary stays.
+            $cj = Join-Path $env:RUNNER_TEMP "PaddleOCRChineseJapanese"
+            New-Item -ItemType Directory -Force -Path $cj | Out-Null
+            Move-Item "$pkg/Resources/PaddleOCR/chinese/rec.onnx" "$cj/rec.onnx"
+            '{ "version" : 1 }' | Out-File "$cj/version.json" -Encoding ascii
+            Compress-Archive -Path "$cj/*" -DestinationPath "resources/PaddleOCRChineseJapanese.zip"
+            $cjBytes = (Get-ChildItem $cj -File | Measure-Object Length -Sum).Sum
+            Set-Resource "PaddleOCRChineseJapanese" "resources/PaddleOCRChineseJapanese.zip" $cjBytes
+            $list | ConvertTo-Json -Depth 5 | Out-File $listPath -Encoding utf8NoBOM
+            Get-Content $listPath
+          }
           Compress-Archive -Path "package/ClaudeGG" -DestinationPath "ClaudeGG-Windows.zip"
           Get-Item "ClaudeGG-Windows.zip" | Format-List Name, Length
           #  What takes the room, so that a change in size can be traced.
@@ -1013,6 +1055,7 @@ jobs:
           name: ClaudeGG-Windows
           path: |
             ClaudeGG-Windows.zip
+            resources/*.zip
             ui-screenshots/*.png
             setup-screenshots/*.png
             embed-screenshots/*.png
@@ -1054,6 +1097,10 @@ jobs:
           fi
           mv "$ZIP" ClaudeGG-Windows.zip
           ls -l ClaudeGG-Windows.zip
+          #  The OCR models that the program downloads at their first use.
+          mkdir -p resources
+          find artifact -path '*resources/*.zip' -exec mv {} resources/ \;
+          ls -l resources
 
       - name: Check the zip against its hash
         shell: bash
@@ -1078,9 +1125,9 @@ jobs:
           TAG="v$BUILD_NUMBER"
           # Only the program itself goes on the release. The pictures of the
           # interface test stay in the workflow artifact, to look at there.
-          gh release create "$TAG" ClaudeGG-Windows.zip \
+          gh release create "$TAG" ClaudeGG-Windows.zip resources/*.zip \
             --repo "${{ github.repository }}" \
             --target "${{ github.sha }}" \
             --prerelease \
             --title "Claude GG - V $BUILD_NUMBER" \
-            --notes "Claude GG, a personal fork of Pokemon Automation's SerialPrograms. Unzip, then run ClaudeGG.exe. This build passed its interface test: it started on the build machine, without settings, and took pictures of its own interface. For non-commercial use. Built from ${{ github.sha }}. The program is not signed with a certificate, so Windows may warn when you start it: compare the SHA-256 of the zip you downloaded with this one before you do. SHA-256 of ClaudeGG-Windows.zip: $SHA256"
+            --notes "Claude GG, a personal fork of Pokemon Automation's SerialPrograms. Unzip, then run ClaudeGG.exe. The two OCR models (PaddleOCRDetection.zip, PaddleOCRChineseJapanese.zip) are downloaded by the program itself the first time a program needs them; download them by hand only if that fails (it says where to unpack them). This build passed its interface test: it started on the build machine, without settings, and took pictures of its own interface. For non-commercial use. Built from ${{ github.sha }}. The program is not signed with a certificate, so Windows may warn when you start it: compare the SHA-256 of the zip you downloaded with this one before you do. SHA-256 of ClaudeGG-Windows.zip: $SHA256"
