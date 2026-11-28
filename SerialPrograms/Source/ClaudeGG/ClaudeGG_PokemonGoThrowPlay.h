@@ -59,7 +59,7 @@ using Later = std::function<cv::Mat()>;
 
 //  ---- the phone and the parts of the app that a throw needs
 
-class Host : public Map::Host{
+class Host : public virtual Map::Host{
 public:
     //  The command that sends touch events: "input", or the faster "cmd input" (S.INPUT).
     virtual QStringList input_cmd() = 0;
