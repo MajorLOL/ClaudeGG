@@ -333,7 +333,7 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
             int retro_ok = 0;
             bool retro_wrong = false;
             bool switch_ok = true;
-            const char* const OTHERS[] = {"mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu", "psdirect", "xboxdirect"};
+            const char* const OTHERS[] = {"mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu", "psdirect", "xboxdirect", "steam"};
             //  The lists of the Xbox 360, Remote Play, the iPhone and the PlayStation Classic, and their consoles.
             const std::map<QString, const char*> LATER{
                 {"Xbox 360 games", "xbox360"},
@@ -343,6 +343,7 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                 {"PlayStation Classic games", "psclassic"},
                 {"PS4 and PS5 games, direct", "psdirect"},
                 {"Xbox One and Series games, direct", "xboxdirect"},
+                {"Steam Deck and PC games", "steam"},
             };
             int later_ok = 0;
             const QStringList RETRO_LISTS{

@@ -948,6 +948,11 @@ std::string setup_text(const GameProfile& profile){
                 "on the capture card through an HDMI adapter, and the wired board (the ESP32-S3) with HID: "
                 "Keyboard as the type, plugged into the iPhone. Not tried on an iPhone yet: first check that "
                 "TAB moves the frame and SPACE taps")
+            : console == "steam"
+            ? std::string(
+                "a Steam Deck or a PC with Steam and a game on the screen, and the wired board (the ESP32-S3) "
+                "with NS1: Wired Controller as the type, plugged into the Steam Deck's dock or into the PC, as "
+                "its USB gamepad. Not tried yet: first check that the d-pad moves in Steam's menu")
             : console == "psdirect" || console == "xboxdirect"
             ? std::string(console == "psdirect"
                 ? "a PlayStation 4 or 5 with a game on the screen (on a PlayStation 5 a PS4 game), and the wired board "
@@ -1340,7 +1345,10 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
         if (dynamic_cast<PABotBase2_WiredController*>(&controller) == nullptr){
             throw UserSetupError(
                 env.console,
-                profile.console == "psdirect" || profile.console == "xboxdirect"
+                profile.console == "steam"
+                    ? "Steam takes the board as a plain USB gamepad: pick NS1: Wired Controller as the type of "
+                      "the controller (on a wired board, the ESP32-S3)."
+                : profile.console == "psdirect" || profile.console == "xboxdirect"
                     ? "The adapter (a Brook Wingman) takes a Switch pad: pick NS1: Wired Controller as the type of "
                       "the controller (on a wired board, the ESP32-S3)."
                 : profile.pad == PadKind::XBOX360_CONTROLLER || profile.pad == PadKind::PSCLASSIC_CONTROLLER
@@ -1520,6 +1528,8 @@ QRgb card_ground(GameId game){
         return qRgb(0x2b, 0x4c, 0xa8);
     case GameId::XBOX_DIRECT:
         return qRgb(0x2a, 0x80, 0x3a);
+    case GameId::STEAM:
+        return qRgb(0x1b, 0x28, 0x38);
     default:
         return qRgb(0x44, 0x4a, 0x5c);
     }

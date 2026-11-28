@@ -77,6 +77,7 @@ enum class SetupConsole{
     WIIU,       //  Nintendo Wii U: a Raspberry Pi that the Wii U takes as its GamePad (WiiU/vanilla-bridge).
     PS_DIRECT,  //  PlayStation 4 and 5, straight: the wired board and a bought Brook Wingman XE.
     XBOX_DIRECT,//  Xbox One and Series, straight: the wired board and a bought Brook Wingman XB 3.
+    STEAM,      //  A Steam Deck or a PC with Steam: the wired board as its USB gamepad.
 };
 
 
