@@ -2184,5 +2184,18 @@
  "Vanilla is still alpha, so a Wii U update or another adapter can break it.": "Vanilla ist noch Alpha, ein Wii-U-Update oder ein anderer Adapter kann es also stören.",
  "The Pi does not connect: check that the adapter is on the list of Vanilla, that vanilla-pipe runs on that adapter (often wlan1), and keep the Pi close to the Wii U.": "Der Pi verbindet sich nicht: prüfe, ob der Adapter auf der Liste von Vanilla steht, ob vanilla-pipe auf diesem Adapter läuft (oft wlan1), und halte den Pi nah an der Wii U.",
  "The Wii U refuses the GamePad: start the bridge with the region of the console (EUR, USA or JPN).": "Die Wii U lehnt das GamePad ab: starte die Brücke mit der Region der Konsole (EUR, USA oder JPN).",
- "No picture: check the address of the Pi and that a firewall does not block ports 51200 to 51202.": "Kein Bild: prüfe die Adresse des Pi und ob eine Firewall die Ports 51200 bis 51202 nicht blockiert."
+ "No picture: check the address of the Pi and that a firewall does not block ports 51200 to 51202.": "Kein Bild: prüfe die Adresse des Pi und ob eine Firewall die Ports 51200 bis 51202 nicht blockiert.",
+ "Brook Wingman XE": "Brook Wingman XE",
+ "Brook Wingman XB 3": "Brook Wingman XB 3",
+ "PS4 and PS5, direct": "PS4 und PS5, direkt",
+ "Xbox One and Series, direct": "Xbox One und Series, direkt",
+ "ESP32-S3 and a Brook Wingman XE": "ESP32-S3 und ein Brook Wingman XE",
+ "ESP32-S3 and a Brook Wingman XB 3": "ESP32-S3 und ein Brook Wingman XB 3",
+ "The ESP32-S3 plays a Switch pad into a bought Brook Wingman XE, which plays a PlayStation 4 controller and answers the console's check of a pad. No network and no stream: quicker than Remote Play.": "Der ESP32-S3 spielt ein Switch-Pad in einen gekauften Brook Wingman XE, der einen PlayStation-4-Controller spielt und die Prüfung der Konsole auf ein Pad beantwortet. Kein Netzwerk und kein Stream: schneller als Remote Play.",
+ "The ESP32-S3 plays a Switch pad into a bought Brook Wingman XB 3, which plays an Xbox controller and answers the console's check of a pad. No network and no stream: quicker than Remote Play.": "Der ESP32-S3 spielt ein Switch-Pad in einen gekauften Brook Wingman XB 3, der einen Xbox-Controller spielt und die Prüfung der Konsole auf ein Pad beantwortet. Kein Netzwerk und kein Stream: schneller als Remote Play.",
+ "Wired all the way: the adapter adds a few milliseconds, far less than the stream of Remote Play.": "Durchgehend per Kabel: der Adapter fügt ein paar Millisekunden hinzu, viel weniger als der Stream von Remote Play.",
+ "The list PS4 and PS5 games, direct of Claude Plays.": "Die Liste PS4 and PS5 games, direct von Claude Plays.",
+ "The list Xbox One and Series games, direct of Claude Plays.": "Die Liste Xbox One and Series games, direct von Claude Plays.",
+ "The adapter has to be bought: no open adapter answers the check of these consoles.": "Der Adapter muss gekauft werden: kein offener Adapter beantwortet die Prüfung dieser Konsolen.",
+ "The console does not take the adapter: update it with Brook's updater and plug it straight into the console, without a hub.": "Die Konsole nimmt den Adapter nicht an: aktualisiere ihn mit dem Updater von Brook und stecke ihn direkt in die Konsole, ohne Hub."
 }
