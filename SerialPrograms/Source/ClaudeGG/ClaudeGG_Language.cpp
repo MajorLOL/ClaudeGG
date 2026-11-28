@@ -957,18 +957,28 @@ void run_and_keep(bool ask_language, bool ask_board, bool play_intro = false, bo
     //  The choice of a game: a screen of its own after the installation of the
     //  board, and, when the setting asks for it, at the start.
     if ((ask_board || ask_game) && g_game_lister){
-        g_game_lister(request.games, request.programs);
-        global_logger_tagged().log(
-            "Setup: " + std::to_string(request.games.size()) + " games to choose from, with " +
-            std::to_string(request.programs.size()) + " programs."
-        );
-        //  The setting can leave the choice of a program out: the game then
-        //  opens with its list, as before.
-        if (!settings.ASK_PROGRAM){
-            request.programs.clear();
+        const bool ask_program = settings.ASK_PROGRAM;
+        auto list = [ask_program](std::vector<HomeGame>& games, std::vector<HomeProgram>& programs){
+            g_game_lister(games, programs);
+            global_logger_tagged().log(
+                "Setup: " + std::to_string(games.size()) + " games to choose from, with " +
+                std::to_string(programs.size()) + " programs."
+            );
+            //  The setting can leave the choice of a program out: the game then
+            //  opens with its list, as before.
+            if (!ask_program){
+                programs.clear();
+            }
+        };
+        if (play_intro){
+            //  Listing every game takes a moment: with the intro, the setup
+            //  lists them once the film is over, so that it starts at once.
+            request.list_games = std::move(list);
+        }else{
+            list(request.games, request.programs);
         }
     }
-    request.ask_game = ask_game && !request.games.empty();
+    request.ask_game = ask_game && (!request.games.empty() || request.list_games);
     const SetupResult result = run_setup(request);
     if (play_intro){
         global_logger_tagged().log("Intro: done, " + result.intro_note.toStdString() + ".");

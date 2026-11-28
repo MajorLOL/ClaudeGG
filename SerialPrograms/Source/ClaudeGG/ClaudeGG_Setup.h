@@ -176,6 +176,12 @@ struct SetupRequest{
     //  follows the choice of the game: which program to start. Empty: none.
     std::vector<HomeProgram> programs;
 
+    //  Lists "games" and "programs" later, when they are first needed and,
+    //  with the intro, only once its film is over: listing every game takes
+    //  a moment, and the film must start at once and play without a jerk.
+    //  Empty: "games" and "programs" are there already.
+    std::function<void(std::vector<HomeGame>& games, std::vector<HomeProgram>& programs)> list_games;
+
     //  Fills "out" with the lines of the output log that came after "after"
     //  (oldest first; the first call, with 0, gets what is kept). Empty: the
     //  log panel stays empty.
