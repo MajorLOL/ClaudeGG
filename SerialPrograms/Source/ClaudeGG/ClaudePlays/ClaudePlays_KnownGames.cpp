@@ -1,0 +1,213 @@
+/*  ClaudeGG Claude Plays: well-known games of the other consoles
+ *
+ *  Part of ClaudeGG, which is based on Pokemon Automation
+ *  (https://github.com/PokemonAutomation/).
+ *
+ *  The notes name buttons only in capitals, and only the list's own (a
+ *  test holds them to the pad's names): the rest of a note is plain words.
+ *
+ */
+
+#include <algorithm>
+#include <set>
+#include "ClaudePlays_KnownGames.h"
+
+namespace PokemonAutomation{
+namespace ClaudeGG{
+namespace ClaudePlays{
+
+
+namespace{
+
+std::vector<KnownGame> make_known_games(){
+    std::vector<KnownGame> games;
+    auto add = [&](GameId list, const char* slug, const char* name, const char* notes, const char* yes_no, int frame_rate){
+        games.push_back(KnownGame{list, slug, name, notes, yes_no, frame_rate});
+    };
+
+    //  The first PlayStation.
+    add(
+        GameId::PLAYSTATION_1, "ff7", "Final Fantasy VII",
+        "This is a turn-based role-playing game. The d-pad walks, CIRCLE talks, examines and picks, CROSS cancels, "
+        "TRIANGLE opens the menu. In battle each character's commands come up when the character's bar "
+        "is full: CIRCLE picks one and its target, CROSS goes back.",
+        "In this game CIRCLE is yes and CROSS no or back, in every region.",
+        15
+    );
+    add(
+        GameId::PLAYSTATION_1, "crash", "Crash Bandicoot",
+        "This is a platform game: the d-pad runs, CROSS jumps, SQUARE spins (it breaks crates and beats enemies), "
+        "START pauses.",
+        "", 0
+    );
+    add(
+        GameId::PLAYSTATION_1, "gran-turismo", "Gran Turismo",
+        "This is a racing game: the d-pad steers, CROSS accelerates, SQUARE brakes. In the menus CROSS picks and "
+        "TRIANGLE goes back. The race goes on while Claude thinks: prefer holding a button for a while over "
+        "many short presses.",
+        "", 0
+    );
+
+    //  The PlayStation 2.
+    add(
+        GameId::PLAYSTATION_2, "ffx", "Final Fantasy X",
+        "This is a turn-based role-playing game. The left stick walks, CROSS talks, examines and picks, CIRCLE "
+        "cancels, TRIANGLE opens the menu. In battle the turn order is shown at the right: CROSS picks a "
+        "command and its target, CIRCLE goes back.",
+        "", 0
+    );
+    add(
+        GameId::PLAYSTATION_2, "kingdom-hearts", "Kingdom Hearts",
+        "An action role-playing game. The left stick walks, CROSS does the command chosen in the menu at "
+        "the bottom left (Attack, Talk, Open, ...; the d-pad moves through it), CIRCLE jumps, R1 locks "
+        "on, L2 and R2 turn the camera, START pauses.",
+        "Outside Japan CROSS is yes and CIRCLE no in this game; in the Japanese version the other way "
+        "round.",
+        0
+    );
+    add(
+        GameId::PLAYSTATION_2, "gta-sa", "Grand Theft Auto: San Andreas",
+        "An open-world game. On foot: the left stick walks, CROSS held sprints, SQUARE jumps, CIRCLE "
+        "attacks, R1 held aims, TRIANGLE gets into a vehicle. In a car: CROSS accelerates, SQUARE brakes "
+        "and reverses, TRIANGLE gets out. START opens the pause menu with the map. The game saves only "
+        "at the safe houses.",
+        "", 0
+    );
+
+    //  The Nintendo 64.
+    add(
+        GameId::NINTENDO_64, "mario64", "Super Mario 64",
+        "This is a 3D platform game. The stick runs, A jumps (again on landing: higher), B punches (while "
+        "running: a dive), Z crouches (in the air: a ground pound), C_UP to C_RIGHT move the camera, R "
+        "changes how it follows, START pauses. The paintings in the castle lead to the courses.",
+        "", 0
+    );
+    add(
+        GameId::NINTENDO_64, "zelda-oot", "The Legend of Zelda: Ocarina of Time",
+        "An action adventure. The stick walks, A does the action named at the top of the screen (talk, "
+        "open, climb, roll while running), B swings the sword, C_LEFT, C_DOWN and C_RIGHT use the items "
+        "set on them, C_UP looks around, Z targets, R raises the shield. START opens the menus, where Z "
+        "and R turn the pages.",
+        "", 20
+    );
+    add(
+        GameId::NINTENDO_64, "mario-kart-64", "Mario Kart 64",
+        "This is a racing game: the stick steers, A accelerates, B brakes, Z uses the item, R hops and, held "
+        "while steering, drifts. START pauses. The race goes on while Claude thinks: prefer holding a "
+        "button for a while over many short presses.",
+        "", 0
+    );
+    add(
+        GameId::NINTENDO_64, "goldeneye", "GoldenEye 007",
+        "This is a first-person shooter. By default the stick walks forward and back and turns, C_LEFT and C_RIGHT "
+        "step to the side, C_UP and C_DOWN look up and down, Z fires, R held aims, B opens doors and uses, "
+        "A changes the weapon. START opens the watch (the menu).",
+        "", 20
+    );
+
+    //  The GameCube.
+    add(
+        GameId::GAMECUBE, "melee", "Super Smash Bros. Melee",
+        "This is a fighting game. The stick moves, A attacks, B does a special move, X or Y jumps, L or R "
+        "shields, Z grabs, the second stick does smash attacks. START pauses. In the menus A picks and B goes "
+        "back.",
+        "", 0
+    );
+    add(
+        GameId::GAMECUBE, "wind-waker", "The Legend of Zelda: The Wind Waker",
+        "An action adventure. The stick walks, A does the action named at the top right (talk, open, "
+        "climb, roll while running), B swings the sword, X, Y and Z use the items set on them, L targets, "
+        "the second stick (the yellow one) turns the camera. START opens the menus.",
+        "", 0
+    );
+    add(
+        GameId::GAMECUBE, "mario-kart-dd", "Mario Kart: Double Dash!!",
+        "This is a racing game with two drivers on each kart: the stick steers, A accelerates, B brakes, R hops "
+        "and, held while steering, drifts, X or Y uses the item, Z swaps the drivers. START pauses.",
+        "", 0
+    );
+
+    //  The Dreamcast.
+    add(
+        GameId::DREAMCAST, "sonic-adventure", "Sonic Adventure",
+        "This is a 3D platform game. The stick runs, A jumps (again in the air, as Sonic: an attack at the "
+        "nearest enemy), B or X does the action (picks up, and held: a spin dash), L and R turn the "
+        "camera. START pauses.",
+        "", 0
+    );
+    return games;
+}
+
+const std::vector<KnownGame>& all_known_games(){
+    static const std::vector<KnownGame> games = make_known_games();
+    return games;
+}
+
+}   //  namespace
+
+
+std::vector<const KnownGame*> known_games(GameId list){
+    std::vector<const KnownGame*> games;
+    for (const KnownGame& game : all_known_games()){
+        if (game.list == list){
+            games.push_back(&game);
+        }
+    }
+    return games;
+}
+
+InputTiming timing_for_game(const InputTiming& base, int frame_rate){
+    if (frame_rate <= 0 || frame_rate >= 30){
+        return base;
+    }
+    InputTiming timing = base;
+    const int frame_ms = (1000 + frame_rate - 1) / frame_rate;
+    timing.direction_ms = std::max(timing.direction_ms, 3 * frame_ms);
+    timing.press_ms = std::max(timing.press_ms, timing.direction_ms + 30);
+    timing.gap_ms = std::max(timing.gap_ms, 2 * timing.press_ms);
+    timing.settle_ms = std::max(timing.settle_ms, 4 * frame_ms);
+    return timing;
+}
+
+
+int known_games_tests(std::string& report){
+    int wrong = 0;
+    auto fail = [&](const std::string& what){
+        wrong++;
+        report += (report.empty() ? "" : "\n") + what;
+    };
+    std::set<std::string> slugs;
+    for (const KnownGame& game : all_known_games()){
+        //  Only in the lists of consoles that do not know their game.
+        const GameProfile& list = game_profile(game.list);
+        if (!list.name.empty() || list.console == "switch"){
+            fail(game.slug + " is in the list of a game, not of a console");
+        }
+        if (game.slug.empty() || game.name.empty() || game.notes.empty() || !slugs.insert(game.slug).second ||
+            game.slug == "none" || game.notes.back() != '.' || (!game.yes_no.empty() && game.yes_no.back() != '.')
+        ){
+            fail("the entry " + game.slug);
+        }
+    }
+    //  A game at 20 frames a second: a direction held at least three of
+    //  them; at 60, the console's own timing.
+    const InputTiming base = console_traits("retro").timing;
+    const InputTiming slow = timing_for_game(base, 20);
+    if (slow.direction_ms < 150 || slow.press_ms < slow.direction_ms || slow.gap_ms < slow.press_ms){
+        fail("the timing of a game at 20 frames a second");
+    }
+    const InputTiming fast = timing_for_game(base, 60);
+    if (fast.direction_ms != base.direction_ms || fast.press_ms != base.press_ms || fast.gap_ms != base.gap_ms){
+        fail("the timing of a game at 60 frames a second");
+    }
+    if (known_games(GameId::NINTENDO_64).empty() || !known_games(GameId::SCARLET_VIOLET).empty()){
+        fail("the lists of the known games");
+    }
+    return wrong;
+}
+
+
+
+}
+}
+}
