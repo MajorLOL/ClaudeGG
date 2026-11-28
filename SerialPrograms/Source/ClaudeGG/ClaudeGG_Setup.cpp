@@ -976,6 +976,10 @@ public:
         }else if (m_console_again){
             m_console_again = false;
             go_games(m_games_back);
+        }else if (m_result.console_chosen && m_result.console_code == "wiiu"){
+            //  A Wii U has no board either: a Raspberry Pi is its GamePad, and
+            //  the program "Connect the GamePad" of its list does the rest.
+            end_installation();
         }else if (m_request.ask_board){
             go_board();
         }else{
@@ -7594,6 +7598,68 @@ QPixmap ps3_picture(){
     return cache;
 }
 
+//  A tablet-like gamepad, white, with a screen in the middle, two sticks, a
+//  d-pad and four buttons: the picture of the console "wiiu". It stands for
+//  the GamePad that a Raspberry Pi plays. Drawn here, as the picture of the
+//  Switch 2 is.
+QPixmap wiiu_picture(){
+    static QPixmap cache;
+    if (!cache.isNull()){
+        return cache;
+    }
+    constexpr int W = 560;
+    constexpr int H = 330;
+    QImage image(W, H, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter p(&image);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(Qt::NoPen);
+
+    //  The body: a wide rounded slab, with grips on the back that show at the bottom.
+    p.setBrush(QColor(150, 152, 160));
+    p.drawRoundedRect(QRectF(46, 210, 120, 100), 40, 40);
+    p.drawRoundedRect(QRectF(394, 210, 120, 100), 40, 40);
+    QPainterPath body;
+    body.addRoundedRect(QRectF(10, 30, 540, 250), 70, 70);
+    QLinearGradient shade(0, 30, 0, 280);
+    shade.setColorAt(0, QColor(246, 247, 250));
+    shade.setColorAt(1, QColor(200, 202, 210));
+    p.setBrush(shade);
+    p.drawPath(body);
+    p.setPen(QPen(QColor(255, 255, 255), 2));
+    p.setBrush(Qt::NoBrush);
+    p.drawPath(body);
+    p.setPen(Qt::NoPen);
+
+    //  The screen, black with a glint.
+    p.setBrush(QColor(30, 32, 38));
+    p.drawRoundedRect(QRectF(150, 58, 260, 170), 12, 12);
+    QLinearGradient glint(150, 58, 410, 228);
+    glint.setColorAt(0, QColor(90, 140, 220, 160));
+    glint.setColorAt(1, QColor(30, 40, 70, 120));
+    p.setBrush(glint);
+    p.drawRoundedRect(QRectF(160, 68, 240, 150), 8, 8);
+
+    //  The two sticks, high on the sides.
+    for (const double x : {80.0, 480.0}){
+        p.setBrush(QColor(60, 62, 70));
+        p.drawEllipse(QPointF(x, 100), 30, 30);
+        p.setBrush(QColor(96, 100, 110));
+        p.drawEllipse(QPointF(x, 100), 20, 20);
+    }
+
+    //  The d-pad on the left, the four buttons on the right, under the sticks.
+    p.setBrush(QColor(60, 62, 70));
+    p.drawRoundedRect(QRectF(70, 160, 20, 64), 4, 4);
+    p.drawRoundedRect(QRectF(48, 182, 64, 20), 4, 4);
+    for (const QPointF& button : {QPointF(480, 160), QPointF(504, 184), QPointF(456, 184), QPointF(480, 208)}){
+        p.drawEllipse(button, 12, 12);
+    }
+    p.end();
+    cache = QPixmap::fromImage(image);
+    return cache;
+}
+
 //  A plain gamepad of the old kind, light gray with a d-pad and four colored
 //  buttons, and a small adapter with a cable and a light of Bluetooth blue:
 //  the picture of the console "retro" (BlueRetro, for several consoles; it
@@ -7980,9 +8046,11 @@ constexpr ConsoleInfo CONSOLES[] = {
     //  The ESP32-S3 through a Pico with OGX-Mini in its PlayStation Classic
     //  mode. Experimental.
     {"psclassic",   "PlayStation Classic",  "Through a Pico with OGX-Mini", true},
-    //  What the gamepad adapters of the community already speak (the
-    //  platforms of OGX-Mini) and what the commercial ones list.
-    {"wiiu",        "Nintendo Wii U",       nullptr,    false},
+    //  A Raspberry Pi that the Wii U takes as its GamePad (Vanilla, GPL-2.0,
+    //  with the bridge of WiiU/vanilla-bridge): no board and no capture card,
+    //  the picture is the GamePad's screen. Experimental: not tried on a Wii
+    //  U yet.
+    {"wiiu",        "Nintendo Wii U",       "A Raspberry Pi as its GamePad",        true},
 };
 constexpr int CONSOLE_COUNT = (int)(sizeof(CONSOLES) / sizeof(CONSOLES[0]));
 
@@ -8249,6 +8317,7 @@ private:
             : code == "switch2" ? switch2_picture()
             : code == "ps3" ? ps3_picture()
             : code == "xbox" ? xbox_picture()
+            : code == "wiiu" ? wiiu_picture()
             : console_is_other(code) ? console_picture(code)
             : phone_picture();
         const QRectF room(
@@ -11703,18 +11772,16 @@ int run_setup_test(QApplication& application, const QString& folder){
     checker.check(has_content(canvas.picture()), "the console screen has something on it");
     {
         bool all = true;
-        for (int c = 0; c < 11; c++){
+        for (int c = 0; c < 12; c++){
             const QString tile = "console:" + QString::number(c);
             all = all && canvas.has_hit(tile) && canvas.hit_enabled(tile);
         }
         checker.check(all,
-            "the eleven supported consoles (the two Switches, the phone, the PlayStation 3, the original Xbox, the retro "
-            "consoles, the Xbox 360, the two of Remote Play, the iPhone and the PlayStation Classic) are tiles that can be picked"
+            "the twelve supported consoles (the two Switches, the phone, the PlayStation 3, the original Xbox, the retro "
+            "consoles, the Xbox 360, the two of Remote Play, the iPhone, the PlayStation Classic and the Wii U) are tiles that can be picked"
         );
     }
-    checker.check(canvas.has_hit("console:11") && !canvas.hit_enabled("console:11"),
-        "the other console is on the screen already, and cannot be picked");
-    checker.check(!canvas.click("console:11") && canvas.page_state() == "selected=", "a console that is not supported yet does nothing when it is clicked");
+    checker.check(!canvas.has_hit("console:12"), "and no console is left that cannot be picked");
     checker.check(canvas.has_hit("skip") && canvas.has_hit("continue"), "the console screen has Skip setup and Continue");
     checker.check(!canvas.hit_enabled("continue"), "no console, no way on");
     checker.check(canvas.page_state() == "selected=", "nothing is picked at first");
@@ -11734,18 +11801,19 @@ int run_setup_test(QApplication& application, const QString& folder){
     checker.check(canvas.focus_id() == "console:4", "to the original Xbox");
     canvas.press_key(Qt::Key_Right);
     checker.check(canvas.focus_id() == "console:5", "to the retro consoles");
-    for (int c = 6; c < 11; c++){
+    for (int c = 6; c < 12; c++){
         canvas.press_key(Qt::Key_Right);
     }
-    checker.check(canvas.focus_id() == "console:10", "to the PlayStation Classic, over the second row");
+    checker.check(canvas.focus_id() == "console:11", "to the Wii U, over the second row");
     canvas.press_key(Qt::Key_Right);
-    checker.check(canvas.focus_id() == "console:10", "and skip the ones that are not supported yet");
+    checker.check(canvas.focus_id() == "console:11", "and no further than the last");
     canvas.press_key(Qt::Key_Tab);
     canvas.press_key(Qt::Key_Tab);
     checker.check(!canvas.focus_id().startsWith("console:") || canvas.focus_id() == "console:0" || canvas.focus_id() == "console:1" ||
         canvas.focus_id() == "console:2" || canvas.focus_id() == "console:3" || canvas.focus_id() == "console:4" ||
         canvas.focus_id() == "console:5" || canvas.focus_id() == "console:6" || canvas.focus_id() == "console:7" ||
-        canvas.focus_id() == "console:8" || canvas.focus_id() == "console:9" || canvas.focus_id() == "console:10",
+        canvas.focus_id() == "console:8" || canvas.focus_id() == "console:9" || canvas.focus_id() == "console:10" ||
+        canvas.focus_id() == "console:11",
         "Tab does not stop on them either");
     canvas.set_focus_id("console:1");
     canvas.move_to("console:1");

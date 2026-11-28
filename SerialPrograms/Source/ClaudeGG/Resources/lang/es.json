@@ -494,5 +494,6 @@
  "Pick NS1: Wired Controller as the type. Click the video and press the arrow keys: they should move through the menu of the console. This has not been tried with Remote Play yet.": "Elige NS1: Wired Controller como tipo. Haz clic en el vídeo y pulsa las flechas: deberían recorrer el menú de la consola. Esto aún no se ha probado con Remote Play.",
  "Wired, through a Pico with OGX-Mini, to Remote Play in a browser. Experimental. Nine steps.": "Con cable, a través de una Pico con OGX-Mini, al juego remoto en un navegador. Experimental. Nueve pasos.",
  "On the iPhone, open Settings, then Accessibility, then Keyboards, and turn on Full Keyboard Access. Under Commands, set Home to Command-H: its own key, Fn-H, needs an Apple keyboard.": "En el iPhone, abre Ajustes, luego Accesibilidad, luego Teclados, y activa el Acceso total con el teclado. En Comandos, asigna Inicio a Comando-H: su propia tecla, Fn-H, necesita un teclado de Apple.",
- "Remote Play, through a Pico with OGX-Mini": "Juego remoto, a través de una Pico con OGX-Mini"
+ "Remote Play, through a Pico with OGX-Mini": "Juego remoto, a través de una Pico con OGX-Mini",
+ "A Raspberry Pi as its GamePad": "Una Raspberry Pi como GamePad"
 }
