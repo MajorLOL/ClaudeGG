@@ -892,9 +892,11 @@ jobs:
 
       #  Pokemon Automation's own tests (its repository CommandLineTests, pinned
       #  by its commit), run by the program itself with --command-line-test-mode,
-      #  as its own workflow does. For now they may fail without failing the
-      #  build (continue-on-error): this fork's changes have not been through
-      #  them before, so the first runs show what they say. The program finds
+      #  as its own workflow does. They passed in every run since they were
+      #  added (27,599 tests, 0 failed, on 27 November 2026), so a failure now
+      #  keeps the build from being published, as for the setup test: the step
+      #  goes on (continue-on-error) so that the summary below still names
+      #  every test that failed, and the summary fails the job. The program finds
       #  the test repository by walking up from its folder, so it is checked
       #  out next to Arduino-Source, and the OCR model goes where the program
       #  looks for downloadable resources: bin/DownloadedResources.
@@ -931,8 +933,9 @@ jobs:
       #  What the steps that may fail without stopping the build said, in one
       #  place: a warning on the page of the run for each, so that a failure
       #  does not hide in a long log. The tests of the setup and of the
-      #  installations are this program's own and passed before: when one fails
-      #  the build is not published.
+      #  installations are this program's own and passed before, as did
+      #  Pokemon Automation's tests: when one of them fails the build is not
+      #  published.
       - name: Summary of the tests
         if: always()
         shell: bash
@@ -953,8 +956,8 @@ jobs:
               echo "::warning::${pair%%=*} failed: see its step."
             fi
           done
-          if [ "$SETUP" = "failure" ] || [ "$INSTALLATIONS" = "failure" ] || [ "$HOST" = "failure" ] || [ "$MOBILE" = "failure" ]; then
-            echo "::error::The test of the setup, of the installations, of the main window or of the phone failed: the build is not published."
+          if [ "$SETUP" = "failure" ] || [ "$INSTALLATIONS" = "failure" ] || [ "$HOST" = "failure" ] || [ "$MOBILE" = "failure" ] || [ "$POKEMON" = "failure" ]; then
+            echo "::error::The test of the setup, of the installations, of the main window, of the phone or Pokemon Automation's tests failed: the build is not published."
             exit 1
           fi
 
