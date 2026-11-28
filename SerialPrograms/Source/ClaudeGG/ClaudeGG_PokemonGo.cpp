@@ -60,9 +60,19 @@ struct Preset{
     bool rocket;
     bool quests;
     Kind kind;
+    bool choose = false;    //  Auto play: what it does (spin, catch, gifts, Rocket, GO Pass) is chosen with the options
 };
 
 const Preset PRESETS[] = {
+    {
+        "ClaudeGG:PokemonGO:AutoPlay", "Auto play",
+        "Plays Pokémon GO on its own with the Pokémon GO bot on the Raspberry Pi of the phone, the way you choose "
+        "below: spin PokéStops, catch Pokémon, open and send gifts, battle Team GO Rocket and claim the GO Pass "
+        "rewards, each on or off, with all the options of the catch, the bag and the look. It is the normal play "
+        "of the bot's own web interface. Pokémon GO must be on the map. Claude GG starts the bot, shows what it "
+        "writes and stops it when this program is stopped.",
+        true, true, true, false, false, false, Kind::SERVICE, true,
+    },
     {
         "ClaudeGG:PokemonGO:Spin", "Spin PokéStops",
         "Spins the PokéStops that the trainer stands at and walks to the next ones, with the Pokémon GO bot on the "
@@ -338,6 +348,10 @@ public:
         , CURVEBALL("Always throw a curveball", LockMode::LOCK_WHILE_RUNNING, false)
         , FAST_CATCH("Fast catch: after a clear hit press Back to skip the catch animation", LockMode::LOCK_WHILE_RUNNING, false)
         , BUDDY("My buddy walks along on the map", LockMode::LOCK_WHILE_RUNNING, false)
+        , SPIN_ON("Spin PokéStops", LockMode::LOCK_WHILE_RUNNING, true)
+        , CATCH_ON("Catch wild Pokémon", LockMode::LOCK_WHILE_RUNNING, true)
+        , ROCKET_ON("Team GO Rocket at a PokéStop: battle it with the recommended party (the Shadow Pokémon is caught afterwards)", LockMode::LOCK_WHILE_RUNNING, false)
+        , QUESTS_ON("GO Pass: claim the rewards when the quest button on the map turns gold", LockMode::LOCK_WHILE_RUNNING, false)
         , SPIN_ONLY_WHEN_FULL("Spin PokéStops when the Pokémon storage is full (catching pauses until there is room)", LockMode::LOCK_WHILE_RUNNING, false)
         , GIFTS_OPEN("Open gifts from friends", LockMode::LOCK_WHILE_RUNNING, true)
         , GIFTS_SEND("Send gifts to friends", LockMode::LOCK_WHILE_RUNNING, true)
@@ -357,6 +371,14 @@ public:
         PA_ADD_OPTION(SETUP_TEXT);
         switch (preset.kind){
         case Kind::SERVICE:
+            if (preset.choose){
+                PA_ADD_OPTION(SPIN_ON);
+                PA_ADD_OPTION(CATCH_ON);
+            }
+            if (preset.choose || preset.daily){
+                PA_ADD_OPTION(ROCKET_ON);
+                PA_ADD_OPTION(QUESTS_ON);
+            }
             if (preset.catching){
                 PA_ADD_OPTION(THROW_TARGET);
                 PA_ADD_OPTION(CURVEBALL);
@@ -416,6 +438,9 @@ public:
     }
 
     virtual std::string check_validity() const override{
+        if (m_preset.choose && !SPIN_ON && !CATCH_ON && !GIFTS_OPEN && !GIFTS_SEND && !ROCKET_ON && !QUESTS_ON){
+            return "Choose at least one thing to do: spin, catch, gifts, Team GO Rocket or the GO Pass.";
+        }
         if (m_preset.daily && !time_pattern().match(QString::fromStdString(std::string(DAILY_TIME)).trimmed()).hasMatch()){
             return "The daily start must be a time as HH:MM, like 08:00.";
         }
@@ -437,18 +462,21 @@ public:
             start.options.emplace_back(QString::fromLatin1(key), on);
         };
         switch (m_preset.kind){
-        case Kind::SERVICE:
-            add("spin", m_preset.spin);
-            add("catch", m_preset.catching);
+        case Kind::SERVICE:{
+            const bool spin = m_preset.choose ? (bool)SPIN_ON : m_preset.spin;
+            const bool catching = m_preset.choose ? (bool)CATCH_ON : m_preset.catching;
+            const bool chosen = m_preset.choose || m_preset.daily;
+            add("spin", spin);
+            add("catch", catching);
             add("gifts_open", m_preset.gifts && (m_preset.daily || (bool)GIFTS_OPEN));
             add("gifts_send", m_preset.gifts && (m_preset.daily || (bool)GIFTS_SEND));
             add("daily_cycle", m_preset.daily);
-            add("rocket_fight", m_preset.rocket);
-            add("quests", m_preset.quests);
-            add("curveball", m_preset.catching && (bool)CURVEBALL);
-            add("fast_catch", m_preset.catching && (bool)FAST_CATCH);
-            add("buddy", m_preset.catching && (bool)BUDDY);
-            add("spin_only_when_full", m_preset.catching && m_preset.spin && (bool)SPIN_ONLY_WHEN_FULL);
+            add("rocket_fight", m_preset.rocket || (chosen && (bool)ROCKET_ON));
+            add("quests", m_preset.quests || (chosen && (bool)QUESTS_ON));
+            add("curveball", catching && (bool)CURVEBALL);
+            add("fast_catch", catching && (bool)FAST_CATCH);
+            add("buddy", catching && (bool)BUDDY);
+            add("spin_only_when_full", catching && spin && (bool)SPIN_ONLY_WHEN_FULL);
             add("close_when_full", (bool)CLOSE_WHEN_FULL);
             add("bag_clean", (bool)BAG_CLEAN);
             add("heat_pause", (bool)HEAT_PAUSE);
@@ -457,7 +485,7 @@ public:
             add("battle", m_preset.daily && (bool)BATTLE_DAILY);
             add("battle_give_up", !m_preset.daily || (bool)BATTLE_GIVE_UP);
             add("teams_weekly", m_preset.daily && (bool)TEAMS_WEEKLY);
-            if (m_preset.catching){
+            if (catching){
                 start.throw_target = QString::fromLatin1(throw_slug(THROW_TARGET.get()));
             }
             if (m_preset.daily){
@@ -466,6 +494,7 @@ public:
                 start.daily_now = (bool)DAILY_NOW;
             }
             break;
+        }
         case Kind::BATTLES:
             add("battle", true);
             add("battle_give_up", (bool)BATTLE_GIVE_UP);
@@ -859,6 +888,10 @@ private:
     BooleanCheckBoxOption CURVEBALL;
     BooleanCheckBoxOption FAST_CATCH;
     BooleanCheckBoxOption BUDDY;
+    BooleanCheckBoxOption SPIN_ON;
+    BooleanCheckBoxOption CATCH_ON;
+    BooleanCheckBoxOption ROCKET_ON;
+    BooleanCheckBoxOption QUESTS_ON;
     BooleanCheckBoxOption SPIN_ONLY_WHEN_FULL;
     BooleanCheckBoxOption GIFTS_OPEN;
     BooleanCheckBoxOption GIFTS_SEND;

@@ -1062,19 +1062,30 @@ Outcome wait_for(PlayConsole& console, const QJsonObject& input){
         return Outcome::error("\"until\" has to be still or change.");
     }
     const double limit = (double)integer_between(input, "max_seconds", 20, 1, 120);
-    const milliseconds every(250);
+    //  The picture is looked at this often: a change is seen at most this
+    //  long after it came. (A small picture of a few cells: a look costs
+    //  next to nothing.)
+    const milliseconds every(50);
+    //  Whether it is still is asked of two looks this far apart, three times
+    //  in a row: slow motion over a short step would look still.
+    const int still_step = 5;
     const ScreenThumb first = see(console);
     if (!first.valid()){
         return Outcome::error("No video comes in from the capture card: there is nothing to wait for.");
     }
     ScreenThumb previous = first;
     int still_in_row = 0;
+    int step = 0;
     double waited = 0;
     double last_motion = 0;
     Outcome outcome;
     while (waited < limit){
         console.wait(every);
         waited += (double)every.count() / 1000.0;
+        step++;
+        if (until != "change" && step % still_step != 0){
+            continue;
+        }
         const ScreenThumb now = see(console);
         if (!now.valid()){
             return Outcome::error("The video stopped coming in while waiting.");
