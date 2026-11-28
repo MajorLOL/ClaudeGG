@@ -775,6 +775,7 @@ const char* const HEADINGS[] = {
     "Slow",
     "Not known yet",
     "Open the setup",
+    "Set up this console",
     "Show the tour",
     "Pick a console on the left. Each page says what you need, how it is connected, how quick it is and what to do when it does not work.",
     "Written for this console, not tried on one yet.",
@@ -993,7 +994,7 @@ QString guide_html(const Guide& guide){
 
 class ConsoleGuide : public QWidget{
 public:
-    ConsoleGuide(QWidget* parent, const QString& console_code, std::function<void()> open_setup, std::function<void()> show_tour)
+    ConsoleGuide(QWidget* parent, const QString& console_code, std::function<void(const QString&)> open_setup, std::function<void()> show_tour)
         : QWidget(parent)
         , m_open_setup(std::move(open_setup))
         , m_show_tour(std::move(show_tour))
@@ -1024,7 +1025,7 @@ public:
             m_setup->setObjectName("ppConsoleGuideSetup");
             left->addWidget(m_setup);
             connect(m_setup, &QPushButton::clicked, this, [this]{
-                m_open_setup();
+                m_open_setup(setup_code());
             });
         }
 
@@ -1070,9 +1071,6 @@ private:
             item->setForeground(guide.status == Status::COMING ? theme_colors().muted : theme_colors().text);
             item->setToolTip(tr_ui(guide.board));
         }
-        if (m_setup != nullptr){
-            m_setup->setText(tr_ui("Open the setup"));
-        }
         if (m_tour != nullptr){
             m_tour->setText(tr_ui("Show the tour"));
         }
@@ -1104,10 +1102,21 @@ private:
     }
     void show_current(){
         m_page->setHtml(console_guide_html(current_code()));
+        //  On the page of a console that the setup has: straight to it.
+        if (m_setup != nullptr){
+            m_setup->setText(setup_code().isEmpty() ? tr_ui("Open the setup") : tr_ui("Set up this console"));
+        }
+    }
+    //  The console that "Set up this console" picks: none on the overview or
+    //  for a console that is not in the setup yet.
+    QString setup_code() const{
+        const QString code = current_code();
+        const Guide* guide = find_guide(code);
+        return guide == nullptr || guide->status == Status::COMING ? QString() : code;
     }
 
 private:
-    std::function<void()> m_open_setup;
+    std::function<void(const QString&)> m_open_setup;
     std::function<void()> m_show_tour;
     QListWidget* m_list = nullptr;
     QPushButton* m_setup = nullptr;
@@ -1154,7 +1163,7 @@ QStringList all_texts(){
 
 QWidget* make_console_guide(
     QWidget* parent, const QString& console_code,
-    std::function<void()> open_setup,
+    std::function<void(const QString&)> open_setup,
     std::function<void()> show_tour
 ){
     return new ConsoleGuide(parent, console_code, std::move(open_setup), std::move(show_tour));

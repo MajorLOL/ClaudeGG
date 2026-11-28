@@ -29,11 +29,13 @@ namespace ClaudeGG{
 //  that is shown first ("switch", "switch2", "mobile", "ps3", "xbox",
 //  "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic",
 //  "wiiu"); empty or unknown: the page that compares them all. It follows
-//  the language. "open_setup" is called by its button "Open the setup", and
+//  the language. "open_setup" is called by its button "Set up this console"
+//  with the code of the page that is shown (empty on the overview: "Open the
+//  setup"), and
 //  "show_tour" by "Show the tour" (empty: the button is not shown).
 QWidget* make_console_guide(
     QWidget* parent, const QString& console_code,
-    std::function<void()> open_setup = nullptr,
+    std::function<void(const QString& console_code)> open_setup = nullptr,
     std::function<void()> show_tour = nullptr
 );
 
