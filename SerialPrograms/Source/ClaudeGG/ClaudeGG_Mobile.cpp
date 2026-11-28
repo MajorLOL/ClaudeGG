@@ -7,7 +7,9 @@
 
 #include <chrono>
 #include <cmath>
+#include <functional>
 #include <memory>
+#include <stdexcept>
 #include <mutex>
 #include <thread>
 #include <QCoreApplication>
@@ -40,6 +42,7 @@
 #include "ClaudeGG_PokemonGoFight.h"
 #include "ClaudeGG_PokemonGoFlow.h"
 #include "ClaudeGG_PokemonGoMinigame.h"
+#include "ClaudeGG_PokemonGoLock.h"
 #include "ClaudeGG_PokemonGoLoop.h"
 #include "ClaudeGG_PokemonGoText.h"
 #include "ClaudeGG_PokemonGoModels.h"
@@ -587,6 +590,35 @@ bool MobileAgent::heat(std::optional<double>& phone, std::optional<double>& pi, 
     return true;
 }
 
+namespace{
+//  What /v1/power said under the key: a true or false, or an error when it said something else.
+bool power_value(const QByteArray& body, const QString& key, bool& value, QString* error){
+    const QJsonValue found = QJsonDocument::fromJson(body).object().value(key);
+    if (!found.isBool()){
+        if (error != nullptr){
+            *error = "the agent did not say whether the phone is " + key;
+        }
+        return false;
+    }
+    value = found.toBool();
+    return true;
+}
+}
+
+bool MobileAgent::power_awake(bool& awake, QString* error) const{
+    Reply reply;
+    return request("GET", "/v1/power?only=awake", QByteArray(), reply, error) && power_value(reply.body, "awake", awake, error);
+}
+
+bool MobileAgent::power_locked(bool& locked, QString* error) const{
+    Reply reply;
+    return request("GET", "/v1/power?only=locked", QByteArray(), reply, error) && power_value(reply.body, "locked", locked, error);
+}
+
+bool MobileAgent::unlock(QString* error) const{
+    return post("/v1/unlock", "{}", error);
+}
+
 bool MobileAgent::bot_state(MobileBotState& state, int lines, QString* error) const{
     Reply reply;
     if (!request("GET", "/v1/bot?lines=" + QString::number(std::max(1, std::min(200, lines))), QByteArray(), reply, error)){
@@ -1051,6 +1083,18 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         }
         check(differ == 0, daily_report.isEmpty() ? QString("the daily run is played as gamebot.py plays it") : daily_report.last());
     }
+    //  The lock screen of the phone and the game that dims and locks itself, ported to C++ (issue #31): held to what the Python code did on the
+    //  stories of tests/fixtures/lock_golden.json.qz.
+    {
+        QStringList lock_report;
+        const int differ = PokemonGo::Lock::run_lock_checks(agent_folder + "/../tests/fixtures/lock_golden.json.qz", lock_report);
+        for (const QString& line : lock_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, lock_report.isEmpty() ? QString("the lock screen is taken away as spin_stop.py takes it away") : lock_report.last());
+    }
     //  The text reader, ported to C++ (issue #30): the table that Tesseract writes made into lines of words with their places, as
     //  gamebot.ocr_lines() makes them (354 tables, 36 of them read from frames of real fights), and - where the tesseract program is
     //  found - a picture with words drawn on it read with it.
@@ -1125,6 +1169,11 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
     QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
     environment.insert("FAKE_ADB_LOG", adb_log);
     environment.insert("FAKE_ADB_FAIL_FILE", off_file);
+    //  What the fake phone says of its power and its lock screen when these files are there (see fake_adb.py).
+    const QString power_file = scratch.path() + "/power";
+    const QString window_file = scratch.path() + "/window";
+    environment.insert("FAKE_POWER_FILE", power_file);
+    environment.insert("FAKE_WINDOW_FILE", window_file);
     environment.insert("FAKE_MONKEY_FILE", scratch.path() + "/monkey");
     environment.insert("FAKE_SYSTEMCTL_STATE", scratch.path() + "/service-state");
     environment.insert("FAKE_SYSTEMCTL_LOG", scratch.path() + "/service-calls");
@@ -1195,8 +1244,8 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         check(info.width == 1000 && info.height == 2200, "its size is the size that was set (" + QString::number(info.width) + "x" + QString::number(info.height) + ")");
         check(
             info.features.contains("tap_kind") && info.features.contains("app") && info.features.contains("bot_file") && info.features.contains("app_list")
-                && info.features.contains("heat"),
-            "the agent (" + info.version + ") can do what GO Battle League, the daily run and the pause for the heat need when Claude GG plays: " + info.features.join(", ")
+                && info.features.contains("heat") && info.features.contains("power"),
+            "the agent (" + info.version + ") can do what GO Battle League, the daily run and the pause for the heat and the lock screen need when Claude GG plays: " + info.features.join(", ")
         );
     }
     //  The files of the bot's battles (the team), read only.
@@ -1472,6 +1521,47 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
                 check(read_lines(adb_log).last() == "shell dumpsys battery", "from `dumpsys battery`");
             }
 
+            //  The power of the phone (agent 0.2.5): awake and no lock screen in the fake one, what the files of the fake phone say when they are there.
+            {
+                const auto say = [&](const QString& file, const QByteArray& text){
+                    QFile out(file);
+                    check(out.open(QIODevice::WriteOnly | QIODevice::Truncate) && out.write(text) >= 0, "the fake phone is told what to say");
+                };
+                bool awake = false;
+                bool locked = true;
+                error.clear();
+                check(phone.power_awake(awake, &error) && awake, "the phone is awake: " + error);
+                check(read_lines(adb_log).last() == "shell dumpsys power", "from `dumpsys power`");
+                check(phone.power_locked(locked, &error) && !locked, "and shows no lock screen: " + error);
+                check(read_lines(adb_log).last() == "shell dumpsys window", "from `dumpsys window`");
+                say(power_file, "  mWakefulness=Asleep\n");
+                check(phone.power_awake(awake, &error) && !awake, "a phone that sleeps is not awake");
+                say(power_file, "  mWakefulness=Dozing\n");
+                check(phone.power_awake(awake, &error) && !awake, "nor one that dozes");
+                say(window_file, "  mCurrentFocus=null\n  isKeyguardShowing=true\n");
+                check(phone.power_locked(locked, &error) && locked, "a phone with a lock screen says so");
+                error.clear();
+                check(phone.unlock(&error), "the lock screen is dismissed: " + error);
+                check(read_lines(adb_log).last() == "shell wm dismiss-keyguard", "with `wm dismiss-keyguard`");
+                {
+                    QFile off(off_file);
+                    check(off.open(QIODevice::WriteOnly), "the phone is switched off");
+                    off.close();
+                    error.clear();
+                    awake = true;
+                    check(!phone.power_awake(awake, &error) && error.contains("device offline"), "a phone that is off is no answer (" + error + ")");
+                    error.clear();
+                    locked = false;
+                    check(!phone.power_locked(locked, &error) && error.contains("device offline"), "neither is it for the lock screen (" + error + ")");
+                    error.clear();
+                    check(!phone.unlock(&error) && error.contains("device offline"), "and the lock screen is not dismissed (" + error + ")");
+                    QFile::remove(off_file);
+                }
+                QFile::remove(power_file);
+                QFile::remove(window_file);
+                check(phone.power_awake(awake, &error) && awake && phone.power_locked(locked, &error) && !locked, "it is awake and unlocked again when the files are gone");
+            }
+
             //  What the agent refuses.
             const QStringList count = read_lines(adb_log);
             error.clear();
@@ -1545,6 +1635,47 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
                     check(host.reads_heat(), "the fake agent tells the temperatures");
                     const std::pair<std::optional<double>, std::optional<double>> heat = bot.read_heat();
                     check(heat.first.has_value() && std::abs(*heat.first - 31.2) < 1e-9, "the bot reads the battery of the phone (31.2 degrees)");
+                }
+                {
+                    //  The lock screen: the bot asks the agent whether the phone is awake and locked, and takes the lock screen away like by hand.
+                    const auto say = [&](const QString& file, const QByteArray& text){
+                        QFile out(file);
+                        check(out.open(QIODevice::WriteOnly | QIODevice::Truncate) && out.write(text) >= 0, "the fake phone is told what to say");
+                    };
+                    const auto throws = [&](const std::function<void()>& what){
+                        try{
+                            what();
+                        }catch (const std::runtime_error&){
+                            return true;
+                        }
+                        return false;
+                    };
+                    check(host.reads_power(), "the fake agent can say whether the phone is awake and locked");
+                    check(bot.power_state().contains("mWakefulness=Awake") && !bot.keyguard_showing(), "the bot sees an awake phone without a lock screen");
+                    say(power_file, "  mWakefulness=Asleep\n");
+                    check(!bot.power_state().contains("mWakefulness=Awake"), "and one that sleeps");
+                    say(window_file, "  mShowingLockscreen=true\n");
+                    check(bot.keyguard_showing(), "and one with a lock screen");
+                    bot.dismiss_keyguard();
+                    check(read_lines(adb_log).last() == "shell wm dismiss-keyguard", "which is dismissed with the command of Android");
+                    //  The lock screen that stays (a PIN): the bot tries once more with a swipe, says it failed, and goes on.
+                    const qsizetype before_unlock = read_lines(adb_log).size();
+                    check(!PokemonGo::Lock::unlock(bot), "a lock screen that stays is not taken away");
+                    const QStringList after_unlock = read_lines(adb_log).mid(before_unlock);
+                    check(after_unlock.size() >= 4 && after_unlock.at(0) == "shell dumpsys window" && after_unlock.at(1) == "shell wm dismiss-keyguard"
+                          && after_unlock.at(2) == "shell dumpsys window" && after_unlock.at(3).startsWith("shell input swipe"),
+                          "after the dismiss it looks again and swipes (" + after_unlock.join(" | ") + ")");
+                    QFile::remove(window_file);
+                    check(!PokemonGo::Lock::unlock(bot), "and a phone without a lock screen has nothing to take away");
+                    {
+                        QFile off(off_file);
+                        check(off.open(QIODevice::WriteOnly), "the phone is switched off");
+                        off.close();
+                        check(throws([&]{ bot.power_state(); }) && throws([&]{ bot.keyguard_showing(); }) && throws([&]{ bot.dismiss_keyguard(); }),
+                              "a phone that does not answer is an error, not a yes or a no");
+                        QFile::remove(off_file);
+                    }
+                    QFile::remove(power_file);
                 }
                 {
                     //  The daily run: the bot is its host (the file of the run, the apps of the phone, what is chosen for the battles, the time of the day).
