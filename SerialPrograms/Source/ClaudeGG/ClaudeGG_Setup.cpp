@@ -81,10 +81,12 @@
 #include "Common/Cpp/Cryptography/SecretSeal.h"
 #include "Common/Cpp/Json/JsonValue.h"
 #include "Common/Cpp/Options/StringOption.h"
+#include "ClaudeGG_ConsoleGuide.h"
 #include "ClaudeGG_Embed.h"
 #include "ClaudeGG_Firmware.h"
 #include "ClaudeGG_Language.h"
 #include "ClaudeGG_Mobile.h"
+#include "ClaudeGG_Panel.h"
 #include "ClaudeGG_Scrub.h"
 #include "ClaudeGG_Setup.h"
 #include "ClaudeGG_Theme.h"
@@ -791,6 +793,20 @@ public:
     //  The tutorial film of this board.
     void play_video(const QString& board);
     void close_video();
+    //  The Consoles guide over the page (the console screen's "Compare the
+    //  consoles"): on the page of "code", or the overview when it is empty.
+    void open_guide(const QString& code);
+    bool guide_open() const{
+        return m_guide_panel != nullptr && m_guide_panel->is_open();
+    }
+    void close_guide(){
+        if (guide_open()){
+            m_guide_panel->hide_panel();
+        }
+    }
+    const QString& guide_code() const{
+        return m_guide_code;
+    }
     bool video_open() const{
         return m_video_open;
     }
@@ -1140,6 +1156,10 @@ private:
     std::unique_ptr<QWidget> m_overlay;
     std::unique_ptr<QMediaPlayer> m_player;
     std::unique_ptr<QAudioOutput> m_audio;
+
+    //  The Consoles guide over the page.
+    std::unique_ptr<PanelOverlay> m_guide_panel;
+    QString m_guide_code;
 
     //  The intro. The player goes before the window it plays on.
     enum class IntroState{
@@ -8442,6 +8462,11 @@ public:
         }else{
             draw_skip(canvas, painter, b);
         }
+        //  Not sure which one: the Consoles guide, on the picked console.
+        const double left_w = m_again
+            ? 26 + button_width(T("Back to the games"), ButtonKind::LINK)
+            : button_width(T("Skip setup"), ButtonKind::LINK);
+        draw_button(canvas, painter, "compare", T("Compare the consoles"), 136 + left_w + 40, 960, ButtonKind::LINK, std::min(1.0, b * 1.35));
         const QString text = T("Continue");
         draw_button(canvas, painter, "continue", text, 1780 - button_width(text, ButtonKind::PRIMARY), 950,
             ButtonKind::PRIMARY, b, m_selected >= 0);
@@ -8457,6 +8482,8 @@ public:
             }
         }else if (id == "continue"){
             proceed(canvas);
+        }else if (id == "compare"){
+            canvas.open_guide(m_selected >= 0 ? QString(CONSOLES[m_selected].code) : QString());
         }else if (id == "back"){
             canvas.leave_console_again();
         }else if (id == "skip"){
@@ -10250,6 +10277,22 @@ void Canvas::close_video(){
     update();
 }
 
+void Canvas::open_guide(const QString& code){
+    if (m_guide_panel == nullptr){
+        m_guide_panel = std::make_unique<PanelOverlay>(this);
+        m_guide_panel->on_closed = [this]{
+            setFocus();
+            update();
+        };
+    }
+    m_guide_code = code;
+    PanelOverlay::Options options;
+    options.wide = true;
+    options.own = true;
+    //  Without "Open the setup" and "Show the tour": the setup is on the screen already.
+    m_guide_panel->show_panel(T("Consoles"), make_console_guide(m_guide_panel.get(), code), options);
+}
+
 void Canvas::finish(){
     if (m_app_mode){
         //  The window's own screen does not end. What the page chose is a
@@ -10774,6 +10817,13 @@ void Canvas::keyPressEvent(QKeyEvent* event){
         return;
     }
     if (m_holding || m_releasing){
+        return;
+    }
+    if (guide_open()){
+        //  The guide has the keyboard; Esc puts it away if it comes here.
+        if (event->key() == Qt::Key_Escape){
+            close_guide();
+        }
         return;
     }
     if (m_video_open){
@@ -12318,6 +12368,19 @@ int run_setup_test(QApplication& application, const QString& folder){
     }
     checker.check(!canvas.has_hit("console:16"), "and no console is left that cannot be picked");
     checker.check(canvas.has_hit("skip") && canvas.has_hit("continue"), "the console screen has Skip setup and Continue");
+    //  "Compare the consoles": the Consoles guide over the page, on the overview
+    //  while nothing is picked; Esc puts it away.
+    checker.check(canvas.has_hit("compare"), "the console screen has Compare the consoles");
+    canvas.click("compare");
+    canvas.wait(0.6);
+    checker.check(canvas.guide_open() && canvas.guide_code().isEmpty(), "Compare the consoles opens the guide on the overview");
+    save(canvas, folder, "setup-36b-console-guide");
+    save_preview(canvas, folder, "preview-console-guide");
+    canvas.close_guide();
+    canvas.wait(0.4);
+    checker.check(!canvas.guide_open(), "and the guide can be put away");
+    //  The checks of the keyboard below start from the first console.
+    canvas.set_focus_id("console:0");
     checker.check(!canvas.hit_enabled("continue"), "no console, no way on");
     checker.check(canvas.page_state() == "selected=", "nothing is picked at first");
     checker.check(canvas.focus_id() == "console:0", "the keyboard starts on the first console");
