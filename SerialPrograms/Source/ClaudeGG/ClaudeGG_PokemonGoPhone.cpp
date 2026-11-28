@@ -499,8 +499,7 @@ void AgentHost::back(){
     }
 }
 
-std::pair<QString, double> AgentHost::screen_class(const cv::Mat& img){
-    std::lock_guard<std::mutex> lock(m_models_lock);
+Models::Models* AgentHost::models_locked(){
     if (!m_models && !m_models_failed){
         try{
             if (m_options.models.isEmpty()){
@@ -512,17 +511,67 @@ std::pair<QString, double> AgentHost::screen_class(const cv::Mat& img){
             log(QString("the screen classifier cannot be used here (%1)").arg(QString::fromUtf8(e.what())));
         }
     }
-    if (!m_models){
+    return m_models.get();
+}
+
+void AgentHost::models_broke(const std::exception& e){
+    m_models_failed = true;
+    m_models.reset();
+    log(QString("the screen classifier cannot be used here (%1)").arg(QString::fromUtf8(e.what())));
+}
+
+bool AgentHost::has_models(){
+    std::lock_guard<std::mutex> lock(m_models_lock);
+    return models_locked() != nullptr;
+}
+
+std::pair<QString, double> AgentHost::screen_class(const cv::Mat& img){
+    std::lock_guard<std::mutex> lock(m_models_lock);
+    Models::Models* models = models_locked();
+    if (models == nullptr){
         return {QString("onbekend"), 0.0};
     }
     try{
-        const Models::ScreenGuess guess = m_models->screen(img);
+        const Models::ScreenGuess guess = models->screen(img);
         return {QString::fromStdString(guess.name), guess.score};
     }catch (const std::exception& e){
-        m_models_failed = true;
-        m_models.reset();
-        log(QString("the screen classifier cannot be used here (%1)").arg(QString::fromUtf8(e.what())));
+        models_broke(e);
         return {QString("onbekend"), 0.0};
+    }
+}
+
+std::vector<Models::Detection> AgentHost::map_objects(const cv::Mat& img, double threshold, int top){
+    std::lock_guard<std::mutex> lock(m_models_lock);
+    Models::Models* models = models_locked();
+    if (models == nullptr){
+        return {};
+    }
+    try{
+        return models->map_objects(img, threshold, top);
+    }catch (const std::exception& e){
+        models_broke(e);
+        return {};
+    }
+}
+
+std::vector<Models::Detection> AgentHost::buttons(const cv::Mat& img){
+    std::lock_guard<std::mutex> lock(m_models_lock);
+    Models::Models* models = models_locked();
+    if (models == nullptr){
+        return {};
+    }
+    try{
+        return models->buttons(img);
+    }catch (const std::exception& e){
+        models_broke(e);
+        return {};
+    }
+}
+
+void AgentHost::wake(){
+    QString error;
+    if (!m_agent.wake(&error)){
+        log("the screen of the phone could not be woken: " + error);
     }
 }
 

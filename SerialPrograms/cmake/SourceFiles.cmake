@@ -1528,6 +1528,8 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_PokemonGo.h
     Source/ClaudeGG/ClaudeGG_PokemonGoBattle.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoBattle.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoBot.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoBot.h
     Source/ClaudeGG/ClaudeGG_PokemonGoBrain.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoBrain.h
     Source/ClaudeGG/ClaudeGG_PokemonGoCatch.cpp
