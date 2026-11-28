@@ -286,6 +286,8 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 - A `SerialPrograms/Source/ClaudeGG/Assistant/Assistant_Workspace.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_AnyGame.cpp`
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_AnyGame.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Consoles.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Consoles.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Engine.cpp`
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Engine.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_GameCard.cpp`
