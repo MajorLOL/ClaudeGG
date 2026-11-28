@@ -10,7 +10,9 @@
  *
  *  - catching: the ported catch screen (Catch::do_encounter) with the ported throw (Throw::throw_ball: a single touch through /v1/touch of
  *    agent 0.2.2, or a plain swipe), the berries read with Tesseract; when catching is off, a catch screen is left with the run-away button;
- *  - Team GO Rocket: not battled (the step goes back out of it and leaves that stop alone for 30 minutes);
+ *  - Team GO Rocket (Rocket::rocket_battle: the speech bubbles, BATTLE, the radar question, the party, the summary; RocketFight::rocket_fight: the
+ *    fast taps, the shield, the little game of the charged attack, over the live video when there is one): the ported code when the
+ *    switch "rocket_fight" is on; when it is off the step goes back out of it and leaves that stop alone for 30 minutes;
  *  - the gifts of the friends (Gifts::gifts_round: open the ones that wait, send one to every friend; the memory of the day is a file in the
  *    folder of the bot) and the clean-up of a full bag (Bag::clean_bag, the red FULL marks of the main menu): the ported code, with the keys
  *    and the closing of the game that the bag needs sent to the agent (see shell()); when the storage and the bag are both full and the game
@@ -54,6 +56,7 @@
 #include "ClaudeGG_PokemonGoGifts.h"
 #include "ClaudeGG_PokemonGoPhone.h"
 #include "ClaudeGG_PokemonGoQuests.h"
+#include "ClaudeGG_PokemonGoRocket.h"
 #include "ClaudeGG_PokemonGoStep.h"
 #include "ClaudeGG_PokemonGoThrowPlay.h"
 
@@ -89,7 +92,7 @@ Switches playable(const Switches& asked);
 using Texts = std::map<QString, QString>;
 
 
-class PhoneBot : public Step::Host, public Throw::Host, public Bag::Host, public Gifts::Host{
+class PhoneBot : public Step::Host, public Throw::Host, public Bag::Host, public Gifts::Host, public Rocket::Host{
 public:
     //  `folder`: where what the throws learn is kept (gamebot_throw.json); empty: nowhere.
     PhoneBot(Phone::AgentHost& phone, const Switches& switches, const Texts& texts = Texts(), const QString& folder = QString());
@@ -197,6 +200,10 @@ public:
     std::pair<double, double> throw_params(double cx, double cy, double w, double h) override;
     void save_cal(const Throw::Cal& cal) override;
 
+    //  ---- Rocket::Host
+    QString screen_state(const cv::Mat& small) override;
+    void rocket_fight() override;
+
     //  ---- Step::Host
     std::pair<std::optional<double>, std::optional<double>> read_heat() override;
     bool screen_ok() override{ return true; }
@@ -212,7 +219,7 @@ public:
     cv::Mat quick_screenshot_grab(const std::function<void()>& on_grab) override;
     bool quests_due(const cv::Mat& img) override;
     QString claim_quests() override;
-    QString rocket_battle() override{ return "failed"; }
+    QString rocket_battle() override{ return Rocket::rocket_battle(*this); }
     double do_map(const cv::Mat& img) override;
     double do_pokestop(const cv::Mat& img) override;
     double do_encounter(const cv::Mat& img) override;

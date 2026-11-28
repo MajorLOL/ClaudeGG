@@ -1560,6 +1560,8 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_PokemonGoRocket.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoRocket.h
     Source/ClaudeGG/ClaudeGG_PokemonGoRocketCheck.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoRocketFight.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoRocketFight.h
     Source/ClaudeGG/ClaudeGG_PokemonGoNav.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoNav.h
     Source/ClaudeGG/ClaudeGG_PokemonGoLoop.cpp

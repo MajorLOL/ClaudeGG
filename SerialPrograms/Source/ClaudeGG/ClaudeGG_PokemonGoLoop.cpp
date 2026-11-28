@@ -28,7 +28,6 @@ using Battle::Move;
 //  The numbers of gamebot.py (see there for what they mean).
 static const double FIGHT_START_SECONDS = 240;
 static const double FIGHT_SECONDS = 480;
-static const int FIGHT_TAP_MS = 70;
 static const double CHARGE_HOLD = 2.8;
 static const double GAME_BLOCK = 8.5;
 static const double THROW_CHECK = 1.1;
@@ -1871,6 +1870,14 @@ bool fight_on_screen(Host& host){
     }catch (const std::exception&){
         return false;                                   //  (gamebot: any error is "no")
     }
+}
+
+QString fight_state(Host& host, const cv::Mat& small){
+    return Fight::state(fight_features(host.features(small)));
+}
+
+Nav::NameBox fight_name_box(Host& host, const cv::Mat& canvas, bool me){
+    return fight_box(host, canvas, me);
 }
 
 Result fight_battle(Host& host, const std::vector<Battle::Mon>& team, const std::vector<Point>& use_spots){

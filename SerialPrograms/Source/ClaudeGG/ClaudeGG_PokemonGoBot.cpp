@@ -19,6 +19,7 @@
 #include "ClaudeGG_PokemonGoCatch.h"
 #include "ClaudeGG_PokemonGoFlow.h"
 #include "ClaudeGG_PokemonGoMap.h"
+#include "ClaudeGG_PokemonGoRocketFight.h"
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -43,7 +44,7 @@ std::vector<Detection> PhoneDetector::map(const cv::Mat& img, const cv::Rect& bo
 Switches playable(const Switches& asked){
     Switches out = asked;
     //  Not ported yet: off, so that the steps leave them alone.
-    for (const char* key : {"daily_cycle", "rocket_fight", "battle", "teams_weekly"}){
+    for (const char* key : {"daily_cycle", "battle", "teams_weekly"}){
         out[QString::fromLatin1(key)] = false;
     }
     //  The pause for the heat needs temperatures that the agent cannot give yet.
@@ -146,6 +147,12 @@ bool PhoneBot::quests_due(const cv::Mat& img){
 }
 QString PhoneBot::claim_quests(){
     return Quests::claim_quests(*this, m_quests);
+}
+QString PhoneBot::screen_state(const cv::Mat& small){
+    return Loop::fight_state(*this, small);
+}
+void PhoneBot::rocket_fight(){
+    RocketFight::rocket_fight(*this);
 }
 void PhoneBot::check_menu_full(){
     Bag::check_menu_full(*this, m_map);
