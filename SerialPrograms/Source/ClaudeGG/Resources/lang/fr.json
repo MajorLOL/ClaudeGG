@@ -1911,5 +1911,6 @@
  "<b>How the picture fits:</b>": "<b>Ajustement de l'image :</b>",
  "<b>Darken the picture (%):</b><br>Increase this to keep the texts readable on a light or busy picture.": "<b>Assombrir l'image (%) :</b><br>Augmentez cette valeur pour garder les textes lisibles sur une image claire ou chargée.",
  "Select a PNG, JPEG, BMP, or WebP image": "Choisissez une image PNG, JPEG, BMP ou WebP",
- "Browse...": "Parcourir..."
+ "Browse...": "Parcourir...",
+ "A Raspberry Pi as its GamePad": "Un Raspberry Pi comme GamePad"
 }

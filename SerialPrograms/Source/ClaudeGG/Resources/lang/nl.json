@@ -1910,5 +1910,6 @@
  "<b>How the picture fits:</b>": "<b>Hoe de afbeelding past:</b>",
  "<b>Darken the picture (%):</b><br>Increase this to keep the texts readable on a light or busy picture.": "<b>De afbeelding donkerder maken (%):</b><br>Zet dit hoger om de teksten leesbaar te houden op een lichte of drukke afbeelding.",
  "Select a PNG, JPEG, BMP, or WebP image": "Kies een PNG-, JPEG-, BMP- of WebP-afbeelding",
- "Browse...": "Bladeren..."
+ "Browse...": "Bladeren...",
+ "A Raspberry Pi as its GamePad": "Een Raspberry Pi als GamePad"
 }
