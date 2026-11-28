@@ -51,6 +51,7 @@
 #include "ClaudeGG_PokemonGoCatch.h"
 #include "ClaudeGG_PokemonGoStep.h"
 #include "ClaudeGG_PokemonGoBag.h"
+#include "ClaudeGG_PokemonGoGifts.h"
 #include "ClaudeGG_PokemonGoThrowPlay.h"
 #include "ClaudeGG_PokemonGoVision.h"
 
@@ -949,6 +950,20 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             }
         }
         check(differ == 0, bag_report.isEmpty() ? QString("the item bag is handled as gamebot.py handles it") : bag_report.last());
+    }
+    //  The gifts of the friends, ported to C++ (issue #31): the rows of the friend list with the pink bow of a gift that waits and the grey arrow
+    //  of one that is on its way, the readers of the gift screens, the memory of the day, a visit to one friend (open the gift, scroll the profile
+    //  to SEND GIFT, choose a gift, SEND) and the whole round, held to what the Python code did on the little stories of
+    //  tests/fixtures/gifts_golden.json.qz.
+    {
+        QStringList gifts_report;
+        const int differ = PokemonGo::Gifts::run_gifts_checks(agent_folder + "/../tests/fixtures/gifts_golden.json.qz", gifts_report);
+        for (const QString& line : gifts_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, gifts_report.isEmpty() ? QString("the gifts are handled as gamebot.py handles them") : gifts_report.last());
     }
     //  The text reader, ported to C++ (issue #30): the table that Tesseract writes made into lines of words with their places, as
     //  gamebot.ocr_lines() makes them (354 tables, 36 of them read from frames of real fights), and - where the tesseract program is

@@ -1549,6 +1549,9 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_PokemonGoFlow.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoFlow.h
     Source/ClaudeGG/ClaudeGG_PokemonGoFlowCheck.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoGifts.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoGifts.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoGiftsCheck.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoNav.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoNav.h
     Source/ClaudeGG/ClaudeGG_PokemonGoLoop.cpp
