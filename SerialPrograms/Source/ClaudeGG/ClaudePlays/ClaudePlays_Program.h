@@ -28,6 +28,7 @@
 #include "CommonTools/Options/LanguageOCROption.h"
 #include "CommonFramework/Notifications/EventNotificationsTable.h"
 #include "CommonFramework/Panels/PanelList.h"
+#include "NintendoSwitch/Controllers/NintendoSwitch_ControllerButtons.h"
 #include "NintendoSwitch/NintendoSwitch_SingleSwitchProgram.h"
 #include "ClaudePlays_Engine.h"
 #include "ClaudePlays_External.h"
@@ -37,6 +38,11 @@ namespace PokemonAutomation{
 namespace ClaudeGG{
 namespace ClaudePlays{
 
+
+//  The Switch button that a button of the pad of a game is played with, by
+//  the names of that pad ("CROSS" on a PlayStation 3 is B). False: the pad
+//  has no button by that name (and the iPhone's keyboard has none at all).
+bool button_of_pad(PadKind pad, const std::string& name, NintendoSwitch::Button& button);
 
 //  The program "Claude Plays" for the list of a game.
 std::unique_ptr<PanelDescriptor> make_claude_plays(GameId game);
