@@ -483,7 +483,8 @@ bool dreamcast_button_of(const std::string& name, Button& button){
 }
 
 //  The Xbox 360: the same board through a Pico with OGX-Mini in its XInput
-//  mode (only a console with UsbdSecPatch takes such a pad). OGX-Mini passes
+//  mode (OGX-Mini-2026 answers the console's check of a pad; the older
+//  OGX-Mini only works on a console with UsbdSecPatch). OGX-Mini passes
 //  the Switch pad on by the places of the buttons, as for the original Xbox,
 //  with L and R to LB and RB and HOME to the Guide button.
 bool xbox360_button_of(const std::string& name, Button& button){
@@ -866,9 +867,9 @@ std::string setup_text(const GameProfile& profile){
                 "tried on an Xbox yet: first check in its menu that the d-pad moves and that A picks")
             : console == "xbox360"
             ? std::string(
-                "an Xbox 360 with UsbdSecPatch (a modified console: an unmodified one takes only its own pads), "
-                "and the wired board (the ESP32-S3) with NS1: Wired Controller as the type, plugged into a "
-                "Raspberry Pi Pico with OGX-Mini in its XInput mode, which is plugged into the Xbox 360. Not "
+                "an Xbox 360, and the wired board (the ESP32-S3) with NS1: Wired Controller as the type, plugged "
+                "into a Raspberry Pi Pico with OGX-Mini-2026 in its XInput mode, which is plugged into the Xbox "
+                "360 (the older OGX-Mini only works on a console with UsbdSecPatch). Not "
                 "tried on an Xbox 360 yet: first check in its menu that the d-pad moves and that A picks")
             : console == "psremote" || console == "xboxremote"
             ? std::string(

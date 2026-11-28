@@ -59,8 +59,8 @@ enum class GameId{
     GAMECUBE,
     NINTENDO_64,
     DREAMCAST,
-    //  An Xbox 360 (with UsbdSecPatch): the wired board through a Pico with
-    //  OGX-Mini in its XInput mode.
+    //  An Xbox 360: the wired board through a Pico with OGX-Mini-2026 (or,
+    //  on a console with UsbdSecPatch, OGX-Mini) in its XInput mode.
     XBOX_360,
     //  A PlayStation 4 or 5, and an Xbox One or Series, through Remote Play
     //  on the computer: the wired board is a USB gamepad of the computer,
