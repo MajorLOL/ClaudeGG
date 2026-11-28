@@ -18,6 +18,7 @@
 #include <QJsonObject>
 #include <QTime>
 #include <QRegularExpression>
+#include <QTimeZone>
 #include "ClaudeGG_PokemonGoBot.h"
 #include "ClaudeGG_PokemonGoCatch.h"
 #include "ClaudeGG_PokemonGoFlow.h"
@@ -391,16 +392,16 @@ bool PhoneBot::teams_due(const QString&){
 double PhoneBot::slot_time(double now, int hours, int minutes){
     //  time.mktime((year, month, day, hours, minutes, 0, 0, 0, -1)) of the day of `now`: hours and minutes that are too big or too small go to the
     //  next or the last day (in clock time, as mktime does).
-    const QDate day = QDateTime::fromSecsSinceEpoch((qint64)std::floor(now), Qt::LocalTime).date();
+    const QDate day = QDateTime::fromSecsSinceEpoch((qint64)std::floor(now), QTimeZone::systemTimeZone()).date();
     const long long total = (long long)hours * 60 + minutes;
     const long long days = total >= 0 ? total / 1440 : -((-total + 1439) / 1440);
     const long long rest = total - days * 1440;
-    const QDateTime moment(day.addDays((qint64)days), QTime((int)(rest / 60), (int)(rest % 60)), Qt::LocalTime);
+    const QDateTime moment(day.addDays((qint64)days), QTime((int)(rest / 60), (int)(rest % 60)), QTimeZone::systemTimeZone());
     return (double)moment.toSecsSinceEpoch();
 }
 
 QString PhoneBot::local_text(double moment){
-    return QDateTime::fromSecsSinceEpoch((qint64)std::floor(moment), Qt::LocalTime).toString("yyyy-MM-dd HH:mm");
+    return QDateTime::fromSecsSinceEpoch((qint64)std::floor(moment), QTimeZone::systemTimeZone()).toString("yyyy-MM-dd HH:mm");
 }
 
 
