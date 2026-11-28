@@ -90,6 +90,9 @@ private:
     //  Only shown in Other Games: which of the games that have no list of
     //  their own it is (see has_only_claude_plays()).
     EnumDropdownOption<GameId> GAME;
+    //  Only shown in the list of a console that has well-known games
+    //  (ClaudePlays_KnownGames.h): which of them it is, if one. 0: another.
+    IntegerEnumDropdownOption KNOWN_GAME;
     //  Who plays: the program asks Claude, or Claude Code does.
     WhoPlays WHO;
     TextEditOption GOAL;
