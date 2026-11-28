@@ -25,6 +25,9 @@
 #include "ClaudeGG_Language.h"
 #include "ClaudeGG_Theme.h"
 #include "ClaudeGG_ConsoleGuide.h"
+#include "ClaudePlays/ClaudePlays_Consoles.h"
+#include "ClaudePlays/ClaudePlays_Games.h"
+#include "ClaudePlays/ClaudePlays_KnownGames.h"
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -750,6 +753,37 @@ const Guide* find_guide(const QString& code){
 }
 
 
+//  The texts of the timing and the games of a console (from Claude Plays'
+//  own tables: ClaudePlays_Consoles.h, ClaudePlays_Games.h and
+//  ClaudePlays_KnownGames.h).
+const char* const PLAY_TEXTS[] = {
+    "Timing on this console",
+    "Press of a button",
+    "Press of a direction",
+    "Wait after a press",
+    "Picture later than a capture card",
+    "%1 ms",
+    "none",
+    "The game's picture",
+    "Fills the capture",
+    "4:3 games: Claude sees the game without the black bars at the sides",
+    "Upright: Claude sees only the strip of the screen in the middle",
+    "Japanese PlayStation games",
+    "CIRCLE is usually yes and CROSS no or back, the other way round from elsewhere",
+    "Claude Plays plays with this timing. Measure the timing first measures it on your own setup, and the options of Claude Plays change it for one game.",
+    "Games on this console",
+    "Game",
+    "What runs",
+    "Known games",
+    "Programs of its own and Claude Plays",
+    "Claude Plays, under Other Games",
+    "Claude Plays and Macro",
+    "Claude Plays and Macro, for any game",
+    "%1 frames a second: presses of %2 ms",
+    "yes and no of its own",
+    "For a known game, pick it under Which game in Claude Plays: the presses and the yes and no buttons follow it.",
+};
+
 //  The texts of the headings and the table.
 const char* const HEADINGS[] = {
     "Consoles",
@@ -948,6 +982,132 @@ QString overview_html(){
     return html + "</body>";
 }
 
+//  The code of Claude Plays' tables for a page: the two Switches share one;
+//  the phone has none (its programs are its own).
+std::string play_code(const QString& code){
+    if (code == "switch2"){
+        return "switch";
+    }
+    const std::string text = code.toStdString();
+    if (text == "mobile" || ClaudePlays::console_traits(text).code != text){
+        return std::string();
+    }
+    return text;
+}
+
+QString key_value_row(const char* key, const QString& value){
+    return "<tr><td style=\"padding-right: 18px;\">" + t(key) + "</td><td><b>" + value + "</b></td></tr>";
+}
+
+QString ms_text(int ms){
+    return ms <= 0 ? t("none") : tr_ui("%1 ms").arg(ms).toHtmlEscaped();
+}
+
+//  How Claude Plays presses on this console and what it sees of the picture.
+QString timing_html(const std::string& code, const ThemeColors& theme){
+    using namespace ClaudePlays;
+    const ConsoleTraits& traits = console_traits(code);
+    const InputTiming& timing = traits.timing;
+    QString html = heading("Timing on this console", theme);
+    html += "<table cellspacing=\"0\" cellpadding=\"3\">";
+    html += key_value_row("Press of a button", ms_text(timing.press_ms));
+    html += key_value_row("Press of a direction", ms_text(timing.direction_ms));
+    html += key_value_row("Wait after a press", ms_text(timing.gap_ms));
+    html += key_value_row("Picture later than a capture card", ms_text(timing.video_delay_ms));
+    const char* picture = "Fills the capture";
+    for (double aspect : traits.picture_aspects){
+        picture = aspect < 1.0
+            ? "Upright: Claude sees only the strip of the screen in the middle"
+            : "4:3 games: Claude sees the game without the black bars at the sides";
+    }
+    html += key_value_row("The game's picture", t(picture));
+    bool japanese = false;
+    for (GameId id : all_games()){
+        const GameProfile& profile = game_profile(id);
+        if (profile.console == code && !japanese_yes_no(profile.pad).empty()){
+            japanese = true;
+        }
+    }
+    if (japanese){
+        html += key_value_row("Japanese PlayStation games", t("CIRCLE is usually yes and CROSS no or back, the other way round from elsewhere"));
+    }
+    html += "</table>";
+    html += "<p style=\"color: " + theme.muted.name() + ";\">"
+        + t("Claude Plays plays with this timing. Measure the timing first measures it on your own setup, and the options of Claude Plays change it for one game.")
+        + "</p>";
+    return html;
+}
+
+//  The lists of games of this console: what runs in each, and the games the
+//  program knows more of (their frames a second and their presses).
+QString games_html(const std::string& code, const ThemeColors& theme){
+    using namespace ClaudePlays;
+    struct Row{
+        QString game;
+        const char* runs;
+        QStringList known;
+    };
+    std::vector<Row> rows;
+    const InputTiming& base = console_traits(code).timing;
+    bool any_known = false;
+    for (GameId id : all_games()){
+        const GameProfile& profile = game_profile(id);
+        if (profile.console != code || id == GameId::OTHER_GAMES){
+            continue;
+        }
+        Row row;
+        row.game = tr_ui(QString::fromStdString(profile.title));
+        row.runs = !has_only_claude_plays(id)
+            ? "Programs of its own and Claude Plays"
+            : is_other_games_choice(id) ? "Claude Plays, under Other Games" : "Claude Plays and Macro";
+        for (const KnownGame* game : known_games(id)){
+            QString text = QString::fromStdString(game->name).toHtmlEscaped();
+            QStringList notes;
+            if (game->frame_rate > 0){
+                const InputTiming timing = timing_for_game(base, game->frame_rate);
+                notes.append(tr_ui("%1 frames a second: presses of %2 ms").arg(game->frame_rate).arg(timing.press_ms).toHtmlEscaped());
+            }
+            if (!game->yes_no.empty()){
+                notes.append(t("yes and no of its own"));
+            }
+            if (!notes.isEmpty()){
+                text += " <span style=\"color: " + theme.muted.name() + ";\">(" + notes.join("; ") + ")</span>";
+            }
+            row.known.append(text);
+            any_known = true;
+        }
+        rows.push_back(std::move(row));
+    }
+    if (code == "switch"){
+        rows.push_back(Row{QString::fromUtf8(OTHER_GAMES_LIST), "Claude Plays and Macro, for any game", {}});
+    }
+    if (rows.empty()){
+        return QString();
+    }
+    QString html = heading("Games on this console", theme);
+    html += "<table cellspacing=\"0\" cellpadding=\"5\" width=\"100%\" style=\"border: 1px solid " + theme.line.name() + ";\">";
+    html += "<tr style=\"background-color: " + theme.surface_alt.name() + ";\">";
+    html += "<th align=\"left\">" + t("Game") + "</th><th align=\"left\">" + t("What runs") + "</th>";
+    if (any_known){
+        html += "<th align=\"left\">" + t("Known games") + "</th>";
+    }
+    html += "</tr>";
+    for (const Row& row : rows){
+        html += "<tr><td><b>" + row.game.toHtmlEscaped() + "</b></td><td>" + t(row.runs) + "</td>";
+        if (any_known){
+            html += "<td>" + row.known.join("<br>") + "</td>";
+        }
+        html += "</tr>";
+    }
+    html += "</table>";
+    if (any_known){
+        html += "<p style=\"color: " + theme.muted.name() + ";\">"
+            + t("For a known game, pick it under Which game in Claude Plays: the presses and the yes and no buttons follow it.")
+            + "</p>";
+    }
+    return html;
+}
+
 QString guide_html(const Guide& guide){
     const ThemeColors& theme = theme_colors();
     QString html = page_style(theme);
@@ -975,10 +1135,17 @@ QString guide_html(const Guide& guide){
 
     html += heading("Reaction time", theme);
     html += "<p>" + speed_bars(guide.speed, theme) + "&nbsp; <b>" + speed_text(guide.speed) + "</b><br>" + t(guide.speed_note) + "</p>";
+    const std::string play = play_code(QString::fromLatin1(guide.code));
+    if (!play.empty()){
+        html += timing_html(play, theme);
+    }
 
     if (!guide.games.empty()){
         html += heading("Games", theme);
         html += list(guide.games, false);
+    }
+    if (!play.empty()){
+        html += games_html(play, theme);
     }
 
     html += heading("Good to know", theme);
@@ -1136,6 +1303,9 @@ QStringList all_texts(){
     for (const char* text : HEADINGS){
         add(text);
     }
+    for (const char* text : PLAY_TEXTS){
+        add(text);
+    }
     for (const Guide& guide : guides()){
         add(guide.name);
         add(guide.board);
@@ -1216,6 +1386,11 @@ int console_guide_self_test(){
         check(html.contains(t(guide->name)) && html.contains(t("What you need")), QString(code) + ": the page has its heading and parts");
     }
     check(console_guide_html(QString()).contains("console:psremote"), "the overview links to the pages");
+    //  The timing and the games come from the tables of Claude Plays.
+    check(console_guide_html("retro").contains("Final Fantasy VII") && console_guide_html("retro").contains(t("Timing on this console")),
+        "the page of the retro consoles has their timing and their known games");
+    check(console_guide_html("switch2").contains(t("Games on this console")), "the Switch 2 has the games of the Switch");
+    check(!console_guide_html("mobile").contains(t("Timing on this console")), "the phone has no timing of Claude Plays");
     check(all_texts().size() > 100, "the texts of the guide");
     logger.log(
         failures == 0 ? "Console guide test: passed." : "Console guide test: FAILED.",
