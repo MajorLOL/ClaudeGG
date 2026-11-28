@@ -168,7 +168,7 @@ class AgentTest(unittest.TestCase):
             status, body = self.json("GET", path)
             self.assertEqual(status, 200)
             self.assertEqual(body["version"], agent.VERSION)
-            for feature in ("tap_kind", "app", "bot_file"):
+            for feature in ("tap_kind", "app", "bot_file", "touch"):
                 self.assertIn(feature, body["features"], "Claude GG asks for %s before it plays itself" % feature)
 
     def test_the_token_is_needed(self):
@@ -215,6 +215,19 @@ class AgentTest(unittest.TestCase):
         status, _ = self.json("POST", "/v1/swipes", {"strokes": [[1, 2, 3, 4, 100], [5, 6, 7, 8, 200]]})
         self.assertEqual(status, 200)
         self.assertEqual(self.agent.calls(), ["shell input swipe 1 2 3 4 100; input swipe 5 6 7 8 200"])
+
+    def test_touch_events_are_one_command(self):
+        status, body = self.json("POST", "/v1/touch", {"events": [["DOWN", 10, 20], ["MOVE", 11, 22], ["UP", 12, 400]]})
+        self.assertEqual(status, 200)
+        self.assertIn("out", body)
+        self.assertEqual(self.agent.calls(),
+                         ["shell { input motionevent DOWN 10 20; input motionevent MOVE 11 22; input motionevent UP 12 400; } 2>&1"])
+
+    def test_touch_events_are_checked(self):
+        for bad in ([], [["PRESS", 1, 2]], [["DOWN", 1]], [["DOWN", -1, 2]], [["DOWN", 1.5, 2]], [["DOWN", "1; reboot", 2]],
+                    [["DOWN", 1, 2]] * (agent.MAX_TOUCHES + 1), "DOWN 1 2", [("DOWN", 1, 2, 3)]):
+            self.assertEqual(self.json("POST", "/v1/touch", {"events": bad})[0], 400, bad)
+        self.assertEqual(self.agent.calls(), [])
 
     def test_keys(self):
         self.assertEqual(self.json("POST", "/v1/key", {"key": "back"})[0], 200)

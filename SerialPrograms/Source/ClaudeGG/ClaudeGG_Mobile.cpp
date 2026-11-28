@@ -502,6 +502,21 @@ bool MobileAgent::wake(QString* error) const{
     return post("/v1/wake", "{}", error);
 }
 
+bool MobileAgent::touch(const std::vector<MobileTouch>& events, QString& out, QString* error) const{
+    QJsonArray list;
+    for (const MobileTouch& event : events){
+        list.append(QJsonArray{event.action, event.x, event.y});
+    }
+    QJsonObject body;
+    body["events"] = list;
+    Reply reply;
+    if (!request("POST", "/v1/touch", QJsonDocument(body).toJson(QJsonDocument::Compact), reply, error)){
+        return false;
+    }
+    out = QJsonDocument::fromJson(reply.body).object().value("out").toString();
+    return true;
+}
+
 bool MobileAgent::app(const char* action, const QString& package, Reply& reply, QString* error) const{
     QJsonObject body;
     body["action"] = QString::fromLatin1(action);
@@ -1103,6 +1118,12 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
     check(phone.key("BACK", &error), "a key: " + error);
     check(phone.text("a b", &error), "a text: " + error);
     check(phone.wake(&error), "waking: " + error);
+    {
+        QString out;
+        check(phone.touch({{"DOWN", 1, 2}, {"MOVE", 3, 4}, {"UP", 5, 6}}, out, &error), "touch events (agent 0.2.2): " + error);
+        QString refused;
+        check(!phone.touch({{"PRESS", 1, 2}}, out, &refused) && !refused.isEmpty(), "a touch event that does not exist is refused (" + refused + ")");
+    }
     const QStringList pressed = read_lines(adb_log).mid(before.size());
     const QStringList wanted{
         "shell input swipe 300 400 300 400 120",
@@ -1112,6 +1133,7 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         "shell input keyevent 4",
         "shell input text a%sb",
         "shell input keyevent 224",
+        "shell { input motionevent DOWN 1 2; input motionevent MOVE 3 4; input motionevent UP 5 6; } 2>&1",
     };
     check(pressed == wanted, "the phone was asked just that (" + QString::number(pressed.size()) + " commands)");
     if (pressed != wanted){
