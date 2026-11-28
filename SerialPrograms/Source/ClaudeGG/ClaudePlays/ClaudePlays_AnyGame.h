@@ -88,6 +88,22 @@ const PadLayout& ps2_controller_layout();
 const PadLayout& gamecube_controller_layout();
 const PadLayout& n64_controller_layout();
 const PadLayout& dreamcast_controller_layout();
+//  An Xbox 360 controller: A, B, X, Y, LB, RB, LT, RT, START, BACK, the
+//  sticks and the d-pad; HOME is its Guide button.
+const PadLayout& xbox360_controller_layout();
+//  A PlayStation 4 or 5 controller: as the PlayStation 3's, with OPTIONS and
+//  SHARE for START and SELECT; HOME is the PS button. No touchpad.
+const PadLayout& ps4_controller_layout();
+//  An Xbox One or Series controller: as the Xbox 360's, with MENU and VIEW
+//  for START and BACK. No HOME (Remote Play does not pass it on).
+const PadLayout& xboxone_controller_layout();
+//  A keyboard for an iPhone with Full Keyboard Access: TAB, SHIFT_TAB,
+//  SPACE, ENTER, ESCAPE, BACKSPACE and the arrow keys; no sticks. HOME is
+//  Command-H, which goes to the home screen.
+const PadLayout& iphone_keyboard_layout();
+//  The PlayStation Classic's pad: CROSS, CIRCLE, SQUARE, TRIANGLE, L1, R1,
+//  L2, R2, START, SELECT and the d-pad. No sticks, no HOME.
+const PadLayout& psclassic_controller_layout();
 //  The layout of a kind of pad.
 const PadLayout& pad_layout(PadKind pad);
 

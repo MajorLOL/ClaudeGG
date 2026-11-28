@@ -111,7 +111,8 @@ UiLanguage language_of(const QString& code){
 }
 
 //  The console of the setup, as the codes of its screen ("switch", "switch2",
-//  "mobile", "ps3", "xbox", "retro"; empty: none chosen).
+//  "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote",
+//  "iphone", "psclassic"; empty: none chosen).
 QString console_code_of(SetupConsole console){
     switch (console){
     case SetupConsole::SWITCH:   return "switch";
@@ -120,6 +121,11 @@ QString console_code_of(SetupConsole console){
     case SetupConsole::PS3:      return "ps3";
     case SetupConsole::XBOX:     return "xbox";
     case SetupConsole::RETRO:    return "retro";
+    case SetupConsole::XBOX360:  return "xbox360";
+    case SetupConsole::PS_REMOTE:    return "psremote";
+    case SetupConsole::XBOX_REMOTE:  return "xboxremote";
+    case SetupConsole::IPHONE:   return "iphone";
+    case SetupConsole::PS_CLASSIC:   return "psclassic";
     case SetupConsole::NONE:     break;
     }
     return QString();
@@ -131,6 +137,11 @@ SetupConsole console_of(const QString& code){
     if (code == "ps3") return SetupConsole::PS3;
     if (code == "xbox") return SetupConsole::XBOX;
     if (code == "retro") return SetupConsole::RETRO;
+    if (code == "xbox360") return SetupConsole::XBOX360;
+    if (code == "psremote") return SetupConsole::PS_REMOTE;
+    if (code == "xboxremote") return SetupConsole::XBOX_REMOTE;
+    if (code == "iphone") return SetupConsole::IPHONE;
+    if (code == "psclassic") return SetupConsole::PS_CLASSIC;
     return SetupConsole::NONE;
 }
 
