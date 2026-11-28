@@ -88,7 +88,12 @@ GlobalSettings::GlobalSettings()
             {SetupConsole::PS3,     "ps3",     "PlayStation 3"},
             {SetupConsole::XBOX,    "xbox",    "Original Xbox"},
             {SetupConsole::RETRO,   "retro",   "Retro consoles (BlueRetro)"},
-            {SetupConsole::WIIU,    "wiiu",    "Nintendo Wii U (GamePad through a Raspberry Pi)"},
+            {SetupConsole::XBOX360, "xbox360", "Xbox 360"},
+            {SetupConsole::PS_REMOTE,   "psremote",   "PS4 and PS5 (Remote Play)"},
+            {SetupConsole::XBOX_REMOTE, "xboxremote", "Xbox One and Series (Remote Play)"},
+            {SetupConsole::IPHONE,  "iphone",  "iPhone"},
+            {SetupConsole::PS_CLASSIC,  "psclassic",  "PlayStation Classic"},
+            {SetupConsole::WIIU,        "wiiu",       "Nintendo Wii U (GamePad through a Raspberry Pi)"},
         },
         LockMode::UNLOCK_WHILE_RUNNING,
         SetupConsole::NONE

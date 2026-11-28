@@ -27,6 +27,7 @@
 #include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLibraryInfo>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
@@ -43,6 +44,7 @@
 #include <QTableWidget>
 #include <QTextEdit>
 #include <QTimer>
+#include <QTranslator>
 #include <QTreeWidget>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -109,7 +111,8 @@ UiLanguage language_of(const QString& code){
 }
 
 //  The console of the setup, as the codes of its screen ("switch", "switch2",
-//  "mobile", "ps3", "xbox", "retro", "wiiu"; empty: none chosen).
+//  "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote",
+//  "iphone", "psclassic", "wiiu"; empty: none chosen).
 QString console_code_of(SetupConsole console){
     switch (console){
     case SetupConsole::SWITCH:   return "switch";
@@ -118,7 +121,12 @@ QString console_code_of(SetupConsole console){
     case SetupConsole::PS3:      return "ps3";
     case SetupConsole::XBOX:     return "xbox";
     case SetupConsole::RETRO:    return "retro";
-    case SetupConsole::WIIU:     return "wiiu";
+    case SetupConsole::XBOX360:  return "xbox360";
+    case SetupConsole::PS_REMOTE:    return "psremote";
+    case SetupConsole::XBOX_REMOTE:  return "xboxremote";
+    case SetupConsole::IPHONE:   return "iphone";
+    case SetupConsole::PS_CLASSIC:   return "psclassic";
+    case SetupConsole::WIIU:         return "wiiu";
     case SetupConsole::NONE:     break;
     }
     return QString();
@@ -130,6 +138,11 @@ SetupConsole console_of(const QString& code){
     if (code == "ps3") return SetupConsole::PS3;
     if (code == "xbox") return SetupConsole::XBOX;
     if (code == "retro") return SetupConsole::RETRO;
+    if (code == "xbox360") return SetupConsole::XBOX360;
+    if (code == "psremote") return SetupConsole::PS_REMOTE;
+    if (code == "xboxremote") return SetupConsole::XBOX_REMOTE;
+    if (code == "iphone") return SetupConsole::IPHONE;
+    if (code == "psclassic") return SetupConsole::PS_CLASSIC;
     if (code == "wiiu") return SetupConsole::WIIU;
     return SetupConsole::NONE;
 }
@@ -632,8 +645,37 @@ std::vector<ChangeListener>& change_listeners(){
     return instance;
 }
 
+//  Qt's own texts (the buttons of a message box such as OK, Cancel, Yes and
+//  No, the file dialog): the translations that come with Qt. The package
+//  has them for the languages of the program (windeployqt --translations).
+void use_qt_translation(const QString& code){
+    static QTranslator* current = nullptr;
+    if (current != nullptr){
+        QCoreApplication::removeTranslator(current);
+        delete current;
+        current = nullptr;
+    }
+    if (code == "en" || QCoreApplication::instance() == nullptr){
+        return;
+    }
+    const QStringList folders{
+        QCoreApplication::applicationDirPath() + "/translations",
+        QLibraryInfo::path(QLibraryInfo::TranslationsPath),
+    };
+    std::unique_ptr<QTranslator> translator = std::make_unique<QTranslator>();
+    for (const QString& folder : folders){
+        if (translator->load("qt_" + code, folder) || translator->load("qtbase_" + code, folder)){
+            QCoreApplication::installTranslator(translator.get());
+            global_logger_tagged().log("Language: Qt's own texts from " + translator->filePath().toStdString(), COLOR_BLUE);
+            current = translator.release();
+            return;
+        }
+    }
+}
+
 //  Puts a language into use: its dictionary, and every window that is open.
 void use_language(const QString& code){
+    use_qt_translation(code);
     QHash<QString, QString> words = load_language(code);
     const size_t count = (size_t)words.size();
     QSet<QString> translated;

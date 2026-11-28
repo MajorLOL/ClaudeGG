@@ -324,7 +324,7 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
         //  Each console has its own games: Pokemon GO is the phone's, the
         //  Claude Plays of the PlayStation 3 and of the original Xbox those
         //  consoles', those of the retro consoles (BlueRetro) theirs, the
-        //  list of the Wii U the Wii U's, the others are the Switch's.
+        //  others are the Switch's.
         {
             bool go_ok = false;
             bool ps3_ok = false;
@@ -333,7 +333,16 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
             int retro_ok = 0;
             bool retro_wrong = false;
             bool switch_ok = true;
-            const char* const OTHERS[] = {"mobile", "ps3", "xbox", "retro", "wiiu"};
+            const char* const OTHERS[] = {"mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu"};
+            //  The lists of the Xbox 360, Remote Play, the iPhone and the PlayStation Classic, and their consoles.
+            const std::map<QString, const char*> LATER{
+                {"Xbox 360 games", "xbox360"},
+                {"PS4 and PS5 games", "psremote"},
+                {"Xbox One and Series games", "xboxremote"},
+                {"iPhone apps", "iphone"},
+                {"PlayStation Classic games", "psclassic"},
+            };
+            int later_ok = 0;
             const QStringList RETRO_LISTS{
                 "PlayStation games", "PlayStation 2 games", "GameCube games", "Nintendo 64 games", "Dreamcast games",
             };
@@ -361,6 +370,12 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     xbox_ok = listed_game.programs == 1 && only("xbox");
                 }else if (wiiu){
                     wiiu_ok = listed_game.programs == (int)WiiU::wiiu_program_count() && only("wiiu");
+                }else if (LATER.count(listed_game.name) != 0){
+                    if (listed_game.programs == 1 && only(LATER.at(listed_game.name))){
+                        later_ok++;
+                    }else{
+                        retro_wrong = true;
+                    }
                 }else if (retro){
                     if (listed_game.programs == 1 && only("retro")){
                         retro_ok++;
@@ -377,9 +392,9 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     switch_ok = switch_ok && fine;
                 }
             }
-            if (!go_ok || !ps3_ok || !xbox_ok || !wiiu_ok || retro_ok != 5 || retro_wrong || !switch_ok){
+            if (!go_ok || !ps3_ok || !xbox_ok || !wiiu_ok || retro_ok != 5 || later_ok != (int)LATER.size() || retro_wrong || !switch_ok){
                 failed++;
-                logger.log("UI test: the games are not divided over the consoles (Pokemon GO for the phone, Claude Plays of the PlayStation 3, the original Xbox and the five retro consoles for them, the list of the Wii U for it, the rest for the Switch)", COLOR_RED);
+                logger.log("UI test: the games are not divided over the consoles (Pokemon GO for the phone, Claude Plays of the PlayStation 3, the original Xbox, the five retro consoles, the Xbox 360, Remote Play, the iPhone, the PlayStation Classic and the Wii U for them, the rest for the Switch)", COLOR_RED);
             }
         }
         //  The Wii U: the symbols to pair, as typed, and a touch on Claude's

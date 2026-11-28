@@ -27,7 +27,7 @@ struct HomeGame{
     QPixmap icon;           //  May be empty.
     int programs = 0;
     bool enabled = true;
-    //  The consoles it is for ("switch", "switch2", "mobile", "ps3", "xbox", "retro", "wiiu"). Empty: every
+    //  The consoles it is for ("switch", "switch2", "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu"). Empty: every
     //  console. The page with the games shows only the games of the console
     //  that is in use.
     QStringList consoles;

@@ -17,6 +17,14 @@
 
 namespace PokemonAutomation{
 
+//  Downloads a resource now, in the thread that calls it, if it is not there
+//  yet (for a model that is loaded at its first use, not before a program
+//  starts). The progress goes to the log. Throws FatalProgramException with
+//  resource_download_failed_message() if it cannot: the program stops and says
+//  why. Only one download at a time.
+void download_resource_now(const std::string& resource_slug);
+
+
 class DownloadThread : public CancellableScope{
 
 public:

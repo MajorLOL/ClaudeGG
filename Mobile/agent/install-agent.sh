@@ -2,6 +2,8 @@
 # Installs the Claude GG agent on a Raspberry Pi: the hands and eyes of an Android phone.
 # Run it from this folder on the Pi:   bash install-agent.sh
 # The phone is on the Pi's USB cable with USB debugging on (see README.md in this folder).
+# To update an agent that is installed already: git pull in the folder of the clone, then run this again
+# (the token stays the same).
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TARGET="$HOME/claudegg-agent"
@@ -46,8 +48,11 @@ RestartSec=5
 WantedBy=multi-user.target
 UNIT
 sudo systemctl daemon-reload
-sudo systemctl enable --now claudegg-agent
+sudo systemctl enable claudegg-agent
+#  restart, not start: an agent that runs already (an update) must load the new file.
+sudo systemctl restart claudegg-agent
 sleep 2
+echo "Agent $(python3 "$TARGET/claudegg_agent.py" --version 2>/dev/null || echo '?') runs."
 
 echo
 echo "== The phone =="

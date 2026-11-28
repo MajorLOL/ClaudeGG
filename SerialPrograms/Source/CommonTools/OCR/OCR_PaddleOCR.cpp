@@ -51,9 +51,8 @@ LanguageGroup language_to_languagegroup(Language language){
 }
 
 bool paddle_ocr_language_available(Language language){
-    std::string path = ML::PaddleOCRPipeline::get_paths(language).first;
-    Filesystem::Path p{path};
-    return std::filesystem::exists(p);
+    //  The model for Japanese and Chinese may be downloaded at its first use.
+    return ML::PaddleOCRPipeline::language_available(language);
 }
 
 
@@ -75,6 +74,10 @@ ML::PaddleOCRPipeline& ensure_paddle_ocr_instance(Language language){
     }
 
     LanguageGroup language_group = language_to_languagegroup(language);
+
+    //  A model that is downloaded at its first use: before the lock, which
+    //  other threads would spin on while it downloads.
+    ML::PaddleOCRPipeline::ensure_downloaded(language);
 
     PaddleOcrGlobals& globals = PaddleOcrGlobals::instance();
     std::map<LanguageGroup, ML::PaddleOCRPipeline>& ocr_pool = globals.ocr_pool;

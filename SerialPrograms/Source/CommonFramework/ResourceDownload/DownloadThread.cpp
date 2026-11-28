@@ -10,6 +10,7 @@
 #include "CommonFramework/GlobalAutoPaths.h"
 #include "CommonFramework/Logging/Logger.h"
 #include "CommonFramework/Exceptions/OperationFailedException.h"
+#include "CommonFramework/Exceptions/FatalProgramException.h"
 #include "CommonFramework/Tools/GlobalThreadPools.h"
 #include "CommonFramework/Tools/FileDownloader.h"
 #include "CommonFramework/Tools/FileUnzip.h"
@@ -166,4 +167,70 @@ void DownloadThread::run_download(DownloadedResourceMetadata resource_metadata){
     }
 
 }
+
+
+void download_resource_now(const std::string& resource_slug){
+    static Mutex one_at_a_time;
+    std::lock_guard<Mutex> lg(one_at_a_time);
+
+    Logger& logger = global_logger_tagged();
+    if (!all_resource_names().contains(resource_slug)){
+        throw FatalProgramException(
+            ErrorReportMode::NO_ERROR_REPORT,
+            "Claude GG needs " + resource_slug + ", but this package does not say where to download it. "
+            "Download the newest Claude GG, or put the files in the folder " + DOWNLOADED_RESOURCE_PATH() + resource_slug + "."
+        );
+    }
+    if (get_local_version_info(resource_slug).version_status == ResourceVersionStatus::CURRENT){
+        return;     //  Another thread downloaded it while this one waited.
+    }
+
+    std::string reason;
+    try{
+        DownloadedResourceMetadata metadata = get_remote_resource_metadata_from_resource_slug(resource_slug);
+        logger.log(
+            "Downloading " + resource_slug + " (" + std::to_string(metadata.size_compressed_bytes / 1000000) +
+            " MB) at its first use: " + metadata.url, COLOR_BLUE
+        );
+        auto progress = [&logger, &resource_slug, last = -1](const char* step, uint64_t done, uint64_t total) mutable{
+            if (total == 0){
+                return;
+            }
+            int percent = (int)(done * 100 / total);
+            if (percent / 10 != last / 10 || (percent == 100 && last != 100)){
+                last = percent;
+                logger.log(resource_slug + ": " + step + " " + std::to_string(percent) + "%");
+            }
+        };
+        DownloadThread::Hooks hooks{
+            .is_ready_to_start = []{ return true; },
+            .on_finished = [](bool){},
+            .report_failed = []{},
+            .report_exception_caught = [](const char*){},
+            .report_download_progress = [&](uint64_t done, uint64_t total){ progress("downloading", done, total); },
+            .report_hash_progress = [](uint64_t, uint64_t){},
+            .report_unzip_progress = [&](uint64_t done, uint64_t total){ progress("unpacking", done, total); },
+        };
+        Mutex lock;
+        ConditionVariable cv;
+        DownloadThread download(std::move(hooks), metadata, lock, cv);
+        download.run_download(metadata);
+        if (get_local_version_info(resource_slug).version_status == ResourceVersionStatus::NOT_APPLICABLE){
+            reason = "the zip has no version.json.";
+        }else{
+            logger.log("Downloaded " + resource_slug + ".", COLOR_BLUE);
+            return;
+        }
+    }catch (OperationFailedException& e){
+        reason = e.message();
+    }catch (OperationCancelledException&){
+        reason = "the download was stopped.";
+    }catch (const std::exception& e){
+        reason = e.what();
+    }
+    logger.log("Download of " + resource_slug + " failed: " + reason, COLOR_RED);
+    throw FatalProgramException(ErrorReportMode::NO_ERROR_REPORT, resource_download_failed_message(resource_slug, reason));
+}
+
+
 }

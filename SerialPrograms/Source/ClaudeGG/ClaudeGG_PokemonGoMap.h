@@ -129,6 +129,12 @@ struct Cool{
     double until = 0.0;
 };
 
+//  A screenshot that was already taken (and looked at) while waiting for the catch result: the next step reuses it (gamebot.handoff).
+struct Handoff{
+    cv::Mat img;                        //  empty: there is none
+    double t = 0.0;
+};
+
 //  What gamebot.py keeps in its globals for the map and the stop.
 struct State{
     bool spin = true;                   //  SPIN: spinning stops is on (the full bag pauses it)
@@ -138,6 +144,7 @@ struct State{
     std::optional<Point> enc_xy;
     std::optional<bool> throw_hit;      //  throw_info['hit']
     FastPending fast_pending;
+    Handoff handoff;
     int fast_fails = 0;                 //  fast_state: in a row
     double fast_off_until = 0.0;
     LastTap last_tap;

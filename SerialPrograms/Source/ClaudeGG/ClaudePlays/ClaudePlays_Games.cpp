@@ -291,6 +291,58 @@ std::map<GameId, GameProfile> make_profiles(){
         "console's menu.") + BLUERETRO,
         PadKind::DREAMCAST_CONTROLLER
     );
+    //  The Xbox 360, Remote Play, the iPhone and the PlayStation Classic: a
+    //  console of the setup each.
+    auto other = [&](GameId id, const char* identifier, const char* category, const char* title, std::string notes, PadKind pad, const char* console){
+        GameProfile profile{id, identifier, category, "", title, std::move(notes), pad, false};
+        profile.console = console;
+        add(std::move(profile));
+    };
+    other(
+        GameId::XBOX_360, "Xbox360:ClaudePlays", "Xbox 360", "Xbox 360 games",
+        "The console is an Xbox 360. On it, A usually confirms and B goes back, START opens a game's menu in "
+        "many games, and the Guide button (HOME here) the console's own guide. The pad is played through an "
+        "adapter (a board that is a Switch pad, passed on as an Xbox 360 pad): LT and RT are only pressed "
+        "fully, and there is no rumble.",
+        PadKind::XBOX360_CONTROLLER, "xbox360"
+    );
+    other(
+        GameId::PS_REMOTE_PLAY, "PSRemotePlay:ClaudePlays", "PlayStation Remote Play", "PS4 and PS5 games",
+        "The console is a PlayStation 4 or 5, played through Remote Play: the picture is its stream on the "
+        "computer, and comes a moment late. CROSS usually confirms and CIRCLE goes back (on a Japanese console "
+        "the other way round). OPTIONS opens a game's menu, the PS button (HOME here) the console's own. The "
+        "pad is a USB gamepad of the computer that the Remote Play client passes on: there is no touchpad, "
+        "no motion sensing and no rumble, and L2 and R2 are only pressed fully.",
+        PadKind::PS4_CONTROLLER, "psremote"
+    );
+    other(
+        GameId::XBOX_REMOTE_PLAY, "XboxRemotePlay:ClaudePlays", "Xbox Remote Play", "Xbox One and Series games",
+        "The console is an Xbox One or an Xbox Series X|S, played through Remote Play: the picture is its "
+        "stream on the computer, and comes a moment late. A usually confirms and B goes back. MENU opens a "
+        "game's menu, VIEW its map or a second screen in many games. The Xbox button is not passed on. The "
+        "pad is an Xbox 360 controller of the computer (a board through an adapter) that Remote Play passes "
+        "on: LT and RT are only pressed fully, and there is no rumble.",
+        PadKind::XBOXONE_CONTROLLER, "xboxremote"
+    );
+    other(
+        GameId::IPHONE, "iPhone:ClaudePlays", "iPhone", "iPhone apps",
+        "The device is an iPhone, worked with a keyboard through Full Keyboard Access (an accessibility "
+        "setting): a frame shows which item has the focus. TAB goes to the next item and SHIFT_TAB back, the "
+        "arrow keys move between items, SPACE taps the item that has the focus, ESCAPE often goes back or closes "
+        "a sheet (where it does not, move the frame to the app's Back button and press SPACE), HOME goes to the "
+        "home screen. Games that want touches on the screen itself cannot be played this way: this is "
+        "for apps and their menus.",
+        PadKind::IPHONE_KEYBOARD, "iphone"
+    );
+    other(
+        GameId::PS_CLASSIC, "PSClassic:ClaudePlays", "PlayStation Classic", "PlayStation Classic games",
+        "The console is a PlayStation Classic, which plays games of the first PlayStation. In most games CROSS "
+        "confirms and CIRCLE goes back (in Japanese games often the other way round), START opens the game's "
+        "menu or pauses. Its pad has no sticks and no button for the console's menu: that is the RESET button "
+        "on the console itself, which only a person can press. The pad is played through an adapter (a board "
+        "that is a Switch pad, passed on as the PlayStation Classic's own): there is no rumble.",
+        PadKind::PSCLASSIC_CONTROLLER, "psclassic"
+    );
     return profiles;
 }
 
@@ -317,6 +369,11 @@ bool has_only_claude_plays(GameId id){
     case GameId::GAMECUBE:
     case GameId::NINTENDO_64:
     case GameId::DREAMCAST:
+    case GameId::XBOX_360:
+    case GameId::PS_REMOTE_PLAY:
+    case GameId::XBOX_REMOTE_PLAY:
+    case GameId::IPHONE:
+    case GameId::PS_CLASSIC:
         return true;
     default:
         return false;
@@ -361,6 +418,11 @@ const std::vector<GameId>& all_games(){
         GameId::GAMECUBE,
         GameId::NINTENDO_64,
         GameId::DREAMCAST,
+        GameId::XBOX_360,
+        GameId::PS_REMOTE_PLAY,
+        GameId::XBOX_REMOTE_PLAY,
+        GameId::IPHONE,
+        GameId::PS_CLASSIC,
     };
     return games;
 }
