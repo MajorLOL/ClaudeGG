@@ -13,6 +13,7 @@
 #include <QObject>
 #include <QStringList>
 #include <QTimer>
+#include "ClaudeGG/ClaudeGG_Language.h"
 #include "Assistant_Claude.h"
 
 namespace PokemonAutomation{
@@ -116,9 +117,9 @@ QString usage_text(const Usage& usage){
         return text;
     }
     if (usage.cost_usd < 0.005){
-        return text + ", less than $0.01";
+        return text + tr_ui(", less than $0.01");
     }
-    return text + ", about $" + QString::number(usage.cost_usd, 'f', 2);
+    return text + tr_ui(", about $%1").arg(QString::number(usage.cost_usd, 'f', 2));
 }
 
 
@@ -402,7 +403,7 @@ QString api_error_text(
     bool workspace_named
 ){
     if (type == "network"){
-        return "No answer from the Claude API (" + message + "). Check the internet connection, then try again.";
+        return tr_ui("No answer from the Claude API (%1). Check the internet connection, then try again.").arg(message);
     }
     //  The workspace the request runs in: a key that was not made for one
     //  has to name it. (The API's words, November 2026: "This API key is
@@ -411,57 +412,59 @@ QString api_error_text(
     //  and "anthropic-workspace-id header must be a valid workspace ID.")
     if (message.contains("anthropic-workspace-id") || message.contains("scoped to a workspace")){
         if (!workspace_named){
-            return
+            return tr_ui(
                 "This API key was not made for one workspace, so the Claude API has to be told which workspace to "
                 "use. Either make a new key in the Claude Console and choose a workspace for it, or enter the "
-                "workspace's ID (wrkspc_..., on the Console's page Workspaces) in the settings of this panel. (" +
-                message + ")";
+                "workspace's ID (wrkspc_..., on the Console's page Workspaces) in the settings of this panel. (%1)"
+            ).arg(message);
         }
-        return
+        return tr_ui(
             "The Claude API did not take the workspace ID of this panel's settings. Check it against the "
-            "Console's page Workspaces (it starts with wrkspc_). (" + message + ")";
+            "Console's page Workspaces (it starts with wrkspc_). (%1)"
+        ).arg(message);
     }
     //  Sent along with each request: what to look at when the API does not
     //  find, or does not allow, what was asked for.
     const QString workspace_hint = workspace_named
-        ? QString(
-            " The workspace ID of this panel's settings is sent with each request: check it too, or clear it "
+        ? " " + tr_ui(
+            "The workspace ID of this panel's settings is sent with each request: check it too, or clear it "
             "for a key that was made for one workspace."
         )
         : QString();
     if (type == "authentication_error" || status == 401){
-        return "The Claude API did not accept the API key. Check the key in the settings of this panel. (" + message + ")";
+        return tr_ui("The Claude API did not accept the API key. Check the key in the settings of this panel. (%1)").arg(message);
     }
     if (type == "billing_error"){
-        return "The Claude API reports a problem with the billing of this account: " + message;
+        return tr_ui("The Claude API reports a problem with the billing of this account: %1").arg(message);
     }
     if (type == "permission_error"){
-        return "This API key may not use what was asked for: " + message + workspace_hint;
+        return tr_ui("This API key may not use what was asked for: %1").arg(message) + workspace_hint;
     }
     if (type == "rate_limit_error"){
         if (error_code == "enforced_spend_limit_reached"){
-            return "The spending limit of this API account is reached: " + message;
+            return tr_ui("The spending limit of this API account is reached: %1").arg(message);
         }
-        return "The Claude API's limit for this account is reached for the moment. Wait a little, then try again. (" + message + ")";
+        return tr_ui("The Claude API's limit for this account is reached for the moment. Wait a little, then try again. (%1)").arg(message);
     }
     if (type == "overloaded_error" || status == 529){
-        return "The Claude API is overloaded right now. Try again in a moment.";
+        return tr_ui("The Claude API is overloaded right now. Try again in a moment.");
     }
     if (type == "not_found_error"){
         return
-            "The Claude API does not know what was asked for (" + message + "). Pick another model in this panel." +
+            tr_ui("The Claude API does not know what was asked for (%1). Pick another model in this panel.").arg(message) +
             workspace_hint;
     }
     if (type == "request_too_large" || status == 413){
-        return "The conversation has become too large for the Claude API. Start a new one.";
+        return tr_ui("The conversation has become too large for the Claude API. Start a new one.");
     }
     if (type == "invalid_request_error"){
-        return "The Claude API refused the request: " + message;
+        return tr_ui("The Claude API refused the request: %1").arg(message);
     }
     if (message.isEmpty()){
-        return "The Claude API answered with an error (HTTP " + QString::number(status) + ").";
+        return tr_ui("The Claude API answered with an error (HTTP %1).").arg(QString::number(status));
     }
-    return "The Claude API reported an error: " + message;
+    return tr_ui("The Claude API reported an error: %1").arg(message);
+
 }
 
 namespace{

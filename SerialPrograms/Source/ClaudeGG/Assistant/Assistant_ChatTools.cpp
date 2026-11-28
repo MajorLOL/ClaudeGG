@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <utility>
 #include <QRegularExpression>
+#include "../ClaudeGG_Language.h"
 #include "../ClaudeGG_Scrub.h"
 #include "Assistant_Play.h"
 #include "Assistant_Service.h"
@@ -86,10 +87,10 @@ void add_chat_tools(ToolSet& tools, Service& service){
             const QString game = tool_string(input, "game");
             const QString words = tool_string(input, "words");
             if (!words.isEmpty()){
-                return "Looked for programs with \"" + words + "\"";
+                return tr_ui("Looked for programs with \"%1\"").arg(words);
             }
             if (!game.isEmpty()){
-                return "Listed the programs of " + game;
+                return tr_ui("Listed the programs of %1").arg(game);
             }
             return QString("Listed the games");
         };
@@ -241,7 +242,7 @@ void add_chat_tools(ToolSet& tools, Service& service){
             const QString contains = tool_string(input, "contains");
             return contains.isEmpty()
                 ? QString("Read the log")
-                : "Read the log for \"" + one_line(contains, 40) + "\"";
+                : tr_ui("Read the log for \"%1\"").arg(one_line(contains, 40));
         };
         tool.run = [&service](const QJsonObject& input, const ToolCallContext&, std::function<void(ToolResult)> done){
             const int wanted = std::clamp(tool_integer(input, "lines", 80), 1, 400);
@@ -298,7 +299,7 @@ void add_chat_tools(ToolSet& tools, Service& service){
             const QString area = tool_string(input, "area", "full");
             return area.isEmpty() || area == "full"
                 ? QString("Looked at the game")
-                : "Looked at the game (" + one_line(area, 20) + ")";
+                : tr_ui("Looked at the game (%1)").arg(one_line(area, 20));
         };
         tool.run = [&service](const QJsonObject& input, const ToolCallContext&, std::function<void(ToolResult)> done){
             if (!service.hooks().look_at_game){
@@ -341,7 +342,7 @@ void add_chat_tools(ToolSet& tools, Service& service){
             {"path_prefix", "string", "Only files under this folder."},
         });
         tool.describe = [](const QJsonObject& input){
-            return "Looked for files with \"" + one_line(tool_string(input, "words"), 50) + "\"";
+            return tr_ui("Looked for files with \"%1\"").arg(one_line(tool_string(input, "words"), 50));
         };
         tool.run = [&service](const QJsonObject& input, const ToolCallContext&, std::function<void(ToolResult)> done){
             service.workspace().find_files(
@@ -364,13 +365,14 @@ void add_chat_tools(ToolSet& tools, Service& service){
             {"last_line", "integer", "The last line to read. The end of the file if not given."},
         });
         tool.describe = [](const QJsonObject& input){
-            QString text = "Read " + short_path(tool_string(input, "path"));
+            const QString path = short_path(tool_string(input, "path"));
+            QString text = tr_ui("Read %1").arg(path);
             const int first = tool_integer(input, "first_line", 0);
             const int last = tool_integer(input, "last_line", 0);
             if (first > 0 && last >= first){
-                text += ", lines " + QString::number(first) + " to " + QString::number(last);
+                text = tr_ui("Read %1, lines %2 to %3").arg(path, QString::number(first), QString::number(last));
             }else if (first > 1){
-                text += ", from line " + QString::number(first);
+                text = tr_ui("Read %1, from line %2").arg(path, QString::number(first));
             }
             return text;
         };
@@ -392,7 +394,7 @@ void add_chat_tools(ToolSet& tools, Service& service){
             {"path", "string", "The file's path in the repository.", true},
         });
         tool.describe = [](const QJsonObject& input){
-            return "Outlined " + short_path(tool_string(input, "path"));
+            return tr_ui("Outlined %1").arg(short_path(tool_string(input, "path")));
         };
         tool.run = [&service](const QJsonObject& input, const ToolCallContext&, std::function<void(ToolResult)> done){
             service.workspace().outline_file(tool_string(input, "path"), as_result(std::move(done)));
@@ -418,7 +420,7 @@ void add_chat_tools(ToolSet& tools, Service& service){
             while (folder.endsWith('/')){
                 folder.chop(1);
             }
-            return "Searched for \"" + one_line(tool_string(input, "pattern"), 40) + "\" in " + short_path(folder);
+            return tr_ui("Searched for \"%1\" in %2").arg(one_line(tool_string(input, "pattern"), 40), short_path(folder));
         };
         tool.run = [&service](const QJsonObject& input, const ToolCallContext& context, std::function<void(ToolResult)> done){
             service.workspace().search_text(
@@ -445,7 +447,7 @@ void add_chat_tools(ToolSet& tools, Service& service){
             {"new_text", "string", "The text to put in its place.", true},
         });
         tool.describe = [](const QJsonObject& input){
-            return "Changed " + short_path(tool_string(input, "path"));
+            return tr_ui("Changed %1").arg(short_path(tool_string(input, "path")));
         };
         tool.run = [&service](const QJsonObject& input, const ToolCallContext&, std::function<void(ToolResult)> done){
             service.workspace().edit_file(
@@ -469,7 +471,7 @@ void add_chat_tools(ToolSet& tools, Service& service){
             {"overwrite", "boolean", "Replace the file if it exists."},
         });
         tool.describe = [](const QJsonObject& input){
-            return "Wrote " + short_path(tool_string(input, "path"));
+            return tr_ui("Wrote %1").arg(short_path(tool_string(input, "path")));
         };
         tool.run = [&service](const QJsonObject& input, const ToolCallContext&, std::function<void(ToolResult)> done){
             service.workspace().write_file(
@@ -515,7 +517,7 @@ void add_chat_tools(ToolSet& tools, Service& service){
         });
         tool.describe = [](const QJsonObject& input){
             const QString path = tool_string(input, "path");
-            return path.isEmpty() ? QString("Took back all changes") : "Took back the change of " + short_path(path);
+            return path.isEmpty() ? QString("Took back all changes") : tr_ui("Took back the change of %1").arg(short_path(path));
         };
         tool.run = [&service](const QJsonObject& input, const ToolCallContext&, std::function<void(ToolResult)> done){
             done(ToolResult::ok(service.workspace().discard(tool_string(input, "path"))));
@@ -536,7 +538,7 @@ void add_chat_tools(ToolSet& tools, Service& service){
             {"message", "string", "The commit message.", true},
         });
         tool.describe = [&service](const QJsonObject& input){
-            return "Commit to " + service.workspace().commit_branch(tool_string(input, "topic"));
+            return tr_ui("Commit to %1").arg(service.workspace().commit_branch(tool_string(input, "topic")));
         };
         tool.run = [&service](const QJsonObject& input, const ToolCallContext& context, std::function<void(ToolResult)> done){
             const QString topic = tool_string(input, "topic");
@@ -552,15 +554,15 @@ void add_chat_tools(ToolSet& tools, Service& service){
                 const QString branch = workspace.commit_branch(topic);
                 const size_t files = workspace.changes().size();
                 ApprovalRequest approval;
-                approval.title = "Commit to " + branch;
+                approval.title = tr_ui("Commit to %1").arg(branch);
                 approval.text =
                     message.section('\n', 0, 0) + "\n" +
-                    QString::number(files) + (files == 1 ? " file" : " files") + ", on " +
+                    (files == 1 ? tr_ui("1 file") : tr_ui("%1 files").arg(QString::number(files))) + ", " +
                     (workspace.branch().isEmpty()
-                        ? "a new branch made from " + repository.base_branch
-                        : QString("the branch of this conversation")) +
-                    " in " + repository.slug() + ". Nothing changes in " + repository.base_branch +
-                    " until you merge the pull request.";
+                        ? tr_ui("on a new branch made from %1 in %2.").arg(repository.base_branch, repository.slug())
+                        : tr_ui("on the branch of this conversation in %1.").arg(repository.slug())) + " " +
+                    tr_ui("Nothing changes in %1 until you merge the pull request.").arg(repository.base_branch);
+
                 approval.accept_label = "Commit";
                 approval.decline_label = "Not now";
                 approval.details_label = "View changes";
