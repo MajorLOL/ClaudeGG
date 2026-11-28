@@ -365,19 +365,21 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                 if (go){
                     go_ok = listed_game.programs == 10 && only("mobile");
                 }else if (ps3){
-                    ps3_ok = listed_game.programs == 1 && only("ps3");
+                    ps3_ok = listed_game.programs == 2 && only("ps3");
                 }else if (xbox){
-                    xbox_ok = listed_game.programs == 1 && only("xbox");
+                    xbox_ok = listed_game.programs == 2 && only("xbox");
                 }else if (wiiu){
                     wiiu_ok = listed_game.programs == (int)WiiU::wiiu_program_count() && only("wiiu");
                 }else if (LATER.count(listed_game.name) != 0){
-                    if (listed_game.programs == 1 && only(LATER.at(listed_game.name))){
+                    //  Claude Plays and Macro; the iPhone has no Macro (ClaudeGG_Macro.h).
+                    const int programs = listed_game.name == "iPhone apps" ? 1 : 2;
+                    if (listed_game.programs == programs && only(LATER.at(listed_game.name))){
                         later_ok++;
                     }else{
                         retro_wrong = true;
                     }
                 }else if (retro){
-                    if (listed_game.programs == 1 && only("retro")){
+                    if (listed_game.programs == 2 && only("retro")){
                         retro_ok++;
                     }else{
                         retro_wrong = true;
