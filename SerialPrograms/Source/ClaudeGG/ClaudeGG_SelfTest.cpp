@@ -118,6 +118,7 @@
 #include "ClaudeGG_ShinyClip.h"
 #include "ClaudeGG_Theme.h"
 #include "ClaudeGG_WiiU.h"
+#include "ClaudeGG_Vita.h"
 #include "ClaudeGG_Setup.h"
 #include "ClaudeGG_SelfTest.h"
 #include "ClaudeGG_Update.h"
@@ -330,10 +331,11 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
             bool ps3_ok = false;
             bool xbox_ok = false;
             bool wiiu_ok = false;
+            bool vita_ok = false;
             int retro_ok = 0;
             bool retro_wrong = false;
             bool switch_ok = true;
-            const char* const OTHERS[] = {"mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu", "psdirect", "xboxdirect", "steam"};
+            const char* const OTHERS[] = {"mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu", "psdirect", "xboxdirect", "steam", "vita"};
             //  The lists of the Xbox 360, Remote Play, the iPhone and the PlayStation Classic, and their consoles.
             const std::map<QString, const char*> LATER{
                 {"Xbox 360 games", "xbox360"},
@@ -355,6 +357,7 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                 const bool xbox = listed_game.name == "Original Xbox games";
                 const bool retro = RETRO_LISTS.contains(listed_game.name);
                 const bool wiiu = listed_game.name == WiiU::WIIU_LIST_NAME;
+                const bool vita = listed_game.name == Vita::VITA_LIST_NAME;
                 const auto only = [&](const char* console){
                     bool fine = game_is_for_console(listed_game, console) &&
                         !game_is_for_console(listed_game, "switch") && !game_is_for_console(listed_game, "switch2");
@@ -373,6 +376,8 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     xbox_ok = listed_game.programs == 2 && only("xbox");
                 }else if (wiiu){
                     wiiu_ok = listed_game.programs == (int)WiiU::wiiu_program_count() && only("wiiu");
+                }else if (vita){
+                    vita_ok = listed_game.programs == (int)Vita::vita_program_count() && only("vita");
                 }else if (LATER.count(listed_game.name) != 0){
                     if (listed_game.programs == 2 && only(LATER.at(listed_game.name))){
                         later_ok++;
@@ -395,7 +400,7 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     switch_ok = switch_ok && fine;
                 }
             }
-            if (!go_ok || !ps3_ok || !xbox_ok || !wiiu_ok || retro_ok != 5 || later_ok != (int)LATER.size() || retro_wrong || !switch_ok){
+            if (!go_ok || !ps3_ok || !xbox_ok || !wiiu_ok || !vita_ok || retro_ok != 5 || later_ok != (int)LATER.size() || retro_wrong || !switch_ok){
                 failed++;
                 logger.log("UI test: the games are not divided over the consoles (Pokemon GO for the phone, Claude Plays of the PlayStation 3, the original Xbox, the five retro consoles, the Xbox 360, Remote Play, the iPhone, the PlayStation Classic and the Wii U for them, the rest for the Switch)", COLOR_RED);
             }
@@ -417,6 +422,49 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
             if (!fine){
                 failed++;
                 logger.log("UI test: the Wii U's symbols or touches are not read as they should be", COLOR_RED);
+            }
+        }
+        //  The PlayStation Vita: the bits of its buttons, its sticks, the token
+        //  as typed, a touch on Claude's picture, and a picture of "shot" (the
+        //  game's plane with the shell's over it).
+        {
+            int tx = -1;
+            int ty = -1;
+            Vita::touch_point(479, 271, 480, 272, tx, ty);
+            auto plane = [](QByteArray& data, uint32_t w, uint32_t h, const std::vector<unsigned char>& rgba){
+                const uint32_t fields[] = {w, h, w * 4, 0, (uint32_t)rgba.size()};
+                data += "VSHT";
+                for (uint32_t field : fields){
+                    for (int b = 0; b < 4; b++){
+                        data += (char)((field >> (8 * b)) & 0xff);
+                    }
+                }
+                data += QByteArray(reinterpret_cast<const char*>(rgba.data()), (qsizetype)rgba.size());
+            };
+            QByteArray shot;
+            plane(shot, 2, 1, {10, 20, 30, 255, 40, 50, 60, 255});
+            plane(shot, 2, 1, {0, 0, 0, 0, 200, 100, 0, 255});
+            const QImage picture = Vita::picture_of_shot(shot);
+            QByteArray no_shell;
+            plane(no_shell, 2, 1, {10, 20, 30, 255, 40, 50, 60, 255});
+            plane(no_shell, 0, 0, {});
+            const QImage alone = Vita::picture_of_shot(no_shell);
+            const std::string token(64, 'a');
+            const bool fine =
+                Vita::button_bit("CROSS") == 0x4000 && Vita::button_bit("CIRCLE") == 0x2000 &&
+                Vita::button_bit("L") == 0x400 && Vita::button_bit("HOME") == 0x10000 && Vita::button_bit("ZL") == 0 &&
+                Vita::stick_value(0, false) == 128 && Vita::stick_value(1, false) == 255 && Vita::stick_value(-1, false) == 0 &&
+                Vita::stick_value(1, true) == 0 && Vita::stick_value(-1, true) == 255 &&
+                Vita::token_of(" " + token + "\n") == token && Vita::token_of(token.substr(1)).empty() &&
+                Vita::token_of(std::string(63, 'a') + "g").empty() &&
+                tx == 959 && ty == 543 &&
+                picture.width() == 2 && picture.height() == 1 &&
+                picture.pixel(0, 0) == qRgb(10, 20, 30) && picture.pixel(1, 0) == qRgb(200, 100, 0) &&
+                alone.width() == 2 && alone.pixel(1, 0) == qRgb(40, 50, 60) &&
+                Vita::picture_of_shot(QByteArray("ERR busy")).isNull();
+            if (!fine){
+                failed++;
+                logger.log("UI test: the Vita's buttons, sticks, token, touches or pictures are not read as they should be", COLOR_RED);
             }
         }
         if (!window.open_game(QString::fromStdString(GAME))){

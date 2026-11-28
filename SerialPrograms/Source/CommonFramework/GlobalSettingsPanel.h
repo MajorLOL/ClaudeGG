@@ -78,6 +78,7 @@ enum class SetupConsole{
     PS_DIRECT,  //  PlayStation 4 and 5, straight: the wired board and a bought Brook Wingman XE.
     XBOX_DIRECT,//  Xbox One and Series, straight: the wired board and a bought Brook Wingman XB 3.
     STEAM,      //  A Steam Deck or a PC with Steam: the wired board as its USB gamepad.
+    VITA,       //  A PlayStation Vita with vita-agent-bridge, over the network (no board).
 };
 
 
@@ -125,6 +126,9 @@ public:
     //  The Raspberry Pi that is the GamePad of a Wii U (the console "wiiu"):
     //  where its bridge is (see ClaudeGG/ClaudeGG_WiiU.h).
     StringOption WIIU_HOST;
+    //  A PlayStation Vita with vita-agent-bridge (the console "vita"): its
+    //  address. Its token is in a file of its own (see ClaudeGG/ClaudeGG_Vita.h).
+    StringOption VITA_HOST;
     ButtonOption OPEN_SETUP_BUTTON;
     BooleanCheckBoxOption ASK_LANGUAGE;
     BooleanCheckBoxOption ASK_SETUP;

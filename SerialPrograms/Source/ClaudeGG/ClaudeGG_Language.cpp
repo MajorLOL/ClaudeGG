@@ -113,7 +113,7 @@ UiLanguage language_of(const QString& code){
 
 //  The console of the setup, as the codes of its screen ("switch", "switch2",
 //  "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote",
-//  "iphone", "psclassic", "wiiu", "psdirect", "xboxdirect", "steam"; empty: none
+//  "iphone", "psclassic", "wiiu", "psdirect", "xboxdirect", "steam", "vita"; empty: none
 //  chosen).
 QString console_code_of(SetupConsole console){
     switch (console){
@@ -132,6 +132,7 @@ QString console_code_of(SetupConsole console){
     case SetupConsole::PS_DIRECT:    return "psdirect";
     case SetupConsole::XBOX_DIRECT:  return "xboxdirect";
     case SetupConsole::STEAM:        return "steam";
+    case SetupConsole::VITA:         return "vita";
     case SetupConsole::NONE:     break;
     }
     return QString();
@@ -152,6 +153,7 @@ SetupConsole console_of(const QString& code){
     if (code == "psdirect") return SetupConsole::PS_DIRECT;
     if (code == "xboxdirect") return SetupConsole::XBOX_DIRECT;
     if (code == "steam") return SetupConsole::STEAM;
+    if (code == "vita") return SetupConsole::VITA;
     return SetupConsole::NONE;
 }
 
