@@ -174,8 +174,13 @@ void PeriodicRunner::edit_duration(Runnable& runnable, WallDuration period) noex
 }
 
 void PeriodicRunner::thread_body(){
-    while (!m_stopping){
+    while (true){
         std::unique_lock<Mutex> lg(m_lock);
+        //  Looked at with the lock: stop() sets it with the lock and notifies once.  Looked at without it, the stop could come between the look and
+        //  the wait below, and the thread then waited for a notice that was gone (with nothing scheduled, for ever).
+        if (m_stopping){
+            return;
+        }
         auto schedule_iter = m_schedule.begin();
         if (schedule_iter == m_schedule.end()){
             m_cv.wait(lg);

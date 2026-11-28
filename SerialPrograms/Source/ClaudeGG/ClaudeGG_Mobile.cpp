@@ -53,6 +53,7 @@
 #include "ClaudeGG_PokemonGoStart.h"
 #include "ClaudeGG_PokemonGoThrow.h"
 #include "ClaudeGG_PokemonGoBot.h"
+#include "ClaudeGG_PokemonGoChapter.h"
 #include "ClaudeGG_PokemonGoCatch.h"
 #include "ClaudeGG_PokemonGoStep.h"
 #include "ClaudeGG_PokemonGoBag.h"
@@ -841,8 +842,19 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
     Logger& logger = global_logger_tagged();
     int wrong = 0;
     QStringList report;
+    //  The report is written when the test is over; until then every check goes into the file as it is made, with the seconds since the start, so that
+    //  a test that is stopped from outside (the time limit of the CI) shows how far it came and where it was slow.
+    QElapsedTimer started;
+    started.start();
+    QFile progress(agent_folder.isEmpty() ? QString() : agent_folder + "/mobile-test.txt");
+    const bool progress_open = !agent_folder.isEmpty() && progress.open(QIODevice::WriteOnly | QIODevice::Truncate);
     auto check = [&](bool fine, const QString& what){
         report << (fine ? "ok:     " : "FAILED: ") + what;
+        if (progress_open){
+            const QString seconds = QString::number((double)started.elapsed() / 1000.0, 'f', 1);
+            progress.write(("[" + seconds + " s] " + (fine ? "ok:     " : "FAILED: ") + what + "\n").toUtf8());
+            progress.flush();
+        }
         if (!fine){
             wrong++;
             logger.log("Mobile test: FAILED: " + what.toStdString(), COLOR_RED);
@@ -852,10 +864,13 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         for (const QString& line : report){
             logger.log("Mobile test: " + line.toStdString());
         }
+        if (progress_open){
+            progress.close();
+        }
         if (!agent_folder.isEmpty()){
             QFile file(agent_folder + "/mobile-test.txt");
             if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)){
-                QTextStream(&file) << report.join("\n") << "\n";
+                QTextStream(&file) << report.join("\n") << "\n" << "the test took " << QString::number((double)started.elapsed() / 1000.0, 'f', 1) << " s\n";
             }
         }
         logger.log(
@@ -1940,6 +1955,89 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
                         MobileDisplayFiles files;
                         check(host.agent().display_wm(wm, &display_error) && !wm.contains("Override") && host.agent().display_files(files, &display_error)
                               && !files.record.has_value(), "the phone is as it was and the record is gone (" + wm + ")");
+                    }
+                    //  A screen that cannot be played on and may not be changed: the run says so, waits, and does not touch the phone (the normal and the daily run: main() of
+                    //  gamebot.py looks before both).
+                    for (const bool daily_run : {false, true}){
+                        const QString path = daily_run ? "the daily run: " : "the normal run: ";
+                        write_text(wm_file, "");
+                        write_text(home_folder + "/gamebot_no_display_change", "");
+                        std::mutex wait_lock;
+                        QStringList wait_told;
+                        std::atomic<bool> stop_run{false};
+                        AgentHost halting("127.0.0.1", port, token, options, [&](const QString& line){
+                            std::lock_guard<std::mutex> lock(wait_lock);
+                            wait_told << line;
+                        }, [&]{ return stop_run.load(); });
+                        const qsizetype adb_start = read_lines(adb_log).size();
+                        std::thread timer([&]{
+                            std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+                            stop_run = true;
+                        });
+                        bool interrupted = false;
+                        {
+                            PokemonGo::Bot::PhoneBot waiting(halting, PokemonGo::Bot::Switches{{"daily_cycle", daily_run}}, {});
+                            try{
+                                PokemonGo::Bot::run(waiting);
+                            }catch (const PokemonGo::Flow::Interrupted&){
+                                interrupted = true;
+                            }
+                        }
+                        timer.join();
+                        check(interrupted, path + "the run ends with the stop of the person");
+                        const QStringList touched = read_lines(adb_log).mid(adb_start);
+                        {
+                            std::lock_guard<std::mutex> lock(wait_lock);
+                            check(said(wait_told, "layout: the screen has another shape than the canvas - trying to let Android draw the game in the right shape")
+                                  && said(wait_told, "layout: not possible: not changing the display size") && said(wait_told, "not playing: screen 1080x2340"),
+                                  path + "a screen of another shape that may not be changed is said, and the bot waits for another (" + wait_told.join(" | ") + ")");
+                        }
+                        bool touched_the_game = false;
+                        for (const QString& line : touched){
+                            touched_the_game = touched_the_game || line.startsWith("shell input") || line.startsWith("exec-out screencap") || line.contains("monkey");
+                        }
+                        check(!touched_the_game, path + "it did not tap or look at the game (" + touched.join(" | ") + ")");
+                        QFile::remove(home_folder + "/gamebot_no_display_change");
+                    }
+                    //  The parts of the bot on their own (Chapter::run, run_chapter() of gamebot.py): the list, the words of the log, a part that is
+                    //  stopped, and parts that find the game on another screen than the one they need (no models here: every screen is 'onbekend').
+                    {
+                        check(PokemonGo::Chapter::keys() == "screen, play, rocket, rocket_fight, catch, throw, bag, quests, gifts",
+                              "the parts that Claude GG can run on its own are those of chapters.py that are ported (" + PokemonGo::Chapter::keys() + ")");
+                        check(PokemonGo::Chapter::find("bag") != nullptr && PokemonGo::Chapter::find("video") == nullptr && PokemonGo::Chapter::find("") == nullptr
+                              && PokemonGo::Chapter::find("battle_one") == nullptr, "the live video and the battles are not among them");
+                        std::mutex chapter_lock;
+                        QStringList chapter_told;
+                        std::atomic<bool> chapter_stop{false};
+                        AgentHost chapter_host("127.0.0.1", port, token, options, [&](const QString& line){
+                            std::lock_guard<std::mutex> lock(chapter_lock);
+                            chapter_told << line;
+                        }, [&]{ return chapter_stop.load(); });
+                        PokemonGo::Bot::PhoneBot chapter_bot(chapter_host, PokemonGo::Bot::Switches{}, {});
+                        const auto chapter_said = [&](const QString& part){
+                            std::lock_guard<std::mutex> lock(chapter_lock);
+                            return said(chapter_told, part);
+                        };
+                        const PokemonGo::Chapter::Result missing = PokemonGo::Chapter::run(chapter_bot, "video");
+                        check(!missing.ok && chapter_said("TEST video: no such test - there are: screen, play, rocket,"), "a part that is not there is told, with the parts that are");
+                        const PokemonGo::Chapter::Result seen = PokemonGo::Chapter::run(chapter_bot, "screen");
+                        check(seen.ok && seen.how == "screen onbekend [0.00], 0 things found (g_test.png)"
+                              && chapter_said("TEST screen: started - What the bot sees (start screen: Any screen)") && chapter_said("TEST screen: done - screen onbekend [0.00]"),
+                              "'what the bot sees' says the screen and what it found, and how it started and ended (" + seen.how + ")");
+                        check(QFile::exists(options.folder + "/pictures/g_test.png") && QFile::exists(options.folder + "/pictures/g_test_start.png")
+                              && QFile::exists(options.folder + "/pictures/g_test_end.png"), "and keeps the screen of the start, of the end and the marked one");
+                        const PokemonGo::Chapter::Result caught = PokemonGo::Chapter::run(chapter_bot, "catch");
+                        check(!caught.ok && caught.how == "no encounter on the screen (onbekend)" && chapter_said("TEST catch: failed - no encounter on the screen (onbekend)"),
+                              "catching needs an encounter on the screen (" + caught.how + ")");
+                        const PokemonGo::Chapter::Result thrown = PokemonGo::Chapter::run(chapter_bot, "throw");
+                        check(!thrown.ok && thrown.how == "no ball ready on an encounter screen (onbekend)", "and so does a throw (" + thrown.how + ")");
+                        //  A part that is stopped ends with the stop of the person: nothing is played, and it is told.
+                        chapter_stop = true;
+                        const PokemonGo::Chapter::Result played = PokemonGo::Chapter::run(chapter_bot, "play");
+                        check(played.ok && played.how == "0 steps in 3 minutes" && chapter_said("TEST play: started - Normal play for 3 minutes (start screen: The map)")
+                              && chapter_said("TEST play: done - 0 steps in 3 minutes"), "normal play that is stopped at once has made no step (" + played.how + ")");
+                        check(PokemonGo::Chapter::chapter_steps(chapter_bot, 5.0, false) == 0 && PokemonGo::Chapter::chapter_steps(chapter_bot, 5.0, true) == 0,
+                              "and the steps of a part are not made after the stop");
                     }
                     //  A switch file: the Pi is told not to change the display, and to play on anyway.
                     {
