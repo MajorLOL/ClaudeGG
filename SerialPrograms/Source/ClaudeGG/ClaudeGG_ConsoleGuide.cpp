@@ -548,6 +548,84 @@ const std::vector<Guide>& guides(){
                 "No picture: check the address of the Pi and that a firewall does not block ports 51200 to 51202.",
             },
         },
+        {
+            "psdirect", "PS4 and PS5, direct", Status::EXPERIMENTAL, Speed::FAST,
+            "ESP32-S3 and a Brook Wingman XE", "Capture card (HDMI)",
+            "The ESP32-S3 plays a Switch pad into a bought Brook Wingman XE, which plays a PlayStation 4 controller and answers the console's check of a pad. No network and no stream: quicker than Remote Play.",
+            {
+                NEED_COMPUTER,
+                NEED_ESP32S3,
+                "A Brook Wingman XE (bought, about 40 dollars or euros): it answers the console's check",
+                "A PlayStation 4 or 5 (a PlayStation 5 takes it in PS4 games only)",
+                NEED_CAPTURE,
+            },
+            {
+                {"Computer", "USB (COM)", "ESP32-S3", "USB (OTG)", "Brook Wingman XE", "USB", "PS4 or PS5"},
+                {"PS4 or PS5", "HDMI", "Capture card", "USB", "Computer"},
+            },
+            {
+                STEP_FLASH,
+                "Update the Brook Wingman XE to its latest firmware with Brook's updater. It plays a PlayStation 4 controller: a PlayStation 5 takes it in PS4 games only.",
+                "Plug the adapter into a USB port of the console, and the USB or OTG port of the ESP32-S3 into the adapter. The console's picture goes into the capture card over HDMI.",
+                STEP_PORTS,
+                STEP_VIDEO,
+                STEP_TEST,
+            },
+            "Wired all the way: the adapter adds a few milliseconds, far less than the stream of Remote Play.",
+            {
+                "The list PS4 and PS5 games, direct of Claude Plays.",
+                GAMES_CLAUDE_PLAYS,
+            },
+            {
+                LIMIT_UNTESTED,
+                "The adapter has to be bought: no open adapter answers the check of these consoles.",
+                LIMIT_POSITION,
+            },
+            {
+                "The console does not take the adapter: update it with Brook's updater and plug it straight into the console, without a hub.",
+                TROUBLE_WRONG_PORT,
+                TROUBLE_TYPE,
+            },
+        },
+        {
+            "xboxdirect", "Xbox One and Series, direct", Status::EXPERIMENTAL, Speed::FAST,
+            "ESP32-S3 and a Brook Wingman XB 3", "Capture card (HDMI)",
+            "The ESP32-S3 plays a Switch pad into a bought Brook Wingman XB 3, which plays an Xbox controller and answers the console's check of a pad. No network and no stream: quicker than Remote Play.",
+            {
+                NEED_COMPUTER,
+                NEED_ESP32S3,
+                "A Brook Wingman XB 3 (bought): it answers the console's check",
+                "An Xbox One or Series",
+                NEED_CAPTURE,
+            },
+            {
+                {"Computer", "USB (COM)", "ESP32-S3", "USB (OTG)", "Brook Wingman XB 3", "USB", "Xbox"},
+                {"Xbox", "HDMI", "Capture card", "USB", "Computer"},
+            },
+            {
+                STEP_FLASH,
+                "Update the Brook Wingman XB 3 to its latest firmware with Brook's updater. It plays an Xbox controller to an Xbox One or Series.",
+                "Plug the adapter into a USB port of the console, and the USB or OTG port of the ESP32-S3 into the adapter. The console's picture goes into the capture card over HDMI.",
+                STEP_PORTS,
+                STEP_VIDEO,
+                STEP_TEST,
+            },
+            "Wired all the way: the adapter adds a few milliseconds, far less than the stream of Remote Play.",
+            {
+                "The list Xbox One and Series games, direct of Claude Plays.",
+                GAMES_CLAUDE_PLAYS,
+            },
+            {
+                LIMIT_UNTESTED,
+                "The adapter has to be bought: no open adapter answers the check of these consoles.",
+                LIMIT_POSITION,
+            },
+            {
+                "The console does not take the adapter: update it with Brook's updater and plug it straight into the console, without a hub.",
+                TROUBLE_WRONG_PORT,
+                TROUBLE_TYPE,
+            },
+        },
     };
     return GUIDES;
 }
@@ -970,7 +1048,7 @@ int console_guide_self_test(){
         }
     };
     //  Every console of the setup has a page.
-    for (const char* code : {"switch", "switch2", "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu"}){
+    for (const char* code : {"switch", "switch2", "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "wiiu", "psdirect", "xboxdirect"}){
         const Guide* guide = find_guide(code);
         check(guide != nullptr, QString("no page for ") + code);
         if (guide == nullptr){

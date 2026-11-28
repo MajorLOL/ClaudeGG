@@ -1960,7 +1960,7 @@ QString short_board_name(const QString& id){
 bool console_wired_only(const QString& console){
     return console == "ps3" || console == "xbox" || console == "xbox360" ||
         console == "psremote" || console == "xboxremote" || console == "iphone" ||
-        console == "psclassic";
+        console == "psclassic" || console == "psdirect" || console == "xboxdirect";
 }
 //  The consoles that take only a wireless board (a Switch Pro Controller over
 //  Bluetooth): the retro consoles, through a BlueRetro adapter, which takes a
@@ -1986,6 +1986,7 @@ QPixmap console_picture(const QString& console){
         : console == "xboxremote" ? remote_picture(true)
         : console == "iphone" ? iphone_picture()
         : console == "psclassic" ? psclassic_picture()
+        : console == "xboxdirect" ? xbox360_picture()
         : ps3_picture();
 }
 //  A console that is not a Switch and not the Android phone: its picture is
@@ -2027,6 +2028,14 @@ const std::vector<const char*>& console_needs(const QString& console){
         "A USB-C hub with HDMI, or for Lightning a camera adapter and an HDMI adapter", CAPTURE,
     };
     static const std::vector<const char*> PS_CLASSIC{"A PlayStation Classic", ESP32S3, PICO, CAPTURE};
+    static const std::vector<const char*> PS_DIRECT{
+        "A PlayStation 4 or 5 (a PlayStation 5 takes it in PS4 games only)", ESP32S3,
+        "A Brook Wingman XE (bought, about 40 dollars or euros): it answers the console's check", CAPTURE,
+    };
+    static const std::vector<const char*> XBOX_DIRECT{
+        "An Xbox One or Series", ESP32S3,
+        "A Brook Wingman XB 3 (bought): it answers the console's check", CAPTURE,
+    };
     return console == "ps3" ? PS3
         : console == "xbox" ? XBOX
         : console == "retro" ? RETRO
@@ -2035,6 +2044,8 @@ const std::vector<const char*>& console_needs(const QString& console){
         : console == "xboxremote" ? XBOX_REMOTE
         : console == "iphone" ? IPHONE
         : console == "psclassic" ? PS_CLASSIC
+        : console == "psdirect" ? PS_DIRECT
+        : console == "xboxdirect" ? XBOX_DIRECT
         : NONE;
 }
 
@@ -2672,6 +2683,50 @@ const BoardSpec& spec_for(const QString& board, const QString& console){
     };
     if (console == "psclassic" && board == "esp32s3"){
         return ESP32S3_PS_CLASSIC_SPEC;
+    }
+
+    //  Straight into a PlayStation 4 or 5, or an Xbox One or Series: the
+    //  ESP32-S3 as a Switch pad (a licensed HORIPAD) into a bought Brook
+    //  Wingman, which plays the console's own controller and answers its
+    //  check of a pad (no open adapter does). Faster than Remote Play: no
+    //  network and no stream.
+    const char* const ADAPTER_CABLES_SUB =
+        "Plug the port labeled COM or UART into the computer. The port labeled USB or OTG goes into the adapter, in a later step. They are not interchangeable.";
+    const char* const ADAPTER_TYPE_SUB =
+        "Pick NS1: Wired Controller as the type: the adapter takes it as a Switch pad. Click the video and press the arrow keys: they should move through the menu of the console. This has not been tried with the adapter yet.";
+    static const StepText ESP32S3_PS_DIRECT[] = {
+        {"Connect the ESP32-S3", ADAPTER_CABLES_SUB, Action::DEVICE},
+        {"Flash the firmware", "Pick the port of the ESP32-S3 and the firmware version, then press Flash now.", Action::FIRMWARE},
+        {"Restart the board", "Press the EN or RESET button, or unplug both cables and plug them in again.", Action::NONE},
+        {"Prepare the adapter", "Update the Brook Wingman XE to its latest firmware with Brook's updater. It plays a PlayStation 4 controller: a PlayStation 5 takes it in PS4 games only.", Action::NONE},
+        {"Connect the adapter", "Plug the adapter into a USB port of the console, and the USB or OTG port of the ESP32-S3 into the adapter. The console's picture goes into the capture card over HDMI.", Action::NONE},
+        {"Select the controller and the port", "In the program, pick Serial: PABotBase2 in the first dropdown, then your device as the serial port. Click Reset Ctrl if it is not listed.", Action::PORTS},
+        {"Pick the type and test", ADAPTER_TYPE_SUB, Action::NONE},
+    };
+    static const StepText ESP32S3_XBOX_DIRECT[] = {
+        {"Connect the ESP32-S3", ADAPTER_CABLES_SUB, Action::DEVICE},
+        {"Flash the firmware", "Pick the port of the ESP32-S3 and the firmware version, then press Flash now.", Action::FIRMWARE},
+        {"Restart the board", "Press the EN or RESET button, or unplug both cables and plug them in again.", Action::NONE},
+        {"Prepare the adapter", "Update the Brook Wingman XB 3 to its latest firmware with Brook's updater. It plays an Xbox controller to an Xbox One or Series.", Action::NONE},
+        {"Connect the adapter", "Plug the adapter into a USB port of the console, and the USB or OTG port of the ESP32-S3 into the adapter. The console's picture goes into the capture card over HDMI.", Action::NONE},
+        {"Select the controller and the port", "In the program, pick Serial: PABotBase2 in the first dropdown, then your device as the serial port. Click Reset Ctrl if it is not listed.", Action::PORTS},
+        {"Pick the type and test", ADAPTER_TYPE_SUB, Action::NONE},
+    };
+    static const BoardSpec ESP32S3_PS_DIRECT_SPEC = {
+        ESP32S3_PS_DIRECT, sizeof(ESP32S3_PS_DIRECT) / sizeof(ESP32S3_PS_DIRECT[0]),
+        "Wired, through a bought Brook Wingman XE, straight into the console. Experimental. Seven steps.", "NS1: Wired Controller",
+        1, -1, 5, 6, 6, true
+    };
+    static const BoardSpec ESP32S3_XBOX_DIRECT_SPEC = {
+        ESP32S3_XBOX_DIRECT, sizeof(ESP32S3_XBOX_DIRECT) / sizeof(ESP32S3_XBOX_DIRECT[0]),
+        "Wired, through a bought Brook Wingman XB 3, straight into the console. Experimental. Seven steps.", "NS1: Wired Controller",
+        1, -1, 5, 6, 6, true
+    };
+    if (console == "psdirect" && board == "esp32s3"){
+        return ESP32S3_PS_DIRECT_SPEC;
+    }
+    if (console == "xboxdirect" && board == "esp32s3"){
+        return ESP32S3_XBOX_DIRECT_SPEC;
     }
 
     //  The retro consoles: the wireless board plays a Switch Pro Controller
@@ -8125,6 +8180,11 @@ constexpr ConsoleInfo CONSOLES[] = {
     //  the picture is the GamePad's screen. Experimental: not tried on a Wii
     //  U yet.
     {"wiiu",        "Nintendo Wii U",       "A Raspberry Pi as its GamePad",        true},
+    //  The PlayStation 4 and 5 and the Xbox One and Series once more, straight
+    //  into the console through a bought Brook Wingman (faster than Remote
+    //  Play: no network, no stream). Experimental: not tried yet.
+    {"psdirect",    "PS4 and PS5, direct",  "Through a bought Brook Wingman XE",    true},
+    {"xboxdirect",  "Xbox One and Series, direct", "Through a bought Brook Wingman XB 3", true},
 };
 constexpr int CONSOLE_COUNT = (int)(sizeof(CONSOLES) / sizeof(CONSOLES[0]));
 
@@ -8266,6 +8326,7 @@ private:
     //  (Lower again if the small tiles ever need two rows: they have one.)
     static constexpr double TWO_ROW_HEIGHT = 150;
     static constexpr double SIX_COLUMN_HEIGHT = 164;
+    static constexpr double THREE_ROW_HEIGHT = 150;
     static constexpr double ROW_GAP = 20;
     static constexpr int SMALL_COLUMNS = 5;
     bool m_again = false;                   //  chosen again, from the games
@@ -8285,7 +8346,8 @@ private:
     }
     static int large_columns(){
         const int count = supported_count();
-        return count <= 5 ? count : (count + 1) / 2;
+        //  More than twelve: three rows of five.
+        return count <= 5 ? count : count > 12 ? 5 : (count + 1) / 2;
     }
     static int large_rows(){
         const int columns = std::max(1, large_columns());
@@ -8293,7 +8355,8 @@ private:
     }
     static double large_height(){
         //  Six to a row: narrower still, so the text gets a line more.
-        return large_rows() > 1 ? (large_columns() >= 6 ? SIX_COLUMN_HEIGHT : TWO_ROW_HEIGHT) : BIG_HEIGHT;
+        return large_rows() > 2 ? THREE_ROW_HEIGHT
+            : large_rows() > 1 ? (large_columns() >= 6 ? SIX_COLUMN_HEIGHT : TWO_ROW_HEIGHT) : BIG_HEIGHT;
     }
     //  The height of all the large tiles together.
     static double large_block(){
@@ -11211,6 +11274,8 @@ std::vector<HomeGame> test_games_with_consoles(){
         {"Xbox One and Series games", "xboxremote"},
         {"iPhone apps", "iphone"},
         {"PlayStation Classic games", "psclassic"},
+        {"PS4 and PS5 games, direct", "psdirect"},
+        {"Xbox One and Series games, direct", "xboxdirect"},
     }){
         HomeGame game;
         game.name = other.first;
@@ -11854,16 +11919,17 @@ int run_setup_test(QApplication& application, const QString& folder){
     checker.check(has_content(canvas.picture()), "the console screen has something on it");
     {
         bool all = true;
-        for (int c = 0; c < 12; c++){
+        for (int c = 0; c < 14; c++){
             const QString tile = "console:" + QString::number(c);
             all = all && canvas.has_hit(tile) && canvas.hit_enabled(tile);
         }
         checker.check(all,
             "the twelve supported consoles (the two Switches, the phone, the PlayStation 3, the original Xbox, the retro "
-            "consoles, the Xbox 360, the two of Remote Play, the iPhone, the PlayStation Classic and the Wii U) are tiles that can be picked"
+            "consoles, the Xbox 360, the two of Remote Play, the iPhone, the PlayStation Classic, the Wii U and the two direct ways "
+            "through an adapter) are tiles that can be picked"
         );
     }
-    checker.check(!canvas.has_hit("console:12"), "and no console is left that cannot be picked");
+    checker.check(!canvas.has_hit("console:14"), "and no console is left that cannot be picked");
     checker.check(canvas.has_hit("skip") && canvas.has_hit("continue"), "the console screen has Skip setup and Continue");
     checker.check(!canvas.hit_enabled("continue"), "no console, no way on");
     checker.check(canvas.page_state() == "selected=", "nothing is picked at first");
@@ -11883,19 +11949,19 @@ int run_setup_test(QApplication& application, const QString& folder){
     checker.check(canvas.focus_id() == "console:4", "to the original Xbox");
     canvas.press_key(Qt::Key_Right);
     checker.check(canvas.focus_id() == "console:5", "to the retro consoles");
-    for (int c = 6; c < 12; c++){
+    for (int c = 6; c < 14; c++){
         canvas.press_key(Qt::Key_Right);
     }
-    checker.check(canvas.focus_id() == "console:11", "to the Wii U, over the second row");
+    checker.check(canvas.focus_id() == "console:13", "to the Xbox One and Series, direct, over the rows");
     canvas.press_key(Qt::Key_Right);
-    checker.check(canvas.focus_id() == "console:11", "and no further than the last");
+    checker.check(canvas.focus_id() == "console:13", "and no further than the last");
     canvas.press_key(Qt::Key_Tab);
     canvas.press_key(Qt::Key_Tab);
     checker.check(!canvas.focus_id().startsWith("console:") || canvas.focus_id() == "console:0" || canvas.focus_id() == "console:1" ||
         canvas.focus_id() == "console:2" || canvas.focus_id() == "console:3" || canvas.focus_id() == "console:4" ||
         canvas.focus_id() == "console:5" || canvas.focus_id() == "console:6" || canvas.focus_id() == "console:7" ||
         canvas.focus_id() == "console:8" || canvas.focus_id() == "console:9" || canvas.focus_id() == "console:10" ||
-        canvas.focus_id() == "console:11",
+        canvas.focus_id() == "console:11" || canvas.focus_id() == "console:12" || canvas.focus_id() == "console:13",
         "Tab does not stop on them either");
     canvas.set_focus_id("console:1");
     canvas.move_to("console:1");
@@ -12960,6 +13026,8 @@ int run_setup_test(QApplication& application, const QString& folder){
         WiredConsole{"console:8", "xboxremote", "Remote Play of an Xbox", "steps=9"},
         WiredConsole{"console:9", "iphone", "the iPhone", "steps=8", "type=HID: Keyboard"},
         WiredConsole{"console:10", "psclassic", "the PlayStation Classic", "steps=8"},
+        WiredConsole{"console:12", "psdirect", "the PlayStation 4 and 5, direct", "steps=7"},
+        WiredConsole{"console:13", "xboxdirect", "the Xbox One and Series, direct", "steps=7"},
     }){
         const QString code = QString::fromLatin1(wired.code);
         const QString name = QString::fromLatin1(wired.name);
@@ -13043,8 +13111,8 @@ int run_setup_test(QApplication& application, const QString& folder){
     {
         //  The consoles of the lists before Pokemon GO, in their order in
         //  test_games_with_consoles().
-        const QStringList OTHERS{"ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic"};
-        for (const QString console : {"switch", "switch2", "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic"}){
+        const QStringList OTHERS{"ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "psdirect", "xboxdirect"};
+        for (const QString console : {"switch", "switch2", "mobile", "ps3", "xbox", "retro", "xbox360", "psremote", "xboxremote", "iphone", "psclassic", "psdirect", "xboxdirect"}){
             SetupRequest request_games;
             request_games.ask_game = true;
             request_games.games = test_games_with_consoles();

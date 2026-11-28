@@ -45,6 +45,10 @@ std::vector<ConsoleTraits> make_traits(){
     add("xbox", direct, {ASPECT_4_3}, "Through OGX-Mini, a millisecond more: the usual timing. Most games are 4:3.");
     add("xbox360", direct, {ASPECT_4_3}, "Through OGX-Mini, a millisecond more: the usual timing. Older games are 4:3.");
     add("psclassic", direct, {ASPECT_4_3}, "Through OGX-Mini, a millisecond more: the usual timing. Its games are 4:3.");
+    //  Through a bought adapter (a Brook Wingman) into the console: a USB
+    //  hop of a few milliseconds, well inside a frame.
+    add("psdirect", direct, {}, "Through a Brook Wingman adapter, a few milliseconds more: the usual timing.");
+    add("xboxdirect", direct, {}, "Through a Brook Wingman adapter, a few milliseconds more: the usual timing.");
     {
         //  A Bluetooth link to BlueRetro, and games that read the pad once
         //  a frame at 20 to 30 frames a second: a press a little longer, so
