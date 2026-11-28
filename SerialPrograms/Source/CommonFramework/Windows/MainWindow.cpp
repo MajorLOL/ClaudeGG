@@ -42,6 +42,7 @@
 #include "CommonFramework/VideoPipeline/VideoFeed.h"
 #include "CommonFramework/Windows/DpiScaler.h"
 #include "ClaudeGG/ClaudeGG_About.h"
+#include "ClaudeGG/ClaudeGG_ConsoleGuide.h"
 #include "ClaudeGG/ClaudeGG_Embed.h"
 #include "ClaudeGG/ClaudeGG_Home.h"
 #include "ClaudeGG/ClaudeGG_Instances.h"
@@ -463,6 +464,15 @@ void MainWindow::show_window_panel(WindowPanel panel){
         options.wide = true;
         m_panel->show_panel(ClaudeGG::tr_ui("Buttons"), m_button_diagram.get(), options);
         break;
+    case WindowPanel::CONSOLES:{
+        //  Made anew each time, on the page of the console in use; the panel
+        //  deletes it when it is put away.
+        const QString console = ClaudeGG::current_console_code();
+        options.wide = true;
+        options.own = true;
+        m_panel->show_panel(ClaudeGG::tr_ui("Consoles"), ClaudeGG::make_console_guide(m_panel, console, &ClaudeGG::open_setup), options);
+        break;
+    }
     case WindowPanel::ABOUT:{
         //  The window of "About" as a widget of the panel; its connection for the check
         //  for updates lives as long as it does.
@@ -914,6 +924,9 @@ void MainWindow::make_app_view(bool test){
     };
     actions.buttons = [this]{
         show_window_panel(WindowPanel::BUTTONS);
+    };
+    actions.consoles = [this]{
+        show_window_panel(WindowPanel::CONSOLES);
     };
     actions.claude = [this](bool show){
         show_assistant(show);

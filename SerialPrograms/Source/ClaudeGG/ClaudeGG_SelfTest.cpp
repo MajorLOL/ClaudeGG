@@ -221,7 +221,7 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
         //  A few small pictures, for the log of the build (see the workflow).
         const QString base = QString::fromLatin1(name);
         if (base == "night-fire-about-update" || base == "night-fire-output-log" || base == "night-fire-settings-search" ||
-            base == "night-fire-panel-about" || base == "night-fire-panel-output"
+            base == "night-fire-panel-about" || base == "night-fire-panel-output" || base == "night-fire-panel-consoles"
         ){
             picture.scaledToWidth(960, Qt::SmoothTransformation).save(out + "/preview-" + base + ".jpg", "JPG", 72);
         }
@@ -1782,6 +1782,7 @@ int check_window_panels(MainWindow& window, Logger& logger, const std::function<
     const Case CASES[] = {
         {MainWindow::WindowPanel::OUTPUT,   "Output",   "night-fire-panel-output"},
         {MainWindow::WindowPanel::BUTTONS,  "Buttons",  "night-fire-panel-buttons"},
+        {MainWindow::WindowPanel::CONSOLES, "Consoles", "night-fire-panel-consoles"},
         {MainWindow::WindowPanel::ABOUT,    "About",    "night-fire-panel-about"},
     };
     for (const Case& one : CASES){

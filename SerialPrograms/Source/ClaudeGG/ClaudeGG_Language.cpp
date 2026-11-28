@@ -59,6 +59,7 @@
 #include "CommonFramework/PersistentSettings.h"
 #include "ClaudeGG_Instances.h"
 #include "CommonFramework/Logging/Logger.h"
+#include "ClaudeGG_ConsoleGuide.h"
 #include "ClaudeGG_Language.h"
 #include "ClaudeGG_Mobile.h"
 #include "ClaudeGG_Setup.h"
@@ -1008,6 +1009,9 @@ void ask_setup_if_needed(){
     run_and_keep(ask_language, ask_board);
 }
 
+QString current_console_code(){
+    return console_code_of(GlobalSettings::instance().GAME_CONSOLE.get());
+}
 void open_setup(){
     run_and_keep(true, true);
 }
@@ -1336,12 +1340,29 @@ int run_language_test(QApplication& application){
             }
             result.check(missing.isEmpty() && extra.isEmpty(), code + ": the texts differ from " + reference_code);
         }
+        //  The guide of the consoles is in every language, whole.
+        {
+            int shown = 0;
+            int absent = 0;
+            for (const QString& text : console_guide_texts()){
+                if (!words.contains(text)){
+                    absent++;
+                    if (shown++ < 8){
+                        result.check(false, code + ": the guide of the consoles: missing \"" + text.left(70) + "\"");
+                    }
+                }
+            }
+            result.check(absent == 0, code + ": " + QString::number(absent) + " texts of the guide of the consoles missing");
+        }
         global_logger_command_line().log(
             "Language test: " + code.toStdString() + ": " + std::to_string(words.size()) + " texts.",
             COLOR_BLUE
         );
         all.insert(code, words);
     }
+
+    //  The pages of the guide of the consoles.
+    result.check(console_guide_self_test() == 0, "the guide of the consoles");
 
     //  The filter, on windows.
     for (auto iter = all.begin(); iter != all.end(); ++iter){

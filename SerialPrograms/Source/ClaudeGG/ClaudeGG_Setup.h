@@ -343,6 +343,7 @@ struct AppActions{
     std::function<void()> about;
     std::function<void()> output;       //  the output log
     std::function<void()> buttons;      //  the diagram of the buttons
+    std::function<void()> consoles;     //  the guide of the consoles (ClaudeGG_ConsoleGuide.h)
     //  Claude's panel: shown or hidden (the window calls AppView::show_claude()).
     std::function<void(bool show)> claude;
 

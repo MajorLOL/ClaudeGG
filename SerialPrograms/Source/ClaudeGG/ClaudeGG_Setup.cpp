@@ -10608,6 +10608,7 @@ void Canvas::paint_app_menu(QPainter& painter){
         {"app:claude", "Claude"},
         {"app:log", "Output"},
         {"app:buttons", "Buttons"},
+        {"app:consoles", "Consoles"},
         {"app:about", "About"},
     };
     const bool on_games = m_page != nullptr && QString(m_page->name()) == "games";
@@ -10620,6 +10621,9 @@ void Canvas::paint_app_menu(QPainter& painter){
         }
         //  Only when the window can show the overview.
         if (QString(entry.id) == "app:installations" && !m_app.installations){
+            continue;
+        }
+        if (QString(entry.id) == "app:consoles" && !m_app.consoles){
             continue;
         }
         const QString text = T(entry.text);
@@ -10657,6 +10661,10 @@ bool Canvas::app_activate(const QString& id){
     }else if (id == "app:buttons"){
         if (m_app.buttons){
             m_app.buttons();
+        }
+    }else if (id == "app:consoles"){
+        if (m_app.consoles){
+            m_app.consoles();
         }
     }else if (id == "app:about"){
         if (m_app.about){
