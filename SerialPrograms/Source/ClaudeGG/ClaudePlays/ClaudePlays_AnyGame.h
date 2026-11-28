@@ -216,6 +216,9 @@ std::string any_game_instructions(
 int picture_tokens(int width, int height);
 
 
+//  (Below.)
+struct ScreenThumb;
+
 class AnyGame : public Game{
 public:
     AnyGame(PlayConsole& console, GameFacts facts, AnyGameOptions options);
