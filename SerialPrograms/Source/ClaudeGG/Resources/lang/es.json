@@ -1905,5 +1905,11 @@
  "Pick NS1: Wired Controller as the type. Click the video and press the arrow keys: they should move through the menu of the console. This has not been tried with Remote Play yet.": "Elige NS1: Wired Controller como tipo. Haz clic en el vídeo y pulsa las flechas: deberían recorrer el menú de la consola. Esto aún no se ha probado con Remote Play.",
  "Wired, through a Pico with OGX-Mini, to Remote Play in a browser. Experimental. Nine steps.": "Con cable, a través de una Pico con OGX-Mini, al juego remoto en un navegador. Experimental. Nueve pasos.",
  "On the iPhone, open Settings, then Accessibility, then Keyboards, and turn on Full Keyboard Access. Under Commands, set Home to Command-H: its own key, Fn-H, needs an Apple keyboard.": "En el iPhone, abre Ajustes, luego Accesibilidad, luego Teclados, y activa el Acceso total con el teclado. En Comandos, asigna Inicio a Comando-H: su propia tecla, Fn-H, necesita un teclado de Apple.",
- "Remote Play, through a Pico with OGX-Mini": "Juego remoto, a través de una Pico con OGX-Mini"
+ "Remote Play, through a Pico with OGX-Mini": "Juego remoto, a través de una Pico con OGX-Mini",
+ "Background: a picture of your own": "Fondo: una imagen propia",
+ "<b>Picture:</b><br>Shown behind the screens with the games and the programs. Empty, or turned off: Claude GG's own background.": "<b>Imagen:</b><br>Se muestra detrás de las pantallas con los juegos y los programas. Vacío, o desactivado: el fondo propio de Claude GG.",
+ "<b>How the picture fits:</b>": "<b>Cómo se ajusta la imagen:</b>",
+ "<b>Darken the picture (%):</b><br>Increase this to keep the texts readable on a light or busy picture.": "<b>Oscurecer la imagen (%):</b><br>Aumenta este valor para que los textos sigan legibles sobre una imagen clara o recargada.",
+ "Select a PNG, JPEG, BMP, or WebP image": "Elige una imagen PNG, JPEG, BMP o WebP",
+ "Browse...": "Examinar..."
 }

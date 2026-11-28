@@ -1904,5 +1904,11 @@
  "Pick NS1: Wired Controller as the type. Click the video and press the arrow keys: they should move through the menu of the console. This has not been tried with Remote Play yet.": "Kies NS1: Wired Controller als type. Klik op het beeld en druk op de pijltjestoetsen: die horen door het menu van de console te gaan. Dit is nog niet met Remote Play geprobeerd.",
  "Wired, through a Pico with OGX-Mini, to Remote Play in a browser. Experimental. Nine steps.": "Bedraad, via een Pico met OGX-Mini, naar Remote Play in een browser. Experimenteel. Negen stappen.",
  "On the iPhone, open Settings, then Accessibility, then Keyboards, and turn on Full Keyboard Access. Under Commands, set Home to Command-H: its own key, Fn-H, needs an Apple keyboard.": "Open op de iPhone Instellingen, dan Toegankelijkheid, dan Toetsenborden, en zet Volledige toetsenbordtoegang aan. Stel onder Commando's Beginscherm in op Command-H: de eigen toets, Fn-H, vraagt een toetsenbord van Apple.",
- "Remote Play, through a Pico with OGX-Mini": "Remote Play, via een Pico met OGX-Mini"
+ "Remote Play, through a Pico with OGX-Mini": "Remote Play, via een Pico met OGX-Mini",
+ "Background: a picture of your own": "Achtergrond: een eigen afbeelding",
+ "<b>Picture:</b><br>Shown behind the screens with the games and the programs. Empty, or turned off: Claude GG's own background.": "<b>Afbeelding:</b><br>Staat achter de schermen met de spellen en de programma's. Leeg, of uitgezet: de eigen achtergrond van Claude GG.",
+ "<b>How the picture fits:</b>": "<b>Hoe de afbeelding past:</b>",
+ "<b>Darken the picture (%):</b><br>Increase this to keep the texts readable on a light or busy picture.": "<b>De afbeelding donkerder maken (%):</b><br>Zet dit hoger om de teksten leesbaar te houden op een lichte of drukke afbeelding.",
+ "Select a PNG, JPEG, BMP, or WebP image": "Kies een PNG-, JPEG-, BMP- of WebP-afbeelding",
+ "Browse...": "Bladeren..."
 }

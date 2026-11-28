@@ -1905,5 +1905,11 @@
  "Pick NS1: Wired Controller as the type. Click the video and press the arrow keys: they should move through the menu of the console. This has not been tried with Remote Play yet.": "Wähle NS1: Wired Controller als Typ. Klicke auf das Video und drücke die Pfeiltasten: Sie sollten durch das Menü der Konsole gehen. Das wurde mit Remote Play noch nicht ausprobiert.",
  "Wired, through a Pico with OGX-Mini, to Remote Play in a browser. Experimental. Nine steps.": "Kabelgebunden, über einen Pico mit OGX-Mini, zu Remote Play in einem Browser. Experimentell. Neun Schritte.",
  "On the iPhone, open Settings, then Accessibility, then Keyboards, and turn on Full Keyboard Access. Under Commands, set Home to Command-H: its own key, Fn-H, needs an Apple keyboard.": "Öffne auf dem iPhone Einstellungen, dann Bedienungshilfen, dann Tastaturen, und schalte die Tastatursteuerung ein. Lege unter Befehle für Home-Bildschirm Befehlstaste-H fest: die eigene Taste, Fn-H, braucht eine Apple-Tastatur.",
- "Remote Play, through a Pico with OGX-Mini": "Remote Play, über einen Pico mit OGX-Mini"
+ "Remote Play, through a Pico with OGX-Mini": "Remote Play, über einen Pico mit OGX-Mini",
+ "Background: a picture of your own": "Hintergrund: ein eigenes Bild",
+ "<b>Picture:</b><br>Shown behind the screens with the games and the programs. Empty, or turned off: Claude GG's own background.": "<b>Bild:</b><br>Wird hinter den Bildschirmen mit den Spielen und den Programmen gezeigt. Leer oder ausgeschaltet: der eigene Hintergrund von Claude GG.",
+ "<b>How the picture fits:</b>": "<b>Wie das Bild passt:</b>",
+ "<b>Darken the picture (%):</b><br>Increase this to keep the texts readable on a light or busy picture.": "<b>Das Bild abdunkeln (%):</b><br>Erhöhe diesen Wert, damit die Texte auf einem hellen oder unruhigen Bild lesbar bleiben.",
+ "Select a PNG, JPEG, BMP, or WebP image": "Wähle ein PNG-, JPEG-, BMP- oder WebP-Bild",
+ "Browse...": "Durchsuchen..."
 }

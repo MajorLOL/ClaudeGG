@@ -87,6 +87,7 @@
 #include "ClaudeGG_Mobile.h"
 #include "ClaudeGG_Scrub.h"
 #include "ClaudeGG_Setup.h"
+#include "ClaudeGG_Theme.h"
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -1033,6 +1034,7 @@ private:
     void set_page(std::unique_ptr<Page> page);
     void queue_page(std::function<std::unique_ptr<Page>()> make);
     void paint_background(QPainter& painter);
+    void paint_own_background(QPainter& painter, double fade);
     QPointF to_design(const QPointF& point) const{
         return QPointF((point.x() - m_offset.x()) / m_scale, (point.y() - m_offset.y()) / m_scale);
     }
@@ -1085,6 +1087,8 @@ private:
     QImage m_background_source;
     QPixmap m_background;
     QSize m_background_for;
+    //  The picture of your own (Settings > "Background") the cache was made of.
+    uint64_t m_background_generation = 0;
 
     QTimer m_timer;
     QElapsedTimer m_clock;
@@ -10087,24 +10091,54 @@ void Canvas::release_screen(){
 void Canvas::paint_background(QPainter& painter){
     const double w = width();
     const double h = height();
-    if (m_background_source.isNull() || w < 2 || h < 2){
-        return;
-    }
-    const double drift = h * 0.03;
-    const double factor = std::max(w / m_background_source.width(), (h + 2 * drift) / m_background_source.height());
-    const QSize wanted(
-        (int)std::ceil(m_background_source.width() * factor),
-        (int)std::ceil(m_background_source.height() * factor)
-    );
-    if (m_background.isNull() || m_background_for != wanted){
-        m_background = QPixmap::fromImage(m_background_source.scaled(wanted, Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
-        m_background_for = wanted;
+    const CustomBackground& custom = custom_background();
+    if (custom.generation != m_background_generation){
+        m_background_generation = custom.generation;
+        m_background = QPixmap();
+        m_background_for = QSize();
     }
     const double fade = eo(prog(m_now, 0.0, 1.4));
-    const double y = -(wanted.height() - h) / 2.0 + std::sin(m_now * 0.11) * drift;
-    painter.setOpacity(fade);
-    painter.drawPixmap(QPointF((w - wanted.width()) / 2.0, y), m_background);
-    painter.setOpacity(1.0);
+    if (!custom.image.isNull() && w >= 2 && h >= 2){
+        //  A picture of your own: still, as it was set, darkened so that
+        //  the texts stay readable.
+        const QImage& source = custom.image;
+        QSize wanted = source.size();
+        switch (custom.fit){
+        case BackgroundFit::FILL:
+            wanted = source.size().scaled(QSize((int)std::ceil(w), (int)std::ceil(h)), Qt::KeepAspectRatioByExpanding);
+            break;
+        case BackgroundFit::FIT:
+            wanted = source.size().scaled(QSize((int)std::ceil(w), (int)std::ceil(h)), Qt::KeepAspectRatio);
+            break;
+        case BackgroundFit::STRETCH:
+            wanted = QSize((int)std::ceil(w), (int)std::ceil(h));
+            break;
+        case BackgroundFit::TILE:
+            break;
+        }
+        wanted = wanted.expandedTo(QSize(1, 1));
+        if (m_background.isNull() || m_background_for != wanted){
+            m_background = QPixmap::fromImage(
+                wanted == source.size() ? source : source.scaled(wanted, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+            );
+            m_background_for = wanted;
+        }
+        painter.setOpacity(fade);
+        if (custom.fit == BackgroundFit::TILE){
+            painter.drawTiledPixmap(rect(), m_background);
+        }else{
+            painter.drawPixmap(QPointF((w - wanted.width()) / 2.0, (h - wanted.height()) / 2.0), m_background);
+        }
+        painter.setOpacity(1.0);
+        if (custom.darken > 0){
+            painter.fillRect(rect(), QColor(0, 0, 0, (int)std::lround(255 * custom.darken * fade)));
+        }
+    }else{
+        if (m_background_source.isNull() || w < 2 || h < 2){
+            return;
+        }
+        paint_own_background(painter, fade);
+    }
 
     //  Calmer where the heading and the list are, as in the film.
     painter.setPen(Qt::NoPen);
@@ -10123,6 +10157,26 @@ void Canvas::paint_background(QPainter& painter){
         painter.setBrush(gradient);
         painter.drawRect(rect());
     }
+}
+
+//  Claude GG's own background: the picture of the film, slowly moving.
+void Canvas::paint_own_background(QPainter& painter, double fade){
+    const double w = width();
+    const double h = height();
+    const double drift = h * 0.03;
+    const double factor = std::max(w / m_background_source.width(), (h + 2 * drift) / m_background_source.height());
+    const QSize wanted(
+        (int)std::ceil(m_background_source.width() * factor),
+        (int)std::ceil(m_background_source.height() * factor)
+    );
+    if (m_background.isNull() || m_background_for != wanted){
+        m_background = QPixmap::fromImage(m_background_source.scaled(wanted, Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
+        m_background_for = wanted;
+    }
+    const double y = -(wanted.height() - h) / 2.0 + std::sin(m_now * 0.11) * drift;
+    painter.setOpacity(fade);
+    painter.drawPixmap(QPointF((w - wanted.width()) / 2.0, y), m_background);
+    painter.setOpacity(1.0);
 }
 
 void Canvas::paintEvent(QPaintEvent*){
