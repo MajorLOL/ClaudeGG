@@ -52,7 +52,9 @@ def make_scene(ops):
          ["ellipse", cx, cy, ax, ay, angle, thickness, [b, g, r]]  (and then, if the part of the ellipse is not the whole: the angle to start and
                                                         the angle to end, in degrees, as cv2.ellipse takes them)
          ["noise", seed, amplitude]                     every colour of every pixel moves by a whole number from -amplitude to +amplitude
-                                                        that a hash of its place and the seed gives (the same in C++)"""
+                                                        that a hash of its place and the seed gives (the same in C++)
+         ["size", w, h]                                 the picture that there is now made w x h (cv2.resize, the nearest pixel): the last op, for
+                                                        a phone with another screen than the canvas"""
     img = np.zeros((H, W, 3), np.uint8)
     for op in ops:
         kind = op[0]
@@ -84,6 +86,8 @@ def make_scene(ops):
                 n = n ^ (n >> np.uint32(16))
             v = (n % np.uint32(2 * amp + 1)).astype(np.int64) - amp
             img[:] = np.clip(img.astype(np.int64) + v, 0, 255).astype(np.uint8)
+        elif kind == "size":
+            img = cv2.resize(img, (op[1], op[2]), interpolation=cv2.INTER_NEAREST)
         else:
             raise ValueError(op)
     return img

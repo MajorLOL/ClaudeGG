@@ -1532,6 +1532,9 @@ file(GLOB LIBRARY_SOURCES
     Source/ClaudeGG/ClaudeGG_Panel.h
     Source/ClaudeGG/ClaudeGG_PokemonGo.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGo.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoBag.cpp
+    Source/ClaudeGG/ClaudeGG_PokemonGoBag.h
+    Source/ClaudeGG/ClaudeGG_PokemonGoBagCheck.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoBattle.cpp
     Source/ClaudeGG/ClaudeGG_PokemonGoBattle.h
     Source/ClaudeGG/ClaudeGG_PokemonGoBot.cpp

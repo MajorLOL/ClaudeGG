@@ -261,6 +261,8 @@ double step(Host& host, Map::State& map, State& state){
         QString res;
         try{
             res = host.rocket_battle();
+        }catch (const Flow::Interrupted&){                  //  (the person stopped the bot: Python's `except Exception` does not take that)
+            throw;
         }catch (const std::exception& e){
             host.log(QString("rocket: error %1").arg(QString::fromUtf8(e.what())));
             res = "failed";
@@ -312,6 +314,8 @@ double step(Host& host, Map::State& map, State& state){
         QString res;
         try{
             res = host.claim_quests();
+        }catch (const Flow::Interrupted&){
+            throw;
         }catch (const std::exception& e){
             host.log(QString("quests: error %1").arg(QString::fromUtf8(e.what())));
             res = "failed";

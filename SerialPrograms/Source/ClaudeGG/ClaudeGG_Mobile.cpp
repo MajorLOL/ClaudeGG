@@ -50,6 +50,7 @@
 #include "ClaudeGG_PokemonGoBot.h"
 #include "ClaudeGG_PokemonGoCatch.h"
 #include "ClaudeGG_PokemonGoStep.h"
+#include "ClaudeGG_PokemonGoBag.h"
 #include "ClaudeGG_PokemonGoThrowPlay.h"
 #include "ClaudeGG_PokemonGoVision.h"
 
@@ -919,6 +920,20 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             }
         }
         check(differ == 0, step_report.isEmpty() ? QString("a step of the bot is made as gamebot.py makes it") : step_report.last());
+    }
+    //  The item bag, ported to C++ (issue #31): what the bag keeps of each item, the rows of a page of the bag, the question 'Discard <item>?'
+    //  that is read and set to the number wanted, the way to the bag and back to the map, the clean-up of a full bag, the red FULL marks of the
+    //  main menu and closing the game when the storage and the bag are both full, held to what the Python code did on the little stories of
+    //  tests/fixtures/bag_golden.json.qz.
+    {
+        QStringList bag_report;
+        const int differ = PokemonGo::Bag::run_bag_checks(agent_folder + "/../tests/fixtures/bag_golden.json.qz", bag_report);
+        for (const QString& line : bag_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, bag_report.isEmpty() ? QString("the item bag is handled as gamebot.py handles it") : bag_report.last());
     }
     //  The text reader, ported to C++ (issue #30): the table that Tesseract writes made into lines of words with their places, as
     //  gamebot.ocr_lines() makes them (354 tables, 36 of them read from frames of real fights), and - where the tesseract program is
