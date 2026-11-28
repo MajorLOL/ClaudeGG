@@ -20,7 +20,7 @@ The first version of "one interface" was made without the old window's buttons b
 | Where | Old | Now (interpretation) | To decide |
 |---|---|---|---|
 | Games > a game > **Start** | opened the game's page in the old window | opens the programs of that game, in the same screen | |
-| Programs > **Start** | opened the program in the old window | opens the program's own page *inside* the screen (`HostPage`), under a header: way back, game and program, state | The page itself is the old widget; since 28 November 2026 it has the look of the program options next to the list (dark, rounded fields, buttons and boxes, the scroll bars of the screens), whatever the classic theme is. Next: its parts (console setup, start and stop, log, video) as parts of the screen |
+| Programs > **Start** | opened the program in the old window | opens the program's own page *inside* the screen (`HostPage`), under a header: way back, game and program, state | The page itself is the old widget; restyle it |
 | Programs and Games > **Choose later** | closed the setup, the old window opened | left out: there is nothing to leave. Still there in the setup of the first start | |
 | Programs > **All games** | - | back to the games, the game stays picked | |
 | Header of an open program > the way back | "Home" in the top bar | back to the programs of that game (to the games for the settings). Off while a program runs, as the list of programs was locked | Should it ask before it closes a program with changes? (The options are kept when it closes, as before.) |
