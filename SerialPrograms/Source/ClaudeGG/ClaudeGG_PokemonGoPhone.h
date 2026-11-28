@@ -212,6 +212,8 @@ public:
 
     //  Can the agent tell the temperatures (/v1/heat, agent 0.2.4 and later)?
     bool reads_heat() const{ return m_reads_heat; }
+    //  Can the agent say whether the phone is awake and shows its lock screen, and take that away (/v1/power and /v1/unlock, agent 0.2.5 and later)?
+    bool reads_power() const{ return m_reads_power; }
     //  The size of the real screen the agent told (0: not known).
     int screen_width() const{ return m_width; }
     int screen_height() const{ return m_height; }
@@ -231,6 +233,7 @@ private:
     std::atomic<int> m_width{0};
     std::atomic<int> m_height{0};
     std::atomic<bool> m_reads_heat{false};
+    std::atomic<bool> m_reads_power{false};
     Hooks m_hooks;
     std::optional<Start::Launch> m_launch_failed;   //  the start of the game that did not even reach the agent
     std::mutex m_models_lock;

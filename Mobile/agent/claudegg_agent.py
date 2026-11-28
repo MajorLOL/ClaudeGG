@@ -20,6 +20,10 @@ taps, swipes and keys go through one `adb shell` that stays open (ShellSession):
     GET  /v1/screen                     the screen as a PNG
     GET  /v1/heat                       {phone, pi}: the temperature of the phone's battery and of the processor of the
                                         machine the agent runs on, in degrees Celsius (null for what cannot be read)
+    GET  /v1/power?only=awake|locked    {awake, locked}: is the screen of the phone on (`dumpsys power`), and does it show the
+                                        lock screen (`dumpsys window`); `only` asks for one of the two
+    POST /v1/unlock                     asks Android to take away the swipe lock screen (`wm dismiss-keyguard`; a PIN or a
+                                        pattern stays)
     GET  /v1/video?fps=10&width=540     the screen live: JPEG pictures in a multipart/x-mixed-replace stream
     POST /v1/tap     {x, y, ms, kind}   a press of ms milliseconds (120); kind "tap": a plain `input tap` (finger down and
                                         up at once), "motion": finger down, ms, finger up as touch events (Android 11+)
@@ -71,9 +75,9 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.2.4"
+VERSION = "0.2.5"
 #  What this agent can do that the first one (0.1.0) could not; Claude GG asks for these before a program of its own plays.
-FEATURES = ("tap_kind", "app", "bot_file", "touch", "app_list", "heat")
+FEATURES = ("tap_kind", "app", "bot_file", "touch", "app_list", "heat", "power")
 DEFAULT_PORT = 8765
 MAX_BODY = 64 * 1024
 MAX_STROKES = 50
@@ -547,6 +551,27 @@ class Phone:
         except (OSError, ValueError):
             pi = None
         return {"phone": phone, "pi": pi}
+
+    #  What `dumpsys window` says when the phone shows its lock screen (keyguard_showing() of spin_stop.py: any of these).
+    KEYGUARD_WORDS = ("mKeyguardShowing=true", "isKeyguardShowing=true", "mShowingLockscreen=true", "KeyguardShowing=true")
+
+    def power(self, only=None):
+        """What the bot of the Pi asks of the phone now and then: `awake`, is the screen on (`dumpsys power` has mWakefulness=Awake), and `locked`,
+        does it show the lock screen (`dumpsys window`, keyguard_showing() of spin_stop.py). `only` ("awake" or "locked") asks for one of them; the
+        other is then left out. A phone that does not answer is an error: neither a yes nor a no."""
+        if only not in (None, "awake", "locked"):
+            raise AgentError(400, "only must be awake or locked")
+        answer = {}
+        if only in (None, "awake"):
+            answer["awake"] = "mWakefulness=Awake" in self.adb.run("shell", "dumpsys", "power")
+        if only in (None, "locked"):
+            window = self.adb.run("shell", "dumpsys", "window")
+            answer["locked"] = any(word in window for word in self.KEYGUARD_WORDS)
+        return answer
+
+    def unlock(self):
+        """`wm dismiss-keyguard`: the swipe lock screen goes away (a PIN or a pattern does not)."""
+        self.adb.run("shell", "wm", "dismiss-keyguard")
 
     def screen(self):
         args = ["exec-out", "screencap"]
@@ -1430,6 +1455,14 @@ def make_handler(phone, token, quiet=True):
                                                     features=list(FEATURES)))
                 if method == "GET" and path == "/v1/heat":
                     return self._send(200, dict(phone.heat(), ok=True))
+                if method == "GET" and path == "/v1/power":
+                    query = self.path.split("?", 1)[1] if "?" in self.path else ""
+                    values = dict(part.split("=", 1) for part in query.split("&") if "=" in part)
+                    return self._send(200, dict(phone.power(values.get("only")), ok=True))
+                if method == "POST" and path == "/v1/unlock":
+                    self._body()
+                    phone.unlock()
+                    return self._send(200, {"ok": True})
                 if method == "GET" and path == "/v1/video":
                     return self._video()
                 if method == "GET" and path == "/v1/screen":

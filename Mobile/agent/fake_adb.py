@@ -50,6 +50,21 @@ def session(log, off_file):
     return 0
 
 
+def write_lines(lines):
+    """The answer of a FAKE_... variable: its lines, "|" for a new line; "none" is no answer at all (an empty variable cannot be given
+    on Windows, where setting one to "" removes it)."""
+    sys.stdout.write("" if lines == "none" else "\n".join(lines.split("|")) + "\n")
+
+
+def from_file(variable, default):
+    """The text in the file that the variable names when that file is there (a test changes what the phone says while the agent runs), else the default."""
+    path = os.environ.get(variable)
+    if path and os.path.exists(path):
+        with open(path, encoding="utf-8") as handle:
+            return handle.read().rstrip("\n")
+    return default
+
+
 def main(argv):
     log = os.environ.get("FAKE_ADB_LOG")
     rest = argv[2:] if argv[:1] == ["-s"] else argv
@@ -98,14 +113,27 @@ def main(argv):
             sys.stderr.write(os.environ["FAKE_MONKEY_FAIL"] + "\n")
             return 1
     elif args[:4] == ["shell", "pm", "list", "packages"]:
-        #  The apps that are installed (FAKE_PACKAGES: the lines of the answer, "|" for a new line, "none" for no answer; a Play Store one and an app of another store when it is not set).
+        #  The apps that are installed (FAKE_PACKAGES: the lines of the answer, "|" for a new line; a Play Store one and an app of another store when it is not set).
         lines = os.environ.get("FAKE_PACKAGES", "package:com.nianticlabs.pokemongo.ares|package:com.example.pokemongo.fan|package:com.nianticlabs.pokemongo")
-        #  ("none": no answer at all; an empty variable cannot be given on Windows, where setting one to "" removes it.)
-        sys.stdout.write("" if lines == "none" else "\n".join(lines.split("|")) + "\n")
+        write_lines(lines)
     elif args[:3] == ["shell", "dumpsys", "battery"]:
-        #  What `dumpsys battery` says (FAKE_BATTERY: the lines of the answer, "|" for a new line, "none" for no answer; a battery of 31.2 degrees when it is not set).
+        #  What `dumpsys battery` says (FAKE_BATTERY: the lines of the answer, "|" for a new line; a battery of 31.2 degrees when it is not set).
         lines = os.environ.get("FAKE_BATTERY", "Current Battery Service state:|  AC powered: false|  USB powered: true|  level: 80|  temperature: 312|  technology: Li-ion")
-        sys.stdout.write("" if lines == "none" else "\n".join(lines.split("|")) + "\n")
+        write_lines(lines)
+    elif args[:3] == ["shell", "dumpsys", "power"]:
+        #  What `dumpsys power` says (FAKE_POWER: the lines of the answer, "|" for a new line; a screen that is on when it is not set).
+        #  (a test that has to change it while the agent runs puts the answer in the file FAKE_POWER_FILE)
+        lines = os.environ.get("FAKE_POWER", "POWER MANAGER (power)|Power Manager State:|  mWakefulness=Awake|  mWakefulnessChanging=false")
+        lines = from_file("FAKE_POWER_FILE", lines)
+        write_lines(lines)
+    elif args[:3] == ["shell", "dumpsys", "window"]:
+        #  What `dumpsys window` says (FAKE_WINDOW: the lines of the answer, "|" for a new line; no lock screen when it is not set).
+        #  (and in FAKE_WINDOW_FILE when it has to change while the agent runs)
+        lines = os.environ.get("FAKE_WINDOW", "WINDOW MANAGER POLICY STATE (dumpsys window policy)|  mKeyguardShowing=false|  mCurrentFocus=Window{1 u0 com.nianticlabs.pokemongo}")
+        lines = from_file("FAKE_WINDOW_FILE", lines)
+        write_lines(lines)
+    elif args[:3] == ["shell", "wm", "dismiss-keyguard"]:
+        pass
     elif args[:2] == ["shell", "wm"]:
         sys.stdout.write("Physical size: 1080x2340\nOverride size: 1000x2200\n")
     elif args[:3] == ["shell", "getprop", "ro.product.model"]:

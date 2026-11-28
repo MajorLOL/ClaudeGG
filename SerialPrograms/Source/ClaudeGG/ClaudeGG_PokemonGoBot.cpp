@@ -572,6 +572,47 @@ std::pair<std::optional<double>, std::optional<double>> PhoneBot::read_heat(){
     return {phone, pi};
 }
 
+void PhoneBot::told_no_power(){
+    if (!m_told_power){
+        m_told_power = true;
+        log("the agent cannot say whether the phone is awake or shows its lock screen (agent 0.2.5 and later can): the phone is taken as awake and unlocked");
+    }
+}
+
+QString PhoneBot::power_state(){
+    //  "mWakefulness=Awake" in S.adb("shell", "dumpsys", "power"): the agent looks for it, here it is said again for what asks.
+    if (!m_phone.reads_power()){
+        told_no_power();
+        return "mWakefulness=Awake";
+    }
+    bool awake = false;
+    QString error;
+    if (!m_phone.agent().power_awake(awake, &error)){
+        throw std::runtime_error(("the power of the phone could not be asked: " + error).toStdString());
+    }
+    return awake ? "mWakefulness=Awake" : "mWakefulness=Asleep";
+}
+
+bool PhoneBot::keyguard_showing(){
+    if (!m_phone.reads_power()){
+        told_no_power();
+        return false;
+    }
+    bool locked = false;
+    QString error;
+    if (!m_phone.agent().power_locked(locked, &error)){
+        throw std::runtime_error(("the lock screen of the phone could not be asked: " + error).toStdString());
+    }
+    return locked;
+}
+
+void PhoneBot::dismiss_keyguard(){
+    QString error;
+    if (!m_phone.agent().unlock(&error)){
+        throw std::runtime_error(("the lock screen of the phone could not be taken away: " + error).toStdString());
+    }
+}
+
 cv::Mat PhoneBot::quick_screenshot_grab(const std::function<void()>& on_grab){
     cv::Mat img = m_phone.screenshot();
     if (on_grab){

@@ -55,6 +55,7 @@
 #include "ClaudeGG_PokemonGoBrain.h"
 #include "ClaudeGG_PokemonGoDaily.h"
 #include "ClaudeGG_PokemonGoGifts.h"
+#include "ClaudeGG_PokemonGoLock.h"
 #include "ClaudeGG_PokemonGoPhone.h"
 #include "ClaudeGG_PokemonGoQuests.h"
 #include "ClaudeGG_PokemonGoRocket.h"
@@ -94,7 +95,7 @@ Switches playable(const Switches& asked, bool heat = false);
 using Texts = std::map<QString, QString>;
 
 
-class PhoneBot : public Step::Host, public Throw::Host, public Bag::Host, public Gifts::Host, public Rocket::Host, public Daily::Host{
+class PhoneBot : public Step::Host, public Throw::Host, public Bag::Host, public Gifts::Host, public Rocket::Host, public Daily::Host, public Lock::Host{
 public:
     //  `folder`: where what the throws learn is kept (gamebot_throw.json); empty: nowhere.
     PhoneBot(Phone::AgentHost& phone, const Switches& switches, const Texts& texts = Texts(), const QString& folder = QString());
@@ -215,10 +216,16 @@ public:
     void wait_unsupported() override{ sleep(5); }
     void layout_watch() override{}
     void layout_verify(const cv::Mat&) override{}
-    QString power_state() override{ return "mWakefulness=Awake"; }
+    //  What `dumpsys power` says: "mWakefulness=Awake" or not (the agent says which; an agent before 0.2.5 cannot: the phone is taken as awake).
+    QString power_state() override;
     void key_wakeup() override{ m_phone.wake(); }
-    void unlock() override{}
-    cv::Mat unlock_game(const cv::Mat& img) override{ return img; }
+    //  The swipe lock screen and the game that dims and locks itself (ClaudeGG_PokemonGoLock.h).
+    void unlock() override{ Lock::unlock(*this); }
+    cv::Mat unlock_game(const cv::Mat& img) override{ return Lock::unlock_game(*this, img); }
+
+    //  ---- Lock::Host  (/v1/power and /v1/unlock of the agent; an agent before 0.2.5 has none: no lock screen is seen then)
+    bool keyguard_showing() override;
+    void dismiss_keyguard() override;
     cv::Mat quick_screenshot_grab(const std::function<void()>& on_grab) override;
     bool quests_due(const cv::Mat& img) override;
     QString claim_quests() override;
@@ -293,6 +300,8 @@ private:
     std::optional<double> m_spin_at;
     std::optional<double> m_catch_at;
     bool m_told_heat = false;
+    bool m_told_power = false;
+    void told_no_power();
     int m_stops = 0;
     int m_caught = 0;
     int m_fled = 0;

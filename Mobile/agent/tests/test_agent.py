@@ -168,7 +168,7 @@ class AgentTest(unittest.TestCase):
             status, body = self.json("GET", path)
             self.assertEqual(status, 200)
             self.assertEqual(body["version"], agent.VERSION)
-            for feature in ("tap_kind", "app", "bot_file", "touch", "app_list", "heat"):
+            for feature in ("tap_kind", "app", "bot_file", "touch", "app_list", "heat", "power"):
                 self.assertIn(feature, body["features"], "Claude GG asks for %s before it plays itself" % feature)
 
     def test_the_token_is_needed(self):
@@ -357,6 +357,70 @@ class AgentTest(unittest.TestCase):
         os.environ["FAKE_ADB_FAIL"] = "1"
         self.addCleanup(os.environ.pop, "FAKE_ADB_FAIL", None)
         self.assertEqual(self.json("GET", "/v1/heat"), (200, {"ok": True, "phone": None, "pi": 50.0}))
+
+    def fake(self, name, text):
+        os.environ[name] = text or "none"               #  (on Windows a variable set to "" is no variable)
+        self.addCleanup(os.environ.pop, name, None)
+
+    def test_the_power_is_the_screen_that_is_on_and_the_lock_screen_that_is_not_there(self):
+        status, body = self.json("GET", "/v1/power")
+        self.assertEqual((status, body), (200, {"ok": True, "awake": True, "locked": False}))
+        self.assertEqual(self.agent.calls(), ["shell dumpsys power", "shell dumpsys window"])
+
+    def test_the_power_needs_the_token(self):
+        self.assertEqual(self.json("GET", "/v1/power", token=None)[0], 401)
+        self.assertEqual(self.json("GET", "/v1/power", token="wrong")[0], 401)
+        self.assertEqual(self.json("POST", "/v1/unlock", {}, token=None)[0], 401)
+        self.assertEqual(self.json("POST", "/v1/unlock", {}, token="wrong")[0], 401)
+        self.assertEqual(self.agent.calls(), [])
+
+    def test_the_screen_that_is_on_in_other_answers(self):
+        for answer, expected in (("  mWakefulness=Asleep", False), ("  mWakefulness=Dozing", False), ("  mWakefulness=Awake", True),
+                                 ("Power Manager State:|  mWakefulnessChanging=false|  mWakefulness=Awake|  mBootCompleted=true", True),
+                                 ("  mwakefulness=awake", False), ("  mWakefulness= Awake", False), ("Awake", False),
+                                 ("Error: no power service", False), ("", False)):
+            self.fake("FAKE_POWER", answer)
+            self.assertEqual(self.json("GET", "/v1/power?only=awake")[1], {"ok": True, "awake": expected}, answer)
+
+    def test_the_lock_screen_in_other_answers(self):
+        for answer, expected in (("  mKeyguardShowing=true", True), ("  isKeyguardShowing=true", True), ("  mShowingLockscreen=true", True),
+                                 ("  KeyguardShowing=true", True), ("  mKeyguardShowing=false", False), ("  mShowingLockscreen=false", False),
+                                 ("  mCurrentFocus=null|  mKeyguardShowing=false|  isKeyguardShowing=true|  mOther=1", True),
+                                 ("  mkeyguardshowing=true", False), ("  mKeyguardShowing = true", False), ("  KeyguardShowing=True", False),
+                                 ("  mKeyguardGoingAway=true", False), ("Error: no window service", False), ("", False)):
+            self.fake("FAKE_WINDOW", answer)
+            self.assertEqual(self.json("GET", "/v1/power?only=locked")[1], {"ok": True, "locked": expected}, answer)
+
+    def test_the_power_can_be_asked_in_part(self):
+        self.assertEqual(self.json("GET", "/v1/power?only=awake")[1], {"ok": True, "awake": True})
+        self.assertEqual(self.agent.calls(), ["shell dumpsys power"])
+        self.assertEqual(self.json("GET", "/v1/power?only=locked")[1], {"ok": True, "locked": False})
+        self.assertEqual(self.agent.calls(), ["shell dumpsys power", "shell dumpsys window"])
+        self.fake("FAKE_POWER", "  mWakefulness=Asleep")
+        self.fake("FAKE_WINDOW", "  mShowingLockscreen=true")
+        self.assertEqual(self.json("GET", "/v1/power")[1], {"ok": True, "awake": False, "locked": True})
+
+    def test_the_power_is_only_asked_in_the_ways_there_are(self):
+        for path in ("/v1/power?only=", "/v1/power?only=asleep", "/v1/power?only=Awake", "/v1/power?only=awake,locked", "/v1/power?only=battery"):
+            self.assertEqual(self.json("GET", path)[0], 400, path)
+        self.assertEqual(self.agent.calls(), [])
+
+    def test_the_power_says_nothing_of_a_phone_that_does_not_answer(self):
+        self.fake("FAKE_ADB_FAIL", "1")
+        for path in ("/v1/power", "/v1/power?only=awake", "/v1/power?only=locked"):
+            status, body = self.json("GET", path)
+            self.assertEqual(status, 502, path)
+            self.assertIn("device offline", body["error"])
+
+    def test_the_lock_screen_is_dismissed_with_the_command_of_android(self):
+        self.assertEqual(self.json("POST", "/v1/unlock", {}), (200, {"ok": True}))
+        self.assertEqual(self.agent.calls(), ["shell wm dismiss-keyguard"])
+
+    def test_the_lock_screen_is_not_dismissed_on_a_phone_that_does_not_answer(self):
+        self.fake("FAKE_ADB_FAIL", "1")
+        status, body = self.json("POST", "/v1/unlock", {})
+        self.assertEqual(status, 502)
+        self.assertIn("device offline", body["error"])
 
     def test_nothing_was_started(self):
         self.assertEqual(self.json("POST", "/v1/app", {"action": "state", "package": GAME})[0], 409)
