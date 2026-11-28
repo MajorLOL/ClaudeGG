@@ -35,6 +35,7 @@
 #include "VideoGames/PokemonSV/Programs/PokemonSV_SaveGame.h"
 #include "VideoGames/PokemonSwSh/Programs/PokemonSwSh_MenuNavigation.h"
 #include "ClaudePlays_AnyGame.h"
+#include "ClaudePlays_Consoles.h"
 #include "ClaudePlays_External.h"
 #include "ClaudePlays_GameCard.h"
 #include "ClaudePlays_Program.h"
@@ -1094,6 +1095,19 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
     options.allow_home = ALLOW_HOME;
     options.external = external;
     options.readers = profile.pad == PadKind::PRO_CONTROLLER && game_has_readers(selected);
+    //  What differs on this console: how presses are played, how late the
+    //  picture comes, and what part of the capture is the game.
+    const ConsoleTraits& traits = console_traits(profile.console);
+    options.timing = traits.timing;
+    options.picture_aspects = traits.picture_aspects;
+    env.log(
+        "Console " + traits.code + ": presses of " + std::to_string(traits.timing.press_ms) + " ms (directions " +
+        std::to_string(traits.timing.direction_ms) + " ms), " + std::to_string(traits.timing.gap_ms) +
+        " ms after each" + (traits.timing.video_delay_ms > 0
+            ? ", the picture looked at " + std::to_string(traits.timing.video_delay_ms) + " ms later"
+            : std::string()) +
+        ". " + traits.why
+    );
 
     GameFacts facts;
     facts.name = profile.name;
@@ -1102,6 +1116,10 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
     const Language text_language = TEXT_LANGUAGE;
     if (text_language != Language::English){
         facts.text_language = language_data(text_language).name;
+    }
+    //  A Japanese PlayStation game: CIRCLE is yes.
+    if (text_language == Language::Japanese){
+        facts.yes_no = japanese_yes_no(profile.pad);
     }
 
     Limits limits;
