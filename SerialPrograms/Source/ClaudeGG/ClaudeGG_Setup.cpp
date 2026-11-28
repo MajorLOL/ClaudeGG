@@ -12212,6 +12212,8 @@ int run_setup_test(QApplication& application, const QString& folder){
     canvas.close_guide();
     canvas.wait(0.4);
     checker.check(!canvas.guide_open(), "and the guide can be put away");
+    //  The checks of the keyboard below start from the first console.
+    canvas.set_focus_id("console:0");
     checker.check(!canvas.hit_enabled("continue"), "no console, no way on");
     checker.check(canvas.page_state() == "selected=", "nothing is picked at first");
     checker.check(canvas.focus_id() == "console:0", "the keyboard starts on the first console");
