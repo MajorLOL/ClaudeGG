@@ -39,6 +39,7 @@
 #include "ClaudePlays_GameCard.h"
 #include "ClaudePlays_Program.h"
 #include "ClaudePlays_Sees.h"
+#include "ClaudeGG/ClaudeGG_Macro.h"
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -1335,6 +1336,39 @@ QRgb card_ground(GameId game){
 
 }
 
+//  The Switch button that a button of a pad is played with, by the names of
+//  that pad (for the program Macro, ClaudeGG_Macro.h): the tables above, as
+//  the program picks them for each pad.
+bool button_of_pad(PadKind pad, const std::string& name, Button& button){
+    switch (pad){
+    case PadKind::PRO_CONTROLLER:
+    case PadKind::RIGHT_JOYCON:
+        return button_of(name, button);
+    case PadKind::PS3_CONTROLLER:
+    case PadKind::PS1_CONTROLLER:
+    case PadKind::PS2_CONTROLLER:
+    case PadKind::PSCLASSIC_CONTROLLER:
+        return ps3_button_of(name, button);
+    case PadKind::PS4_CONTROLLER:
+        return ps4_button_of(name, button);
+    case PadKind::XBOX_CONTROLLER:
+        return xbox_button_of(name, button);
+    case PadKind::XBOX360_CONTROLLER:
+    case PadKind::XBOXONE_CONTROLLER:
+        return xbox360_button_of(name, button);
+    case PadKind::GAMECUBE_CONTROLLER:
+        return gamecube_button_of(name, button);
+    case PadKind::N64_CONTROLLER:
+        return n64_button_of(name, button);
+    case PadKind::DREAMCAST_CONTROLLER:
+        return dreamcast_button_of(name, button);
+    case PadKind::IPHONE_KEYBOARD:
+        break;
+    }
+    return false;
+}
+
+
 GameOnlyList::GameOnlyList(GameId game)
     : PanelListDescriptor(game_profile(game).title)
     , m_game(game)
@@ -1346,6 +1380,7 @@ std::vector<PanelEntry> GameOnlyList::make_panels() const{
     std::vector<PanelEntry> ret;
     ret.emplace_back("---- Claude ----");
     ret.emplace_back(make_claude_plays(m_game));
+    add_macro(ret, m_game);
     return ret;
 }
 
@@ -1360,6 +1395,7 @@ std::vector<PanelEntry> OtherGamesList::make_panels() const{
     std::vector<PanelEntry> ret;
     ret.emplace_back("---- Claude ----");
     ret.emplace_back(make_claude_plays(GameId::OTHER_GAMES));
+    add_macro(ret, GameId::OTHER_GAMES);
     return ret;
 }
 

@@ -312,6 +312,8 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Language.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Logo.cpp`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Logo.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Macro.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Macro.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_OldSettings.cpp`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_OldSettings.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_ProgramList.cpp`

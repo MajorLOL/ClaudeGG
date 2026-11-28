@@ -1606,7 +1606,7 @@ int check_assistant(const QString& out, Logger& logger){
         }
     }
     //  The games that have nothing but Claude Plays: their list is its name,
-    //  a card and that one program.
+    //  a card, that program and Macro (not for the iPhone: ClaudeGG_Macro.h).
     int list_cases = 0;
     for (ClaudePlays::GameId id : ClaudePlays::all_games()){
         if (!ClaudePlays::has_only_claude_plays(id)){
@@ -1618,10 +1618,13 @@ int check_assistant(const QString& out, Logger& logger){
         const ImageViewRGB32& card = list.icon();
         const std::vector<PanelListDescriptor::ProgramSummary> programs = list.program_summaries();
         if (list.name() != profile.title || !card || card.width() != 256 || card.height() != 128 ||
-            programs.size() != 1 || programs[0].name != "Claude Plays"
+            programs.empty() || programs[0].name != "Claude Plays" ||
+            (profile.pad == ClaudePlays::PadKind::IPHONE_KEYBOARD
+                ? programs.size() != 1
+                : programs.size() != 2 || programs[1].name != "Macro")
         ){
             wrong++;
-            logger.log("Assistant test: failed: the list of " + profile.title + " (a card and Claude Plays)", COLOR_RED);
+            logger.log("Assistant test: failed: the list of " + profile.title + " (a card, Claude Plays and Macro)", COLOR_RED);
         }
     }
     logger.log(
