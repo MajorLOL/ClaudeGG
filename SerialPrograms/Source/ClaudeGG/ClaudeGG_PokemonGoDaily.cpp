@@ -1,36 +1,55 @@
-/*  Claude GG Pokemon GO Daily (the daily run of the Pokémon GO bot: every app of the phone once a day, at the time the person chose)
+/*  Claude GG Pokemon GO Daily (the daily run of the Pokémon GO bot)
  *
  *  Part of Claude GG (ClaudeGG before), which is based on Pokemon Automation
  *  (https://github.com/PokemonAutomation/).
  *
- *  See ClaudeGG_PokemonGoDaily.h.  The functions follow those of Mobile/gamebot.py line by line; the names of the comments are theirs.
+ *  See ClaudeGG_PokemonGoDaily.h.  What the Python code does is followed line by line, down to the order of the questions that it asks (every
+ *  battle_app() of daily_order() is a question), the log lines and the moments of the writes of the file.
  *
  */
 
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <functional>
 #include <stdexcept>
-#include <QJsonArray>
+#include <utility>
+#include <vector>
+#include <QRegularExpression>
 #include "ClaudeGG_PokemonGoDaily.h"
 #include "ClaudeGG_PokemonGoFlow.h"
-#include "ClaudeGG_PokemonGoPy.h"
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
 namespace PokemonGo{
 namespace Daily{
 
-using Py::fixed;
-
 namespace{
 
-//  Python's max(a, b) and min(a, b): the first one, unless the second is larger (smaller); so a NaN that comes first stays.
-double py_max(double a, double b){
-    return b > a ? b : a;
-}
-double py_min(double a, double b){
-    return b < a ? b : a;
+//  f"{x:.0f}"
+QString fmt0(double x){
+    if (std::isnan(x)){
+        return "nan";                                   //  (never "-nan")
+    }
+    if (std::isinf(x)){
+        return x < 0 ? "-inf" : "inf";
+    }
+    char buffer[400];                                   //  (a double has 309 digits at most)
+    std::snprintf(buffer, sizeof(buffer), "%.0f", x);
+    return QString::fromLatin1(buffer);
 }
 
-//  bool(x) of a value of the file.
+//  The digits of every script as the digits 0 - 9 (Python's int() and float() take them all), the rest as it is.
+QString ascii_digits(const QString& text){
+    QString out;
+    for (const QChar c : text){
+        out += c.isDigit() ? QChar('0' + c.digitValue()) : c;
+    }
+    return out;
+}
+
+//  Python's truth of a value of JSON.
 bool truthy(const QJsonValue& v){
     switch (v.type()){
     case QJsonValue::Bool:
@@ -48,107 +67,180 @@ bool truthy(const QJsonValue& v){
     }
 }
 
-//  A number of the file (a bool counts as 0 or 1, as in Python).
-double number(const QJsonValue& v){
-    return v.isBool() ? (v.toBool() ? 1.0 : 0.0) : v.toDouble();
-}
-
-//  ==, as Python compares two values of the file (1 == 1.0 == True).
-bool py_equal(const QJsonValue& a, const QJsonValue& b){
-    const bool na = a.isDouble() || a.isBool();
-    const bool nb = b.isDouble() || b.isBool();
-    if (na && nb){
-        return number(a) == number(b);
-    }
-    if (a.isUndefined() || b.isUndefined()){
-        return a.isUndefined() == b.isUndefined() || (a.isNull() || b.isNull());
-    }
-    return a == b;
-}
-
-//  d["done"] (a KeyError when it is not there).
-QJsonArray done_of(const QJsonObject& d){
-    if (!d.contains("done")){
-        throw std::runtime_error("'done'");
-    }
-    return d.value("done").toArray();
-}
-
-bool contains(const QJsonArray& list, const QString& item){
-    for (const QJsonValue& v : list){
-        if (v.isString() && v.toString() == item){
+bool has(const QJsonArray& items, const QString& text){
+    for (const QJsonValue& v : items){
+        if (v.isString() && v.toString() == text){
             return true;
         }
     }
     return false;
 }
 
-double sum_played(const QJsonObject& played){
-    double sum = 0;
-    for (auto it = played.begin(); it != played.end(); ++it){
-        sum += number(it.value());
+//  The seconds that each app was played, in the order they were played.
+struct Played{
+    std::vector<std::pair<QString, double>> items;
+
+    explicit Played(const QJsonObject& o){
+        for (auto it = o.begin(); it != o.end(); ++it){
+            items.emplace_back(it.key(), it.value().toDouble());
+        }
     }
-    return sum;
+    double get(const QString& pkg) const{
+        for (const std::pair<QString, double>& one : items){
+            if (one.first == pkg){
+                return one.second;
+            }
+        }
+        return 0.0;
+    }
+    void add(const QString& pkg, double seconds){
+        const double total = get(pkg) + seconds;
+        for (std::pair<QString, double>& one : items){
+            if (one.first == pkg){
+                one.second = total;
+                return;
+            }
+        }
+        items.emplace_back(pkg, total);
+    }
+    double sum() const{
+        double total = 0.0;
+        for (const std::pair<QString, double>& one : items){
+            total += one.second;
+        }
+        return total;
+    }
+    QJsonObject object() const{
+        QJsonObject o;
+        for (const std::pair<QString, double>& one : items){
+            o[one.first] = one.second;
+        }
+        return o;
+    }
+};
+
 }
 
-}   //  namespace
 
-
-double daily_limit(Host& host){
-    const QJsonValue v = host.setting("daily_max_min");
-    double x = DAILY_MAX_MIN;
-    if (v.isUndefined()){
-        x = DAILY_MAX_MIN;
-    }else if (v.isDouble() || v.isBool()){
-        x = number(v);
-    }else if (v.isString()){
-        if (!Py::py_parse_float(v.toString(), x)){
-            return DAILY_MAX_MIN;                                   //  ValueError
-        }
-    }else{
-        return DAILY_MAX_MIN;                                       //  TypeError (None, a list, ...)
+std::optional<double> py_float(const QJsonValue& value){
+    switch (value.type()){
+    case QJsonValue::Double:
+        return value.toDouble();
+    case QJsonValue::Bool:
+        return value.toBool() ? 1.0 : 0.0;
+    case QJsonValue::String:
+        break;
+    default:
+        return std::nullopt;                            //  (None, a list: TypeError)
     }
-    return py_min(py_max(x, 1), 1440);
+    const QString text = ascii_digits(value.toString().trimmed());
+    static const QRegularExpression special("^[+-]?(nan|inf|infinity)$", QRegularExpression::CaseInsensitiveOption);
+    if (special.match(text).hasMatch()){
+        const QString lower = text.toLower();
+        const bool negative = lower.startsWith('-');
+        if (lower.endsWith("nan")){
+            return std::nan("");
+        }
+        return negative ? -HUGE_VAL : HUGE_VAL;
+    }
+    static const QRegularExpression number(
+        "^[+-]?(?:[0-9]+(?:_[0-9]+)*(?:\\.(?:[0-9]+(?:_[0-9]+)*)?)?|\\.[0-9]+(?:_[0-9]+)*)(?:[eE][+-]?[0-9]+(?:_[0-9]+)*)?$");
+    if (!number.match(text).hasMatch()){
+        return std::nullopt;                            //  (ValueError)
+    }
+    QString plain = text;
+    plain.remove('_');
+    return std::strtod(plain.toLatin1().constData(), nullptr);
+}
+
+std::optional<int> py_int(const QString& text){
+    const QString trimmed = ascii_digits(text.trimmed());
+    static const QRegularExpression number("^[+-]?[0-9]+(?:_[0-9]+)*$");
+    if (!number.match(trimmed).hasMatch()){
+        return std::nullopt;
+    }
+    QString plain = trimmed;
+    plain.remove('_');
+    const bool negative = plain.startsWith('-');
+    if (plain.startsWith('-') || plain.startsWith('+')){
+        plain.remove(0, 1);
+    }
+    while (plain.size() > 1 && plain.startsWith('0')){
+        plain.remove(0, 1);
+    }
+    if (plain.size() > 9){
+        return std::nullopt;                            //  (too big: Python would fail in mktime())
+    }
+    const int n = plain.toInt();
+    return negative ? -n : n;
 }
 
 
 double last_slot(Host& host, double now){
-    int hh = 8;
-    int mm = 0;
-    const QJsonValue v = host.setting("daily_time");
-    //  str(...).split(":") into two int(): only a text can have the two parts.
-    const QString text = v.isUndefined() ? QString("08:00") : v.isString() ? v.toString() : QString();
+    int hours = 8;
+    int minutes = 0;
+    const QJsonValue set = host.setting_value("daily_time");
+    const QString text = set.isUndefined() ? QString("08:00") : (set.isString() ? set.toString() : QString("not a time"));
     const QStringList parts = text.split(':');
     if (parts.size() == 2){
-        bool ok_h = false;
-        bool ok_m = false;
-        const int h = Py::py_strip(parts[0]).toInt(&ok_h);
-        const int m = Py::py_strip(parts[1]).toInt(&ok_m);
-        if (ok_h && ok_m){
-            hh = h;
-            mm = m;
+        const std::optional<int> h = py_int(parts[0]);
+        const std::optional<int> m = h.has_value() ? py_int(parts[1]) : std::nullopt;
+        if (h.has_value() && m.has_value()){
+            hours = *h;
+            minutes = *m;
         }
     }
-    const double slot = host.local_time_of_day(now, hh, mm);
+    const double slot = host.slot_time(now, hours, minutes);
     return slot <= now ? slot : slot - 86400;
 }
 
+double daily_limit(Host& host){
+    const QJsonValue set = host.setting_value("daily_max_min");
+    const std::optional<double> x = set.isUndefined() ? std::optional<double>(MAX_MIN) : py_float(set);
+    if (!x.has_value()){
+        return MAX_MIN;
+    }
+    //  min(max(x, 1), 1440) as Python does it (a number that is not a number stays what it is)
+    const double low = (1.0 > *x) ? 1.0 : *x;
+    return (1440.0 < low) ? 1440.0 : low;
+}
 
 QStringList daily_order(Host& host){
-    //  (battle_wanted() is false: the battles are not ported)
-    return host.game_packages();
+    QStringList pkgs = host.game_packages();
+    if (host.battle_wanted() && pkgs.contains(host.battle_app())){
+        QStringList out;
+        out << host.battle_app();
+        for (const QString& p : pkgs){
+            if (p != host.battle_app()){
+                out << p;
+            }
+        }
+        pkgs = out;
+    }
+    return pkgs;
+}
+
+QJsonObject load_daily(Host& host){
+    const std::optional<QJsonObject> file = host.read_daily();
+    if (file.has_value()){
+        return *file;
+    }
+    QJsonObject fresh;
+    fresh["start"] = 0;
+    fresh["done"] = QJsonArray();
+    return fresh;
 }
 
 
-void finish_catch(Host& host, const std::function<void()>& beat){
+void finish_catch(Host& host, const Beat& beat){
     const double t_end = host.wall() + FINISH_MAX_S;
     bool told = false;
     while (host.wall() < t_end){
         QString name;
         try{
-            name = host.screen_name();
+            name = host.screen_class(host.screenshot()).first;
         }catch (const Flow::Interrupted&){
-            throw;                                                  //  (the person stops the bot: not an Exception in Python)
+            throw;
         }catch (const std::exception&){
             return;
         }
@@ -156,216 +248,280 @@ void finish_catch(Host& host, const std::function<void()>& beat){
             return;
         }
         if (name != "encounterScreen" && !told){
-            return;                                                 //  (not catching: nothing to finish)
+            return;                                     //  (not catching: nothing to finish)
         }
         if (!told){
             host.log("daily run: the run time is up - finishing this catch first");
             told = true;
         }
-        double wait = 0;
+        double wait = 0.0;
         try{
-            wait = host.step();
+            wait = host.daily_step();
         }catch (const Flow::Interrupted&){
             throw;
         }catch (const std::exception& e){
-            host.log("error: " + QString::fromUtf8(e.what()));
+            host.log(QString("error: %1").arg(QString::fromUtf8(e.what())));
             wait = 5;
         }
         if (beat){
             beat();
         }
-        host.sleep(py_min(wait, py_max(0.0, t_end - host.wall())));
+        const double left = t_end - host.wall();
+        host.sleep(std::min(wait, left > 0.0 ? left : 0.0));
     }
 }
 
 
-bool run_one_game(Host& host, State& state, const QString& pkg, QJsonObject& d){
-    (void)state;
-    host.reset_for_game(pkg);
-    //  played = d.setdefault("played", {}): seconds per game, kept when the bot restarts
-    if (!d.contains("played")){
-        d.insert("played", QJsonObject());
-    }
-    auto played = [&](){ return d.value("played").toObject(); };
-    auto set_played = [&](const QString& key, double value){
-        QJsonObject p = played();
-        p.insert(key, value);
-        d.insert("played", p);
-    };
-    auto played_of = [&](const QString& key){
-        const QJsonObject p = played();
-        return p.contains(key) ? number(p.value(key)) : 0.0;
-    };
-    if (sum_played(played()) > daily_limit(host) * 60){             //  (the bot was restarted after the time was up: nothing left to play)
-        host.log("daily run: the run time of " + fixed(daily_limit(host), 0) + " min is up - closing the game");
-        host.close_game_completely();
-        d.insert("time_up", true);
-        return true;
-    }
-    {
-        const double sum = sum_played(played());
-        host.log(
-            "daily run: starting " + pkg + " (the run stops after " + fixed(daily_limit(host), 0) + " min" +
-            (sum != 0 ? ", " + fixed(sum / 60, 0) + " min played)" : QString(")"))
-        );
-    }
-    host.game_packages();                                           //  pkgs_now (for the battles, which are not ported)
-    double clock_last = host.monotonic();                           //  all the time counts, also the start of the game and a long step
+namespace{
+
+//  What run_one_game() does while the watchdog is on: the game is started again, the battles, the teams, the steps.  Says whether the run carries on
+//  (false: it was switched off).
+bool play_game(Host& host, State& state, const QString& package, QJsonObject& daily, Played& played, double& last, const std::function<void()>& save){
     host.restart_game();
 
-    auto beat = [&](){                                              //  book the time so far
+    const Beat beat = [&]{                              //  book the time so far; also tells the watchdog that the bot lives
         const double mono = host.monotonic();
-        set_played(pkg, played_of(pkg) + (mono - clock_last));
-        clock_last = mono;
+        played.add(package, mono - last);
+        last = mono;
     };
-    auto time_up = [&](){                                           //  finish what is going on, start nothing new
-        return sum_played(played()) + (host.monotonic() - clock_last) > daily_limit(host) * 60;
+    const Ask stop = [&]{                               //  stop at once (also in the middle of a fight)
+        return state.done || !host.wanted("daily_cycle");
+    };
+    const Ask time_up = [&]{                            //  finish what is going on, start nothing new
+        return played.sum() + (host.monotonic() - last) > daily_limit(host) * 60;
+    };
+    const auto battles = [&]{
+        try{
+            const Start::AutoBattle result = host.auto_battle(package, beat, stop, time_up);
+            if (result.resume.has_value()){
+                state.battle_resume = *result.resume;
+            }
+        }catch (const Flow::Interrupted&){
+            throw;
+        }catch (const std::exception& e){
+            host.log(QString("battle: error %1").arg(QString::fromUtf8(e.what())));
+        }
+        beat();
     };
 
-    if (!host.run_done()){
-        //  (auto_battle(): the battles are not ported - nothing to fight)
+    if (!state.done){
+        battles();
+    }
+    if (!state.done && host.teams_due(package)){
+        try{
+            host.teams_refresh(package, [&]{ return stop() || time_up(); });
+        }catch (const Flow::Interrupted&){
+            throw;
+        }catch (const std::exception& e){
+            host.log(QString("teams: error %1").arg(QString::fromUtf8(e.what())));
+        }
         beat();
     }
-    //  (teams_due() is false: the weekly teams are not ported)
     double saved = host.wall();
-    double reported = played_of(pkg);
-    while (!host.run_done()){
+    double reported = played.get(package);
+    int resumes = 0;
+    while (!state.done){
         if (!host.wanted("daily_cycle")){
             host.log("daily run switched off");
-            host.save_daily(d);
+            save();
             return false;
         }
         const double mono = host.monotonic();
         const double now = host.wall();
-        set_played(pkg, played_of(pkg) + (mono - clock_last));     //  monotonic: a jump of the clock (NTP) does not count
-        clock_last = mono;
-        {
-            //  d["slot"] = max(d.get("slot", 0), last_slot(now)): a start time that passes during a run is used up by that run
-            const QJsonValue old = d.contains("slot") ? d.value("slot") : QJsonValue(0);
-            const double slot = last_slot(host, now);
-            if (slot > number(old)){
-                d.insert("slot", slot);
-            }else{
-                d.insert("slot", old);
-            }
-        }
-        if (now - saved > 60){
-            host.save_daily(d);
+        played.add(package, mono - last);               //  monotonic: a jump of the clock (NTP) does not count
+        last = mono;
+        const QJsonValue slot = daily.value("slot");    //  a start time that passes during a run is used up by that run
+        const double before = slot.isDouble() ? slot.toDouble() : 0.0;
+        const double after = last_slot(host, now);
+        daily["slot"] = (after > before) ? after : before;
+        if (now - saved > SAVE_EVERY){
+            save();
             saved = now;
         }
-        if (played_of(pkg) - reported >= 1800){                    //  now and then: how far is it
-            reported = played_of(pkg);
-            host.log("daily run: " + fixed(sum_played(played()) / 60, 0) + " of " + fixed(daily_limit(host), 0) + " min played");
+        if (played.get(package) - reported >= REPORT_EVERY){            //  now and then: how far is it
+            reported = played.get(package);
+            host.log(QString("daily run: %1 of %2 min played").arg(fmt0(played.sum() / 60), fmt0(daily_limit(host))));
         }
         if (time_up()){
             finish_catch(host, beat);
-            host.log("daily run: the run time of " + fixed(daily_limit(host), 0) + " min is up - closing the game, the run ends");
+            host.log(QString("daily run: the run time of %1 min is up - closing the game, the run ends").arg(fmt0(daily_limit(host))));
             host.close_game_completely();
-            d.insert("time_up", true);
+            daily["time_up"] = true;
             break;
         }
-        double wait = 0;
+        double wait = 0.0;
         try{
-            wait = host.step();
+            wait = host.daily_step();
         }catch (const Flow::Interrupted&){
             throw;
         }catch (const std::exception& e){
-            host.log("error: " + QString::fromUtf8(e.what()));
+            host.log(QString("error: %1").arg(QString::fromUtf8(e.what())));
             wait = 10;
         }
-        //  (the way back to the battles after the Pokémon of a reward: the battles are not ported)
+        //  The reward of a set was a Pokémon to catch: the normal bot caught it (or it fled) - back on the map, the battles go on (at most a few
+        //  times a run)
+        if (state.battle_resume && resumes < BATTLE_RESUMES){
+            bool back = false;
+            try{
+                back = host.on_map(host.screenshot());
+            }catch (const Flow::Interrupted&){
+                throw;
+            }catch (const std::exception&){
+                back = false;
+            }
+            if (back){
+                resumes++;
+                state.battle_resume = false;
+                host.log("battle: the Pokémon of the reward was caught - back to the battles");
+                battles();
+                continue;
+            }
+        }
         host.sleep(wait);
     }
-    host.save_daily(d);
-    host.log("daily run: " + pkg + " finished");
+    return true;
+}
+
+}
+
+
+bool run_one_game(Host& host, State& state, const QString& package, QJsonObject& daily){
+    host.set_package(package);
+    state.done = false;
+    host.reset_for_game();
+    if (!daily.contains("played")){
+        daily["played"] = QJsonObject();
+    }
+    Played played(daily.value("played").toObject());
+    //  (the Python code changes the dict of the file in place: it is written back whenever the file is, and when this ends)
+    struct Keep{
+        QJsonObject& daily;
+        Played& played;
+        ~Keep(){ daily["played"] = played.object(); }
+    } keep{daily, played};
+    const auto save = [&]{
+        daily["played"] = played.object();
+        host.write_daily(daily);
+    };
+    if (played.sum() > daily_limit(host) * 60){         //  (the bot was restarted after the time was up: nothing left to play)
+        host.log(QString("daily run: the run time of %1 min is up - closing the game").arg(fmt0(daily_limit(host))));
+        host.close_game_completely();
+        daily["time_up"] = true;
+        return true;
+    }
+    host.log(QString("daily run: starting %1 (the run stops after %2 min").arg(package, fmt0(daily_limit(host)))
+        + (played.sum() != 0.0 ? QString(", %1 min played)").arg(fmt0(played.sum() / 60)) : QString(")")));
+    const QStringList pkgs_now = host.game_packages();
+    if (host.battle_wanted() && package == pkgs_now.value(0) && !pkgs_now.contains(host.battle_app())){      //  (said once per run)
+        host.log(QString("battle: the chosen app %1 is not installed - no battles in this run").arg(host.battle_app()));
+    }
+    double last = host.monotonic();                     //  all the time counts, also the start of the game and a long step
+    host.watchdog(package, true);
+    //  (what Python does in try: ... finally: watchdog.set())
+    bool carries_on = false;
+    try{
+        carries_on = play_game(host, state, package, daily, played, last, save);
+    }catch (...){
+        host.watchdog(package, false);
+        throw;
+    }
+    host.watchdog(package, false);
+    if (!carries_on){
+        return false;
+    }
+    save();
+    host.log(QString("daily run: %1 finished").arg(package));
     return true;
 }
 
 
 double daily_cycle(Host& host, State& state){
-    QJsonObject d = host.load_daily();
+    QJsonObject d = load_daily(host);
     const double now = host.wall();
-    auto new_run = [&](){
-        return QJsonObject{{"start", now}, {"done", QJsonArray()}, {"slot", last_slot(host, now)}};
-    };
-    const QString how = host.take_force_start();
-    if (!how.isEmpty()){
+    if (!state.force.isEmpty()){
+        const QString how = state.force;
+        state.force.clear();
         QStringList unfinished;
-        const QJsonArray done = d.value("done").toArray();
         for (const QString& p : daily_order(host)){
-            if (!contains(done, p)){
+            if (!has(d.value("done").toArray(), p)){
                 unfinished << p;
             }
         }
-        //  Start button: always a fresh run.  Otherwise (e.g. restart after an update) a run that is still going just continues, and a
-        //  finished one starts again.
+        //  Start button: always a fresh run.  Otherwise (e.g. restart after an update) a run that is still going just continues, and a finished one
+        //  starts again.
         if (how == "button" || unfinished.isEmpty()){
-            d = new_run();
-            host.save_daily(d);
-            host.log(QString(how == "button" ? "Start pressed" : "bot started") + " - daily run starts now: " + daily_order(host).join(", "));
-            state.waiting_logged = false;
+            QJsonObject fresh;
+            fresh["start"] = now;
+            fresh["done"] = QJsonArray();
+            fresh["slot"] = last_slot(host, now);
+            d = fresh;
+            host.write_daily(d);
+            host.log(QString("%1 - daily run starts now: %2").arg(how == "button" ? "Start pressed" : "bot started", daily_order(host).join(", ")));
+            state.waiting.reset();
         }
     }
-    //  served: the latest start time that a run has already used
-    double served = 0;
+    double served;                                      //  the latest start time that a run has already used
     const QJsonValue slot = d.value("slot");
-    if (slot.isUndefined() || slot.isNull()){                       //  file of an older version
-        served = truthy(d.value("start")) ? last_slot(host, number(d.value("start"))) : 0;
+    if (slot.isNull() || slot.isUndefined()){           //  file of an older version
+        served = truthy(d.value("start")) ? last_slot(host, d.value("start").toDouble()) : 0.0;
     }else{
-        served = number(slot);
+        served = slot.toDouble();
     }
-    const double latest = last_slot(host, now);
-    if (now >= latest && latest > served){                          //  today's start time passed and no run has used it yet
-        d = new_run();
-        host.save_daily(d);
-        const QStringList pkgs = daily_order(host);
-        host.log("daily run started: " + pkgs.join(", "));
-        state.waiting_logged = false;
+    const double today = last_slot(host, now);
+    if (now >= today && today > served){                //  today's start time passed and no run has used it yet
+        QJsonObject fresh;
+        fresh["start"] = now;
+        fresh["done"] = QJsonArray();
+        fresh["slot"] = today;
+        d = fresh;
+        host.write_daily(d);
+        host.log("daily run started: " + daily_order(host).join(", "));
+        state.waiting.reset();
     }
     QStringList pkgs;
-    {
-        //  [p for p in daily_order() if p not in d["done"]]: d["done"] is looked up for the first app
-        const QStringList order = daily_order(host);
-        for (const QString& p : order){
-            if (!contains(done_of(d), p)){
-                pkgs << p;
-            }
+    for (const QString& p : daily_order(host)){
+        if (!d.contains("done")){
+            throw std::runtime_error("'done'");
+        }
+        if (!has(d.value("done").toArray(), p)){
+            pkgs << p;
         }
     }
-    if (!pkgs.isEmpty()){                                           //  (also continues a run after a restart)
-        const QString pkg = pkgs[0];
+    if (!pkgs.isEmpty()){                               //  (also continues a run after a restart)
+        const QString pkg = pkgs.first();
         if (run_one_game(host, state, pkg, d)){
-            QJsonArray done = done_of(d);
+            QJsonArray done = d.value("done").toArray();
             done.append(pkg);
-            d.insert("done", done);
-            if (truthy(d.value("time_up"))){                        //  the run time is up: the other games are not played this run
-                QJsonArray all;
+            d["done"] = done;
+            if (truthy(d.value("time_up"))){            //  the run time is up: the other games are not played this run
+                QStringList merged;
                 for (const QJsonValue& v : done){
-                    if (!all.contains(v)){
-                        all.append(v);
+                    merged << v.toString();
+                }
+                merged << daily_order(host);
+                QJsonArray unique;
+                QStringList seen;
+                for (const QString& p : merged){
+                    if (!seen.contains(p)){
+                        seen << p;
+                        unique.append(p);
                     }
                 }
-                for (const QString& p : daily_order(host)){
-                    if (!all.contains(QJsonValue(p))){
-                        all.append(p);
-                    }
-                }
-                d.insert("done", all);
+                d["done"] = unique;
                 host.log("daily run: stopped - the run time is up");
             }
-            host.save_daily(d);
+            host.write_daily(d);
         }
         return 5;
     }
-    const QJsonValue setting = host.setting("daily_time");
-    const QJsonValue key_time = setting.isUndefined() ? QJsonValue("08:00") : setting;
-    const QJsonValue key_start = d.contains("start") ? d.value("start") : QJsonValue(0);
-    if (!state.waiting_logged || !py_equal(state.logged_time, key_time) || !py_equal(state.logged_start, key_start)){
+    const QJsonValue time_value = host.setting_value("daily_time");
+    QJsonArray key;
+    key.append(time_value.isUndefined() ? QJsonValue(QString("08:00")) : time_value);
+    key.append(d.contains("start") ? d.value("start") : QJsonValue(0));
+    if (!state.waiting.has_value() || *state.waiting != key){
         const QString next = host.local_text(last_slot(host, now) + 86400);
-        host.log(QString("daily run ") + (truthy(d.value("start")) ? "complete" : "waiting") + " - next run at " + next);
-        state.waiting_logged = true;
-        state.logged_time = key_time;
-        state.logged_start = key_start;
+        host.log(QString("daily run %1 - next run at %2").arg(truthy(d.value("start")) ? "complete" : "waiting", next));
+        state.waiting = key;
     }
     return 60;
 }

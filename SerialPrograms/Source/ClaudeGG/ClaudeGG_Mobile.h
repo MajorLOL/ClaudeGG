@@ -43,7 +43,7 @@ struct MobileInfo{
     int width = 0;
     int height = 0;
     QString version;            //  of the agent ("0.1.0" did not say what it can do)
-    QStringList features;       //  what it can do beyond 0.1.0: "tap_kind", "app", "bot_file"
+    QStringList features;       //  what it can do beyond 0.1.0: "tap_kind", "app", "bot_file", "touch", "app_list"
 };
 
 //  How the start of the Pokémon GO app is going (the command that starts it does not come back while the game starts).
@@ -147,6 +147,8 @@ public:
     bool app_start(const QString& package, QString* error = nullptr) const;
     bool app_state(const QString& package, MobileLaunch& launch, QString* error = nullptr) const;
     bool app_end(const QString& package, QString* error = nullptr) const;
+    //  The Pokémon GO apps that are installed (/v1/app "list", the feature "app_list" of agent 0.2.3), the Play Store one first.
+    bool app_list(QStringList& packages, QString* error = nullptr) const;
 
     //  The Pokémon GO bot on the Pi. "lines": how much of the end of its log.
     bool bot_state(MobileBotState& state, int lines = 40, QString* error = nullptr) const;

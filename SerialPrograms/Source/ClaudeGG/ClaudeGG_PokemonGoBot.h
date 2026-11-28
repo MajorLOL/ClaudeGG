@@ -29,8 +29,8 @@
  *  touch events and swipes out of them and sends those to the agent (nothing else is sent), the ones that the throw does not wait for in a
  *  thread of their own.
  *
- *  run() is the loop of gamebot.py around step(): a step, its wait, and an error in a step is told and waited out (10 s).  run_daily() is the
- *  daily run of gamebot.py around the same step (ClaudeGG_PokemonGoDaily).  Experimental: not tried on a real phone yet.
+ *  run() is the loop of gamebot.py around step(): a step, its wait, and an error in a step is told and waited out (10 s).  Experimental: not
+ *  tried on a real phone yet.
  *
  */
 
@@ -53,6 +53,7 @@
 #include <QStringList>
 #include "ClaudeGG_PokemonGoBag.h"
 #include "ClaudeGG_PokemonGoBrain.h"
+#include "ClaudeGG_PokemonGoDaily.h"
 #include "ClaudeGG_PokemonGoGifts.h"
 #include "ClaudeGG_PokemonGoPhone.h"
 #include "ClaudeGG_PokemonGoQuests.h"
@@ -92,7 +93,7 @@ Switches playable(const Switches& asked);
 using Texts = std::map<QString, QString>;
 
 
-class PhoneBot : public Step::Host, public Throw::Host, public Bag::Host, public Gifts::Host, public Rocket::Host{
+class PhoneBot : public Step::Host, public Throw::Host, public Bag::Host, public Gifts::Host, public Rocket::Host, public Daily::Host{
 public:
     //  `folder`: where what the throws learn is kept (gamebot_throw.json); empty: nowhere.
     PhoneBot(Phone::AgentHost& phone, const Switches& switches, const Texts& texts = Texts(), const QString& folder = QString());
@@ -100,14 +101,11 @@ public:
 
     Map::State& map_state(){ return m_map; }
     Step::State& step_state(){ return m_step; }
+    Daily::State& daily_state(){ return m_daily; }
     //  The pauses that were given to the timers (the full bag, the full storage) are over: switch it on again.  Called before every step.
     void timers();
     //  "(this run: 3 stops, 1 caught, 0 fled)".
     QString counts() const;
-    //  The daily run (ClaudeGG_PokemonGoDaily): the switches and timers of a new game (reset_for_game() of gamebot.py), and whether the bot
-    //  says that the run of this game is over (run_state["done"]: the storage and the bag are full and the game is closed).
-    void reset_for_game();
-    bool run_is_done() const{ return m_run_done; }
 
     //  ---- Loop::Host
     double monotonic() override{ return m_phone.monotonic(); }
@@ -229,7 +227,37 @@ public:
     double do_encounter(const cv::Mat& img) override;
     void resume_catch_later(double seconds) override;
 
+    //  ---- Daily::Host  (the daily run: see ClaudeGG_PokemonGoDaily.h; what the person set is in the texts "daily_time", "daily_max_min",
+    //  "battle_app", "battle_league", "battle_count" and "daily_force")
+    double daily_step() override;
+    //  The file of the run is gamebot_daily.json in the folder of the bot (in the memory of the program when there is no folder).
+    std::optional<QJsonObject> read_daily() override;
+    void write_daily(const QJsonObject& daily) override;
+    QJsonValue setting_value(const QString& key) override;
+    //  The apps that the agent lists (agent 0.2.3), the Play Store one first; the Play Store one alone when it cannot.
+    QStringList game_packages() override;
+    bool battle_wanted() override;
+    QString battle_app() override;
+    void set_package(const QString& package) override{ m_phone.set_package(package); }
+    void reset_for_game() override;
+    //  `am force-stop`, then the recent apps ("close all"), then the home screen: the game is gone, not running in the background.
+    void close_game_completely() override;
+    //  The battles of the run (Start::auto_battle: GO Battle League through Flow::battle_run of the phone's host).  The run's beat() and time_up()
+    //  are the phone's hooks while they go on; the person's stop (the program is stopped) ends them; a Pokémon of a reward is caught by the steps.
+    Start::AutoBattle auto_battle(const QString& package, const Daily::Beat& beat, const Daily::Ask& stop, const Daily::Ask& time_up) override;
+    //  The weekly teams are not ported: never due.
+    bool teams_due(const QString& package) override;
+    void teams_refresh(const QString&, const Daily::Ask&) override{}
+    //  There is no watchdog: the program is stopped by the person, and every call to the phone has a time limit.
+    void watchdog(const QString&, bool) override{}
+    double slot_time(double now, int hours, int minutes) override;
+    QString local_text(double moment) override;
+
 private:
+    //  The files of the bot (the memory of the day of the gifts, the file of the daily run): in the folder, or in the memory of the program.
+    std::optional<QByteArray> read_file(const QString& file);
+    bool write_file(const QString& file, const QByteArray& data);
+    Start::Settings battle_settings();
     //  A command of the throw for the phone, sent to the agent: what the phone wrote (throws std::runtime_error when the agent says no).
     QString send(const QStringList& args);
     struct Running{
@@ -253,35 +281,26 @@ private:
     Step::State m_step;
     Bag::State m_bag;
     Quests::State m_quests;                             //  when the quests were looked at last
-    std::map<QString, QByteArray> m_files;              //  the files of the gifts when there is no folder
+    Daily::State m_daily;                               //  what the daily run remembers between two calls
+    std::map<QString, QByteArray> m_files;              //  the files of the gifts and of the daily run when there is no folder
+    QStringList m_team_names;                           //  the team of the battles
+    int m_won = 0;
+    int m_lost = 0;
+    bool m_told_packages = false;
+    bool m_told_teams = false;
     std::mt19937_64 m_random;
     std::optional<double> m_spin_at;
     std::optional<double> m_catch_at;
     bool m_told_heat = false;
-    bool m_run_done = false;
     int m_stops = 0;
     int m_caught = 0;
     int m_fled = 0;
 };
 
 
-//  The loop of the bot: step after step until the person stops it (Flow::Interrupted is thrown then).  Every `beat_every` seconds `beat`
-//  is told how it goes (it may be empty).
+//  The loop of the bot: step after step (the daily run when "daily_cycle" is on: Daily::daily_cycle() instead of a step) until the person stops it
+//  (Flow::Interrupted is thrown then).  Every step `beat` is told how it goes (it may be empty).
 void run(PhoneBot& bot, const std::function<void()>& beat = std::function<void()>());
-
-
-//  What the person chose for the daily run (the program "Daily run").
-struct DailyStart{
-    QString time;               //  "HH:MM" (empty: 08:00)
-    int max_min = 0;            //  how long a run may take, all apps together (0: 480 minutes)
-    bool now = false;           //  begin a run right away (the Start button of the web interface)
-};
-
-//  The daily run of gamebot.py (PokemonGo::Daily::daily_cycle) with this bot, until the person stops it (Flow::Interrupted is thrown then):
-//  at the start time a run plays the app until the run time is up or the storage and the bag are full, then waits for the next day.  What the
-//  run did is kept in `folder`/gamebot_daily.json (in the memory of the program when there is no folder).  The agent cannot list the apps of
-//  the phone, so a run plays one app: the one of the bot.
-void run_daily(PhoneBot& bot, const DailyStart& start, const QString& folder);
 
 
 }

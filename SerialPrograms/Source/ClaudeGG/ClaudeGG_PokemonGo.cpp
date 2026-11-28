@@ -65,7 +65,8 @@ struct Preset{
 };
 
 //  Can Claude GG play this preset itself (the parts of gamebot.py that are ported to C++)?  Spinning PokéStops, catching Pokémon, the gifts,
-//  the GO Pass rewards, the clean-up of a full bag, Team GO Rocket and the daily run (without its battles and the weekly teams).
+//  the GO Pass rewards, the clean-up of a full bag, Team GO Rocket and the daily run (the apps of the phone one after the other, the battles
+//  first); the weekly teams of the daily run are not ported yet.
 bool claude_can_play(const Preset& preset){
     return preset.kind == Kind::SERVICE && (preset.spin || preset.catching || preset.gifts || preset.choose);
 }
@@ -112,9 +113,7 @@ const Preset PRESETS[] = {
         "ClaudeGG:PokemonGO:Daily", "Daily run",
         "The whole day's play in one: at the time you give, both Pokémon GO apps one after the other (spin, catch, "
         "gifts), each until it is full or the time is up. Choose below to fight GO Battle League battles first, and "
-        "to keep the teams up to date once a week. The program stays and waits for the next day until it is stopped. "
-        "Under Who plays Claude GG can run it itself instead (experimental): one app (the one of the battles, or the Play Store one), "
-        "without the battles and the weekly teams.",
+        "to keep the teams up to date once a week. The program stays and waits for the next day until it is stopped.",
         true, true, true, true, false, false, Kind::SERVICE,
     },
     {
@@ -742,7 +741,7 @@ private:
 
     //  What Claude GG needs to play itself: an agent that is new enough, a phone that answers, Tesseract on this computer, and the Python bot
     //  not playing at the same time.  Returns the tesseract program.
-    QString prepare_phone(ProgramEnvironment& env, const QString& address, int port, const QString& token, bool battles, bool catching = false){
+    QString prepare_phone(ProgramEnvironment& env, const QString& address, int port, const QString& token, bool battles, bool catching = false, bool daily = false){
         const MobileAgent agent(address, port, token);
         const MobileAgent patient(address, port, token, 60000);
         const std::string where = address.toStdString() + ":" + std::to_string(port);
@@ -768,6 +767,14 @@ private:
                 env.logger(),
                 "The agent on the Raspberry Pi is too old (" + info.version.toStdString() + ") for Claude GG to throw a ball (0.2.2 and later): on the "
                 "Pi, in the folder of the clone, run  git pull  and then  bash Mobile/agent/install-agent.sh. Or choose the Python bot on the Pi under Who plays."
+            );
+        }
+        if (daily && !info.features.contains("app_list")){
+            throw UserSetupError(
+                env.logger(),
+                "The agent on the Raspberry Pi is too old (" + info.version.toStdString() + ") for Claude GG to play the daily run (0.2.3 and later: it lists the "
+                "Pokémon GO apps of the phone): on the Pi, in the folder of the clone, run  git pull  and then  bash Mobile/agent/install-agent.sh. Or choose the "
+                "Python bot on the Pi under Who plays."
             );
         }
         if (info.width <= 0 || info.height <= 0){
@@ -836,7 +843,7 @@ private:
         for (const std::pair<QString, bool>& option : start.options){
             catching = catching || (option.first == "catch" && option.second);
         }
-        const QString tesseract = prepare_phone(env, address, port, token, false, catching);
+        const QString tesseract = prepare_phone(env, address, port, token, false, catching, m_preset.daily);
         const QString folder = QString::fromStdString(USER_FILE_PATH()) + "PokemonGo";
         QDir().mkpath(folder);
         const PokemonGo::Phone::Options options = phone_options(tesseract, folder);
@@ -863,11 +870,33 @@ private:
         if (!start.throw_target.isEmpty()){
             texts["throw_target"] = start.throw_target;
         }
+        if (m_preset.daily){
+            //  The daily run: when it starts, how long it may take, whether it begins at once, and what the battles are.
+            texts["daily_time"] = start.daily_time;
+            texts["daily_max_min"] = QString::number(start.daily_max_min);
+            texts["daily_force"] = start.daily_now ? "button" : "start";
+            if (start.battle_app_given){
+                texts["battle_app"] = start.battle_app;
+            }
+            if (!start.battle_league.isEmpty()){
+                texts["battle_league"] = start.battle_league;
+            }
+            if (start.battle_count > 0){
+                texts["battle_count"] = QString::number(start.battle_count);
+            }
+        }
         PokemonGo::Bot::PhoneBot bot(phone, switches, texts, folder);
         std::string does;
         const auto add_part = [&](const char* part){
             does += (does.empty() ? "" : ", ") + std::string(part);
         };
+        if (switches["daily_cycle"]){
+            add_part(("plays the daily run (from " + std::string(DAILY_TIME) + ", at most " + std::to_string(DAILY_MAX_MIN.current_value()) +
+                " min, the apps of the phone one after the other)").c_str());
+        }
+        if (switches["battle"]){
+            add_part("fights GO Battle League battles first");
+        }
         if (switches["spin"]){
             add_part("spins the PokéStops");
         }
@@ -889,20 +918,8 @@ private:
         if (switches["bag_clean"]){
             add_part("cleans a full bag");
         }
+        env.log("Claude GG itself " + does + " (experimental" + std::string(switches["daily_cycle"] && switches["teams_weekly"] ? "; the weekly teams are not kept up to date by Claude GG yet" : "") + ").");
         try{
-            if (switches["daily_cycle"]){
-                PokemonGo::Bot::DailyStart daily;
-                daily.time = start.daily_time;
-                daily.max_min = start.daily_max_min;
-                daily.now = start.daily_now;
-                env.log(
-                    "Claude GG itself runs the daily run (experimental): at " + (daily.time.isEmpty() ? QString("08:00") : daily.time).toStdString() +
-                    " every day, " + phone.package().toStdString() + " " + does + ", until " + std::to_string(daily.max_min > 0 ? daily.max_min : 480) +
-                    " minutes are played or the storage and the bag are full. (The battles and the weekly teams of the daily run are not in Claude GG yet.)"
-                );
-                PokemonGo::Bot::run_daily(bot, daily, folder);
-            }
-            env.log("Claude GG itself " + does + " (experimental).");
             PokemonGo::Bot::run(bot);
         }catch (const PokemonGo::Flow::Interrupted&){
             env.log("Stopped " + bot.counts().toStdString() + ".");
