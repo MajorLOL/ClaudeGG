@@ -28,6 +28,7 @@ shares no git history with Pokémon Automation.
 | `SerialPrograms/Source/VideoGames/PokemonFRLG/` | FRLG programs, including the fork's AutoStory. Its route data/scripts: `SerialPrograms/Scripts/PokemonFRLG/`. |
 | `SerialPrograms/cmake/SourceFiles.cmake` | Explicit list of source files: **every new .cpp/.h must be added here.** |
 | `Mobile/` | Python Pokémon GO bot for a Raspberry Pi + Android phone (ADB). `Mobile/agent/` is the small HTTP agent on the Pi that the C++ program talks to. `Mobile/tests/fixtures/*_golden.json.qz` are the answers the C++ port is held to. |
+| `WiiU/vanilla-bridge/` | C bridge for a Raspberry Pi as Wii U GamePad (Vanilla); the C++ side is `ClaudeGG_WiiU.cpp`. |
 | `Common/`, the rest of `SerialPrograms/Source/` | Pokémon Automation's code. Change it only for a real fix; keeping it close to upstream keeps syncing easy. |
 | `.github/workflows/` | `claudegg-windows.yml` (build, tests, release), `mobile-python.yml`, `tabs.yml`. |
 

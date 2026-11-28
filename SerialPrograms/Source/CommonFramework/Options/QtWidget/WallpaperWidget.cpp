@@ -14,6 +14,7 @@
 #include "CommonFramework/GlobalAutoPaths.h"
 #include "CommonFramework/GlobalSettingsPanel.h"
 #include "CommonFramework/Options/Environment/ThemeSelectorOption.h"
+#include "ClaudeGG/ClaudeGG_Theme.h"
 #include "WallpaperWidget.h"
 
 namespace PokemonAutomation{
@@ -43,6 +44,26 @@ bool is_default_path(const QString& path){
     return path == WallpaperWidget::DEFAULT_WALLPAPER_LIGHT_PATH || path == WallpaperWidget::DEFAULT_WALLPAPER_DARK_PATH;
 }
 
+}
+
+void apply_custom_background(const WallpaperOption& option){
+    ClaudeGG::BackgroundFit fit = ClaudeGG::BackgroundFit::FILL;
+    switch ((WallpaperImageFitMode)option.IMAGE_FIT){
+    case WallpaperImageFitMode::FILL:
+        fit = ClaudeGG::BackgroundFit::FILL;
+        break;
+    case WallpaperImageFitMode::FIT:
+        fit = ClaudeGG::BackgroundFit::FIT;
+        break;
+    case WallpaperImageFitMode::STRETCH:
+        fit = ClaudeGG::BackgroundFit::STRETCH;
+        break;
+    case WallpaperImageFitMode::TILE:
+        fit = ClaudeGG::BackgroundFit::TILE;
+        break;
+    }
+    const std::string path = option.enabled() ? (std::string)option.IMAGE_PATH : std::string();
+    ClaudeGG::set_custom_background(QString::fromStdString(path), fit, (int)(uint8_t)option.IMAGE_OVERLAY);
 }
 
 const QString WallpaperWidget::DEFAULT_WALLPAPER_LIGHT_PATH = QString::fromStdString(RESOURCE_PATH() + "Wallpapers/light-alpha.png");
