@@ -9,6 +9,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <deque>
 #include <utility>
 #include <QByteArray>
 #include <QJsonArray>
@@ -1066,27 +1067,26 @@ Outcome wait_for(PlayConsole& console, const QJsonObject& input){
     //  long after it came. (A small picture of a few cells: a look costs
     //  next to nothing.)
     const milliseconds every(50);
-    //  Whether it is still is asked of two looks this far apart, three times
-    //  in a row: slow motion over a short step would look still.
-    const int still_step = 5;
+    //  Whether it is still is asked of two looks this far apart (slow motion
+    //  over a shorter step would look still), at every look: still once
+    //  that held over three such steps in a row, so the end of the motion
+    //  is seen within one look of it.
+    const size_t still_step = 5;
+    const int still_looks = 2 * (int)still_step + 1;
     const ScreenThumb first = see(console);
     if (!first.valid()){
         return Outcome::error("No video comes in from the capture card: there is nothing to wait for.");
     }
-    ScreenThumb previous = first;
+    //  The looks of the last step, oldest first.
+    std::deque<ScreenThumb> recent{first};
     int still_in_row = 0;
-    int step = 0;
     double waited = 0;
     double last_motion = 0;
     Outcome outcome;
     while (waited < limit){
         console.wait(every);
         waited += (double)every.count() / 1000.0;
-        step++;
-        if (until != "change" && step % still_step != 0){
-            continue;
-        }
-        const ScreenThumb now = see(console);
+        ScreenThumb now = see(console);
         if (!now.valid()){
             return Outcome::error("The video stopped coming in while waiting.");
         }
@@ -1097,15 +1097,18 @@ Outcome wait_for(PlayConsole& console, const QJsonObject& input){
                     " of it).";
                 return outcome;
             }
-        }else{
-            last_motion = thumb_difference(previous, now);
+            continue;
+        }
+        if (recent.size() >= still_step){
+            last_motion = thumb_difference(recent.front(), now);
+            recent.pop_front();
             still_in_row = last_motion < STILL_PICTURE ? still_in_row + 1 : 0;
-            if (still_in_row >= 3){
+            if (still_in_row >= still_looks){
                 outcome.text = "The picture is still, " + seconds_text(waited) + " after the wait began.";
                 return outcome;
             }
         }
-        previous = now;
+        recent.push_back(std::move(now));
     }
     outcome.text = until == "change"
         ? "Nothing changed in " + seconds_text(waited) + "."
