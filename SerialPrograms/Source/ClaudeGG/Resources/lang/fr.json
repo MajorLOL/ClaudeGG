@@ -2376,5 +2376,7 @@
  "No picture: start NTR-HR again, check the address, and let UDP port 8001 through the firewall of the computer.": "Pas d'image : relancez NTR-HR, vérifiez l'adresse, et laissez passer le port UDP 8001 dans le pare-feu de l'ordinateur.",
  "The picture works but the buttons do not: turn on InputRedirection in the Rosalina menu again (after a restart it can be off).": "L'image marche mais pas les boutons : réactivez InputRedirection dans le menu Rosalina (après un redémarrage il peut être désactivé).",
  "The 3DS freezes when the Wi-Fi drops while InputRedirection is on: hold POWER to turn it off, and keep it near the router.": "La 3DS se fige si le Wi-Fi coupe alors qu'InputRedirection est actif : maintenez POWER pour l'éteindre, et gardez-la près du routeur.",
- "Over Wi-Fi, with Luma3DS and NTR-HR": "Par Wi-Fi, avec Luma3DS et NTR-HR"
+ "Over Wi-Fi, with Luma3DS and NTR-HR": "Par Wi-Fi, avec Luma3DS et NTR-HR",
+ "Any game": "N'importe quel jeu",
+ "Claude Plays, over Wi-Fi": "Claude Plays, par Wi-Fi"
 }

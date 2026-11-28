@@ -725,6 +725,9 @@ public:
             "request is billed to you by Anthropic, and the pictures go to Anthropic). Without a key: let Claude "
             "Code play (see \"Who plays\").<br>" + NEEDS + " Run \"Connect the Vita\" once first."
         )
+        , KNOWN_GAME(
+            KNOWN_GAME_LABEL, known_games_database(known_games_on("vita")), LockMode::LOCK_WHILE_RUNNING, 0
+        )
         , WHO()
         , GOAL(
             "<b>Goal:</b><br>What Claude should do, in your own words (any language). Say where the game is at, if "
@@ -796,6 +799,7 @@ public:
         , VIDEO_DELAY_MS(VIDEO_DELAY_MS_LABEL, LockMode::LOCK_WHILE_RUNNING, 0, 0, 1000)
     {
         PA_ADD_OPTION(SETUP_TEXT);
+        PA_ADD_OPTION(KNOWN_GAME);
         add_option(WHO.PLAYER, "PLAYER");
         add_option(WHO.PORT, "MCP_PORT");
         add_option(WHO.IDLE, "MCP_IDLE");
@@ -852,6 +856,15 @@ public:
             "(often the pause menu), SELECT, the two sticks, the d-pad and the front touch screen. The program "
             "cannot use the rear touch pad, and it does a stick and buttons one after the other, not at once.";
         facts.user_notes = trimmed(ABOUT);
+        //  A well-known game that the user picked: its controls.
+        if (const KnownGame* known = chosen_known_game(known_games_on("vita"), KNOWN_GAME.current_value())){
+            facts.name = known->name;
+            facts.notes += " " + known->notes;
+            if (!known->yes_no.empty()){
+                facts.yes_no = known->yes_no;
+            }
+            env.log("Game: " + known->name, COLOR_BLUE);
+        }
         const Language text_language = TEXT_LANGUAGE;
         if (text_language != Language::English){
             facts.text_language = language_data(text_language).name;
@@ -900,6 +913,7 @@ public:
 
 private:
     StaticTextOption SETUP_TEXT;
+    IntegerEnumDropdownOption KNOWN_GAME;
     WhoPlays WHO;
     TextEditOption GOAL;
     TextEditOption ABOUT;

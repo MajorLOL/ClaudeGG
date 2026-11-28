@@ -928,18 +928,6 @@ std::string setup_text(const GameProfile& profile){
 //  The choices of the option "Game" of Other Games: nothing in particular, and
 //  each game that has no list of its own (it has its profile, with its buttons,
 //  but no tile on the page with the games).
-//  The choices of the option "Which game": another one, or one of the
-//  well-known games of the list.
-IntegerEnumDropdownDatabase known_games_database(GameId game){
-    IntegerEnumDropdownDatabase database;
-    database.add(0, "none", "Another one (say which under \"About the game\")", true);
-    size_t index = 1;
-    for (const KnownGame* known : known_games(game)){
-        database.add(index++, known->slug, known->name, true);
-    }
-    return database;
-}
-
 EnumDropdownDatabase<GameId> other_games_database(){
     EnumDropdownDatabase<GameId> database;
     database.add(GameId::OTHER_GAMES, "other", "Whatever is on the screen", true);
@@ -967,10 +955,8 @@ GameProgram::GameProgram(GameId game)
         GameId::OTHER_GAMES
     )
     , KNOWN_GAME(
-        "<b>Which game:</b><br>For a well-known game the program tells Claude its controls by default, and "
-        "makes the presses long enough for a game that runs at few frames a second. Another game: say "
-        "which under \"About the game\", or Claude finds out from the screen.",
-        known_games_database(game),
+        KNOWN_GAME_LABEL,
+        known_games_database(known_games(game)),
         LockMode::LOCK_WHILE_RUNNING,
         0
     )
@@ -1164,10 +1150,8 @@ void GameProgram::program(SingleSwitchProgramEnvironment& env, CancellableScope&
     //  A well-known game that the user picked.
     const KnownGame* known = nullptr;
     {
-        const std::vector<const KnownGame*> games = known_games(selected);
-        const size_t index = KNOWN_GAME.current_value();
-        if (index > 0 && index <= games.size()){
-            known = games[index - 1];
+        known = chosen_known_game(known_games(selected), KNOWN_GAME.current_value());
+        if (known != nullptr){
             options.timing = timing_for_game(options.timing, known->frame_rate);
             env.log(
                 "Game: " + known->name + (known->frame_rate > 0

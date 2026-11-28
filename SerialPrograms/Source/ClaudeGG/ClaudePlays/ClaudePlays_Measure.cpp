@@ -27,6 +27,24 @@ const char* const VIDEO_DELAY_MS_LABEL =
     "<b>Extra wait for the picture (ms):</b><br>How much longer the program waits after an action before "
     "it looks whether the picture changed: for a picture that comes late (Remote Play, an HDMI adapter). "
     "0: the console's own.";
+const char* const KNOWN_GAME_LABEL =
+    "<b>Which game:</b><br>For a well-known game the program tells Claude its controls by default, and "
+    "makes the presses long enough for a game that runs at few frames a second. Another game: say "
+    "which under \"About the game\", or Claude finds out from the screen.";
+
+
+IntegerEnumDropdownDatabase known_games_database(const std::vector<const KnownGame*>& games){
+    IntegerEnumDropdownDatabase database;
+    database.add(0, "none", "Another one (say which under \"About the game\")", true);
+    size_t index = 1;
+    for (const KnownGame* known : games){
+        database.add(index++, known->slug, known->name, true);
+    }
+    return database;
+}
+const KnownGame* chosen_known_game(const std::vector<const KnownGame*>& games, size_t index){
+    return index > 0 && index <= games.size() ? games[index - 1] : nullptr;
+}
 
 
 ConsoleProbe::ConsoleProbe(PlayConsole& console)
