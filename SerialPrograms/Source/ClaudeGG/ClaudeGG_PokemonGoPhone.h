@@ -171,6 +171,8 @@ public:
     void swipes(const std::vector<Stroke>& strokes);
     //  The Pokémon GO app that is played (Options::package).
     const QString& package() const{ return m_options.package; }
+    //  Another app is played from now on (the daily run plays the apps of the phone one after the other).
+    void set_package(const QString& package){ m_options.package = package; }
     void back() override;
     std::pair<QString, double> screen_class(const cv::Mat& img) override;
     void restart_game() override;
@@ -208,6 +210,8 @@ public:
     //  a file that cannot be used does).  What Start::auto_battle() is given as its TeamLoader: [&]{ return host.load_team(); }.
     std::vector<Battle::Mon> load_team() const;
 
+    //  Can the agent tell the temperatures (/v1/heat, agent 0.2.4 and later)?
+    bool reads_heat() const{ return m_reads_heat; }
     //  The size of the real screen the agent told (0: not known).
     int screen_width() const{ return m_width; }
     int screen_height() const{ return m_height; }
@@ -226,6 +230,7 @@ private:
     std::atomic<bool> m_aim;
     std::atomic<int> m_width{0};
     std::atomic<int> m_height{0};
+    std::atomic<bool> m_reads_heat{false};
     Hooks m_hooks;
     std::optional<Start::Launch> m_launch_failed;   //  the start of the game that did not even reach the agent
     std::mutex m_models_lock;

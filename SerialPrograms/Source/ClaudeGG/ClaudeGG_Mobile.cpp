@@ -26,6 +26,7 @@
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <QThread>
+#include <QTimeZone>
 #include "Common/Cpp/Color.h"
 #include "Common/Cpp/Logging/AbstractLogger.h"
 #include "Common/Cpp/Logging/GlobalLogger.h"
@@ -54,6 +55,8 @@
 #include "ClaudeGG_PokemonGoGifts.h"
 #include "ClaudeGG_PokemonGoQuests.h"
 #include "ClaudeGG_PokemonGoRocket.h"
+#include "ClaudeGG_PokemonGoRocketFight.h"
+#include "ClaudeGG_PokemonGoDaily.h"
 #include "ClaudeGG_PokemonGoThrowPlay.h"
 #include "ClaudeGG_PokemonGoVision.h"
 
@@ -555,6 +558,35 @@ bool MobileAgent::app_end(const QString& package, QString* error) const{
     return app("end", package, reply, error);
 }
 
+bool MobileAgent::app_list(QStringList& packages, QString* error) const{
+    QJsonObject body;
+    body["action"] = "list";
+    Reply reply;
+    if (!request("POST", "/v1/app", QJsonDocument(body).toJson(QJsonDocument::Compact), reply, error)){
+        return false;
+    }
+    packages.clear();
+    for (const QJsonValue& one : QJsonDocument::fromJson(reply.body).object().value("packages").toArray()){
+        packages << one.toString();
+    }
+    return true;
+}
+
+bool MobileAgent::heat(std::optional<double>& phone, std::optional<double>& pi, QString* error) const{
+    Reply reply;
+    if (!request("GET", "/v1/heat", QByteArray(), reply, error)){
+        return false;
+    }
+    const QJsonObject object = QJsonDocument::fromJson(reply.body).object();
+    const auto number = [&](const char* key) -> std::optional<double>{
+        const QJsonValue value = object.value(QLatin1String(key));
+        return value.isDouble() ? std::optional<double>(value.toDouble()) : std::nullopt;
+    };
+    phone = number("phone");
+    pi = number("pi");
+    return true;
+}
+
 bool MobileAgent::bot_state(MobileBotState& state, int lines, QString* error) const{
     Reply reply;
     if (!request("GET", "/v1/bot?lines=" + QString::number(std::max(1, std::min(200, lines))), QByteArray(), reply, error)){
@@ -993,6 +1025,32 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         }
         check(differ == 0, rocket_report.isEmpty() ? QString("the way through Team GO Rocket is walked as gamebot.py walks it") : rocket_report.last());
     }
+    //  The fight against Team GO Rocket itself, ported to C++ (issue #31): the fast taps, the shield, the charged attacks, the little game of the type
+    //  of the attack, until the fight is over, played on the real pictures of fights and little games (tests/fixtures/rocketfight_golden.json.qz).
+    {
+        QStringList fight_report;
+        const int differ = PokemonGo::Loop::run_rocket_fight_checks(agent_folder + "/../tests/fixtures/rocketfight_golden.json.qz",
+            agent_folder + "/../tests/fixtures", agent_folder + "/../models/battle_data.json", fight_report);
+        for (const QString& line : fight_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, fight_report.isEmpty() ? QString("the fight against Team GO Rocket is fought as gamebot.py fights it") : fight_report.last());
+    }
+    //  The daily run, ported to C++ (issue #31): the start time of the day, the apps one after the other, the time of the run, the battles and the teams
+    //  first, a catch that is finished, the battles that go on after a reward - played on a pretend phone with a pretend clock, held to what the Python
+    //  code did on the stories of tests/fixtures/daily_golden.json.qz.
+    {
+        QStringList daily_report;
+        const int differ = PokemonGo::Daily::run_daily_checks(agent_folder + "/../tests/fixtures/daily_golden.json.qz", daily_report);
+        for (const QString& line : daily_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, daily_report.isEmpty() ? QString("the daily run is played as gamebot.py plays it") : daily_report.last());
+    }
     //  The text reader, ported to C++ (issue #30): the table that Tesseract writes made into lines of words with their places, as
     //  gamebot.ocr_lines() makes them (354 tables, 36 of them read from frames of real fights), and - where the tesseract program is
     //  found - a picture with words drawn on it read with it.
@@ -1136,8 +1194,9 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         check(info.model == "FakePhone" && info.android == "14", "its model and Android (" + info.model + ", " + info.android + ")");
         check(info.width == 1000 && info.height == 2200, "its size is the size that was set (" + QString::number(info.width) + "x" + QString::number(info.height) + ")");
         check(
-            info.features.contains("tap_kind") && info.features.contains("app") && info.features.contains("bot_file"),
-            "the agent (" + info.version + ") can do what GO Battle League needs when Claude GG plays: " + info.features.join(", ")
+            info.features.contains("tap_kind") && info.features.contains("app") && info.features.contains("bot_file") && info.features.contains("app_list")
+                && info.features.contains("heat"),
+            "the agent (" + info.version + ") can do what GO Battle League, the daily run and the pause for the heat need when Claude GG plays: " + info.features.join(", ")
         );
     }
     //  The files of the bot's battles (the team), read only.
@@ -1393,6 +1452,26 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             check(!phone.app_state(game, gone, &error) && error.contains("was not started"), "and is let go of (" + error + ")");
             QFile::remove(monkey_file);
 
+            //  The apps that are installed: the Play Store one first, an app that could not be started left out.
+            {
+                QStringList installed;
+                error.clear();
+                check(phone.app_list(installed, &error), "the installed apps are asked for: " + error);
+                check(installed == QStringList({game, game + ".ares"}), "the Play Store one first, the app of another name left out (" + installed.join(", ") + ")");
+                check(read_lines(adb_log).last() == "shell pm list packages pokemongo", "from `pm list packages`");
+            }
+
+            //  The temperatures: the battery of the phone (31.2 degrees in the fake one), and the Pi's processor when this machine has one.
+            {
+                std::optional<double> battery;
+                std::optional<double> processor;
+                error.clear();
+                check(phone.heat(battery, processor, &error), "the temperatures are asked for: " + error);
+                check(battery.has_value() && std::abs(*battery - 31.2) < 1e-9, "the battery of the phone is 31.2 degrees (" + QString::number(battery.value_or(-99)) + ")");
+                check(!processor.has_value() || (*processor > -100 && *processor < 200), "the processor is nothing or a temperature (" + QString::number(processor.value_or(-99)) + ")");
+                check(read_lines(adb_log).last() == "shell dumpsys battery", "from `dumpsys battery`");
+            }
+
             //  What the agent refuses.
             const QStringList count = read_lines(adb_log);
             error.clear();
@@ -1451,12 +1530,98 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             //  run-away button.
             {
                 PokemonGo::Bot::Switches asked{{"spin", true}, {"catch", false}, {"rocket_fight", true}, {"quests", true}, {"bag_clean", true},
-                                               {"heat_pause", true}, {"fast_look", true}, {"gifts_open", true}, {"daily_cycle", true}};
+                                               {"heat_pause", true}, {"fast_look", true}, {"gifts_open", true}, {"daily_cycle", true}, {"teams_weekly", true}};
                 PokemonGo::Bot::PhoneBot bot(host, asked, {{"throw_target", "great"}, {"berries", "razz, nanab"}});
-                check(bot.wanted("spin") && bot.setting("fast_look", false) && !bot.wanted("catch") && !bot.setting("rocket_fight", true)
-                      && bot.setting("quests", false) && bot.setting("bag_clean", false) && !bot.setting("heat_pause", true) && bot.wanted("gifts_open")
-                      && !bot.wanted("daily_cycle"),
-                      "Claude GG plays with what is ported (the gifts, the GO Pass and the clean-up of the bag too), the rest is off");
+                check(bot.wanted("spin") && bot.setting("fast_look", false) && !bot.wanted("catch") && bot.setting("rocket_fight", false)
+                      && bot.setting("quests", false) && bot.setting("bag_clean", false) && bot.setting("heat_pause", false) && bot.wanted("gifts_open")
+                      && bot.wanted("daily_cycle") && !bot.wanted("teams_weekly"),
+                      "Claude GG plays with what is ported (the gifts, the GO Pass, Team GO Rocket, the clean-up of the bag and the daily run too), the rest is off");
+                {
+                    //  The heat: the pause is played when the agent can tell the temperatures, and not when it cannot.
+                    check(PokemonGo::Bot::playable(asked, true).at("heat_pause") && !PokemonGo::Bot::playable(asked).at("heat_pause")
+                          && !PokemonGo::Bot::playable(asked, false).at("heat_pause"), "the pause for the heat is played only with an agent that tells the temperatures");
+                    check(PokemonGo::Bot::playable(PokemonGo::Bot::Switches{{"heat_pause", false}}, true).at("heat_pause") == false,
+                          "and it stays off when the person switched it off");
+                    check(host.reads_heat(), "the fake agent tells the temperatures");
+                    const std::pair<std::optional<double>, std::optional<double>> heat = bot.read_heat();
+                    check(heat.first.has_value() && std::abs(*heat.first - 31.2) < 1e-9, "the bot reads the battery of the phone (31.2 degrees)");
+                }
+                {
+                    //  The daily run: the bot is its host (the file of the run, the apps of the phone, what is chosen for the battles, the time of the day).
+                    const QString main_app = "com.nianticlabs.pokemongo";
+                    const QString other_app = "com.nianticlabs.pokemongo.ares";
+                    PokemonGo::Bot::Texts texts{{"daily_time", "09:15"}, {"daily_max_min", "90"}, {"daily_force", "start"}, {"battle_app", other_app},
+                                                {"battle_league", "Ultra League"}, {"battle_count", "7"}};
+                    PokemonGo::Bot::PhoneBot daily(host, PokemonGo::Bot::Switches{{"daily_cycle", true}, {"battle", true}}, texts);
+                    check(daily.daily_state().force == "start" && !daily.daily_state().done && !daily.daily_state().battle_resume, "a daily run that is told it was started again carries on");
+                    PokemonGo::Bot::PhoneBot by_button(host, PokemonGo::Bot::Switches{{"daily_cycle", true}}, {});
+                    check(by_button.daily_state().force == "button", "and one that is started with the button begins a new run");
+                    check(daily.setting_value("daily_time").toString() == "09:15" && daily.setting_value("daily_max_min").toString() == "90"
+                          && daily.setting_value("daily_start").isUndefined(), "what the person set is handed to the run as text, what was not set is not there");
+                    check(daily.game_packages() == QStringList({main_app, other_app}), "the apps are those that the agent lists, the Play Store one first");
+                    check(daily.battle_wanted() && daily.battle_app() == other_app, "the battles are wanted in the app that was chosen");
+                    check(!by_button.battle_wanted() && by_button.battle_app() == main_app, "and not when they were not asked for (the first app when none was chosen)");
+                    host.mark_battles_done();
+                    check(!daily.battle_wanted(), "and not when the Battle screen said that they are done for today");
+                    QFile::remove(options.folder + "/battle_done.json");
+                    check(!daily.teams_due(main_app), "the weekly teams are never due (they are not ported)");
+                    //  The file of the run: in the memory of the program, or in the folder of the bot.
+                    QJsonObject written;
+                    written["start"] = 5;
+                    written["done"] = QJsonArray{main_app};
+                    check(!daily.read_daily().has_value(), "there is no file of the run before one is written");
+                    daily.write_daily(written);
+                    check(daily.read_daily() == std::optional<QJsonObject>(written), "the file of the run is read as it was written");
+                    PokemonGo::Bot::PhoneBot kept(host, PokemonGo::Bot::Switches{{"daily_cycle", true}}, {}, options.folder);
+                    kept.write_daily(written);
+                    QFile run_file(options.folder + "/gamebot_daily.json");
+                    check(run_file.open(QIODevice::ReadOnly) && QJsonDocument::fromJson(run_file.readAll()).object() == written, "in gamebot_daily.json of the folder of the bot");
+                    run_file.close();
+                    check(kept.read_daily() == std::optional<QJsonObject>(written), "and read from there");
+                    for (const char* content : {"this is not json", "[1, 2]", "", "{\"start\": "}){
+                        QFile bad(options.folder + "/gamebot_daily.json");
+                        check(bad.open(QIODevice::WriteOnly | QIODevice::Truncate) && bad.write(content) >= 0, "a file that cannot be used is written");
+                        bad.close();
+                        check(!kept.read_daily().has_value(), QString("is no file of the run (%1)").arg(content));
+                    }
+                    QFile::remove(options.folder + "/gamebot_daily.json");
+                    //  The game is played from the start: the flags of the last one are reset.
+                    bot.map_state().spin = false;
+                    bot.map_state().catching = false;
+                    bot.map_state().storage_full = true;
+                    bot.map_state().bag_is_full = true;
+                    bot.map_state().menu_check_last = 5.0;
+                    bot.map_state().gift_last = 6.0;
+                    bot.map_state().rotation.steps = 7;
+                    bot.map_state().cooldown.push_back(PokemonGo::Map::Cool());
+                    bot.run_done();
+                    check(bot.daily_state().done, "the run is done with the app when the storage and the bag are full");
+                    bot.reset_for_game();
+                    check(bot.map_state().spin && bot.map_state().catching && !bot.map_state().storage_full && !bot.map_state().bag_is_full
+                          && bot.map_state().menu_check_last == 0.0 && bot.map_state().gift_last == 0.0 && bot.map_state().rotation.steps == 0
+                          && bot.map_state().cooldown.empty() && !bot.daily_state().done, "a new game starts with spinning and catching on and nothing full");
+                    bot.map_state().catching = false;                   //  (back to what this bot was asked for, for the checks below)
+                    //  The time of the day, in the local time (hours and minutes that are too big or too small go to the next or the last day).
+                    const QDateTime noon(QDate(2026, 11, 22), QTime(12, 0), QTimeZone::systemTimeZone());
+                    const double now = (double)noon.toSecsSinceEpoch();
+                    const auto local = [](double moment){ return QDateTime::fromSecsSinceEpoch((qint64)moment, QTimeZone::systemTimeZone()); };
+                    const auto when = [](int day, int hours, int minutes){ return QDateTime(QDate(2026, 11, day), QTime(hours, minutes), QTimeZone::systemTimeZone()); };
+                    check(local(bot.slot_time(now, 8, 30)) == when(22, 8, 30) && local(bot.slot_time(now, 0, 0)) == when(22, 0, 0)
+                          && local(bot.slot_time(now, 23, 59)) == when(22, 23, 59), "the start time is on the day of now");
+                    check(local(bot.slot_time(now, 25, 70)) == when(23, 2, 10) && local(bot.slot_time(now, 48, 0)) == when(24, 0, 0)
+                          && local(bot.slot_time(now, 24, 0)) == when(23, 0, 0), "hours and minutes that are too big go to the next days");
+                    check(local(bot.slot_time(now, -1, 0)) == when(21, 23, 0) && local(bot.slot_time(now, 8, -30)) == when(22, 7, 30)
+                          && local(bot.slot_time(now, 0, -1)) == when(21, 23, 59) && local(bot.slot_time(now, -24, 0)) == when(21, 0, 0)
+                          && local(bot.slot_time(now, 0, -1441)) == when(20, 23, 59), "and those that are too small to the last days");
+                    check(bot.local_text(now) == "2026-11-22 12:00" && bot.local_text(bot.slot_time(now, 8, 5)) == "2026-11-22 08:05",
+                          "a moment is told as YYYY-MM-DD HH:MM in the local time");
+                }
+                {
+                    //  Team GO Rocket: the bot is the host of its walk and fight, and reads a fight on the screen as the Battle League does.
+                    PokemonGo::Rocket::Host& rocket = bot;
+                    check(rocket.screen_state(cv::Mat(880, 704, CV_8UC3, cv::Scalar(10, 20, 30))) == "other",
+                          "a plain picture is no fight on the screen, for the Team GO Rocket battles as well");
+                }
                 {
                     //  The quest button is gold: it is time to look (nothing was looked at yet), and when the person switched the quests off it is not.
                     cv::Mat gold(2208, 1768, CV_8UC3, cv::Scalar(255, 255, 255));

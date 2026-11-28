@@ -373,8 +373,8 @@ jobs:
               $entry = [ordered]@{
                 ResourceName      = $name
                 Version           = 1
-                CompressedBytes   = (Get-Item $zip).Length
-                DecompressedBytes = $decompressed
+                CompressedBytes   = [int64](Get-Item $zip).Length
+                DecompressedBytes = [int64]$decompressed
                 URL               = "$base/$name.zip"
                 SHA256            = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
                 ClaudeGG          = $true
@@ -397,6 +397,17 @@ jobs:
             Set-Resource "PaddleOCRChineseJapanese" "resources/PaddleOCRChineseJapanese.zip" $cjBytes
             $list | ConvertTo-Json -Depth 5 | Out-File $listPath -Encoding utf8NoBOM
             Get-Content $listPath
+            #  The program reads these numbers as integers only: a number
+            #  written as 88030990.0 (what Measure-Object's sum gives) makes it
+            #  drop the whole list, and every program that needs a resource
+            #  stops at its start. So the list is read back and checked here.
+            foreach ($entry in (Get-Content $listPath -Raw | ConvertFrom-Json).ResourceList) {
+              foreach ($field in "Version", "CompressedBytes", "DecompressedBytes") {
+                if (-not ($entry.$field -is [int] -or $entry.$field -is [long])) {
+                  throw "In ResourceDownloadList.json, $field of $($entry.ResourceName) is not an integer: $($entry.$field)."
+                }
+              }
+            }
           }
           Compress-Archive -Path "package/ClaudeGG" -DestinationPath "ClaudeGG-Windows.zip"
           Get-Item "ClaudeGG-Windows.zip" | Format-List Name, Length

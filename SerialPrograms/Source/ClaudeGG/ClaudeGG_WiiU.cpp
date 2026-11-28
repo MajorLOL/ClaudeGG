@@ -736,6 +736,9 @@ public:
             "request is billed to you by Anthropic, and the pictures go to Anthropic). Without a key: let Claude "
             "Code play (see \"Who plays\").<br>" + NEEDS + " Run \"Connect the GamePad\" once first."
         )
+        , KNOWN_GAME(
+            KNOWN_GAME_LABEL, known_games_database(known_games_on("wiiu")), LockMode::LOCK_WHILE_RUNNING, 0
+        )
         , WHO()
         , GOAL(
             "<b>Goal:</b><br>What Claude should do, in your own words (any language). Say where the game is at, if "
@@ -808,6 +811,7 @@ public:
         , VIDEO_DELAY_MS(VIDEO_DELAY_MS_LABEL, LockMode::LOCK_WHILE_RUNNING, 0, 0, 1000)
     {
         PA_ADD_OPTION(SETUP_TEXT);
+        PA_ADD_OPTION(KNOWN_GAME);
         add_option(WHO.PLAYER, "PLAYER");
         add_option(WHO.PORT, "MCP_PORT");
         add_option(WHO.IDLE, "MCP_IDLE");
@@ -874,6 +878,15 @@ public:
             "The console is a Wii U, played through its GamePad. Wii U games use A, B, X, Y, L, R, ZL, ZR, PLUS "
             "(often the pause or start menu), MINUS, the two sticks, the d-pad and the touch screen.";
         facts.user_notes = trimmed(ABOUT);
+        //  A well-known game that the user picked: its controls.
+        if (const KnownGame* known = chosen_known_game(known_games_on("wiiu"), KNOWN_GAME.current_value())){
+            facts.name = known->name;
+            facts.notes += " " + known->notes;
+            if (!known->yes_no.empty()){
+                facts.yes_no = known->yes_no;
+            }
+            env.log("Game: " + known->name, COLOR_BLUE);
+        }
         const Language text_language = TEXT_LANGUAGE;
         if (text_language != Language::English){
             facts.text_language = language_data(text_language).name;
@@ -942,6 +955,7 @@ public:
 
 private:
     StaticTextOption SETUP_TEXT;
+    IntegerEnumDropdownOption KNOWN_GAME;
     WhoPlays WHO;
     TextEditOption GOAL;
     TextEditOption ABOUT;
