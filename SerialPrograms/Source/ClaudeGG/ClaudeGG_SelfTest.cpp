@@ -2600,6 +2600,22 @@ int check_periodic_runner(Logger& logger){
         runner.stop();
     }
 
+    //  A runner that is stopped at any moment ends: the thread looked at the stop without the lock, and a stop that came between that look and its
+    //  wait (nothing scheduled) was lost (it waited for ever; a test of the interface did not end and was killed by the CI).
+    {
+        int ended = 0;
+        for (int round = 0; round < 300; round++){
+            PeriodicRunner runner;
+            CountingRunnable one;
+            runner.add_runnable(one, std::chrono::milliseconds(1));
+            std::this_thread::sleep_for(std::chrono::microseconds(100 * (round % 20)));
+            runner.remove_runnable(one);
+            runner.stop();
+            ended++;
+        }
+        check(ended == 300, "a runner that is stopped at any moment ends");
+    }
+
     logger.log(
         "Periodic runner test: " + std::to_string(checks - wrong) + " of " + std::to_string(checks) + " checks passed.",
         wrong == 0 ? COLOR_BLUE : COLOR_RED
