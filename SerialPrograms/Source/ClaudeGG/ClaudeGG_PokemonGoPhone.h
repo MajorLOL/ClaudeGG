@@ -169,6 +169,13 @@ public:
     void back() override;
     std::pair<QString, double> screen_class(const cv::Mat& img) override;
     void restart_game() override;
+    //  The other readers of the models (the ONNX models of the folder of Options::models): what the map shows (Brain._ssd with the map
+    //  detector on the picture as it is given) and the buttons that can be clicked.  Nothing when there are no models.
+    bool has_models();
+    std::vector<Models::Detection> map_objects(const cv::Mat& img, double threshold, int top);
+    std::vector<Models::Detection> buttons(const cv::Mat& img);
+    //  Wake the screen of the phone up (/v1/wake of the agent; what fails is told in the log).
+    void wake();
     void mark_battles_done() override;
     QString day_count(const QString& key) override;
     QStringList team_names() override;
@@ -211,6 +218,8 @@ private:
     std::mutex m_models_lock;
     std::unique_ptr<Models::Models> m_models;
     bool m_models_failed = false;
+    Models::Models* models_locked();               //  (with m_models_lock held) opened the first time; nothing when it cannot be
+    void models_broke(const std::exception& e);
 };
 
 

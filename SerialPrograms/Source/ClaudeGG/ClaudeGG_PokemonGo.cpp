@@ -27,6 +27,7 @@
 #include "Pokemon/Pokemon_Strings.h"
 #include "ClaudeGG_Mobile.h"
 #include "ClaudeGG_PokemonGo.h"
+#include "ClaudeGG_PokemonGoBot.h"
 #include "ClaudeGG_PokemonGoFlow.h"
 #include "ClaudeGG_PokemonGoPhone.h"
 #include "ClaudeGG_PokemonGoText.h"
@@ -62,6 +63,12 @@ struct Preset{
     Kind kind;
     bool choose = false;    //  Auto play: what it does (spin, catch, gifts, Rocket, GO Pass) is chosen with the options
 };
+
+//  Can Claude GG play this preset itself (the parts of gamebot.py that are ported to C++)?  Spinning PokéStops, for now.
+bool claude_can_play(const Preset& preset){
+    return preset.kind == Kind::SERVICE && preset.spin && !preset.catching && !preset.gifts && !preset.daily && !preset.rocket && !preset.quests
+        && !preset.choose;
+}
 
 const Preset PRESETS[] = {
     {
@@ -329,7 +336,7 @@ public:
                 {Player::PI_BOT,    "pi",       "The Python bot on the Raspberry Pi"},
             },
             LockMode::LOCK_WHILE_RUNNING,
-            Player::CLAUDE_GG
+            preset.kind == Kind::BATTLES ? Player::CLAUDE_GG : Player::PI_BOT      //  (spinning with Claude GG is new: the bot of the Pi stays the default)
         )
         , BATTLE_GIVE_UP("Give up a battle that is lost (when the last Pokémon cannot win any more)", LockMode::LOCK_WHILE_RUNNING, true)
         , THROW_TARGET(
@@ -371,6 +378,9 @@ public:
         PA_ADD_OPTION(SETUP_TEXT);
         switch (preset.kind){
         case Kind::SERVICE:
+            if (claude_can_play(preset)){
+                PA_ADD_OPTION(PLAYER);
+            }
             if (preset.choose){
                 PA_ADD_OPTION(SPIN_ON);
                 PA_ADD_OPTION(CATCH_ON);
@@ -543,6 +553,10 @@ public:
         const MobileAgent agent(host, port, mobile_token());
         if (m_preset.kind == Kind::BATTLES && PLAYER == Player::CLAUDE_GG){
             run_battles(env, scope, host, port);
+            return;
+        }
+        if (claude_can_play(m_preset) && PLAYER == Player::CLAUDE_GG){
+            run_spin(env, scope, host, port);
             return;
         }
         //  Stopping a test waits for the game to be back on the map: that takes longer than a tap.
@@ -719,10 +733,9 @@ private:
         }
     }
 
-    //  GO Battle League, played by Claude GG itself (Flow::battle_run of ClaudeGG_PokemonGoFlow, the C++ port of
-    //  gamebot.battle_run): the agent on the Pi gives the picture and the taps, nothing more.
-    void run_battles(ProgramEnvironment& env, CancellableScope& scope, const QString& address, int port){
-        const QString token = mobile_token();
+    //  What Claude GG needs to play itself: an agent that is new enough, a phone that answers, Tesseract on this computer, and the Python bot
+    //  not playing at the same time.  Returns the tesseract program.
+    QString prepare_phone(ProgramEnvironment& env, const QString& address, int port, const QString& token, bool battles){
         const MobileAgent agent(address, port, token);
         const MobileAgent patient(address, port, token, 60000);
         const std::string where = address.toStdString() + ":" + std::to_string(port);
@@ -756,8 +769,11 @@ private:
         if (tesseract.isEmpty()){
             throw UserSetupError(
                 env.logger(),
-                "Tesseract is not installed on this computer: Claude GG reads the screens of the battles with it. Install it "
-                "(on Windows the installer of UB Mannheim, into C:\\Program Files\\Tesseract-OCR) and start the program again."
+                std::string(battles
+                    ? "Tesseract is not installed on this computer: Claude GG reads the screens of the battles with it. Install it "
+                      "(on Windows the installer of UB Mannheim, into C:\\Program Files\\Tesseract-OCR) and start the program again."
+                    : "Tesseract is not installed on this computer: Claude GG reads the text on the screens of the game with it. Install it "
+                      "(on Windows the installer of UB Mannheim, into C:\\Program Files\\Tesseract-OCR) and start the program again.")
             );
         }
         env.log("The text reader: " + tesseract.toStdString());
@@ -776,6 +792,72 @@ private:
                 }
             }
         }
+
+        return tesseract;
+    }
+
+    //  The options of the phone for Claude GG: the folder of the bot and the models in it.
+    PokemonGo::Phone::Options phone_options(const QString& tesseract, const QString& folder){
+        PokemonGo::Phone::Options options;
+        options.video = (bool)LIVE_LOOK;
+        options.give_up = (bool)BATTLE_GIVE_UP;
+        options.league = league();
+        options.folder = folder;
+        options.tesseract = tesseract;
+        if (!app().isEmpty()){
+            options.package = app();
+        }
+        options.models = qEnvironmentVariable("CLAUDEGG_MODELS");
+        if (options.models.isEmpty() && QDir(folder + "/models").exists()){
+            options.models = folder + "/models";
+        }
+        return options;
+    }
+
+    //  Spin PokéStops with Claude GG itself (the steps of gamebot.py ported to C++, over the agent).  Experimental.
+    void run_spin(ProgramEnvironment& env, CancellableScope& scope, const QString& address, int port){
+        const QString token = mobile_token();
+        const QString tesseract = prepare_phone(env, address, port, token, false);
+        const QString folder = QString::fromStdString(USER_FILE_PATH()) + "PokemonGo";
+        QDir().mkpath(folder);
+        const PokemonGo::Phone::Options options = phone_options(tesseract, folder);
+        if (options.models.isEmpty()){
+            throw UserSetupError(
+                env.logger(),
+                "Claude GG needs the models of the bot to see the map and the PokéStops (" + folder.toStdString() + "/models, the ONNX "
+                "files that Mobile/tools/convert_models_to_onnx.py makes). Put them there, or choose the Python bot on the Pi under Who plays."
+            );
+        }
+        PokemonGo::Phone::AgentHost phone(
+            address, port, token, options,
+            [&](const QString& line){ env.log(line.toStdString()); },
+            [&]{ return scope.cancelled(); }
+        );
+        if (!phone.has_models()){
+            throw UserSetupError(env.logger(), "The models of " + options.models.toStdString() + " cannot be used: see the log above.");
+        }
+        PokemonGo::Bot::Switches switches;
+        for (const std::pair<QString, bool>& option : settings().options){
+            switches[option.first] = option.second;
+        }
+        PokemonGo::Bot::PhoneBot bot(phone, switches);
+        env.log("Claude GG spins the PokéStops itself (experimental; catching, gifts, Team GO Rocket and the bag clean-up are not in Claude GG yet).");
+        try{
+            PokemonGo::Bot::run(bot);
+        }catch (const PokemonGo::Flow::Interrupted&){
+            env.log("Stopped " + bot.counts().toStdString() + ".");
+            scope.throw_if_cancelled();
+            throw;
+        }
+    }
+
+    //  GO Battle League, played by Claude GG itself (Flow::battle_run of ClaudeGG_PokemonGoFlow, the C++ port of
+    //  gamebot.battle_run): the agent on the Pi gives the picture and the taps, nothing more.
+    void run_battles(ProgramEnvironment& env, CancellableScope& scope, const QString& address, int port){
+        const QString token = mobile_token();
+        const MobileAgent agent(address, port, token);
+        QString error;
+        const QString tesseract = prepare_phone(env, address, port, token, true);
 
         //  The folder of what the battles learn, and the team: taken from the bot on the Pi when it has them.
         const QString folder = QString::fromStdString(USER_FILE_PATH()) + "PokemonGo";
@@ -806,19 +888,7 @@ private:
             }
         }
 
-        PokemonGo::Phone::Options options;
-        options.video = (bool)LIVE_LOOK;
-        options.give_up = (bool)BATTLE_GIVE_UP;
-        options.league = league();
-        options.folder = folder;
-        options.tesseract = tesseract;
-        if (!app().isEmpty()){
-            options.package = app();
-        }
-        options.models = qEnvironmentVariable("CLAUDEGG_MODELS");
-        if (options.models.isEmpty() && QDir(folder + "/models").exists()){
-            options.models = folder + "/models";
-        }
+        const PokemonGo::Phone::Options options = phone_options(tesseract, folder);
         if (options.models.isEmpty()){
             env.log("No models of the screen classifier (" + folder.toStdString() + "/models): a Pokémon to catch as a reward is not recognised.", COLOR_ORANGE);
         }

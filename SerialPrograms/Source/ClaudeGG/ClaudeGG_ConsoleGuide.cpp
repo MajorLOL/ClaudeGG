@@ -94,6 +94,7 @@ const char* const LIMIT_UNTESTED = "Not tried on this console yet: please tell u
 const char* const LIMIT_POSITION = "The board sends the buttons of a Switch pad. The console reads them by position: B is the lowest face button (CROSS on a PlayStation, A on an Xbox), A the right one.";
 
 const char* const GAMES_CLAUDE_PLAYS = "Claude Plays plays any game on the screen: it looks at the video and presses the buttons of this console.";
+const char* const GAMES_MACRO = "Macro: record what you press on the keyboard or a controller, and play it back as often and as fast as you want.";
 
 
 const std::vector<Guide>& guides(){
@@ -124,6 +125,7 @@ const std::vector<Guide>& guides(){
             {
                 "The programs of Pokemon Automation for the Pokemon games (Sword and Shield, Scarlet and Violet, Legends, Let's Go, Home and more).",
                 GAMES_CLAUDE_PLAYS,
+                "Macro, in the list Other Games: record what you press and play it back.",
             },
             {
                 "Keep a wireless board within 1 m (3 ft) of the Switch.",
@@ -194,7 +196,7 @@ const std::vector<Guide>& guides(){
             },
             "Slower than a board: the screen goes over the network and every tap goes through ADB. Fine for Pokemon GO, not for games where a fraction of a second counts. A wired network for the Pi helps.",
             {
-                "Pokemon GO: catching, raids and the GO Battle League.",
+                "Pokemon GO: Auto play (spinning, catching, gifts, Team GO Rocket and the GO Pass, each one to choose), the Daily run, the GO Battle League and more.",
             },
             {
                 "Not tried with a real phone yet.",
@@ -229,6 +231,7 @@ const std::vector<Guide>& guides(){
             {
                 "The list PlayStation 3 of Claude Plays.",
                 GAMES_CLAUDE_PLAYS,
+                GAMES_MACRO,
             },
             {
                 LIMIT_UNTESTED,
@@ -268,6 +271,7 @@ const std::vector<Guide>& guides(){
             {
                 "The list Original Xbox of Claude Plays.",
                 GAMES_CLAUDE_PLAYS,
+                GAMES_MACRO,
             },
             {
                 LIMIT_UNTESTED,
@@ -305,6 +309,7 @@ const std::vector<Guide>& guides(){
             {
                 "Five lists of Claude Plays: PlayStation, PlayStation 2, GameCube, Nintendo 64 and Dreamcast.",
                 GAMES_CLAUDE_PLAYS,
+                GAMES_MACRO,
             },
             {
                 LIMIT_UNTESTED,
@@ -344,6 +349,7 @@ const std::vector<Guide>& guides(){
             {
                 "The list Xbox 360 of Claude Plays.",
                 GAMES_CLAUDE_PLAYS,
+                GAMES_MACRO,
             },
             {
                 LIMIT_UNTESTED,
@@ -383,6 +389,7 @@ const std::vector<Guide>& guides(){
             {
                 "The list PS4 and PS5 Remote Play of Claude Plays.",
                 GAMES_CLAUDE_PLAYS,
+                GAMES_MACRO,
             },
             {
                 LIMIT_UNTESTED,
@@ -422,6 +429,7 @@ const std::vector<Guide>& guides(){
             {
                 "The list Xbox One and Series Remote Play of Claude Plays.",
                 GAMES_CLAUDE_PLAYS,
+                GAMES_MACRO,
             },
             {
                 LIMIT_UNTESTED,
@@ -493,6 +501,7 @@ const std::vector<Guide>& guides(){
             "The Pico adds one short step in between; that is hardly noticeable.",
             {
                 "The list PlayStation Classic of Claude Plays (its twenty games).",
+                GAMES_MACRO,
             },
             {
                 LIMIT_UNTESTED,
@@ -666,6 +675,12 @@ const char* const HEADINGS[] = {
     "The capture card in a USB 3 port of the computer itself, not in a hub, at 1080p and 60 frames per second.",
     "Close other programs that show the capture card: each one adds work.",
     "For Remote Play and the phone: a network cable instead of Wi-Fi.",
+    "In Claude Plays, turn on Measure the timing first once, with a menu on the screen, and keep the numbers the log gives.",
+    "On every console",
+    "Claude Plays: Claude plays any game; it looks at the video and presses the buttons.",
+    "Macro: record what you press on the keyboard or a controller and play it back, as often and as fast as you want. In every list without programs of its own (not on the iPhone and the Wii U).",
+    "Measure the timing first, an option of Claude Plays: with a menu on the screen, the program measures how late the picture is and how short a press can be, and plays with that.",
+    "Reaction time in the log: every action of Claude Plays says how long Claude took and how long the console took, so you see where the time goes.",
 };
 
 QString t(const char* english){
@@ -794,6 +809,14 @@ QString overview_html(){
         "The capture card in a USB 3 port of the computer itself, not in a hub, at 1080p and 60 frames per second.",
         "Close other programs that show the capture card: each one adds work.",
         "For Remote Play and the phone: a network cable instead of Wi-Fi.",
+        "In Claude Plays, turn on Measure the timing first once, with a menu on the screen, and keep the numbers the log gives.",
+    }, false);
+    html += heading("On every console", theme);
+    html += list({
+        "Claude Plays: Claude plays any game; it looks at the video and presses the buttons.",
+        "Macro: record what you press on the keyboard or a controller and play it back, as often and as fast as you want. In every list without programs of its own (not on the iPhone and the Wii U).",
+        "Measure the timing first, an option of Claude Plays: with a menu on the screen, the program measures how late the picture is and how short a press can be, and plays with that.",
+        "Reaction time in the log: every action of Claude Plays says how long Claude took and how long the console took, so you see where the time goes.",
     }, false);
     html += "<p>";
     for (Status status : {Status::SUPPORTED, Status::EXPERIMENTAL, Status::COMING}){
