@@ -32,6 +32,7 @@
 #include "CommonFramework/Logging/Logger.h"
 #include "CommonFramework/GlobalAutoPaths.h"
 #include "Assistant/Assistant_Settings.h"
+#include "ClaudeGG_Language.h"
 #include "ClaudeGG_Mobile.h"
 #include "ClaudeGG_PokemonGo.h"
 #include "ClaudeGG_PokemonGoBattle.h"
@@ -282,37 +283,38 @@ bool set_mobile_token(const QString& token, QString& error){
 
 bool check_mobile(const QString& host, int port, const QString& token, QString& message){
     if (host.trimmed().isEmpty()){
-        message = "Type the address of the Raspberry Pi first.";
+        message = tr_ui("Type the address of the Raspberry Pi first.");
         return false;
     }
     if (port < 1 || port > 65535){
-        message = "The port is a number from 1 to 65535.";
+        message = tr_ui("The port is a number from 1 to 65535.");
         return false;
     }
     //  Short: the page of the setup waits for this.
     const MobileAgent agent(host.trimmed(), port, token.trimmed(), 4000);
     QString error;
     if (!agent.ping(&error)){
-        message = "No answer: " + error + ".";
+        message = tr_ui("No answer: %1.").arg(error);
         return false;
     }
     if (token.trimmed().isEmpty()){
-        message = "The agent is there. Type its token (the installer printed it) to go on.";
+        message = tr_ui("The agent is there. Type its token (the installer printed it) to go on.");
         return false;
     }
     MobileInfo info;
     if (!agent.info(info, &error)){
-        message = "The agent is there, but " + error + ".";
+        message = tr_ui("The agent is there, but %1.").arg(error);
         return false;
     }
-    QString phone = info.model.isEmpty() ? QString("a phone") : info.model;
+    QString phone = info.model.isEmpty() ? tr_ui("a phone") : info.model;
     if (!info.android.isEmpty()){
         phone += ", Android " + info.android;
     }
     if (info.width > 0 && info.height > 0){
         phone += QString(", %1 x %2").arg(info.width).arg(info.height);
     }
-    message = "Connected to " + phone + ".";
+    message = tr_ui("Connected to %1.").arg(phone);
+
     return true;
 }
 
@@ -1487,7 +1489,7 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
     //  The programs of the game "Pokémon GO": presets of that bot. What each asks for must be
     //  what the agent knows (it refuses a switch that it does not know), and be what it is called.
     {
-        check(PokemonGo::pokemon_go_program_count() == 10, "the game has its ten programs");
+        check(PokemonGo::pokemon_go_program_count() == 11, "the game has its eleven programs");
         auto asks = [&](const std::string& program, const std::string& key){
             for (const std::pair<std::string, bool>& option : PokemonGo::pokemon_go_switches(program)){
                 if (option.first == key){
@@ -1504,6 +1506,10 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         const std::string battles = "GO Battle League";
         const std::string teams = "Your Pok\xc3\xa9mon and teams";
         const std::string part = "One part of the bot";
+        const std::string autoplay = "Auto play";
+        check(asks(autoplay, "spin") && asks(autoplay, "catch") && asks(autoplay, "gifts_open") && asks(autoplay, "gifts_send")
+              && !asks(autoplay, "daily_cycle") && !asks(autoplay, "rocket_fight") && !asks(autoplay, "quests") && !asks(autoplay, "battle"),
+              "Auto play spins, catches and does the gifts until more is chosen");
         check(asks(spin, "spin") && !asks(spin, "catch") && !asks(spin, "daily_cycle") && !asks(spin, "rocket_fight"), "Spin PokeStops only spins");
         check(!asks(catching, "spin") && asks(catching, "catch") && !asks(catching, "gifts_open"), "Catch Pokemon only catches");
         check(asks(daily, "daily_cycle") && asks(daily, "spin") && asks(daily, "catch") && asks(daily, "gifts_open") && asks(daily, "gifts_send"), "the daily run is the whole day");
@@ -1515,7 +1521,7 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
         check(!asks(teams, "spin") && !asks(teams, "battle") && PokemonGo::pokemon_go_switches(teams).size() == 2, "Your Pokemon and teams changes next to nothing of the bot");
         check(!asks(part, "spin") && !asks(part, "daily_cycle"), "One part of the bot leaves what it does to the part");
         check(PokemonGo::pokemon_go_switches("Not a program").empty(), "a program that is not there asks nothing");
-        for (const std::string& program : {spin, catching, std::string("Spin Pok\xc3\xa9Stops and catch Pok\xc3\xa9mon"), std::string("Gifts"), daily, rocket, quests, battles, teams, part}){
+        for (const std::string& program : {autoplay, spin, catching, std::string("Spin Pok\xc3\xa9Stops and catch Pok\xc3\xa9mon"), std::string("Gifts"), daily, rocket, quests, battles, teams, part}){
             MobileBotStart ask;
             const std::vector<std::pair<std::string, bool>> switches = PokemonGo::pokemon_go_switches(program);
             const bool service = program != battles && program != teams && program != part;

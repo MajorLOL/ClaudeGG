@@ -363,7 +363,7 @@ int take_pictures(QApplication& application, MainWindow& window, const QString& 
                     return fine;
                 };
                 if (go){
-                    go_ok = listed_game.programs == 10 && only("mobile");
+                    go_ok = listed_game.programs == 11 && only("mobile");     //  (the eleven of ClaudeGG_PokemonGo.cpp)
                 }else if (ps3){
                     ps3_ok = listed_game.programs == 1 && only("ps3");
                 }else if (xbox){
