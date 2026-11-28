@@ -505,23 +505,39 @@ const std::vector<Guide>& guides(){
             },
         },
         {
-            "wiiu", "Nintendo Wii U", Status::COMING, Speed::UNKNOWN,
+            "wiiu", "Nintendo Wii U", Status::EXPERIMENTAL, Speed::SLOWER,
             "Raspberry Pi as the GamePad (no board)", "The picture of the GamePad, from the Pi",
-            "Planned: a Raspberry Pi with a 5 GHz Wi-Fi adapter is the Wii U GamePad (with Vanilla). It gets the picture of the GamePad and presses its buttons for Claude GG. There is no board and no capture card.",
+            "A Raspberry Pi with a 5 GHz Wi-Fi adapter is the Wii U GamePad (with Vanilla). It sends the screen of the GamePad to Claude GG and presses its buttons, sticks and touch screen. There is no board, and the console needs no modification.",
             {
                 NEED_COMPUTER,
-                "A Raspberry Pi with Linux and a 5 GHz USB Wi-Fi adapter that is on the list of Vanilla.",
+                "A Raspberry Pi 4 or 5 with Raspberry Pi OS (64-bit), or another Linux computer.",
+                "A 5 GHz USB Wi-Fi adapter that is on the list of Vanilla. The Wi-Fi built into the Pi does not work.",
+                "Optional: a capture card for the TV picture, over HDMI.",
             },
             {
                 {"Computer", "Network", "Raspberry Pi with Vanilla", "5 GHz Wi-Fi", "Wii U"},
+                {"Wii U", "HDMI", "Capture card", "USB", "Computer"},
             },
-            {},
-            "Not known yet.",
-            {},
             {
-                "Not in the setup yet.",
+                "On the Pi, install vanilla-pipe and the bridge from the folder WiiU of Claude GG, and start both.",
+                "In the setup, pick Nintendo Wii U and type the address of the Raspberry Pi.",
+                "Press SYNC on the Wii U and give the program Connect the GamePad the four symbols on the TV. This is needed once.",
+                "Run Connect the GamePad: the screen of the GamePad should appear.",
             },
-            {},
+            "Every press goes over the network to the Pi and then over Wi-Fi to the Wii U, and the picture of the GamePad comes back as a stream of pictures, not through a capture card. Fine for menus and turn-based games; how quick it is in action games is not known yet.",
+            {
+                "The list Nintendo Wii U: Connect the GamePad, and Claude Plays with the touch screen.",
+            },
+            {
+                LIMIT_UNTESTED,
+                "The Wii U pairs one GamePad at a time: after the Pi, the real GamePad needs to be synced again.",
+                "Vanilla is still alpha, so a Wii U update or another adapter can break it.",
+            },
+            {
+                "The Pi does not connect: check that the adapter is on the list of Vanilla, that vanilla-pipe runs on that adapter (often wlan1), and keep the Pi close to the Wii U.",
+                "The Wii U refuses the GamePad: start the bridge with the region of the console (EUR, USA or JPN).",
+                "No picture: check the address of the Pi and that a firewall does not block ports 51200 to 51202.",
+            },
         },
     };
     return GUIDES;
@@ -728,7 +744,10 @@ QString guide_html(const Guide& guide){
     if (!guide.steps.empty()){
         html += heading("Steps in short", theme);
         html += list(guide.steps, true);
-        html += "<p style=\"color: " + theme.muted.name() + ";\">" + t("The setup shows every step with pictures and flashes the board for you.") + "</p>";
+        //  (Not for the two with a Raspberry Pi in place of a board.)
+        if (QString(guide.code) != "mobile" && QString(guide.code) != "wiiu"){
+            html += "<p style=\"color: " + theme.muted.name() + ";\">" + t("The setup shows every step with pictures and flashes the board for you.") + "</p>";
+        }
     }
 
     html += heading("Reaction time", theme);

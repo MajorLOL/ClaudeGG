@@ -45,6 +45,7 @@
 #include "Logging/Logger.h"
 #include "Logging/OutputRedirector.h"
 #include "Options/Environment/ThemeSelectorOption.h"
+#include "Options/QtWidget/WallpaperWidget.h"
 #include "Startup/SetupSettings.h"
 #include "Windows/MainWindow.h"
 #include "ClaudeGG/ClaudeGG_Embed.h"
@@ -303,6 +304,8 @@ int run_program(int argc, char *argv[]){
     //  read. Not in the main window's constructor: a change of style sends
     //  an event to every widget, also to a window that is still being made.
     apply_current_theme();
+    //  The picture of your own behind the screens, also for the setup.
+    apply_custom_background(GlobalSettings::instance().WALLPAPER);
 
     //  The intro: the short film with the two Joy-Cons. Not in the tests
     //  (nobody is there to watch it) and not when the setting or --no-intro

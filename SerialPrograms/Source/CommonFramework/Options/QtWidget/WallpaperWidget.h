@@ -16,6 +16,11 @@ class QPaintEvent;
 
 namespace PokemonAutomation{
 
+//  ClaudeGG: what the setting says, for the screens that draw the picture
+//  behind them (ClaudeGG::set_custom_background()). On every change of the
+//  setting, and once at the start.
+void apply_custom_background(const WallpaperOption& option);
+
 struct WallpaperImageResult{
     QImage image;
     QString error;
