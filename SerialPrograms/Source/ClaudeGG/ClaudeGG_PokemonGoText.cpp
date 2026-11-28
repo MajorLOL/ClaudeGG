@@ -269,6 +269,19 @@ Nav::Lines Reader::lines(const cv::Mat& img, int y0, std::optional<int> y1, doub
     return lines_from_tsv(QString::fromUtf8(output), scale, y0);
 }
 
+std::optional<QString> Reader::table(const cv::Mat& img) const{
+    if (!available() || img.empty()){
+        return std::nullopt;
+    }
+    std::vector<uchar> png;
+    cv::imencode(".png", img.channels() == 1 ? img : grey_of(img, 1.0), png);
+    QByteArray output;
+    if (!run_program(m_program, {"stdin", "stdout", "--psm", "11", "tsv"}, png, 30000, output)){
+        return std::nullopt;
+    }
+    return QString::fromUtf8(output);
+}
+
 QString Reader::line(const cv::Mat& img, int lines) const{
     if (!available() || img.empty()){
         return QString();

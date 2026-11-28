@@ -1407,13 +1407,45 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             //  Claude GG spins itself (ClaudeGG_PokemonGoBot): what is not ported yet is switched off, and a catch screen is left with the
             //  run-away button.
             {
-                PokemonGo::Bot::Switches asked{{"spin", true}, {"catch", true}, {"rocket_fight", true}, {"quests", true}, {"bag_clean", true},
+                PokemonGo::Bot::Switches asked{{"spin", true}, {"catch", false}, {"rocket_fight", true}, {"quests", true}, {"bag_clean", true},
                                                {"heat_pause", true}, {"fast_look", true}, {"gifts_open", true}};
-                PokemonGo::Bot::PhoneBot bot(host, asked);
+                PokemonGo::Bot::PhoneBot bot(host, asked, {{"throw_target", "great"}, {"berries", "razz, nanab"}});
                 check(bot.wanted("spin") && bot.setting("fast_look", false) && !bot.wanted("catch") && !bot.setting("rocket_fight", true)
                       && !bot.setting("quests", true) && !bot.setting("bag_clean", true) && !bot.setting("heat_pause", true) && !bot.wanted("gifts_open"),
-                      "Claude GG spins with what is ported, the rest is off");
-                check(!bot.map_state().catching && bot.map_state().spin && !host.has_models(), "it does not catch, and there are no models here");
+                      "Claude GG plays with what is ported, the rest is off");
+                check(!bot.map_state().catching && bot.map_state().spin && !host.has_models(), "it does not catch when that is off, and there are no models here");
+                check(bot.setting_text("throw_target", "realistic") == "great" && bot.setting_text("fast_look", "") == "True"
+                      && bot.berry_order() == QStringList{"razz", "nanab"} && bot.ball() == "poke", "the throw, the berries and the ball are as chosen");
+                const PokemonGo::Loop::Point real = bot.to_real(884, 1104);
+                check(real.x == 500 && real.y == 1100, "the throw is sent on the real screen (1000 x 2200)");
+                {
+                    //  The commands of the throw reach the phone as touch events and swipes (and nothing else is sent).
+                    const QStringList throw_start = read_lines(adb_log);
+                    const int hold = bot.adb_start({"adb", "shell", "{ input motionevent DOWN 500 1900; input motionevent MOVE 520 1880; } 2>&1"}, true);
+                    bot.adb_communicate(hold);
+                    bot.adb({"shell", "input", "motionevent", "UP", "520", "1880"});
+                    const int aim = bot.adb_start({"adb", "shell", "input", "swipe", "500", "1900", "500", "1900", "1300"}, false);
+                    bot.adb_wait(aim);
+                    bool refused = false;
+                    try{
+                        bot.adb({"shell", "reboot"});
+                    }catch (const std::runtime_error&){
+                        refused = true;
+                    }
+                    const QStringList throw_got = read_lines(adb_log).mid(throw_start.size());
+                    const QStringList throw_want{
+                        "shell { input motionevent DOWN 500 1900; input motionevent MOVE 520 1880; } 2>&1",
+                        "shell { input motionevent UP 520 1880; } 2>&1",
+                        "shell input swipe 500 1900 500 1900 1300",
+                    };
+                    check(throw_got == throw_want && refused, "the commands of the throw reach the phone through the agent, any other is refused ("
+                          + QString::number(throw_got.size()) + " commands)");
+                    if (throw_got != throw_want){
+                        for (const QString& line : throw_got){
+                            report << "         it was asked: " + line;
+                        }
+                    }
+                }
                 const qsizetype before_run = read_lines(adb_log).size();
                 const double wait = bot.do_encounter(cv::Mat(2208, 1768, CV_8UC3, cv::Scalar(10, 20, 30)));
                 check(wait == 3 && read_lines(adb_log).size() == before_run + 1, "a catch screen is left with one tap (run away)");
