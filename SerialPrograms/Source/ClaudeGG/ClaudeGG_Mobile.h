@@ -62,6 +62,13 @@ struct MobileStroke{
     int ms = 300;
 };
 
+//  One touch event of /v1/touch (agent 0.2.2): "DOWN", "MOVE" or "UP" at a place of the real screen.
+struct MobileTouch{
+    QString action;
+    int x = 0;
+    int y = 0;
+};
+
 //  The Pokémon GO bot that runs on the Raspberry Pi (Mobile/gamebot.py, started
 //  and stopped by the agent: /v1/bot).
 //  One part of the bot that runs on its own (its "test": a GO Battle League set, the
@@ -130,6 +137,9 @@ public:
     bool key(const QString& name, QString* error = nullptr) const;
     bool text(const QString& typed, QString* error = nullptr) const;
     bool wake(QString* error = nullptr) const;
+    //  Touch events one after another in one command (/v1/touch, the feature "touch"); `out` is what the phone wrote (an Android that does
+    //  not know these events says so there).
+    bool touch(const std::vector<MobileTouch>& events, QString& out, QString* error = nullptr) const;
 
     //  A Pokémon GO app ("package", for instance com.nianticlabs.pokemongo; /v1/app): close it, start it (the call does not wait for the
     //  game to be up), ask how that start is going, and let go of the start command that still runs.

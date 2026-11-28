@@ -23,6 +23,9 @@ taps, swipes and keys go through one `adb shell` that stays open (ShellSession):
                                         up at once), "motion": finger down, ms, finger up as touch events (Android 11+)
     POST /v1/swipe   {x1, y1, x2, y2, ms}
     POST /v1/swipes  {strokes: [[x1, y1, x2, y2, ms], ...]}   one after the other, in ONE adb command
+    POST /v1/touch   {events: [[action, x, y], ...]}   touch events one after another in ONE adb command (action DOWN,
+                                        MOVE or UP; Android 11+): a finger that is held, moved and let go, as a throw of a ball
+                                        needs; answers {out}: what the phone wrote (an old phone says it does not know them)
     POST /v1/key     {key: "BACK"}      or {keycode: 4}
     POST /v1/text    {text: "..."}      letters, digits and . , _ @ : / + - and spaces
     POST /v1/wake                       wakes the screen
@@ -65,12 +68,14 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 #  What this agent can do that the first one (0.1.0) could not; Claude GG asks for these before a program of its own plays.
-FEATURES = ("tap_kind", "app", "bot_file")
+FEATURES = ("tap_kind", "app", "bot_file", "touch")
 DEFAULT_PORT = 8765
 MAX_BODY = 64 * 1024
 MAX_STROKES = 50
+MAX_TOUCHES = 64
+TOUCH_ACTIONS = ("DOWN", "MOVE", "UP")
 MAX_COORDINATE = 20000
 MAX_MS = 10000
 MAX_TEXT = 200
@@ -571,6 +576,26 @@ class Phone:
         #  One command for all of them: the phone starts the next swipe the moment one is
         #  done, with no trip to the computer in between. Only numbers are in the line.
         self.adb.quick("; ".join(parts))
+
+    def touch(self, body):
+        """Touch events one after another (a finger down, moved, up): one command, so that nothing comes in between."""
+        events = body.get("events")
+        if not isinstance(events, list) or not events or len(events) > MAX_TOUCHES:
+            raise AgentError(400, "events must be a list of 1 to %d touch events" % MAX_TOUCHES)
+        parts = []
+        for event in events:
+            if not isinstance(event, list) or len(event) != 3 or event[0] not in TOUCH_ACTIONS:
+                raise AgentError(400, "a touch event is [action, x, y] with action DOWN, MOVE or UP")
+            x = self._int(event[1], "x")
+            y = self._int(event[2], "y")
+            parts.append("input motionevent %s %d %d" % (event[0], x, y))
+        #  (only the three words and numbers are in the line)  What the phone writes is the answer: an Android that does not know
+        #  these events says so, and then the caller throws without them.
+        try:
+            out = self.adb.quick("{ " + "; ".join(parts) + "; } 2>&1")
+        except AgentError as e:
+            out = str(e)
+        return {"out": out if isinstance(out, str) else out.decode(errors="ignore")}
 
     def key(self, body):
         if "keycode" in body:
@@ -1388,6 +1413,8 @@ def make_handler(phone, token, quiet=True):
                 if method == "POST" and path in actions:
                     actions[path](self._body())
                     return self._send(200, {"ok": True})
+                if method == "POST" and path == "/v1/touch":
+                    return self._send(200, dict(phone.touch(self._body()), ok=True))
                 if method == "POST" and path == "/v1/app":
                     return self._send(200, dict(phone.app(self._body()), ok=True))
                 if method == "GET" and path == "/v1/bot":
