@@ -18,6 +18,7 @@
 #include "CommonFramework/StaticGlobals.h"
 #include "CommonFramework/Options/Environment/PerformanceOptions.h"
 #include "CommonFramework/ImageTypes/ImageRGB32_OpenCV.h"
+#include "CommonFramework/ResourceDownload/DownloadThread.h"
 #include "ML/Models/ML_ONNXRuntimeHelpers.h"
 #include "ML_PaddleOCRPipeline.h"
 
@@ -28,6 +29,52 @@ namespace PokemonAutomation{
 namespace ML{
 
 
+namespace{
+
+const char* const CHINESE_JAPANESE_RESOURCE = "PaddleOCRChineseJapanese";
+
+//  The recognition model for Japanese and Chinese: in the Resources folder if
+//  it is there (a build with Pokemon Automation's folder whole), else the
+//  downloaded resource.
+std::string chinese_rec_path(){
+    std::string packaged = RESOURCE_PATH() + "PaddleOCR/chinese/rec.onnx";
+    if (Filesystem::exists(Filesystem::Path(packaged))){
+        return packaged;
+    }
+    return DOWNLOADED_RESOURCE_PATH() + CHINESE_JAPANESE_RESOURCE + "/rec.onnx";
+}
+
+bool uses_chinese_model(Language language){
+    return language == Language::Japanese ||
+        language == Language::ChineseSimplified ||
+        language == Language::ChineseTraditional;
+}
+
+}
+
+bool PaddleOCRPipeline::language_available(Language language){
+    std::pair<std::string, std::string> paths = get_paths(language);
+    if (Filesystem::exists(Filesystem::Path(paths.first))){
+        return true;
+    }
+    //  Not downloaded yet: it can be at the first use.
+    return uses_chinese_model(language) && Filesystem::exists(Filesystem::Path(paths.second));
+}
+
+void PaddleOCRPipeline::ensure_downloaded(Language language){
+    if (!uses_chinese_model(language)){
+        return;
+    }
+    static std::atomic<bool> ready(false);
+    if (ready.load(std::memory_order_acquire)){
+        return;
+    }
+    if (!Filesystem::exists(Filesystem::Path(chinese_rec_path()))){
+        download_resource_now(CHINESE_JAPANESE_RESOURCE);
+    }
+    ready.store(true, std::memory_order_release);
+}
+
 std::pair<std::string, std::string> PaddleOCRPipeline::get_paths(Language language){
     std::string base = RESOURCE_PATH() + "PaddleOCR/";
     switch(language){
@@ -36,7 +83,7 @@ std::pair<std::string, std::string> PaddleOCRPipeline::get_paths(Language langua
     case Language::English:
         return {base + "english/rec.onnx", base + "english/dict.txt"};
     case Language::Japanese:
-        return {base + "chinese/rec.onnx", base + "chinese/dict.txt"};
+        return {chinese_rec_path(), base + "chinese/dict.txt"};
     case Language::Spanish:
         return {base + "latin/rec.onnx", base + "latin/dict.txt"};
     case Language::French:
@@ -48,9 +95,9 @@ std::pair<std::string, std::string> PaddleOCRPipeline::get_paths(Language langua
     case Language::Korean:
         return {base + "korean/rec.onnx", base + "korean/dict.txt"};  
     case Language::ChineseSimplified:
-        return {base + "chinese/rec.onnx", base + "chinese/dict.txt"};
+        return {chinese_rec_path(), base + "chinese/dict.txt"};
     case Language::ChineseTraditional:
-        return {base + "chinese/rec.onnx", base + "chinese/dict.txt"}; 
+        return {chinese_rec_path(), base + "chinese/dict.txt"}; 
     default:
         throw InternalProgramError(nullptr, PA_CURRENT_FUNCTION, "Attempted to call OCR on an unknown language.");
     }
@@ -96,10 +143,14 @@ PaddleOCRDetector& PaddleOCRPipeline::detector(){
         // Programs that use multi-line OCR should list "PaddleOCRDetection" in their
         // descriptor's required resources so it's downloaded before they start.
         if (!Filesystem::exists(Filesystem::Path(m_det_path))){
+            //  Not in Claude GG's package: downloaded at its first use
+            //  (programs that list it in their descriptor have it already).
+            download_resource_now("PaddleOCRDetection");
+        }
+        if (!Filesystem::exists(Filesystem::Path(m_det_path))){
             throw FileException(
                 &m_logger, PA_CURRENT_FUNCTION,
-                "PaddleOCR text detection model not found. "
-                "Please download the \"PaddleOCRDetection\" resource from the Settings panel.",
+                "PaddleOCR text detection model not found after its download.",
                 m_det_path
             );
         }

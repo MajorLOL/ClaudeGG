@@ -28,6 +28,10 @@ struct DownloadedResourceMetadata{
     uint64_t size_decompressed_bytes;
     std::string url;
     std::string sha256;
+    //  "ClaudeGG": true in the list. Claude GG hosts the resource itself (on
+    //  its own release): the list in the package says where, and the list of
+    //  Pokemon Automation online is not asked.
+    bool claudegg = false;
 };
 
 enum class ResourceVersionStatus{
@@ -81,6 +85,11 @@ const std::vector<DownloadedResourceMetadata>& remote_resource_download_list();
 // this would indicate that CC is out of date.
 // - also throws OperationFailedException if Internet is not turned on.
 DownloadedResourceMetadata get_remote_resource_metadata_from_resource_slug(const std::string& target_resource_slug);
+
+
+//  What to tell the user when a resource could not be downloaded: what it is
+//  for, what to check, and how to get it by hand. "reason" may be empty.
+std::string resource_download_failed_message(const std::string& resource_slug, const std::string& reason);
 
 
 }

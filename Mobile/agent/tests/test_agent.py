@@ -161,6 +161,14 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(body["ok"])
 
+    def test_ping_and_info_say_what_this_agent_can_do(self):
+        for path in ("/v1/ping", "/v1/info"):
+            status, body = self.json("GET", path)
+            self.assertEqual(status, 200)
+            self.assertEqual(body["version"], agent.VERSION)
+            for feature in ("tap_kind", "app", "bot_file"):
+                self.assertIn(feature, body["features"], "Claude GG asks for %s before it plays itself" % feature)
+
     def test_the_token_is_needed(self):
         self.assertEqual(self.json("GET", "/v1/info", token=None)[0], 401)
         self.assertEqual(self.json("GET", "/v1/info", token="wrong")[0], 401)
@@ -552,6 +560,19 @@ class BotTest(unittest.TestCase):
         self.assertEqual(self.json("GET", "/v1/bot?lines=201")[0], 400)
         self.assertEqual(self.json("GET", "/v1/bot?lines=x")[0], 400)
 
+    def test_the_files_of_the_battles_can_be_read_and_nothing_else(self):
+        team = b'[{"species": "Noctowl"}]'
+        with open(os.path.join(self.home, "battle_team.json"), "wb") as handle:
+            handle.write(team)
+        with open(os.path.join(self.home, "gamebot_control.json"), "w", encoding="utf-8") as handle:
+            handle.write("{}")
+        status, data, _ = self.agent.ask("GET", "/v1/bot/file?name=battle_team.json")
+        self.assertEqual((status, data), (200, team))
+        self.assertEqual(self.json("GET", "/v1/bot/file?name=battle_seen.json")[0], 404, "a file that is not there")
+        for name in ("gamebot_control.json", "../.ssh/id_rsa", "", "battle_team.json/.."):
+            self.assertEqual(self.json("GET", "/v1/bot/file?name=" + name)[0], 400, name)
+        self.assertEqual(self.json("GET", "/v1/bot/file?name=battle_team.json", token=None)[0], 401)
+
     def write_log(self, *lines):
         with open(os.path.join(self.home, "spin.log"), "w", encoding="utf-8") as handle:
             handle.write("".join(line + "\n" for line in lines))
@@ -824,6 +845,10 @@ class InstallerTest(unittest.TestCase):
         self.assertEqual(rule[0].count("/usr/bin/systemctl"), 3, "no other command")
         self.assertEqual(agent.Bot().systemctl[:3], ["sudo", "-n", "/usr/bin/systemctl"], "that is how the agent calls it")
         self.assertIn("visudo -cf", text, "the rule is checked before it is installed")
+
+    def test_running_it_again_updates_the_agent(self):
+        text = self.script()
+        self.assertIn("systemctl restart claudegg-agent", text, "an agent that runs already is started again with the new file")
 
     @unittest.skipUnless(os.name == "posix", "needs a shell")
     def test_the_script_is_a_script(self):

@@ -6,6 +6,8 @@
  */
 
 #include <chrono>
+#include <QDir>
+#include <QFile>
 #include <QImage>
 #include <QPainter>
 #include <QRegularExpression>
@@ -18,12 +20,16 @@
 #include "Common/Cpp/Options/SimpleIntegerOption.h"
 #include "Common/Cpp/Options/StaticTextOption.h"
 #include "Common/Cpp/Options/StringOption.h"
+#include "CommonFramework/GlobalAutoPaths.h"
 #include "CommonFramework/GlobalSettingsPanel.h"
 #include "CommonFramework/ImageTypes/ImageRGB32_Qt.h"
 #include "ComputerPrograms/ComputerProgram.h"
 #include "Pokemon/Pokemon_Strings.h"
 #include "ClaudeGG_Mobile.h"
 #include "ClaudeGG_PokemonGo.h"
+#include "ClaudeGG_PokemonGoFlow.h"
+#include "ClaudeGG_PokemonGoPhone.h"
+#include "ClaudeGG_PokemonGoText.h"
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -106,11 +112,13 @@ const Preset PRESETS[] = {
     },
     {
         "ClaudeGG:PokemonGO:Battles", "GO Battle League",
-        "Fights GO Battle League battles, with the Pokémon GO bot on the Raspberry Pi of the phone: from the map to "
-        "the party screen of the league (the rewards of a finished set and a new rank are collected on the way), "
-        "the team of three, the fight (charged attacks, shields, switching, giving up a lost fight) and the result "
-        "screen, as many battles as you set. Pokémon GO must be on the map. Experimental: the bot has won only "
-        "some of the fights it was tried in. Fighting real trainers with a bot is against Niantic's Terms of Service.",
+        "Fights GO Battle League battles on the phone of the Raspberry Pi: from the map to the party screen of the "
+        "league (the rewards of a finished set and a new rank are collected on the way), the team of three, the "
+        "fight (charged attacks, shields, switching, giving up a lost fight) and the result screen, as many battles "
+        "as you set. Claude GG itself plays (the Pi only gives the picture and the taps; Tesseract must be installed "
+        "on this computer), or, as before, the Python bot on the Pi. Pokémon GO must be on the map. Experimental: "
+        "not tried on a real phone with Claude GG yet. Fighting real trainers with a bot is against Niantic's Terms "
+        "of Service.",
         false, false, false, false, false, false, Kind::BATTLES,
     },
     {
@@ -195,6 +203,12 @@ IntegerEnumDropdownDatabase part_database(bool teams_only){
     return database;
 }
 
+
+//  Who fights the GO Battle League battles: the C++ port in Claude GG (issue #31), or the Python bot on the Pi.
+enum class Player{
+    CLAUDE_GG,
+    PI_BOT,
+};
 
 enum class Throw{
     REALISTIC,
@@ -296,6 +310,17 @@ public:
             LockMode::LOCK_WHILE_RUNNING,
             "", "com.nianticlabs.pokemongo"
         )
+        , PLAYER(
+            "<b>Who plays:</b><br>Claude GG: this program looks at the phone and decides, the Pi only gives the "
+            "picture and the taps (the team is taken from the bot on the Pi when it has one). The bot on the Pi: "
+            "the Python bot plays, as before.",
+            {
+                {Player::CLAUDE_GG, "claudegg", "Claude GG (on this computer)"},
+                {Player::PI_BOT,    "pi",       "The Python bot on the Raspberry Pi"},
+            },
+            LockMode::LOCK_WHILE_RUNNING,
+            Player::CLAUDE_GG
+        )
         , BATTLE_GIVE_UP("Give up a battle that is lost (when the last Pokémon cannot win any more)", LockMode::LOCK_WHILE_RUNNING, true)
         , THROW_TARGET(
             "<b>Throw:</b><br>Where the ball is aimed. Realistic: like a person does, no matter what the ring "
@@ -363,6 +388,7 @@ public:
             PA_ADD_OPTION(FAST_LOOK);
             break;
         case Kind::BATTLES:
+            PA_ADD_OPTION(PLAYER);
             PA_ADD_OPTION(BATTLE_LEAGUE);
             PA_ADD_OPTION(BATTLE_COUNT);
             PA_ADD_OPTION(BATTLE_APP);
@@ -486,6 +512,10 @@ public:
             throw UserSetupError(env.logger(), "The address of the Raspberry Pi is not set. Pick the Android phone as the console and fill in the Raspberry Pi (Settings).");
         }
         const MobileAgent agent(host, port, mobile_token());
+        if (m_preset.kind == Kind::BATTLES && PLAYER == Player::CLAUDE_GG){
+            run_battles(env, scope, host, port);
+            return;
+        }
         //  Stopping a test waits for the game to be back on the map: that takes longer than a tap.
         const MobileAgent patient(host, port, mobile_token(), 60000);
         const std::string where = host.toStdString() + ":" + std::to_string(port);
@@ -660,6 +690,160 @@ private:
         }
     }
 
+    //  GO Battle League, played by Claude GG itself (Flow::battle_run of ClaudeGG_PokemonGoFlow, the C++ port of
+    //  gamebot.battle_run): the agent on the Pi gives the picture and the taps, nothing more.
+    void run_battles(ProgramEnvironment& env, CancellableScope& scope, const QString& address, int port){
+        const QString token = mobile_token();
+        const MobileAgent agent(address, port, token);
+        const MobileAgent patient(address, port, token, 60000);
+        const std::string where = address.toStdString() + ":" + std::to_string(port);
+        QString error;
+
+        //  The agent must be one that knows the kinds of a tap and the app (0.2.0 and later).
+        MobileInfo info;
+        if (!agent.info(info, &error)){
+            throw UserSetupError(env.logger(), "Cannot reach the Raspberry Pi at " + where + ": " + error.toStdString());
+        }
+        for (const char* feature : {"tap_kind", "app", "bot_file"}){
+            if (!info.features.contains(QString::fromLatin1(feature))){
+                throw UserSetupError(
+                    env.logger(),
+                    "The agent on the Raspberry Pi is too old (" + (info.version.isEmpty() ? std::string("0.1.0") : info.version.toStdString()) +
+                    ") for Claude GG to play: on the Pi, in the folder of the clone, run  git pull  and then  bash Mobile/agent/install-agent.sh  "
+                    "(the token stays the same). Or choose the Python bot on the Pi under Who plays."
+                );
+            }
+        }
+        if (info.width <= 0 || info.height <= 0){
+            throw UserSetupError(env.logger(), "The phone on the Raspberry Pi does not answer (is it on, unlocked, and does adb devices show it?).");
+        }
+        env.log(
+            "The phone: " + info.model.toStdString() + ", Android " + info.android.toStdString() + ", " +
+            std::to_string(info.width) + " x " + std::to_string(info.height) + " (agent " + info.version.toStdString() + " at " + where + ")."
+        );
+
+        //  The text reader.
+        const QString tesseract = PokemonGo::Text::Reader::find_program();
+        if (tesseract.isEmpty()){
+            throw UserSetupError(
+                env.logger(),
+                "Tesseract is not installed on this computer: Claude GG reads the screens of the battles with it. Install it "
+                "(on Windows the installer of UB Mannheim, into C:\\Program Files\\Tesseract-OCR) and start the program again."
+            );
+        }
+        env.log("The text reader: " + tesseract.toStdString());
+
+        //  The Python bot must not play at the same time.
+        MobileBotState state;
+        if (agent.bot_state(state, 1, &error)){
+            if (state.test.running){
+                env.log("A part of the Python bot runs on the Pi (" + state.test.title.toStdString() + "): it is stopped first.");
+                patient.bot_test_stop(&error);
+            }
+            if (state.running){
+                env.log("The Python bot runs on the Pi: it is stopped first (Claude GG plays now).");
+                if (!patient.bot_stop(&error)){
+                    throw UserSetupError(env.logger(), "The Python bot on the Pi could not be stopped: " + error.toStdString());
+                }
+            }
+        }
+
+        //  The folder of what the battles learn, and the team: taken from the bot on the Pi when it has them.
+        const QString folder = QString::fromStdString(USER_FILE_PATH()) + "PokemonGo";
+        QDir().mkpath(folder);
+        for (const char* name : {"battle_team.json", "battle_seen.json", "battle_minigame.json"}){
+            const QString file = folder + "/" + name;
+            const bool team = std::string(name) == "battle_team.json";
+            if (!team && QFile::exists(file)){
+                continue;                   //  (what was learned here is kept; the Pi's copy is only a start)
+            }
+            QByteArray data;
+            bool found = false;
+            if (!agent.bot_file(QString::fromLatin1(name), data, found, &error)){
+                env.log(std::string("The bot's ") + name + " could not be read from the Pi: " + error.toStdString(), COLOR_ORANGE);
+                continue;
+            }
+            if (!found){
+                if (team){
+                    env.log(QFile::exists(file)
+                        ? "The Pi has no battle_team.json: the one of " + folder.toStdString() + " is used."
+                        : std::string("The Pi has no battle_team.json (the program Your Pokémon and teams makes one): the preset team is used."));
+                }
+                continue;
+            }
+            QFile out(file);
+            if (out.open(QIODevice::WriteOnly | QIODevice::Truncate) && out.write(data) == data.size()){
+                env.log(std::string("Taken from the Pi: ") + name);
+            }
+        }
+
+        PokemonGo::Phone::Options options;
+        options.video = (bool)LIVE_LOOK;
+        options.give_up = (bool)BATTLE_GIVE_UP;
+        options.league = league();
+        options.folder = folder;
+        options.tesseract = tesseract;
+        if (!app().isEmpty()){
+            options.package = app();
+        }
+        options.models = qEnvironmentVariable("CLAUDEGG_MODELS");
+        if (options.models.isEmpty() && QDir(folder + "/models").exists()){
+            options.models = folder + "/models";
+        }
+        if (options.models.isEmpty()){
+            env.log("No models of the screen classifier (" + folder.toStdString() + "/models): a Pokémon to catch as a reward is not recognised.", COLOR_ORANGE);
+        }
+
+        PokemonGo::Phone::AgentHost phone(
+            address, port, token, options,
+            [&](const QString& line){ env.log(line.toStdString()); },
+            [&]{ return scope.cancelled(); }
+        );
+        std::vector<PokemonGo::Battle::Mon> team;
+        try{
+            team = phone.load_team();
+        }catch (const std::exception& e){
+            throw UserSetupError(env.logger(), std::string("The team (battle_team.json) cannot be fought with: ") + e.what());
+        }
+        QStringList names;
+        QStringList labels;
+        for (const PokemonGo::Battle::Mon& mon : team){
+            names << mon.name;
+            labels << mon.label();
+        }
+        int won = 0;
+        int lost = 0;
+        PokemonGo::Phone::Hooks hooks;
+        hooks.day_count = [&](const QString& key){
+            (key == "won" ? won : lost)++;
+            return QString("(this run: %1 won, %2 lost)").arg(won).arg(lost);
+        };
+        hooks.team_names = [names]{ return names; };
+        phone.set_hooks(hooks);
+
+        const int count = (int)BATTLE_COUNT.current_value();
+        env.log(QString("battle: %1 battle(s) in '%2' with %3").arg(count).arg(league(), labels.join(", ")).toStdString());
+        PokemonGo::Flow::Run run;
+        try{
+            run = PokemonGo::Flow::battle_run(phone, team, count);
+        }catch (const PokemonGo::Flow::Interrupted&){
+            scope.throw_if_cancelled();
+            throw;
+        }catch (const std::runtime_error& e){
+            scope.throw_if_cancelled();
+            throw UserSetupError(env.logger(), std::string("The battles stopped: ") + e.what());
+        }
+        scope.throw_if_cancelled();
+        env.log(
+            "Battles: " + std::to_string(run.fought) + " fought, " + std::to_string(run.wins) + " won" +
+            (run.catch_reward.value_or(false) ? " - a Pokémon of the rewards is waiting to be caught" : "") +
+            (run.done_today ? " - the battles are done for today" : "") + "."
+        );
+        if (run.fought == 0){
+            throw UserSetupError(env.logger(), "No battle was fought: see the log above (the pictures are in " + folder.toStdString() + "/pictures).");
+        }
+    }
+
     const Preset& m_preset;
     StaticTextOption SETUP_TEXT;
     IntegerEnumDropdownOption PART_CHOICE;
@@ -669,6 +853,7 @@ private:
     StringOption BATTLE_LEAGUE;
     SimpleIntegerOption<uint32_t> BATTLE_COUNT;
     StringOption BATTLE_APP;
+    EnumDropdownOption<Player> PLAYER;
     BooleanCheckBoxOption BATTLE_GIVE_UP;
     EnumDropdownOption<Throw> THROW_TARGET;
     BooleanCheckBoxOption CURVEBALL;

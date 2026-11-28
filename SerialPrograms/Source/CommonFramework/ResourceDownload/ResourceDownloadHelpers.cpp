@@ -36,6 +36,7 @@ std::vector<DownloadedResourceMetadata> deserialize_resource_list_json(const Jso
             size_t decompressed_bytes = (size_t)resource_obj.get_integer_throw("DecompressedBytes");
             std::string url = resource_obj.get_string_throw("URL");
             std::string sha256 = resource_obj.get_string_throw("SHA256");
+            bool claudegg = resource_obj.get_boolean_default("ClaudeGG", false);
 
             DownloadedResourceMetadata resource = {
                 resource_name,
@@ -43,7 +44,8 @@ std::vector<DownloadedResourceMetadata> deserialize_resource_list_json(const Jso
                 compressed_bytes,
                 decompressed_bytes,
                 url,
-                sha256
+                sha256,
+                claudegg
             };
 
             resources.emplace_back(std::move(resource));
@@ -197,6 +199,16 @@ const std::vector<DownloadedResourceMetadata>& remote_resource_download_list(){
 
 DownloadedResourceMetadata get_remote_resource_metadata_from_resource_slug(const std::string& target_resource_slug){
     Logger& logger = global_logger_tagged();
+
+    //  A resource that Claude GG hosts itself: the list in the package has all
+    //  there is to know (and the SHA-256 that the download is checked with).
+    if (all_resource_names().contains(target_resource_slug)){
+        DownloadedResourceMetadata local = get_expected_resource_metadata_from_resource_slug(target_resource_slug);
+        if (local.claudegg){
+            return local;
+        }
+    }
+
     std::vector<DownloadedResourceMetadata> remote_resources;
 
     // Step 1: Attempt to fetch the list of available downloads
@@ -219,6 +231,37 @@ DownloadedResourceMetadata get_remote_resource_metadata_from_resource_slug(const
     }
 }
 
+
+std::string resource_download_failed_message(const std::string& resource_slug, const std::string& reason){
+    std::string what;
+    if (resource_slug == "PaddleOCRDetection"){
+        what = "the model that finds where text is on the screen (PaddleOCRDetection), which programs that read several lines of text need";
+    }else if (resource_slug == "PaddleOCRChineseJapanese"){
+        what = "the model that reads Japanese and Chinese text (PaddleOCRChineseJapanese)";
+    }else{
+        what = "the resource " + resource_slug;
+    }
+    std::string size;
+    std::string url;
+    if (all_resource_names().contains(resource_slug)){
+        DownloadedResourceMetadata metadata = get_expected_resource_metadata_from_resource_slug(resource_slug);
+        size = " (" + std::to_string((metadata.size_compressed_bytes + 500000) / 1000000) + " MB)";
+        url = metadata.url;
+    }
+    std::string message = "Claude GG could not download " + what + size + ".";
+    if (!reason.empty()){
+        message += "\n\nWhat went wrong: " + reason;
+    }
+    message +=
+        "\n\nCheck that this computer is online and has enough free disk space, then start the program again. "
+        "You can also download it yourself under Settings, in the list of resources to download.";
+    if (!url.empty()){
+        message +=
+            "\n\nOr by hand: download " + url + " and unpack the zip into the folder " +
+            DOWNLOADED_RESOURCE_PATH() + resource_slug + ".";
+    }
+    return message;
+}
 
 
 }

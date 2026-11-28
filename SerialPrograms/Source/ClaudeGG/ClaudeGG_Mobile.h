@@ -42,6 +42,8 @@ struct MobileInfo{
     QString android;
     int width = 0;
     int height = 0;
+    QString version;            //  of the agent ("0.1.0" did not say what it can do)
+    QStringList features;       //  what it can do beyond 0.1.0: "tap_kind", "app", "bot_file"
 };
 
 //  How the start of the Pokémon GO app is going (the command that starts it does not come back while the game starts).
@@ -146,6 +148,9 @@ public:
     //  Stops the bot, sets what is asked and runs one part of it (what "state.test" then follows).
     bool bot_test(const QString& key, const MobileBotStart& settings, QString* error = nullptr) const;
     bool bot_test_stop(QString* error = nullptr) const;
+    //  One of the files the bot keeps of its battles ("battle_team.json", "battle_seen.json", "battle_minigame.json"); "found" is
+    //  false (and the call true) when the Pi has no such file.  Needs the feature "bot_file" of the agent.
+    bool bot_file(const QString& name, QByteArray& data, bool& found, QString* error = nullptr) const;
 
 private:
     struct Reply{

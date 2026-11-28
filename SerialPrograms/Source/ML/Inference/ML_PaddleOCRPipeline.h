@@ -80,11 +80,21 @@ public:
 
     // Get the text detector, loading the detection model if it's not loaded yet.
     // The detection model is the downloadable resource "PaddleOCRDetection".
-    // Throws FileException if it has not been downloaded.
+    // Downloads it at its first use if it is missing (FatalProgramException
+    // with what to do if that fails).
     PaddleOCRDetector& detector();
 
     // Return the (recognition model path, dictionary path) for a language.
     static std::pair<std::string, std::string> get_paths(Language language);
+
+    // The model for Japanese and Chinese (85 MB) is not in Claude GG's package:
+    // it is the resource "PaddleOCRChineseJapanese", downloaded at its first
+    // use. A build with Pokemon Automation's Resources folder has it there.
+    // True if the language can be read: its model is there, or can be downloaded.
+    static bool language_available(Language language);
+    // Downloads the model of the language if it is missing. Throws
+    // FatalProgramException with what to do if that fails.
+    static void ensure_downloaded(Language language);
 
     std::string decode_CTC(float* data, const std::vector<int64_t>& shape, const std::vector<std::string>& dict);
 

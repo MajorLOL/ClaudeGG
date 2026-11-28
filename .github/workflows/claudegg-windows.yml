@@ -209,7 +209,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $out = "Arduino-Source/SerialPrograms/bin/RelWithDebInfo"
-          windeployqt --release --dir $out "$out/ClaudeGG.exe"
+          #  The Visual C++ runtime goes in as its DLLs next to the program
+          #  (about 1.5 MB, so it runs without installing anything), not as
+          #  the 18 MB installer vc_redist.x64.exe that windeployqt adds.
+          #  Of Qt's own translations (7.5 MB for 30 languages) only the
+          #  languages the program has: it loads them for the buttons of
+          #  message boxes and the file dialog (ClaudeGG_Language.cpp).
+          $crt = $null
+          if ($env:VCToolsRedistDir) {
+            $crt = Get-ChildItem "$env:VCToolsRedistDir/x64" -Directory -Filter "Microsoft.VC*.CRT" -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+          }
+          if ($null -ne $crt) {
+            windeployqt --release --translations nl,de,fr,es --no-compiler-runtime --dir $out "$out/ClaudeGG.exe"
+            Copy-Item "$($crt.FullName)/*.dll" $out
+            Write-Host "The Visual C++ runtime from $($crt.FullName):"
+            Get-ChildItem "$($crt.FullName)/*.dll" | Format-Table Name, Length
+          } else {
+            Write-Host "::warning::No Visual C++ runtime DLLs in VCToolsRedistDir: the package has vc_redist.x64.exe instead."
+            windeployqt --release --translations nl,de,fr,es --dir $out "$out/ClaudeGG.exe"
+          }
+          #  What only a developer needs: the QML debugger, and the debug
+          #  build of the Qt Multimedia QML plugin (the CMake project copies
+          #  the folder whole).
+          Remove-Item -Recurse -Force "$out/qmltooling" -ErrorAction SilentlyContinue
+          Remove-Item "$out/qml/QtMultimedia/quickmultimediaplugind.dll" -ErrorAction SilentlyContinue
           #  What Windows shows for the program (Task Manager, the file's
           #  properties) comes from IconResource/IconResource.rc.
           $info = (Get-Item "$out/ClaudeGG.exe").VersionInfo
@@ -287,6 +310,13 @@ jobs:
             Write-Host "esptool.exe: $($exe.FullName)"
             & $exe.FullName version
             if ($LASTEXITCODE -ne 0) { throw "esptool.exe version failed with exit code $LASTEXITCODE." }
+            #  Claude GG starts only esptool.exe. The other programs of the
+            #  release (espefuse, espsecure, esp_rfc2217_server) are each a
+            #  whole Python of their own: 51 MB in the zip for nothing.
+            Get-ChildItem $exe.DirectoryName -Filter "*.exe" | Where-Object { $_.Name -ne "esptool.exe" } | ForEach-Object {
+              Write-Host "Left out: $($_.Name) ($($_.Length) bytes)"
+              Remove-Item $_.FullName
+            }
             #  Its license (GPL-2.0-or-later) goes with it, with where its source is.
             Get-ChildItem $tools -Recurse -File | Where-Object { $_.Name -match '^(LICENSE|COPYING)' } | Select-Object -First 1 | ForEach-Object {
               Copy-Item $_.FullName "$out/Licenses/esptool-LICENSE.txt"
@@ -310,10 +340,66 @@ jobs:
             $banned | ForEach-Object { Write-Host "::error::In the package, but left out of the build on purpose: $($_.FullName)" }
             throw "Files of the Discord bot are in the package."
           }
+          #  Debug builds do not belong in the package (the debug OpenCV alone
+          #  was 127 MB): a release build does not load them.
+          $debug = Get-ChildItem $out -Recurse -File -Filter "*d.dll" | Where-Object {
+            Test-Path (Join-Path $_.DirectoryName ($_.Name -replace 'd\.dll$', '.dll'))
+          }
+          if ($debug) {
+            $debug | ForEach-Object { Write-Host "::error::A debug build in the package: $($_.FullName)" }
+            throw "Debug builds are in the package."
+          }
           New-Item -ItemType Directory -Path "package" | Out-Null
           Copy-Item -Recurse $out "package/ClaudeGG"
+          #  The two big OCR models (165 MB of the 375 MB zip) go on the
+          #  release as files of their own, and the program downloads them
+          #  at their first use (download_resource_now, in DownloadThread.cpp;
+          #  the SHA-256 is checked). The list in the package says where they
+          #  are ("ClaudeGG": true: Pokemon Automation's list online is not
+          #  asked). A build that is not published keeps them in the folder,
+          #  as its release does not exist.
+          New-Item -ItemType Directory -Force -Path "resources" | Out-Null
+          if ($env:PUBLISH -eq "true") {
+            $pkg = "package/ClaudeGG"
+            $base = "https://github.com/${{ github.repository }}/releases/download/v$env:BUILD_NUMBER"
+            $listPath = "$pkg/Resources/ResourceDownloadList.json"
+            $list = Get-Content $listPath -Raw | ConvertFrom-Json
+            function Set-Resource($name, $zip, $decompressed) {
+              $entry = [ordered]@{
+                ResourceName      = $name
+                Version           = 1
+                CompressedBytes   = (Get-Item $zip).Length
+                DecompressedBytes = $decompressed
+                URL               = "$base/$name.zip"
+                SHA256            = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+                ClaudeGG          = $true
+              }
+              $script:list.ResourceList = @($script:list.ResourceList | Where-Object { $_.ResourceName -ne $name }) + [pscustomobject]$entry
+              Write-Host "$name at its first use: $($entry.CompressedBytes) bytes, $($entry.URL), SHA-256 $($entry.SHA256)"
+            }
+            #  The text detection: Pokemon Automation's zip as it is.
+            Copy-Item "Arduino-Source/Packages/DownloadedResources/PaddleOCRDetection.zip" "resources/PaddleOCRDetection.zip"
+            $detBytes = (Get-ChildItem "$pkg/DownloadedResources/PaddleOCRDetection" -File | Measure-Object Length -Sum).Sum
+            Set-Resource "PaddleOCRDetection" "resources/PaddleOCRDetection.zip" $detBytes
+            Remove-Item -Recurse -Force "$pkg/DownloadedResources/PaddleOCRDetection"
+            #  The reading of Japanese and Chinese; its dictionary stays.
+            $cj = Join-Path $env:RUNNER_TEMP "PaddleOCRChineseJapanese"
+            New-Item -ItemType Directory -Force -Path $cj | Out-Null
+            Move-Item "$pkg/Resources/PaddleOCR/chinese/rec.onnx" "$cj/rec.onnx"
+            '{ "version" : 1 }' | Out-File "$cj/version.json" -Encoding ascii
+            Compress-Archive -Path "$cj/*" -DestinationPath "resources/PaddleOCRChineseJapanese.zip"
+            $cjBytes = (Get-ChildItem $cj -File | Measure-Object Length -Sum).Sum
+            Set-Resource "PaddleOCRChineseJapanese" "resources/PaddleOCRChineseJapanese.zip" $cjBytes
+            $list | ConvertTo-Json -Depth 5 | Out-File $listPath -Encoding utf8NoBOM
+            Get-Content $listPath
+          }
           Compress-Archive -Path "package/ClaudeGG" -DestinationPath "ClaudeGG-Windows.zip"
           Get-Item "ClaudeGG-Windows.zip" | Format-List Name, Length
+          #  What takes the room, so that a change in size can be traced.
+          Get-ChildItem "package/ClaudeGG" -Recurse -File | Sort-Object Length -Descending | Select-Object -First 15 |
+            Format-Table @{ n = "MB"; e = { [math]::Round($_.Length / 1MB, 1) } }, @{ n = "File"; e = { $_.FullName.Substring((Resolve-Path "package/ClaudeGG").Path.Length + 1) } } -AutoSize
+          $total = (Get-ChildItem "package/ClaudeGG" -Recurse -File | Measure-Object Length -Sum).Sum
+          Write-Host "Unpacked: $([math]::Round($total / 1MB)) MB; the zip: $([math]::Round((Get-Item 'ClaudeGG-Windows.zip').Length / 1MB)) MB."
 
       #  The hash of the zip, made here and checked again by the job that
       #  publishes it: what goes on the release is what was built and tested.
@@ -969,6 +1055,7 @@ jobs:
           name: ClaudeGG-Windows
           path: |
             ClaudeGG-Windows.zip
+            resources/*.zip
             ui-screenshots/*.png
             setup-screenshots/*.png
             embed-screenshots/*.png
@@ -1010,6 +1097,10 @@ jobs:
           fi
           mv "$ZIP" ClaudeGG-Windows.zip
           ls -l ClaudeGG-Windows.zip
+          #  The OCR models that the program downloads at their first use.
+          mkdir -p resources
+          find artifact -path '*resources/*.zip' -exec mv {} resources/ \;
+          ls -l resources
 
       - name: Check the zip against its hash
         shell: bash
@@ -1034,9 +1125,9 @@ jobs:
           TAG="v$BUILD_NUMBER"
           # Only the program itself goes on the release. The pictures of the
           # interface test stay in the workflow artifact, to look at there.
-          gh release create "$TAG" ClaudeGG-Windows.zip \
+          gh release create "$TAG" ClaudeGG-Windows.zip resources/*.zip \
             --repo "${{ github.repository }}" \
             --target "${{ github.sha }}" \
             --prerelease \
             --title "Claude GG - V $BUILD_NUMBER" \
-            --notes "Claude GG, a personal fork of Pokemon Automation's SerialPrograms. Unzip, then run ClaudeGG.exe. This build passed its interface test: it started on the build machine, without settings, and took pictures of its own interface. For non-commercial use. Built from ${{ github.sha }}. The program is not signed with a certificate, so Windows may warn when you start it: compare the SHA-256 of the zip you downloaded with this one before you do. SHA-256 of ClaudeGG-Windows.zip: $SHA256"
+            --notes "Claude GG, a personal fork of Pokemon Automation's SerialPrograms. Unzip, then run ClaudeGG.exe. The two OCR models (PaddleOCRDetection.zip, PaddleOCRChineseJapanese.zip) are downloaded by the program itself the first time a program needs them; download them by hand only if that fails (it says where to unpack them). This build passed its interface test: it started on the build machine, without settings, and took pictures of its own interface. For non-commercial use. Built from ${{ github.sha }}. The program is not signed with a certificate, so Windows may warn when you start it: compare the SHA-256 of the zip you downloaded with this one before you do. SHA-256 of ClaudeGG-Windows.zip: $SHA256"
