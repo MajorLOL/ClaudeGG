@@ -48,6 +48,7 @@
 #include "ClaudeGG_PokemonGoStart.h"
 #include "ClaudeGG_PokemonGoThrow.h"
 #include "ClaudeGG_PokemonGoCatch.h"
+#include "ClaudeGG_PokemonGoStep.h"
 #include "ClaudeGG_PokemonGoThrowPlay.h"
 #include "ClaudeGG_PokemonGoVision.h"
 
@@ -902,6 +903,21 @@ int run_mobile_test(QApplication& application, const QString& agent_folder){
             }
         }
         check(differ == 0, catch_report.isEmpty() ? QString("the catch screen is handled as gamebot.py handles it") : catch_report.last());
+    }
+    //  One step of the bot, ported to C++ (issue #31): step() of gamebot.py - which screen is it and what is done with it (the heat, the shape
+    //  of the screen, the phone that is awake, the screenshot that was handed on, away from the map or stuck: start the game again, a tap
+    //  on a Pokemon that did nothing, Team GO Rocket, the first looks at the map, and the map, the stop, the catch screen, an egg, the
+    //  summary, a news card, a group question, the safety notice, a full storage, the passenger pop-up and the result screen), held to what
+    //  the Python code did on the little stories of tests/fixtures/step_golden.json.qz.
+    {
+        QStringList step_report;
+        const int differ = PokemonGo::Step::run_step_checks(agent_folder + "/../tests/fixtures/step_golden.json.qz", step_report);
+        for (const QString& line : step_report){
+            if (line.startsWith("FAILED: ")){
+                check(false, line.mid(8));
+            }
+        }
+        check(differ == 0, step_report.isEmpty() ? QString("a step of the bot is made as gamebot.py makes it") : step_report.last());
     }
     //  The text reader, ported to C++ (issue #30): the table that Tesseract writes made into lines of words with their places, as
     //  gamebot.ocr_lines() makes them (354 tables, 36 of them read from frames of real fights), and - where the tesseract program is

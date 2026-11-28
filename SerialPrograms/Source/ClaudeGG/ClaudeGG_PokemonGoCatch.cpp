@@ -12,6 +12,7 @@
 #include <opencv2/imgproc.hpp>
 #include <QRegularExpression>
 #include "ClaudeGG_PokemonGoCatch.h"
+#include "ClaudeGG_PokemonGoPy.h"
 
 namespace PokemonAutomation{
 namespace ClaudeGG{
@@ -20,100 +21,12 @@ namespace Catch{
 
 namespace{
 
-//  f"{x:.2f}": Python and printf both round the number as it is, to the nearest, a tie to the even one.
-QString fixed(double x, int digits){
-    char buffer[512];
-    std::snprintf(buffer, sizeof(buffer), "%.*f", digits, x);
-    return QString::fromLatin1(buffer);
-}
-
-//  repr() of a text (Python: single quotes, unless the text has one and no double quote; what cannot be printed is escaped).
-QString py_repr(const QString& text){
-    const bool single = text.contains('\'');
-    const bool double_q = text.contains('"');
-    const QChar quote = (single && !double_q) ? QChar('"') : QChar('\'');
-    QString out(quote);
-    for (const char32_t c : text.toUcs4()){
-        if (c == (char32_t)quote.unicode() || c == '\\'){
-            out += '\\';
-            out += QChar((ushort)c);
-        }else if (c == '\n'){
-            out += "\\n";
-        }else if (c == '\r'){
-            out += "\\r";
-        }else if (c == '\t'){
-            out += "\\t";
-        }else{
-            bool printable = true;
-            if (c < 0x20 || c == 0x7f){
-                printable = false;
-            }else if (c > 0x7f){
-                switch (QChar::category(c)){
-                case QChar::Other_Control:
-                case QChar::Other_Format:
-                case QChar::Other_Surrogate:
-                case QChar::Other_PrivateUse:
-                case QChar::Other_NotAssigned:
-                case QChar::Separator_Line:
-                case QChar::Separator_Paragraph:
-                case QChar::Separator_Space:
-                    printable = false;
-                    break;
-                default:
-                    break;
-                }
-            }
-            if (printable){
-                out += QString::fromUcs4(&c, 1);
-            }else if (c < 0x100){
-                out += QString("\\x%1").arg((uint)c, 2, 16, QChar('0'));
-            }else if (c < 0x10000){
-                out += QString("\\u%1").arg((uint)c, 4, 16, QChar('0'));
-            }else{
-                out += QString("\\U%1").arg((uint)c, 8, 16, QChar('0'));
-            }
-        }
-    }
-    out += quote;
-    return out;
-}
-
-//  What str.isspace() of Python calls white space (QString::trimmed() leaves out the four separators 0x1C - 0x1F that Python takes).
-bool py_space(QChar c){
-    const ushort u = c.unicode();
-    return (u >= 0x09 && u <= 0x0d) || (u >= 0x1c && u <= 0x20) || u == 0x85 || u == 0xa0 || u == 0x1680 || (u >= 0x2000 && u <= 0x200a)
-        || u == 0x2028 || u == 0x2029 || u == 0x202f || u == 0x205f || u == 0x3000;
-}
-//  str.strip().
-QString py_strip(const QString& text){
-    qsizetype from = 0;
-    qsizetype to = text.size();
-    while (from < to && py_space(text.at(from))){
-        from++;
-    }
-    while (to > from && py_space(text.at(to - 1))){
-        to--;
-    }
-    return text.mid(from, to - from);
-}
-
-//  float(text) and int(text) of Python, for what the table of tesseract holds.
-double py_float(const QString& text){
-    bool ok = false;
-    const double value = py_strip(text).toDouble(&ok);
-    if (!ok){
-        throw std::runtime_error(("could not convert string to float: " + py_repr(text)).toStdString());
-    }
-    return value;
-}
-int py_int(const QString& text){
-    bool ok = false;
-    const int value = py_strip(text).toInt(&ok);
-    if (!ok){
-        throw std::runtime_error(("invalid literal for int() with base 10: " + py_repr(text)).toStdString());
-    }
-    return value;
-}
+using Py::fixed;
+using Py::py_float;
+using Py::py_int;
+using Py::py_repr;
+using Py::py_space;
+using Py::py_strip;
 
 //  The ball buttons of the tray (S.BALL_POS[BALL]: a ball that is none of them is a KeyError).
 Point ball_pos(const QString& ball){

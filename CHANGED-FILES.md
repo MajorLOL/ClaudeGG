@@ -297,6 +297,8 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_GameCard.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Games.cpp`
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Games.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_KnownGames.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_KnownGames.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Program.cpp`
 - A `SerialPrograms/Source/ClaudeGG/ClaudePlays/ClaudePlays_Program.h`
 - A `SerialPrograms/Source/ClaudeGG/FIXES.md`
@@ -319,6 +321,8 @@ Every file that was added (A), changed (M) or removed (D) compared with Pokémon
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Language.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Logo.cpp`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Logo.h`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Macro.cpp`
+- A `SerialPrograms/Source/ClaudeGG/ClaudeGG_Macro.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_OldSettings.cpp`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_OldSettings.h`
 - A `SerialPrograms/Source/ClaudeGG/ClaudeGG_ProgramList.cpp`
